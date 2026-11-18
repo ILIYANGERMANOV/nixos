@@ -39,7 +39,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 
 -- Flow's 'Exit' is qualified: 'Exit' here is the 'Node'.
-import State.Category.Flow (AgentRole, Branch (..), Branches (..), CapTarget (..), FanEvent (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Id, Into, Loop, Scope, (:>)), Group (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyEvent, scopePath, scoped)
+import State.Category.Flow (AgentRole, Branch (..), Branches (..), CapTarget (..), FanEvent (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Handle, Id, Into, Loop, Scope, (:>)), Group (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyEvent, scopePath, scoped)
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel)
 import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
@@ -136,7 +136,7 @@ data Clash
 and one end. Its graph holds only the states a run can reach: a branch an
 injection never takes (@inl :> (f ||| g)@ never runs @g@) is not drawn.
 -}
-graph :: (NotSum i, NotSum o) => Flow i e o -> Either Clash OpenGraph
+graph :: (NotSum i, NotSum o) => Flow s i e o -> Either Clash OpenGraph
 graph flow = whole =<< part flow
 
 whole :: (NotSum i, NotSum o) => Part i o -> Either Clash OpenGraph
@@ -231,7 +231,7 @@ data GroupAt = Forking GroupOf | Awaiting GroupOf
 data GroupOf = GroupOf {group :: Name, runner :: AgentRole}
     deriving stock (Eq, Show)
 
-part :: Flow i e o -> Either Clash (Part i o)
+part :: Flow s i e o -> Either Clash (Part i o)
 part = \case
     Do s -> stepPart s
     Capped limit atCap (Step s) -> cappedPart limit atCap s
@@ -250,6 +250,7 @@ part = \case
     Await (Group group runner) -> Right (awaitPart (GroupOf group runner))
     Catch body -> caught <$> part body
     Scope name body -> inScope name <$> part body
+    Handle _ body -> part body
 
 {- | Series: each of the left part's out edges goes on to the in port of the
 right part's summand it names, and the two exits become one. The paths of
@@ -288,7 +289,7 @@ entering = \case
 {- | Case: each summand's in port is its branch's, the branches beside each
 other, the @n@th under path prefix @n@.
 -}
-casePart :: Int -> Branches ss e c -> Either Clash (Part ('Sum ss) c)
+casePart :: Int -> Branches bs ss e c -> Either Clash (Part ('Sum ss) c)
 casePart n = \case
     End -> Right (passing (\(In e) -> case e of {}))
     (_ :-> f) :& rest -> do
@@ -446,7 +447,7 @@ forkPart group name =
 that step's @spawned@ outcome; else @spawn_<group>@. The group's own name
 is its 'Await''s.
 -}
-forkName :: Name -> Flow a e b -> StateName
+forkName :: Name -> Flow s a e b -> StateName
 forkName group = \case
     Do s -> stepName s
     Capped {} -> spawnName
@@ -461,6 +462,7 @@ forkName group = \case
     Await _ -> spawnName
     Catch _ -> spawnName
     Scope _ _ -> spawnName
+    Handle _ body -> forkName group body
   where
     spawnName = StateName ("spawn_" <> nameText group)
 

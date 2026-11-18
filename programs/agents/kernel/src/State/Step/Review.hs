@@ -4,7 +4,7 @@
 pick the rows to fix, fix them and re-review the fix.
 -}
 module State.Step.Review (
-    ReviewStep,
+    ReviewStep (..),
     Sing (..),
     Outcome (..),
 ) where
@@ -18,6 +18,8 @@ import State.Step.Artifact (Commit, Picks, Sha, commitData, commitOf, headData, 
 type data ReviewStep = Review | PickRows | Fix | ReReview
 
 instance StepSet ReviewStep where
+    type Raises s = '[]
+
     type Sig Review = '( 'Diff, 'Just 'Diff, 'Findings)
     type Sig PickRows = '( 'Findings, 'Just 'Diff, 'Findings)
     type Sig Fix = '( 'Findings, 'Nothing, 'Diff)

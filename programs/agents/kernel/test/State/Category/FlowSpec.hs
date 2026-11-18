@@ -1,4 +1,5 @@
-{-# OPTIONS_GHC -fdefer-type-errors -Wno-deferred-type-errors #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -fdefer-type-errors -Wno-deferred-type-errors -Wno-partial-type-signatures #-}
 
 {- | Typed gluing and typed outcomes, checked the only way a test can: each term below is
 ill-typed, compiled here with its type error deferred to run time, and the
@@ -11,15 +12,21 @@ import Control.Exception (TypeError (..), evaluate, try)
 import Data.Char (isAlphaNum, isDigit)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..))
+import State.Category.Effect (Handler (..))
+import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Shape (..))
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
 import State.Category.Ty qualified
-import State.Flow.Library (opt)
+import State.Flow.Architect (architect)
+import State.Flow.Attend (Sing (..))
+import State.Flow.Chief (chief)
+import State.Flow.Engineer (engineer)
+import State.Flow.Library (gather, handled, opt)
+import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
-import State.Role (SomeFlow (..), flowOut)
+import State.Role (SomeFlow (..), flowOut, rooted)
 import State.Step.Artifact (Commit (..), Sha (..))
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..), engineers)
@@ -50,12 +57,12 @@ spec = describe "State.Category.Flow" $ do
         it "a loop whose body never exits" $
             rejected
                 "Couldn't match type: Nothing with: Just State.Category.Ty.Diff"
-                (Loop "review" (Do Refactor) :: Flow 'State.Category.Ty.Diff 'Nothing 'State.Category.Ty.Diff)
+                (Loop "review" (Do Refactor) :: Flow _ 'State.Category.Ty.Diff 'Nothing 'State.Category.Ty.Diff)
 
         it "a loop whose body ends at another type than its in" $
             rejected
                 "Couldn't match type: State.Category.Ty.Findings with: State.Category.Ty.Plan"
-                (Loop "review" (Do Implement :> Do Review) :: Flow 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff)
+                (Loop "review" (Do Implement :> Do Review) :: Flow _ 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff)
 
         it "capping a step with no meter" $
             rejectedShown
@@ -69,12 +76,12 @@ spec = describe "State.Category.Flow" $ do
         it "a series whose two sides exit with different types" $
             rejected
                 "Both sides of :> exit, with different types: State.Category.Ty.PR and State.Category.Ty.Plan"
-                (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
+                (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow _ ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
 
         it "capping a flow that is neither a step nor a fork of one" $
             rejected
                 "Couldn't match expected type: CapTarget"
-                (Capped (always (UpTo 1)) Stop (Do Fix) :: Flow 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
+                (Capped (always (UpTo 1)) Stop (Do Fix) :: Flow _ 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
 
         it "a case after a step whose out is not a sum" $
             rejected
@@ -104,6 +111,39 @@ spec = describe "State.Category.Flow" $ do
                 "A sum State.Category.Ty.Sum"
                 (graph (Do Triage :> opt "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
 
+    {- 'Unhandled' names the effects left, in 'Eff''s order. 'Eff' is not
+    imported, so GHC prints its constructors qualified.
+    -}
+    describe "a_whole_flow_with_an_unhandled_effect_does_not_compile" $ do
+        it "a pick no handler takes" $
+            rejectedShown
+                "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
+                (flowOut (SomeFlow (rooted gather)))
+
+        it "a question no handler takes" $
+            rejectedShown
+                "A whole flow leaves effects unhandled: '[State.Category.Effect.AskE]"
+                (flowOut (SomeFlow (Handle AgentPicks gather)))
+
+        it "a wait for focus no handler takes" $
+            rejectedShown
+                "A whole flow leaves effects unhandled: '[State.Category.Effect.FocusE]"
+                (flowOut (SomeFlow (rooted (handled (Do Attend)))))
+
+        it "each registered flow, its pick handler removed" $ do
+            let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
+            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled engineer))))
+            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled tenX))))
+            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled architect))))
+            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled chief))))
+
+        it "each registered flow, not rooted: its questions bubble out" $ do
+            let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.AskE]"
+            rejectedShown fragment (flowOut (SomeFlow engineer))
+            rejectedShown fragment (flowOut (SomeFlow tenX))
+            rejectedShown fragment (flowOut (SomeFlow architect))
+            rejectedShown fragment (flowOut (SomeFlow chief))
+
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $
             rejectedShown
@@ -126,8 +166,12 @@ where it would fire as the spec is built (the trick of should-not-typecheck).
 The fragment is part of GHC's headline, so an unrelated error does not pass;
 the lines after it quote the call, fragment included, so they are left out.
 -}
-rejected :: String -> ((() ~ ()) => Flow i e o) -> Expectation
+rejected :: String -> ((() ~ ()) => Flow s i e o) -> Expectation
 rejected = rejectedShown
+
+-- | The flow under its outermost handler: a registered flow's is the agent's picks.
+unhandled :: Flow (HandleS eff s) i e o -> Flow s i e o
+unhandled (Handle _ flow) = flow
 
 -- | An outcome of this step by this leg, which no constructor need declare: the test never forces it.
 by :: forall l k (s :: k). Sing s -> Outcome s l

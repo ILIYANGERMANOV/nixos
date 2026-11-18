@@ -1,11 +1,10 @@
 {-# LANGUAGE TypeData #-}
 
-{- | The steps that write a design into a ticket: open it as a work in
-progress, write the design into it, confirm it with the user, finalize it.
-The lead runs each, in the issue tracker, and changes no code.
+{- | The steps that settle a problem and its design with the user, then write
+the design into a ticket once. The lead runs each and changes no code.
 -}
 module State.Step.Ticket (
-    TicketStep,
+    TicketStep (..),
     Sing (..),
     Outcome (..),
 ) where
@@ -16,96 +15,87 @@ import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Url, urlData, urlOf)
 
-type data TicketStep = OpenTicket | UpdateTicket | ConfirmDesign | FinalizeTicket
+type data TicketStep = Problem | ConfirmDesign
 
 instance StepSet TicketStep where
-    type Sig OpenTicket = '( 'Ctx, 'Nothing, 'Ctx)
-    type Sig UpdateTicket = '( 'Ctx, 'Nothing, 'Ticket)
-    type Sig ConfirmDesign = '( 'Ticket, 'Just 'Ticket, 'Ctx)
-    type Sig FinalizeTicket = '( 'Ticket, 'Nothing, 'Ticket)
+    type Raises s = '[]
+
+    type Sig Problem = '( 'Ctx, 'Just 'Ctx, 'Ctx)
+    type Sig ConfirmDesign = '( 'Ctx, 'Just 'Ticket, 'Ctx)
 
     data Sing s where
-        OpenTicket :: Sing OpenTicket
-        UpdateTicket :: Sing UpdateTicket
+        Problem :: Sing Problem
         ConfirmDesign :: Sing ConfirmDesign
-        FinalizeTicket :: Sing FinalizeTicket
 
     data Outcome s l where
-        -- \| The ticket's url: the run hands it back at its end.
-        OpenTicketDone :: Url -> Outcome OpenTicket 'Continued
-        UpdateTicketDone :: Outcome UpdateTicket 'Continued
-        ConfirmDesignConfirmed :: Outcome ConfirmDesign 'Exited
+        ProblemUnderstood :: Outcome Problem 'Exited
+        ProblemMore :: Outcome Problem 'Continued
+        -- \| The ticket's url, written once the user confirmed the design: the
+        -- run hands it back at its end.
+        ConfirmDesignConfirmed :: Url -> Outcome ConfirmDesign 'Exited
         ConfirmDesignAdjusted :: Outcome ConfirmDesign 'Continued
-        FinalizeTicketDone :: Outcome FinalizeTicket 'Continued
 
-    layerSteps = [SomeStep OpenTicket, SomeStep UpdateTicket, SomeStep ConfirmDesign, SomeStep FinalizeTicket]
+    layerSteps = [SomeStep Problem, SomeStep ConfirmDesign]
       where
         _listsEvery :: Sing (s :: TicketStep) -> ()
         _listsEvery = \case
-            OpenTicket -> ()
-            UpdateTicket -> ()
+            Problem -> ()
             ConfirmDesign -> ()
-            FinalizeTicket -> ()
 
     stepName =
         StateName . \case
-            OpenTicket -> "open_ticket"
-            UpdateTicket -> "update_ticket"
+            Problem -> "problem"
             ConfirmDesign -> "confirm_design"
-            FinalizeTicket -> "finalize_ticket"
 
     outcomes = \case
-        OpenTicket -> Continues (OutcomeName "done")
-        UpdateTicket -> Continues (OutcomeName "done")
+        Problem -> ExitsOr (OutcomeName "understood") (OutcomeName "more")
         ConfirmDesign -> ExitsOr (OutcomeName "confirmed") (OutcomeName "adjusted")
-        FinalizeTicket -> Continues (OutcomeName "done")
 
     special = \case
-        OpenTicket -> Ordinary
-        UpdateTicket -> Ordinary
-        ConfirmDesign -> AsksConfirm "the design ticket"
-        FinalizeTicket -> Ordinary
+        Problem -> AsksConfirm OnUserWord "the problem"
+        ConfirmDesign -> AsksConfirm OnEntry "the design"
 
     sameStep a b = case (a, b) of
-        (OpenTicket, OpenTicket) -> Just Refl
-        (OpenTicket, _) -> Nothing
-        (UpdateTicket, UpdateTicket) -> Just Refl
-        (UpdateTicket, _) -> Nothing
+        (Problem, Problem) -> Just Refl
+        (Problem, _) -> Nothing
         (ConfirmDesign, ConfirmDesign) -> Just Refl
         (ConfirmDesign, _) -> Nothing
-        (FinalizeTicket, FinalizeTicket) -> Just Refl
-        (FinalizeTicket, _) -> Nothing
 
     pack = \case
-        o@(OpenTicketDone _) -> packed OpenTicket o
-        o@UpdateTicketDone -> packed UpdateTicket o
-        o@ConfirmDesignConfirmed -> packed ConfirmDesign o
+        o@ProblemUnderstood -> packed Problem o
+        o@ProblemMore -> packed Problem o
+        o@(ConfirmDesignConfirmed _) -> packed ConfirmDesign o
         o@ConfirmDesignAdjusted -> packed ConfirmDesign o
-        o@FinalizeTicketDone -> packed FinalizeTicket o
 
     encodeOutcome = \case
-        OpenTicketDone url -> urlData url
-        UpdateTicketDone -> mempty
-        ConfirmDesignConfirmed -> mempty
+        ProblemUnderstood -> mempty
+        ProblemMore -> mempty
+        ConfirmDesignConfirmed url -> urlData url
         ConfirmDesignAdjusted -> mempty
-        FinalizeTicketDone -> mempty
 
     decoders =
-        [ Decoder OpenTicket (fmap OpenTicketDone . urlOf)
-        , Decoder UpdateTicket (const (pure UpdateTicketDone))
-        , Decoder ConfirmDesign (const (pure ConfirmDesignConfirmed))
+        [ Decoder Problem (const (pure ProblemUnderstood))
+        , Decoder Problem (const (pure ProblemMore))
+        , Decoder ConfirmDesign (fmap ConfirmDesignConfirmed . urlOf)
         , Decoder ConfirmDesign (const (pure ConfirmDesignAdjusted))
-        , Decoder FinalizeTicket (const (pure FinalizeTicketDone))
         ]
 
 deriving stock instance Show (Sing (s :: TicketStep))
 deriving stock instance Show (Outcome (s :: TicketStep) l)
 deriving stock instance Eq (Outcome (s :: TicketStep) l)
 
--- | Each adjusted design: another round of discussing and writing it.
+-- | Each round the problem needs more: more research and discussion.
+instance Meter Problem where
+    meterName Problem = "Problem rounds"
+    spends Problem = \case
+        Ends _ ProblemMore -> 1
+        Ends _ ProblemUnderstood -> 0
+        Asks -> 0
+
+-- | Each adjusted design: another round of discussing it.
 instance Meter ConfirmDesign where
     meterName ConfirmDesign = "Design rounds"
     spends ConfirmDesign = \case
         Ends _ ConfirmDesignAdjusted -> 1
-        Ends _ ConfirmDesignConfirmed -> 0
+        Ends _ (ConfirmDesignConfirmed _) -> 0
         Asks -> 0

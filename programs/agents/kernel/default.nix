@@ -58,6 +58,7 @@ let
       hspec-hedgehog,
       optparse-applicative,
       process,
+      sqlite-simple,
       temporary,
       text,
       time,
@@ -89,6 +90,7 @@ let
         filepath
         optparse-applicative
         process
+        sqlite-simple
         text
         time
       ];
@@ -110,6 +112,7 @@ let
         filepath
         optparse-applicative
         process
+        sqlite-simple
         temporary
         text
         time

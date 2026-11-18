@@ -5,7 +5,7 @@ PR a block starts from, do a request no flow fits, and take the next
 request or end. The lead runs each.
 -}
 module State.Step.Request (
-    RequestStep,
+    RequestStep (..),
     Sing (..),
     Outcome (..),
 ) where
@@ -13,6 +13,7 @@ module State.Step.Request (
 import Data.Aeson ((.:), (.=))
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
+import State.Category.Effect (Eff (FocusE))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -20,7 +21,10 @@ import State.Step.Artifact (Branch (..), Url, branchText, urlData, urlOf)
 
 type data RequestStep = OpenPlan | OpenBranch | OpenPr | Direct | Next
 
+-- | The user's attention ('FocusE'): the chief takes the next request, or turns to another.
 instance StepSet RequestStep where
+    type Raises s = '[FocusE]
+
     type Sig OpenPlan = '( 'Ctx, 'Nothing, 'Plan)
     type Sig OpenBranch = '( 'Ctx, 'Nothing, 'Diff)
     type Sig OpenPr = '( 'Ctx, 'Nothing, 'PR)

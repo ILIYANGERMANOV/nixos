@@ -10,6 +10,7 @@ module State.Run.EventGen (
     genReading,
     genProposal,
     genBasis,
+    genReply,
     genText,
     genOneLine,
     genTasks,
@@ -82,6 +83,7 @@ genEvent =
         [ Started <$> genStart
         , Targeted <$> genTarget
         , Extended <$> genText
+        , Gapped <$> genText
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
@@ -90,9 +92,10 @@ genEvent =
         , RetaggedSecurity <$> genQId
         , RuledOn <$> genQId <*> genProposal
         , Forwarded <$> genQId <*> genAbove
-        , Answered <$> genQId <*> genText <*> genAbove
+        , Answered <$> genQId <*> genReply <*> genAbove
+        , QuestionParked <$> genQId <*> genOneLine
         , Spawning <$> genTaskId
-        , Spawned <$> (Child <$> genRunId <*> genTaskId <*> genPath <*> genPath)
+        , Spawned <$> (Child <$> genRunId <*> genTaskId <*> genPath)
         , Resumed <$> genRunId
         , HandedBack <$> genRunId <*> genSaid
         , TaskMoved <$> genTaskId <*> genTaskState
@@ -103,6 +106,8 @@ genEvent =
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
         , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
         , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
+        , Suspended <$> genTaskNo <*> genOneLine
+        , Focused <$> genTaskNo
         , Voided <$> Gen.integral (Range.linear 0 100000) <*> genText
         ]
 
@@ -130,6 +135,9 @@ genTaskState =
         ]
 
 -- | Few ids, so tasks, children and moves name the same ones often.
+genTaskNo :: Gen TaskNo
+genTaskNo = TaskNo <$> Gen.integral (Range.linear 1 50)
+
 genTaskId :: Gen TaskId
 genTaskId = TaskId <$> Gen.element ["t1", "t2", "t3", "t4", "t5"]
 
@@ -185,14 +193,14 @@ genAsker :: Gen Asker
 genAsker = Gen.choice [pure Itself, Subagent . AgentRole <$> genText, ChildRun <$> genRunId]
 
 genAbove :: Gen Above
-genAbove = Gen.choice [pure TheUser, ParentRun <$> genRunId]
+genAbove = Gen.choice [pure TheUser, ParentRun <$> genRunId, pure TheCaller]
 
 genStart :: Gen Start
 genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId) <*> genShape <*> Gen.enumBounded]
+        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.choice [AtFan <$> genTaskId, pure Direct]) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -235,11 +243,10 @@ templates =
     , outcome (FixPrDone (Sha ""))
     , outcome (ReadyDone (Url ""))
     , outcome (ReadySkipped (Url ""))
-    , outcome (OpenTicketDone (Url ""))
-    , outcome UpdateTicketDone
-    , outcome ConfirmDesignConfirmed
+    , outcome ProblemUnderstood
+    , outcome ProblemMore
+    , outcome (ConfirmDesignConfirmed (Url ""))
     , outcome ConfirmDesignAdjusted
-    , outcome FinalizeTicketDone
     , outcome (OpenPlanDone (Url ""))
     , outcome (OpenBranchDone (Branch ""))
     , outcome (OpenPrDone (Url ""))
@@ -294,11 +301,10 @@ likeIn = \case
         ReadyDone _ -> ReadyDone . Url <$> genText
         ReadySkipped _ -> ReadySkipped . Url <$> genText
     TicketLayer -> \case
-        OpenTicketDone _ -> OpenTicketDone . Url <$> genText
-        UpdateTicketDone -> pure UpdateTicketDone
-        ConfirmDesignConfirmed -> pure ConfirmDesignConfirmed
+        ProblemUnderstood -> pure ProblemUnderstood
+        ProblemMore -> pure ProblemMore
+        ConfirmDesignConfirmed _ -> ConfirmDesignConfirmed . Url <$> genText
         ConfirmDesignAdjusted -> pure ConfirmDesignAdjusted
-        FinalizeTicketDone -> pure FinalizeTicketDone
     RequestLayer -> \case
         OpenPlanDone _ -> OpenPlanDone . Url <$> genText
         OpenBranchDone _ -> OpenBranchDone . Branch <$> genText
@@ -377,6 +383,9 @@ genProposal = Proposal <$> genOneLine <*> genOneLine <*> genOneLine <*> Gen.mayb
 
 genBasis :: Gen Basis
 genBasis = Gen.choice [AnsweredBy <$> genEventId, Obvious <$> genOneLine]
+
+genReply :: Gen Reply
+genReply = Gen.choice [Chose <$> genText, Other <$> genText]
 
 genEventId :: Gen EventId
 genEventId =

@@ -22,15 +22,18 @@ spec = describe "State.Flow.TenX" $ do
     it "no_mode_skips_kept_steps" $
         skipsKept (graph tenX) (map StateName ["engineers", "merge"]) `shouldBe` []
 
-    -- The term holds the fork's body as a task's default flow; each child runs its own task's.
-    it "forks the registry's engineer flow as each engineer's body" $
-        lookup engineers (parBodies tenX) `shouldBe` Just (case (role EngineerFlow).flow of SomeFlow flow -> show flow)
+    {- The term holds the fork's body as a task's default flow; each child runs its own task's.
+    The registry roots it under its principal; forked, its questions go up to the 10x.
+    -}
+    it "forks the registry's engineer flow, less its root's handler, as each engineer's body" $
+        (\body -> "Handle PrincipalAnswers (" <> body <> ")") <$> lookup engineers (parBodies tenX)
+            `shouldBe` Just (case (role EngineerFlow).flow of SomeFlow flow -> show flow)
 
 {- | Each fork's body, by its group, shown. Compared by 'show', not
 'graph': 'graph' draws a 'Fork' as one state, and a 'Fork' hides the types
 'graph' needs of its body.
 -}
-parBodies :: Flow i e o -> [(Name, String)]
+parBodies :: Flow s i e o -> [(Name, String)]
 parBodies = \case
     Do _ -> []
     Capped {} -> []
@@ -45,3 +48,4 @@ parBodies = \case
     Await _ -> []
     Catch body -> parBodies body
     Scope scope body -> [(scoped scope fan, shown) | (fan, shown) <- parBodies body]
+    Handle _ body -> parBodies body

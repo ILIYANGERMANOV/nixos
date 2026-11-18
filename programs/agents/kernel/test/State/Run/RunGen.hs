@@ -5,8 +5,10 @@ module State.Run.RunGen (
     architectGraph,
     chiefGraph,
     ticketUrl,
-    ticketOpened,
-    designWritten,
+    problemUnderstood,
+    designDiscussed,
+    designConfirmed,
+    userConfirms,
     securityGraph,
     securityScope,
     scopedIn,
@@ -52,7 +54,7 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), Name (..), ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
-import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, outOf)
+import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, outOf, placeName)
 import State.Category.Graph qualified as Graph
 import State.Category.Path (unrecorded)
 import State.Category.Step (EventName (..), OutcomeName (..), spawnedOutcome, stateNameText)
@@ -63,11 +65,12 @@ import State.Flow.Drawn (drawnOutcomes)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
+import State.Run.Ask (Above (..), Kind (Confirm), QId (..), Question (..))
 import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
-import State.Run.EventGen (fuelSet, genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
-import State.Run.Fold (Append (..), RunState (..), Worker (..), append, replay)
+import State.Run.EventGen (fuelSet, genOutcomeNamed, line, logOf, oneLine, run, runId, start, started, tasksOf)
+import State.Run.Fold (Append (..), Refusal (ConfirmUnasked), RunState (..), Worker (..), append, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
@@ -93,7 +96,7 @@ securityScope :: ScopePath
 securityScope = scopePath "security"
 
 -- | A whole flow run inline, under a scope named after it.
-scopedIn :: (NotSum o) => Name -> Flow 'Ctx 'Nothing o -> OpenGraph
+scopedIn :: (NotSum o) => Name -> Flow s 'Ctx 'Nothing o -> OpenGraph
 scopedIn name flow = either (error . show) id (graph (Scope name flow))
 
 tenXGraph :: OpenGraph
@@ -105,17 +108,29 @@ architectGraph = either (error . show) id (graph architect)
 chiefGraph :: OpenGraph
 chiefGraph = either (error . show) id (graph chief)
 
--- | The ticket an architect run opens.
+-- | The ticket an architect run writes its confirmed design into.
 ticketUrl :: Url
 ticketUrl = Url "https://github.com/o/r/issues/1"
 
--- | An architect run up to its ticket: researched, explored enough, the ticket opened.
-ticketOpened :: [Event]
-ticketOpened = researchedIn "exploring" <> enoughIn "exploring" <> [stepTook (OpenTicketDone ticketUrl)]
+-- | An architect run up to its design: researched, explored enough, the problem understood in the user's word.
+problemUnderstood :: [Event]
+problemUnderstood = researchedIn "exploring" <> enoughIn "exploring" <> userConfirms 101 (StateName "problem") <> [stepTook ProblemUnderstood]
 
--- | A design round up to the user's verdict: discussed, written into the ticket.
-designWritten :: [Event]
-designWritten = enoughIn "discussing" <> [stepTook UpdateTicketDone]
+-- | A design round up to the user's verdict: discussed enough.
+designDiscussed :: [Event]
+designDiscussed = enoughIn "discussing"
+
+-- | A design round the user confirms, the ticket written at 'ticketUrl'.
+designConfirmed :: [Event]
+designConfirmed = designDiscussed <> userConfirms 102 (StateName "confirm_design") <> [stepTook (ConfirmDesignConfirmed ticketUrl)]
+
+{- | The user's word at a step that asks Confirm: the question asked there,
+forwarded to the user and answered. @n@ numbers it, unique in its log.
+-}
+userConfirms :: Natural -> StateName -> [Event]
+userConfirms n at = [Asked (Asking question at Itself), Forwarded question.qid TheUser, Answered question.qid (Chose "yes") TheUser]
+  where
+    question = Question (QId run n) Confirm (oneLine (stateNameText at <> ": confirmed?"))
 
 -- | The graph a run of this flow walks.
 flowGraph :: FlowName -> OpenGraph
@@ -193,7 +208,7 @@ taskJson task =
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child
-childOf child task = Child (runId child) (TaskId task) (Text.unpack child <> "/events.jsonl") (Text.unpack child)
+childOf child task = Child (runId child) (TaskId task) (Text.unpack child)
 
 sha :: Sha
 sha = Sha "abc123"
@@ -277,10 +292,9 @@ genAcceptedOn own on = do
         At place -> case handBacks place state <> [(if stays place edge then 5 else 1, tookBy place name) | isNothing (unrecorded on place), (name, edge) <- outOf place on.edges] of
             [] -> pure []
             choices -> do
-                took <- Gen.frequency choices
-                case append on state (line n took) of
-                    Right (Appended next) -> (took :) <$> bound next (n + 1) (bindOf took n)
-                    Right AlreadyLogged -> go (k - 1) state n
+                took <- inWord place state n <$> Gen.frequency choices
+                case appended state n took of
+                    Right (next, m) -> (took <>) <$> bound next m (bindOf took n)
                     Left _ -> go (k - 1) state n
               where
                 -- A researcher's spawn is bound to its agent next, as the bind hook logs it.
@@ -289,17 +303,29 @@ genAcceptedOn own on = do
                     _ -> go (k - 1) next m
         Out -> pure []
         Graph.Exit -> pure []
+    -- Each line accepted, in order: the run after them and the next seq; none when one is refused or logged already.
+    appended :: RunState -> Natural -> [Event] -> Either (Maybe Refusal) (RunState, Natural)
+    appended state n = \case
+        [] -> Right (state, n)
+        event : rest -> case append on state (line n event) of
+            Right (Appended next) -> appended next (n + 1) rest
+            Right AlreadyLogged -> Left Nothing
+            Left refusal -> Left (Just refusal)
+    -- A record the fold refuses for want of the user's word takes the user's Confirm first, as the advice asks it.
+    inWord place state n took = case appended state n took of
+        Left (Just ConfirmUnasked) -> userConfirms n (placeName place) <> took
+        _ -> took
     -- The edge is named in the place's scope; the outcome is its step's own.
-    tookBy place name = Took place.scope <$> outcomeIn own (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
+    tookBy place name = pure . Took place.scope <$> outcomeIn own (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
     {- A researcher in the background may return wherever the run is; at an
     await, only it moves the run on. Its hand-back is taken anywhere, before
     its bind too, and closes nothing.
     -}
     handBacks place state =
-        [(3, pure (WorkerReturned researcher Nothing)) | any ((== researcher) . (.role)) state.workers]
-            <> [(1, pure (Took place.scope (outcome ResearchHandedBack)))]
+        [(3, pure [WorkerReturned researcher Nothing]) | any ((== researcher) . (.role)) state.workers]
+            <> [(1, pure [Took place.scope (outcome ResearchHandedBack)])]
     bindOf took n = case took of
-        Took scope spawn | (tookEvent scope spawn).outcome == spawnedOutcome -> Just (WorkerSpawned researcher (AgentId ("r" <> Text.pack (show n))))
+        [Took scope spawn] | (tookEvent scope spawn).outcome == spawnedOutcome -> Just (WorkerSpawned researcher (AgentId ("r" <> Text.pack (show n))))
         _ -> Nothing
     researcher = AgentRole "researcher"
     stays place edge = case edge.to of

@@ -21,6 +21,7 @@ module State.Protocol.Handback (
     stopLine,
     Typed (..),
     typeHandback,
+    typeDirectHandback,
 ) where
 
 import Control.Applicative ((<|>))
@@ -242,6 +243,31 @@ typeHandback steps g state worktreeHead agent agentId handback = case [ScopedFan
     here : _ -> fromChild state (fanIn state.fans here) handback
     [] -> (\typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}) <$> fromWorker steps g state worktreeHead agent handback
 
+{- | A direct child's hand-back, wherever this run is: only a question is
+this run's, which joins its pending to rule on or forward up. The rest
+records nothing: no fan-out tracks the child, and the agent that spawned it
+reads its reply.
+-}
+typeDirectHandback :: RunState -> RunId -> Handback -> Either Refusal Typed
+typeDirectHandback state child handback = case handback.token of
+    Nothing -> Left NoToken
+    Just (NeedsDecision need) -> case need of
+        Asks question -> Right (Typed [childAsked state child question] Nothing)
+        StuckOn _ -> Left unaskedByChild
+        Untyped _ -> Left unaskedByChild
+        PlanWrong _ -> Right (Typed [] Nothing)
+    Just (Ready _) -> Right (Typed [] Nothing)
+    Just (Await _ _) -> Right (Typed [] Nothing)
+    Just (Blocked _) -> Right (Typed [] Nothing)
+    Just (Failed _) -> Right (Typed [] Nothing)
+
+-- | A question a child run asked in its own run, put to this one.
+childAsked :: RunState -> RunId -> Question -> Event
+childAsked state child question = Asked (Asking question (askedAt state) (ChildRun child))
+
+unaskedByChild :: Refusal
+unaskedByChild = Why ("a child asks by state ask in its own run: hand back " <> tokenWordText NeedsDecisionWord <> " <Kind> <qid>: <question>")
+
 {- | A child run's hand-back at the fan-out: what it said, under its run id,
 which it must name. A question it asked joins this run's pending; its stop
 leaves the task to another child or a park, and is this run's to triage.
@@ -253,10 +279,10 @@ fromChild state fan handback = case handback.run of
         Nothing -> Left NoToken
         Just (Ready summary) -> Right (Typed (said (Finished summary) : prMoved summary) Nothing)
         Just token@(NeedsDecision need) -> case need of
-            Asks question -> Right (Typed [said (AsksUp question.qid), Asked (Asking question (askedAt state) (ChildRun child))] Nothing)
+            Asks question -> Right (Typed [said (AsksUp question.qid), childAsked state child question] Nothing)
             PlanWrong _ -> ended token
-            StuckOn _ -> unasked
-            Untyped _ -> unasked
+            StuckOn _ -> Left unaskedByChild
+            Untyped _ -> Left unaskedByChild
         Just (Await waiting ref) -> Right (Typed [said (Awaits waiting ref)] Nothing)
         Just token@(Blocked _) -> ended token
         Just token@(Failed _) -> ended token
@@ -273,7 +299,6 @@ fromChild state fan handback = case handback.run of
         ended token = case parseStopLine (tokenLine token) of
             Just stop -> Typed [said (Ended stop)] . Just <$> Bifunctor.first Why (oneLine (tokenLine token))
             Nothing -> Left (Why ("line 1 is no stop: " <> tokenLine token))
-        unasked = Left (Why ("a child asks by state ask in its own run: hand back " <> tokenWordText NeedsDecisionWord <> " <Kind> <qid>: <question>"))
 
 fromWorker :: Steps -> OpenGraph -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Refusal Typed
 fromWorker steps g state worktreeHead agent handback = case handback.token of
@@ -346,10 +371,8 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
             Ship.AwaitCi -> inline s
             Ship.Ready -> inline s
         TicketLayer -> case s of
-            Ticket.OpenTicket -> inline s
-            Ticket.UpdateTicket -> inline s
+            Ticket.Problem -> inline s
             Ticket.ConfirmDesign -> inline s
-            Ticket.FinalizeTicket -> inline s
         RequestLayer -> case s of
             Request.OpenPlan -> inline s
             Request.OpenBranch -> inline s

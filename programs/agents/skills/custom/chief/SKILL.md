@@ -10,9 +10,12 @@ argument-hint: "[request] | resume"
 Begin with `state`: your first command is
 `state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chief`,
 the slug a short name for the session, each character but `[A-Za-z0-9._-]`
-a `-`. Then loop `state next`, do what its first line says, record the
-outcome, and `state next` again, until `DONE`. `$ARGUMENTS` starting with
-`resume`: go to Resume.
+a `-`. Then check you are current: `git fetch origin main`; when
+`git rev-list --count HEAD..origin/main` is not 0, tell the user this
+worktree is that many commits behind `origin/main`, and branch new work from
+`origin/main`. Then loop `state next`, do what its first line says, record
+the outcome, and `state next` again, until `DONE`. `$ARGUMENTS` starting
+with `resume`: go to Resume.
 
 You are the user's chief for `$ARGUMENTS`, or the conversation so far. The
 user speaks to you only; you route each request and decide nothing for them.
@@ -30,19 +33,34 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   request's, `state record fuel.set <level>`, Balanced unless the request
   says otherwise; then the branch, `state record route.<branch>`. A whole
   flow's own `fuel` state (`engineer/fuel`) takes the same level again.
-- **Branches.**
+- **Branches.** Each runs inline in this run: never its skill's own
+  `state init`; go on with `state next`.
 
   | Branch | You |
   |---|---|
-  | `architect`, `engineer`, `10x` | load that skill with the Skill tool (`architect`, `engineer`, `10x-engineer`) and follow it; its `state init` line prints the current step of this run. For `10x`, skip Intake's directory, `git init` and `state init`, which start a separate run: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
-  | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | at `fuel`, before its `fuel.set`, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` confirms the plan itself unless you ask a Design or Scope question, and takes the target's PR or ticket as the run's |
-  | `blocks` | pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
-  | `discussion` | below |
-  | `other` | do it yourself (`direct`) |
+  | `architect`, `engineer` | load that skill with the Skill tool and follow it from what `state next` prints, skipping its `state init` |
+  | `10x` | load `10x-engineer`; skip Intake's directory, `git init` and `state init`: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
+  | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | at `fuel`, before its `fuel.set`, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` takes the target's PR as the run's; for `engineer` it confirms the plan itself unless you ask a Design or Scope question; `architect` writes its confirmed design into the target ticket |
+  | `blocks` | no skill: pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
+  | `discussion` | no skill: below |
+  | `other` | no skill: do it yourself (`direct`) |
 
+- **Focus.** One request is in focus, the others wait. At any state, one
+  step switches: `state focus --summary "<where this one stands>"` opens
+  a new request at `fuel`; `state focus rK --summary ...` resumes waiting
+  `rK` at its node. `--summary` is needed once the request recorded work;
+  one at `next` is finished: the turn records `next.request`, no card.
+  A side request while a branch waits on an Ask is the same step: the ask
+  is parked, still in `state pending`, answer it any time. `state tasks`
+  prints a card per request (node, decisions, open questions, last agent)
+  and a line per child run; `state focus rK` prints `rK`'s card. A card's
+  advice: `resume agent <id>`, paused under 4m45s (the 5-minute cache less
+  a 15s buffer): SendMessage that agent; `fresh agent from card`: spawn a
+  fresh agent briefed from the card.
 - **Discussion.** Read-only: no edits, commits, pushes or PRs; the hooks deny
   them. Explain and show: findings, diagrams, pseudo-code, tables; then ask
-  the next question, your recommendation first, at `discuss` (then
+  the next question, your recommendation first, at `discuss`, through
+  `state ask --kind <Design|Scope|Fact>` (no Discuss kind; then
   `discuss.asked`). Facts come from researchers, never from memory. Record
   `discussing.enough` when the user moves on: it waits for every open
   researcher, then `notes` merges their hand-backs. A ticket only when the
@@ -59,16 +77,23 @@ request -> fuel -> route -> branch, inline -> next -> request | done
 
   | Prints | You |
   |---|---|
-  | `ASK user`, `ASK <Kind> <qid>` | one `AskUserQuestion`, then `state answer <qid> <answer>` |
-  | `ANSWER yourself`, then `RUN state rule \| forward` | settle it yourself: `state rule <qid> --answer <a> --why <w> --cost <c>`; a choice that is the user's (the route of an ambiguous request): `state forward <qid>`, then as `ASK` |
+  | `ASK user`, `ASK <Kind> <qid>` | one `AskUserQuestion`, or on a long context plain text ending the turn with lettered options; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers or a new request, `--park <why>` to leave it open |
+  | `ANSWER yourself`, then `RUN state rule \| forward` | settle it yourself: `state rule <qid> --answer <a> --why <w> --cost <c>`; a choice that is the user's (the route of an ambiguous request): ask as for `ASK`, then `state answer <qid> <answer>` forwards and answers in one |
+
+  An engineer you spawn as a subagent starts with the init line
+  `state brief engineer` prints (`state init --parent <run>`): its questions
+  come to your `state pending`; answer, park or rule them from this run.
 
   A `fix:` line names the command that works now: run it.
+- **Gaps.** Record each gap you meet in a flow, a skill or `state` with
+  `state record gap "<text>"`, never in a loose file; `state show` lists them.
 - **Writing.** Follow "Writing for people". Each message fits a phone screen
   or two. Separate what you **verified** from what you **inferred**.
 
 ## States
 
-Each step is a state; `state next` names the one you are in.
+Each step is a state; `state next` names the one you are in. `state focus`
+is no arrow: it leaves a request at its state and turns to another.
 
 | State | Run by | Arrows out |
 |---|---|---|
@@ -77,17 +102,15 @@ Each step is a state; `state next` names the one you are in.
 | architect/fuel | you | set: architect/exploring |
 | architect/exploring | you | enough: architect/exploring/researchers; research: architect/exploring/research |
 | architect/exploring/researchers | await | done: architect/exploring/notes; handed_back: architect/exploring/researchers |
-| architect/exploring/notes | you | done: architect/open_ticket |
+| architect/exploring/notes | you | done: architect/problem |
 | architect/exploring/research | researcher | spawned: architect/exploring |
-| architect/open_ticket | you | done: architect/discussing |
+| architect/problem | you | more: architect/exploring; understood: architect/discussing |
 | architect/discussing | you | discuss: architect/discuss; enough: architect/discussing/researchers; research: architect/discussing/research |
 | architect/discussing/researchers | await | done: architect/discussing/notes; handed_back: architect/discussing/researchers |
-| architect/discussing/notes | you | done: architect/update_ticket |
+| architect/discussing/notes | you | done: architect/confirm_design |
 | architect/discussing/research | researcher | spawned: architect/discussing |
 | architect/discuss | you | asked: architect/discussing |
-| architect/update_ticket | you | done: architect/confirm_design |
-| architect/confirm_design | you | adjusted: architect/discussing; confirmed: architect/finalize_ticket |
-| architect/finalize_ticket | you | done: next |
+| architect/confirm_design | you | adjusted: architect/discussing; confirmed: next |
 | engineer/fuel | you | set: engineer/gather |
 | engineer/gather | you | enough: engineer/gather/researchers; interview: engineer/interview; research: engineer/gather/research |
 | engineer/gather/researchers | await | done: engineer/gather/notes; handed_back: engineer/gather/researchers |
@@ -178,6 +201,6 @@ Each step is a state; `state next` names the one you are in.
 `/chief resume`: the notes dir is the newest `/tmp/chief-*` unless the user
 names one. From the worktree the run started in (inside the notes dir it
 fails: not a git work tree), `state init --notes <notes dir>`: it resumes
-the run. Then `state show`. Stopped inside `architect`, `engineer` or `10x`:
+the run. Then check you are current, as above, and `state show` and `state tasks`. Stopped inside `architect`, `engineer` or `10x`:
 load that branch's skill again with the Skill tool. Carry on with
 `state next`.

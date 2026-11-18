@@ -17,8 +17,9 @@ from __future__ import annotations
 import io
 import json
 import os
+import sqlite3
 import subprocess
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -274,16 +275,29 @@ class Home:
             }
             _ = base.with_suffix(".meta.json").write_text(json.dumps(meta))
 
-    def log(self, name: str, log: RunLog) -> None:
-        """A run's `state` event log, in its own notes directory `name`."""
-        path = self.root.parent / "notes" / name / "events.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _ = path.write_text("".join(json.dumps(line) + "\n" for line in log.lines))
+    @property
+    def store(self) -> Path:
+        return self.root.parent / "state" / "kernel.db"
+
+    def log(self, log: RunLog) -> None:
+        """A run's `state` events, in this home's run store. The `events` table keeps
+        only the columns the analyzer reads, so a test can store an older envelope."""
+        self.store.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(self.store)) as db, db:
+            _ = db.execute(
+                "CREATE TABLE IF NOT EXISTS events (run TEXT, seq INTEGER, json TEXT)"
+            )
+            _ = db.executemany(
+                "INSERT INTO events VALUES (?, ?, ?)",
+                [
+                    (log.run, seq, json.dumps(line))
+                    for seq, line in enumerate(log.lines, 1)
+                ],
+            )
 
     def sources(self) -> list[str]:
-        """The transcripts and only this home's event logs, never the machine's."""
-        logs = sorted(self.root.parent.glob("notes/*/events.jsonl"))
-        return ["--root", str(self.root), "--logs", *map(str, logs)]
+        """The transcripts and only this home's run store, never the machine's."""
+        return ["--root", str(self.root), "--store", str(self.store)]
 
     def report(self, *args: str, fetch: analyze.Fetch | None = None) -> str:
         """The report the CLI prints for `args`, run in-process so mutation testing sees it.
@@ -2506,7 +2520,7 @@ class TestStateLog:
         log = RunLog("r1").ask("r1:1", "Design", "interview").rule("r1:1")
         _ = log.ask("r1:2", "Fact", "interview")
         _ = log.ask("r1:3", "Confirm", "confirm").answer("r1:3")
-        home.log("a", log)
+        home.log(log)
         # When
         report = home.report()
         # Then
@@ -2533,8 +2547,8 @@ class TestStateLog:
         parent = RunLog("p1", flow="10x").ask(
             "c1:1", "Design", "engineers", {"run": "c1"}
         )
-        home.log("child", child)
-        home.log("parent", parent.rule("c1:1"))
+        home.log(child)
+        home.log(parent.rule("c1:1"))
         # When
         report = home.report()
         # Then
@@ -2548,7 +2562,7 @@ class TestStateLog:
         parent = RunLog("p1", flow="10x").ask(
             "p1:1", "Design", "engineers", {"run": "c1"}
         )
-        home.log("parent", parent)
+        home.log(parent)
         # When
         report = home.report()
         # Then
@@ -2567,9 +2581,9 @@ class TestStateLog:
         log = (
             RunLog("r1").ask("r1:1", "Stuck", "review").stop("replan", "plan wrong: x")
         )
-        home.log("a", log)
-        home.log("b", RunLog("r2").stop("replan", "plan wrong: y"))
-        home.log("c", RunLog("r3").stop("blocked", "no access"))
+        home.log(log)
+        home.log(RunLog("r2").stop("replan", "plan wrong: y"))
+        home.log(RunLog("r3").stop("blocked", "no access"))
         # When
         report = home.report()
         # Then
@@ -2582,14 +2596,14 @@ class TestStateLog:
 
     def test_a_log_of_an_older_version_is_skipped_and_counted(self, home: Home) -> None:
         # Given
-        home.log("v4", RunLog("r1").ask("r1:1", "Fact", "interview"))
+        home.log(RunLog("r1").ask("r1:1", "Fact", "interview"))
         v3 = RunLog("r0").ask("r0:1", "Fact", "interview")
         for line in v3.lines:
             line["v"] = 3
-        home.log("v3", v3)
+        home.log(v3)
         old = RunLog("old")
         old.lines = [{"seq": 1, "event": {"type": "started", "version": 2}}]
-        home.log("v2", old)
+        home.log(old)
         # When
         report = home.report()
         # Then
@@ -2600,10 +2614,10 @@ class TestStateLog:
         self, home: Home
     ) -> None:
         # Given
-        home.log("good", RunLog("r1").ask("r1:1", "Fact", "interview"))
+        home.log(RunLog("r1").ask("r1:1", "Fact", "interview"))
         bad = RunLog("bad")
         bad.lines[0]["ts"] = "yesterday"
-        home.log("bad", bad)
+        home.log(bad)
         # When
         report = home.report()
         # Then
@@ -2614,10 +2628,10 @@ class TestStateLog:
         self, home: Home
     ) -> None:
         # Given
-        home.log("old", RunLog("r1", start=0).ask("r1:1", "Fact", "interview"))
-        home.log("new", RunLog("r2", start=1000).ask("r2:1", "Fact", "plan"))
+        home.log(RunLog("r1", start=0).ask("r1:1", "Fact", "interview"))
+        home.log(RunLog("r2", start=1000).ask("r2:1", "Fact", "plan"))
         other = RunLog("r3", start=1000, notes="/work/engineer-me-other-x/")
-        home.log("other", other.ask("r3:1", "Fact", "draft"))
+        home.log(other.ask("r3:1", "Fact", "draft"))
         # When
         report = home.report("--since", at(500), "--project", "demo")
         # Then
@@ -2633,6 +2647,37 @@ class TestStateLog:
         assert headline(report, "state-log") == (
             "0 runs, 0 questions, 0 rulings, 0 stuck rounds, 0 re-plans"
         )
+
+
+class TestDefaultStore:
+    @pytest.mark.parametrize(
+        ("xdg", "home", "store"),
+        [
+            ("/x", "/h", "/x/state/kernel.db"),
+            ("rel", "/h", "/h/.local/state/state/kernel.db"),
+            ("", "/h", "/h/.local/state/state/kernel.db"),
+            (None, "/h", "/h/.local/state/state/kernel.db"),
+            (None, "rel", None),
+        ],
+    )
+    def test_it_is_where_the_kernel_keeps_it(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        xdg: str | None,
+        home: str,
+        store: str | None,
+    ) -> None:
+        # Given
+        match xdg:
+            case str():
+                monkeypatch.setenv("XDG_STATE_HOME", xdg)
+            case None:
+                monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+        monkeypatch.setenv("HOME", home)
+        # When
+        found = analyze.default_store()
+        # Then
+        assert found == (None if store is None else Path(store))
 
 
 class TestStartUp:

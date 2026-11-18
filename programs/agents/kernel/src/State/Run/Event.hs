@@ -15,6 +15,9 @@ module State.Run.Event (
     eventId,
     RunId,
     AgentId (..),
+    TaskNo (..),
+    taskNoText,
+    parseTaskNo,
     parseRunId,
     runIdText,
     SessionId (..),
@@ -24,7 +27,9 @@ module State.Run.Event (
     FlowName (..),
     Principal (..),
     Parent (..),
+    Link (..),
     Op (..),
+    Reply (..),
     Asking (..),
     Asker (..),
     AgentRole (..),
@@ -71,8 +76,8 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
-import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
-import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
+import State.Run.Ask (Above, Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question, Reply (..))
+import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), TaskNo (..), parseRunId, parseTaskNo, runIdText, taskNoText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Target (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
 
@@ -114,6 +119,10 @@ data Event
       questions start afresh.
       -}
       Extended Text
+    | {- | A gap the lead saw in the flow or its tools, logged in place of a
+      loose notes file: it moves nothing.
+      -}
+      Gapped Text
     | {- | A step's outcome, or a mode's skip, inside the scopes its step sits
       in: the one event that moves the run. 'tookEvent' is its name on the wire.
       -}
@@ -133,7 +142,11 @@ data Event
     | -- | This run passed the question up, to whoever started it.
       Forwarded QId Above
     | -- | The answer that came down, and who gave it.
-      Answered QId Text Above
+      Answered QId Reply Above
+    | {- | The question waits for a later answer, and why: it stays open, and
+      only 'Answered' closes it. Not @Parked@: a task's 'TaskState' is.
+      -}
+      QuestionParked QId OneLine
     | -- | The escape edge, outside the graph: to the named state, and why.
       Overridden StateName Text
     | -- | An event the run refused, logged so the next read can warn of it.
@@ -170,6 +183,14 @@ data Event
       it is at work no more.
       -}
       WorkerReturned AgentRole (Maybe AgentId)
+    | {- | The chief's request in focus waits, at its node, and where it stands
+      in the lead's words: the run opens a new request at its start.
+      -}
+      Suspended TaskNo OneLine
+    | {- | The chief turns to this waiting request, back at its node: the request
+      in focus, untouched since it opened, is dropped.
+      -}
+      Focused TaskNo
     | {- | The line of this seq is void, and why: replay drops it and this
       line, as if neither was logged ("State.Run.Fold").
       -}
@@ -218,8 +239,8 @@ data StopReason = Blocked | Failed | Replan | OutOfRounds
 data Note = Note {message :: Text, fix :: Text}
     deriving stock (Eq, Show)
 
--- | A child run of the fan-out: its run id, its task, its log and worktree.
-data Child = Child {run :: RunId, task :: TaskId, log :: FilePath, worktree :: FilePath}
+-- | A child run of the fan-out: its run id, its task and its worktree.
+data Child = Child {run :: RunId, task :: TaskId, worktree :: FilePath}
     deriving stock (Eq, Show)
 
 -- | A child's hand-back, typed: only 'AsksUp' and 'Awaits' leave it running.

@@ -1,4 +1,4 @@
-state - the run of an agent flow, kept in the worktree's log
+state - the run of an agent flow, kept in its run store
 
 Usage: state COMMAND
 
@@ -10,19 +10,22 @@ Available commands:
   record                   Record an event: 'state record --help' lists them
   handback                 Record a role's hand-back, read from stdin
   next                     Print the next action, its facts and the step's task
-  brief                    Print a role's brief, a child engineer's task too
+  brief                    Print a role's brief, one section, or a child's task
   show                     Print where the run is and what it holds
   override                 Move the run to a state by hand, saying why
   void                     Void a line logged in error, by its seq, saying why
   move                     Move the run to another worktree; its notes stay
+  dump                     Print a run's events, one JSON envelope per line
   render                   Print a block of the flow, as the skills paste it
   ask                      Ask a question: the run's, a worker's or a child's
   rule                     Rule on a question: the answer, why and its cost
   retry                    Retry a stopped child's task, printing its brief
   forward                  Forward a question up, to the parent run or the user
-  answer                   Record the answer to a forwarded question
+  answer                   Record the answer to a question, or park it
   stop                     Stop the run, with a reason and why
   pending                  List the questions awaiting an answer
+  focus                    Turn to a waiting request, else a new one
+  tasks                    Print each request's card and resume advice
   help                     Print this help
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck

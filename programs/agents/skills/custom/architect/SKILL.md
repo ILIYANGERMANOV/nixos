@@ -1,6 +1,6 @@
 ---
 name: architect
-description: A read-only design partner. Researches first, discusses the design with the user one explained question at a time, and writes the agreed design into a ticket (a GitHub issue, or Linear when asked) that `/engineer` plans from. Driven by the `state` kernel. Cites facts by GitHub permalink and puts a recommendation plus the alternatives on every choice; the user decides. Changes nothing in the repo.
+description: A read-only design partner. Researches, talks the problem through with the user until they say it is understood, discusses the design one explained question at a time, and writes the ticket (a GitHub issue, or Linear when asked) only once the user confirms the design; `/engineer` plans from it. Driven by the `state` kernel. Cites facts by GitHub permalink and puts a recommendation plus the alternatives on every choice; the user decides. Changes nothing in the repo.
 argument-hint: "[question, idea, PR, branch or topic]"
 ---
 
@@ -25,14 +25,22 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   |---|---|
   | `SPAWN <role> background: yes\|no` | spawn `subagent_type: <role>` as it says; its prompt is `state brief <role>` plus the step's part |
   | `ASK <Kind> <what>` | `state ask --kind <Kind> "<question>"`, then do what it prints |
-  | `ASK user` | one `AskUserQuestion`, then `state answer <qid> <answer>` |
+  | `ASK user` | one `AskUserQuestion`, or on a long context plain text ending the turn with lettered options; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers, `--park <why>` to leave it open |
   | `RUN <command>` | do the step, then run the command, placeholders filled |
   | `AWAIT worker <role> <id>` | end the turn: its hand-back wakes you |
   | `STOP <reason>` | the run is over: say why in one line |
 
   A `fix:` line names the command that works now: run it.
-- **Explain, then ask.** Each Discuss question comes after an Explain message
-  in the same turn: the context, then pseudo-code, a diagram or a table.
+- **The problem first, free-form.** At `problem`, talk the problem through
+  with the user in plain messages: no ticket, no picker, no `state ask`. The
+  user says when it is understood ("design", "enough"). That message is the
+  answer: `state ask` the Confirm `state next` names, then at once `state
+  answer <qid> "<the user's words>"`, with no `AskUserQuestion`. Understood
+  goes on to the design; more researches again.
+- **Explain, then ask.** In the design, one question at a time. Each Discuss
+  question comes after an Explain message in the same turn: the context, then
+  pseudo-code, a diagram or a table. A Discuss question is
+  `state ask --kind <Design|Scope|Fact>`: there is no Discuss kind.
   The question puts one recommendation first, plus the alternatives worth
   weighing, each with its trade-offs. Where a standard applies, recommend the
   option that follows it. When the design is code, invoke `engineering` first.
@@ -54,31 +62,38 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
 
 ## The ticket
 
-The design lives in one ticket, in the format of
-`${CLAUDE_SKILL_DIR}/references/issue.md`.
+The confirmed design lives in one ticket, in the format of
+`${CLAUDE_SKILL_DIR}/references/issue.md`. No ticket exists before then.
 
-- **Where**: a GitHub issue on the repo, unless the request names Linear;
-  then a Linear issue through the `linear` MCP.
-- **Open** it as `[WIP] <title>`: `gh issue create --repo <owner>/<repo>
-  --title "[WIP] <title>" --body-file -`, the body a quoted heredoc
-  (`<<'EOF'`, so the shell runs no backticks or `$(...)` in it).
-- **Update** it every design round: `gh issue edit <n> --repo <owner>/<repo>
-  --body-file -` from a quoted heredoc.
-- **Confirm**: only the user's confirm ends the design. Adjusted goes round
-  again. At the cap, `ASK Stuck` asks whether to go on: yes is `state record
-  extend <why>`; no asks the confirm_design question and records its answer;
-  stop leaves the ticket [WIP] and runs `state stop rounds <why>`.
-- **Finalize**: drop `[WIP]` from the title and end your last message with
-  the ticket's URL.
+- **Confirm**: first send the agreed design as a summary: its decisions,
+  and a diagram or pseudo-code; then, in the same turn, the Confirm. Only
+  the user's confirm ends the design. Adjusted goes round again: put
+  what the user wants changed into the next Discuss question, or into your
+  notes, before `discussing.enough`. At the cap, `ASK Stuck` asks whether
+  to go on: yes is `state record extend <why>`; no asks the confirm_design
+  question and records its answer; stop runs `state stop rounds <why>`.
+- **Problem cap**: at the Problem rounds cap, the same `ASK Stuck` go-on:
+  yes is `state record extend <why>`; no records `problem.understood`.
+- **Write it once**, after `confirmed`: a GitHub issue on the repo, unless
+  the request names Linear; then a Linear issue through the `linear` MCP. A
+  request on a ticket edits that one (`gh issue edit <n> --repo
+  <owner>/<repo> --body-file -`), else `gh issue create --repo
+  <owner>/<repo> --title "<title>" --body-file -`. The body is a quoted
+  heredoc (`<<'EOF'`, so the shell runs no backticks or `$(...)` in it).
+  Then `state record confirm_design.confirmed <url>`, and end your last
+  message with the ticket's URL.
 
 Write it so `/engineer <ticket URL>` plans from its Decisions without asking
 them again.
 
 ## States
 
-Each step is a state; `state next` names the one you are in. `exploring`
-and `discussing` are choices, one pick each: `research` spawns a researcher
-in the background, `discuss` asks design questions (then `discuss.asked`),
+Each step is a state; `state next` names the one you are in. Three phases:
+research (`exploring`), the problem (`problem`: `understood` once the user
+says so, `more` researches again), then the design (`discussing`, until
+`confirm_design` is `confirmed` with the ticket's url). `exploring` and
+`discussing` are choices, one pick each: `research` spawns a researcher in
+the background, `discuss` asks design questions (then `discuss.asked`),
 `enough` waits at the `researchers` await for every researcher, which goes
 on by itself, then `notes` merges their hand-backs (`notes.done`).
 
@@ -87,17 +102,15 @@ on by itself, then `notes` merges their hand-backs (`notes.done`).
 | fuel | you | set: exploring |
 | exploring | you | enough: exploring/researchers; research: exploring/research |
 | exploring/researchers | await | done: exploring/notes; handed_back: exploring/researchers |
-| exploring/notes | you | done: open_ticket |
+| exploring/notes | you | done: problem |
 | exploring/research | researcher | spawned: exploring |
-| open_ticket | you | done: discussing |
+| problem | you | more: exploring; understood: discussing |
 | discussing | you | discuss: discuss; enough: discussing/researchers; research: discussing/research |
 | discussing/researchers | await | done: discussing/notes; handed_back: discussing/researchers |
-| discussing/notes | you | done: update_ticket |
+| discussing/notes | you | done: confirm_design |
 | discussing/research | researcher | spawned: discussing |
 | discuss | you | asked: discussing |
-| update_ticket | you | done: confirm_design |
-| confirm_design | you | adjusted: discussing; confirmed: finalize_ticket |
-| finalize_ticket | you | done: end |
+| confirm_design | you | adjusted: discussing; confirmed: end |
 
 ## Permalinks
 

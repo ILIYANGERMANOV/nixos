@@ -13,7 +13,7 @@ import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Branch (..), Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Target (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
+import State.Run.Event (Branch (..), Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Link (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Target (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, pickOf, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
@@ -59,7 +59,7 @@ spec = describe "State.Run.Codec" $ do
         decodeLine (encodeLine reviewRows `replacing` ("r7f2", "h")) `shouldSatisfy` malformed
 
     it "refuses a parent run h" $
-        decodeLine (encodeLine parentRun `replacing` ("\"run\":\"r7f2\",\"log\"", "\"run\":\"h\",\"log\"")) `shouldSatisfy` malformed
+        decodeLine (encodeLine parentRun `replacing` ("\"run\":\"r7f2\",\"task\"", "\"run\":\"h\",\"task\"")) `shouldSatisfy` malformed
 
     it "refuses a CLI id that names another seq" $
         decodeLine (encodeLine reviewRows `replacing` ("r7f2:12", "r7f2:11")) `shouldSatisfy` malformed
@@ -143,6 +143,16 @@ spec = describe "State.Run.Codec" $ do
                         && "\"principal\":{\"pr\":\"https://github.com/o/r/pull/7\"}" `Text.isInfixOf` round'
                 _ -> False
 
+    it "writes the caller on its own PR as a bare word, and its round as its PR marked caller" $
+        [ encodeLine reviewRows {event = Started (Start EngineerFlow "/n" (ByCaller shape) Set.empty)}
+        | shape <- [OwnPr, RoundOn (Url "https://github.com/o/r/pull/7")]
+        ]
+            `shouldSatisfy` \case
+                [own, round'] ->
+                    "\"principal\":\"caller\"" `Text.isInfixOf` own
+                        && "\"principal\":{\"caller\":true,\"pr\":\"https://github.com/o/r/pull/7\"}" `Text.isInfixOf` round'
+                _ -> False
+
     it "reads an AWAIT an older log wrote, with no on, as awaiting CI" $
         (.event) <$> decodeLine (encodeLine reviewRows {event = HandedBack (runId "c1") (Awaits Merge (oneLine "https://pr/1"))} `replacing` (",\"on\":\"merge\"", ""))
             `shouldBe` Right (HandedBack (runId "c1") (Awaits Ci (oneLine "https://pr/1")))
@@ -181,9 +191,9 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes and reads an architect run's start by its flow's name, and its ticket by its url" $ do
         let architectStart = reviewRows {event = Started (Start ArchitectFlow "/n" (ByUser OwnPr) Set.empty)}
-            opened = reviewRows {event = stepTook (OpenTicketDone (Url "https://github.com/o/r/issues/1"))}
-        (encodeLine architectStart, encodeLine opened) `shouldSatisfy` \(start, ticket) -> "\"flow\":\"architect\"" `Text.isInfixOf` start && "\"url\":\"https://github.com/o/r/issues/1\"" `Text.isInfixOf` ticket
-        map (fmap (.event) . decodeLine . encodeLine) [architectStart, opened] `shouldBe` map (Right . (.event)) [architectStart, opened]
+            confirmed = reviewRows {event = stepTook (ConfirmDesignConfirmed (Url "https://github.com/o/r/issues/1"))}
+        (encodeLine architectStart, encodeLine confirmed) `shouldSatisfy` \(start, ticket) -> "\"flow\":\"architect\"" `Text.isInfixOf` start && "\"url\":\"https://github.com/o/r/issues/1\"" `Text.isInfixOf` ticket
+        map (fmap (.event) . decodeLine . encodeLine) [architectStart, confirmed] `shouldBe` map (Right . (.event)) [architectStart, confirmed]
 
     it "reads a task the chief leads by its flow's name" $
         fmap (.flow) (decodeTask (taskFileJson ledBy10x `replacing` ("\"10x\"", "\"chief\""))) `shouldBe` Right ChiefFlow
@@ -246,15 +256,20 @@ metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"
 
 -- | A started line naming parent run r7f2.
 parentRun :: Envelope
-parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (Parent (runId "r7f2") "/p/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms) mempty)}
+parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (Parent (runId "r7f2") (AtFan (TaskId "t1"))) OwnPr ChildConfirms) mempty)}
 
 -- | Lines in the shape the Python @state@ wrote, its other keys left out.
 pythonV1, pythonV2 :: Text
 pythonV1 = "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\"}}"
 pythonV2 = "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
 
+{- | Errors when @old@ is absent, so a stale pattern fails its test instead of
+quietly checking the unchanged line.
+-}
 replacing :: Text -> (Text, Text) -> Text
-replacing whole (old, new) = Text.replace old new whole
+replacing whole (old, new)
+    | old `Text.isInfixOf` whole = Text.replace old new whole
+    | otherwise = error ("replacing: " <> show old <> " is not in " <> show whole)
 
 malformed :: Either LineError a -> Bool
 malformed = \case

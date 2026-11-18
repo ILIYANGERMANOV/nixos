@@ -40,6 +40,8 @@ library
     Effects.Git
     Effects.Log
     Effects.Random
+    Effects.Store
+    State.Category.Effect
     State.Category.Flow
     State.Category.Fuel
     State.Category.Graph
@@ -67,6 +69,7 @@ library
     State.Protocol.Record
     State.Role
     State.Run.Ask
+    State.Run.Card
     State.Run.Codec
     State.Run.Event
     State.Run.Fan
@@ -96,6 +99,7 @@ library
     , filepath
     , optparse-applicative
     , process
+    , sqlite-simple
     , text
     , time
 
@@ -121,7 +125,12 @@ test-suite state-test
   hs-source-dirs:     test
   main-is:            Main.hs
   build-tool-depends: hspec-discover:hspec-discover
+
+  -- Threaded: the run store's spec runs two writers at once, and one waiting
+  -- on SQLite's lock must not stop the other.
+  ghc-options:        -threaded
   other-modules:
+    Concurrently
     Doubles.Clock
     Doubles.Console
     Doubles.Environment
@@ -145,11 +154,14 @@ test-suite state-test
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec
     State.Cli.RouteSpec
+    State.Cli.Shell.FocusSpec
     State.Cli.Shell.HookSpec
     State.Cli.Shell.MainSpec
     State.Cli.Shell.World
+    State.Cli.ShellSpec
     State.Cli.ViewSpec
     State.E2ESpec
+    State.Flow.Attend
     State.Flow.ChiefSpec
     State.Flow.EngineerSpec
     State.Flow.InlineSpec
@@ -164,6 +176,7 @@ test-suite state-test
     State.Protocol.HookSpec
     State.RoleSpec
     State.Run.AskSpec
+    State.Run.CardSpec
     State.Run.CodecSpec
     State.Run.EventGen
     State.Run.EventSpec
@@ -185,6 +198,7 @@ test-suite state-test
     , hspec-hedgehog
     , optparse-applicative
     , process
+    , sqlite-simple
     , state
     , temporary
     , text

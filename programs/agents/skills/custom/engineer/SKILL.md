@@ -20,16 +20,17 @@ who owns each decision.
 ## Rules
 
 - **Ask, do not guess.** Every question, yours or one a worker hands back,
-  goes through `state ask --kind <K> "<question>"`; the kinds, and who answers
-  each, are in `${CLAUDE_SKILL_DIR}/references/blockers.md`. Then do what it
-  prints:
-  - `ASK user`: one `AskUserQuestion`, then `state answer <qid> <answer>`.
+  goes through `state ask --kind <K> "<question>"`; kinds, who answers each
+  and answer forms: `${CLAUDE_SKILL_DIR}/references/blockers.md`. Then do as
+  it prints:
+  - `ASK user`: `AskUserQuestion`, or on a long context plain text ending the
+    turn with lettered options; then `state answer <qid> <answer>`.
   - `ANSWER yourself` or `RUN state rule ...`: when your row in the kinds
     table answers, `state rule <qid> --answer <a> --why <w> --cost <c>`; else
     `state forward <qid>`, and do what that prints.
   - `HANDBACK <line>`: end your turn with `<line>` and the lines under it
     (`Run:`, `Ruling`), then your last finished step and the head SHA, all
-    work pushed. Resumed with the answer: it is in your run already. After
+    work pushed. Resumed with the answer: record it if `state next` says. After
     `AWAIT ci`: `gh pr checks <n>` once, `state record await_ci.green` or
     `await_ci.red <check>...`. Then `state next`.
 
@@ -43,7 +44,7 @@ who owns each decision.
   every implementer, refactorer and fixer brief, and the plan-wrong line into a
   review-lead's.
 - **`state` holds the record and the mechanics** (`state help`, `state <command> --help`). When your
-  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes /tmp/engineer-<owner>-<repo>-<slug>/`, plus `--pr <url>` on an existing PR,
+  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes /tmp/engineer-<owner>-<repo>-<slug>/`, plus `--pr <url>` on an existing PR, `--child` as a subagent,
   the slug the branch name (on `--pr`, the PR's head branch), each character but `[A-Za-z0-9._-]` a `-`. Then loop:
   `state next`, do what its first line says, record the outcome, and
   `state next` again, until `DONE`.

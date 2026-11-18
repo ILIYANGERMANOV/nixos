@@ -2,7 +2,7 @@
 
 -- | The steps that propose a plan: write it, simplify it, confirm it.
 module State.Step.Plan (
-    PlanStep,
+    PlanStep (..),
     Sing (..),
     Outcome (..),
 ) where
@@ -16,6 +16,8 @@ import State.Category.Ty (TyOf (..))
 type data PlanStep = PlanS | SimplifyP | Confirm
 
 instance StepSet PlanStep where
+    type Raises s = '[]
+
     type Sig PlanS = '( 'Ctx, 'Nothing, 'Plan)
     type Sig SimplifyP = '( 'Plan, 'Nothing, 'Plan)
     type Sig Confirm = '( 'Plan, 'Just 'Plan, 'Ctx)
@@ -54,7 +56,7 @@ instance StepSet PlanStep where
     special = \case
         PlanS -> Ordinary
         SimplifyP -> Ordinary
-        Confirm -> AsksConfirm "the simplified plan"
+        Confirm -> AsksConfirm OnEntry "the simplified plan"
 
     sameStep a b = case (a, b) of
         (PlanS, PlanS) -> Just Refl

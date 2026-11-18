@@ -27,6 +27,8 @@ module State.Category.Step (
     decodeWith,
     SomeStep (..),
     Special (..),
+    Cue (..),
+    confirmText,
     StateName (..),
     stateNameText,
     OutcomeName (..),
@@ -51,6 +53,7 @@ import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable)
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, sameSymbol, symbolVal)
+import State.Category.Effect (Eff)
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..), TyVal, labelledTys)
 
 -- | A step's signature: @(in, exit, continue)@.
@@ -78,6 +81,12 @@ missing arm is an incomplete match.
 -}
 class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
     type Sig (s :: k) :: Sig3
+
+    {- | The effects the step raises besides a question: every step may put
+    one, so 'State.Category.Flow.Effects' adds 'AskE' itself. A pick also
+    picks.
+    -}
+    type Raises (s :: k) :: [Eff]
 
     -- | The value of a step: 'State.Category.Flow.Do' takes it.
     data Sing (s :: k) :: Type
@@ -232,13 +241,27 @@ data Special
     = -- | Run it as its row says.
       Ordinary
     | -- | Ask the user to confirm this, once, before recording: @the simplified plan@.
-      AsksConfirm Text
+      AsksConfirm Cue Text
     | -- | Wait on the PR's CI.
       AwaitsCi
     | -- | Wait on the tasks' PRs to merge.
       AwaitsMerge
     | -- | Name the url the run recorded last, what the request ended in.
       TellsResult
+    | -- | Run it as its row says, its work the user's questions: offer @state ask@ beside its records.
+      Discusses
+    deriving stock (Eq, Show)
+
+-- | A Confirm's question: its answers are the step's outcomes, so it names what is recorded.
+confirmText :: (StepSet k) => Sing (s :: k) -> Text -> Text
+confirmText s what = what <> ": " <> Text.intercalate ", or " [o | OutcomeName o <- outcomeNames (outcomes s)] <> "?"
+
+-- | When a step's Confirm question is asked.
+data Cue
+    = -- | On entering the step.
+      OnEntry
+    | -- | Once the user says the discussion is done: until then the agent talks free-form.
+      OnUserWord
     deriving stock (Eq, Show)
 
 -- | A state of a flow's graph, by name: what people read, and an override's target.

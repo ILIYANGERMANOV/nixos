@@ -10,6 +10,14 @@ of 'State.Run.Ask.authority', the row of the role its flow runs.
 -}
 module State.Run.Fold (
     RunState (..),
+    Suspension (..),
+    Position,
+    waitsAt,
+    Stage (..),
+    stage,
+    focusable,
+    suspendedAsks,
+    trace,
     Worker (..),
     ChildId (..),
     Open (..),
@@ -22,6 +30,8 @@ module State.Run.Fold (
     Waits (..),
     Refusal (..),
     Append (..),
+    Answering (..),
+    handle,
     replay,
     unvoided,
     runStart,
@@ -44,8 +54,11 @@ module State.Run.Fold (
     nextQId,
     given,
     heldAnswer,
+    pendingAt,
+    parkedFor,
     askingChildren,
     askedAt,
+    nodeName,
     over,
     forks,
     awaitedOpen,
@@ -59,29 +72,31 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
+import Data.Foldable (for_)
+import Data.Functor ((<&>))
 import Data.List (find, genericLength, isSuffixOf, partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
+import State.Category.Effect (Eff (..), Handler (..))
 import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText, scopeNames)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, outOf, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (Closes), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (awaitDone, forkPasses, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
-import State.Flow.Drawn (isPick)
 import State.Flow.Library (simplifyPlan)
 import State.FlowName (FlowName (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
+import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Reply (..), Ruling, deliver, flattened, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentId, AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Target (..), TaskId, TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, tookEvent)
+import State.Run.Event (AgentId, AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Target (..), TaskId, TaskNo (..), TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, taskNoText, tookEvent)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
@@ -89,7 +104,9 @@ import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
 import State.Step.Fuel (FuelStep, Outcome (..), Sing (Fuel, Skip))
+import State.Step.Pick (PickStep)
 import State.Step.Request (Outcome (..), RequestStep)
+import State.Step.Request qualified as Request
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
 import State.Step.Ticket (Outcome (..), TicketStep)
@@ -114,8 +131,8 @@ data RunState = RunState
     {- ^ What the run spent of each capped step's budget since it entered the
     innermost loop around the step's state, or extended it: none spent is absent.
     -}
-    , askedHere :: [Kind]
-    {- ^ The kinds asked since the run last moved, oldest first: advice asks a step's
+    , askedHere :: [Question]
+    {- ^ The questions asked since the run last moved, oldest first: advice asks a step's
     question once. Also emptied when a question uses up its step's budget, so the
     question whether to go on is asked after that, whatever was asked before.
     -}
@@ -123,6 +140,8 @@ data RunState = RunState
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     , answers :: [Answer]
     -- ^ Every forwarded question answered from above, oldest first: @show@ lists them.
+    , gaps :: [Text]
+    -- ^ Every gap the lead recorded, oldest first: @show@ lists them.
     , drafted :: Maybe DraftPr
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
     , untriaged :: [(AgentRole, OneLine)]
@@ -138,15 +157,38 @@ data RunState = RunState
     , fans :: Map ScopedFan Fan
     -- ^ Each fan-out's tasks and child runs, by its name in its scopes: none before its breakdown.
     , ticket :: Maybe Url
-    -- ^ The ticket @open_ticket@ recorded last: the url an architect run hands back.
+    -- ^ The ticket @confirm_design@ recorded last: the url an architect run hands back.
     , latest :: Maybe Url
     {- ^ The PR or ticket url any step recorded last: what a chief's request
     ended in, as an earlier request's PR must not stand for a later ticket.
     -}
     , onTarget :: Maybe OnTarget
     -- ^ The existing work the request applies feedback to: none for new work, and on each new request.
+    , focus :: TaskNo
+    -- ^ The chief's request in focus, the one the fields above place: a run of another flow has one.
+    , suspended :: Map TaskNo Suspension
+    -- ^ The chief's requests waiting, each where it stood.
     }
     deriving stock (Eq, Show)
+
+{- | A waiting request: where it stood, where it stands in the lead's words,
+and its own questions then open, with how each waited. Those wait apart,
+not on the request in focus.
+-}
+data Suspension = Suspension {position :: Position, summary :: OneLine, asks :: [(QId, Waits)]}
+    deriving stock (Eq, Show)
+
+{- | Where a request stands: what turning back to it restores, a
+defunctionalised continuation's label and live locals. The run's fields of
+these names, in their order; positional, as a record's update of a field
+two records name is ambiguous.
+-}
+data Position = Position Node (Maybe Fuel) (Map Name (NonEmpty Round)) (Map Metered Natural) [Question] (Maybe OnTarget) (Maybe Url)
+    deriving stock (Eq, Show)
+
+-- | The node a waiting request stands at.
+waitsAt :: Suspension -> Node
+waitsAt (Suspension (Position at _ _ _ _ _ _) _ _) = at
 
 {- | A request's target, and whether a Design or Scope question was asked
 since it was named: then the user confirms its plan after all.
@@ -187,8 +229,8 @@ ledger g state =
            , not (Fan.settled fan childRun.child.task)
            ]
 
--- | A forwarded question and the answer that came down for it.
-data Answer = Answer {about :: Question, given :: Text}
+-- | A forwarded question, the answer that came down for it, and the state the question was asked at.
+data Answer = Answer {about :: Question, given :: Reply, step :: StateName}
     deriving stock (Eq, Show)
 
 -- | A question asked and not yet ruled on, answered or ended by a stop.
@@ -200,6 +242,8 @@ data Waits
       ForTriage
     | -- | Forwarded, for the answer to come down.
       ForAnswer
+    | -- | Parked, and why: for an answer later, which alone closes it.
+      ForLater OneLine
     deriving stock (Eq, Show)
 
 -- | What went wrong in one round of a loop, which the stuck guard compares two of.
@@ -237,8 +281,10 @@ data Refusal
       AlreadyForwarded QId
     | -- | An answer to a question the run never forwarded.
       NotForwarded QId
+    | -- | Parked: only its answer is left.
+      IsParked QId
     | -- | Another answer to a question answered already with this one.
-      AnsweredOtherwise QId Text
+      AnsweredOtherwise QId Reply
     | -- | The run's row of 'State.Run.Ask.authority' does not allow it.
       NotAllowed Ask.Refusal
     | -- | A forward or answer naming another than whoever started the run.
@@ -250,6 +296,18 @@ data Refusal
       NotVoidable Natural
     | -- | A void of this seq leaves a log that does not replay, for this refusal.
       VoidBreaks Natural Refusal
+    | -- | A request switch in a run that switches none: not a chief's, or one over.
+      NoFocus
+    | -- | A suspension naming another request than the one in focus.
+      NotInFocus TaskNo
+    | -- | A turn to a request that is not waiting: unknown, done, or in focus.
+      NotSuspended TaskNo
+    | -- | A turn away from the request in focus, which recorded work: it is suspended first.
+      FocusRecorded TaskNo
+    | -- | The user's word recorded where no Confirm was asked since the run came here.
+      ConfirmUnasked
+    | -- | The user's word recorded while the Confirm asked here waits for its answer.
+      ConfirmOpen QId
     deriving stock (Eq, Show)
 
 {- | An id already in the log, or an answer the run holds already, is not
@@ -263,12 +321,25 @@ names. Their ids stay seen, so a hook fired again does not log its voided
 line anew.
 -}
 replay :: OpenGraph -> NonEmpty Envelope -> Either Refusal RunState
-replay g logged = case unvoided (NonEmpty.toList logged) of
-    ([], _) -> Left NotStarted
-    (first : rest, dropped) -> do
+replay g logged = do
+    lines' <- trace g logged
+    let after = snd (NonEmpty.last lines')
+    Right after {seen = after.seen <> Set.fromList (map eventId (snd (unvoided (NonEmpty.toList logged))))}
+
+{- | Each line a replay keeps, with the run just after it: what reading the
+log line by line, as the requests' cards do, sees.
+-}
+trace :: OpenGraph -> NonEmpty Envelope -> Either Refusal (NonEmpty (Envelope, RunState))
+trace g logged = case fst (unvoided (NonEmpty.toList logged)) of
+    [] -> Left NotStarted
+    first : rest -> do
         state <- begin g first
-        after <- fold g state rest
-        Right after {seen = after.seen <> Set.fromList (map eventId dropped)}
+        NonEmpty.reverse <$> foldM next ((first, state) :| []) rest
+  where
+    next done@((_, state) :| _) envelope =
+        append g state envelope <&> \case
+            Appended after -> NonEmpty.cons (envelope, after) done
+            AlreadyLogged -> done
 
 -- | The lines a replay keeps, and those it drops: each void and the line it names.
 unvoided :: [Envelope] -> ([Envelope], [Envelope])
@@ -327,6 +398,7 @@ begin g envelope = case runStart envelope.event of
                 , askedHere = []
                 , rulings = []
                 , answers = []
+                , gaps = []
                 , drafted = Nothing
                 , published = Nothing
                 , untriaged = []
@@ -335,6 +407,8 @@ begin g envelope = case runStart envelope.event of
                 , ticket = Nothing
                 , latest = Nothing
                 , onTarget = Nothing
+                , focus = TaskNo 1
+                , suspended = Map.empty
                 }
 
 -- | The run an event starts: a log's first line must start one.
@@ -343,6 +417,7 @@ runStart = \case
     Started start -> Just start
     Targeted _ -> Nothing
     Extended _ -> Nothing
+    Gapped _ -> Nothing
     Took _ _ -> Nothing
     Stopped _ -> Nothing
     Overridden _ _ -> Nothing
@@ -352,6 +427,7 @@ runStart = \case
     RuledOn _ _ -> Nothing
     Forwarded _ _ -> Nothing
     Answered {} -> Nothing
+    QuestionParked _ _ -> Nothing
     Spawning _ -> Nothing
     Spawned _ -> Nothing
     Resumed _ -> Nothing
@@ -364,7 +440,65 @@ runStart = \case
     WorkerHandedBack _ _ -> Nothing
     WorkerSpawned _ _ -> Nothing
     WorkerReturned _ _ -> Nothing
+    Suspended _ _ -> Nothing
+    Focused _ -> Nothing
     Voided _ _ -> Nothing
+
+{- | The logged event that answers an effect ('Eff'), its handler's input. A
+run's live command and its replay append the same event, so one handler
+serves both: live makes the event, then appends it ('appendTo').
+-}
+data Answering (eff :: Eff) where
+    -- | The branch the agent picked: the pick step's outcome, in its scopes.
+    Picked :: ScopePath -> SomeOutcome PickStep -> Answering PickE
+    -- | A question put to this run, one of its own or one handed up.
+    Asks :: Asking -> Answering AskE
+    Retags :: QId -> Answering AskE
+    RulesOn :: QId -> Proposal -> Answering AskE
+    Forwards :: QId -> Above -> Answering AskE
+    -- | The answer that came down, and who gave it.
+    Answers :: QId -> Reply -> Above -> Answering AskE
+    -- | The question waits for a later answer, and why.
+    Parks :: QId -> OneLine -> Answering AskE
+    -- | The chief's request in focus waits, and where it stands: a new request opens.
+    Suspends :: TaskNo -> OneLine -> Answering FocusE
+    -- | The chief turns back to this waiting request.
+    Focuses :: TaskNo -> Answering FocusE
+
+{- | The handler's run once the event answers its effect, or why the event
+does not: pure, so a replay of the log gives the run its live commands gave.
+-}
+handle :: Handler eff -> OpenGraph -> RunState -> Answering eff -> Either Refusal RunState
+handle handler g state = case handler of
+    AgentPicks -> \(Picked scope some) -> pick g state scope some
+    PrincipalAnswers -> \case
+        Asks asking -> fromChild asking.from <$> asked g state asking
+        Retags qid -> retagged state qid
+        RulesOn qid proposal -> ruledOn state qid proposal
+        Forwards qid to -> forwarded state qid to
+        Answers qid reply by -> answered state qid reply by
+        Parks qid why -> parked state qid why
+    FocusHere -> \answering ->
+        focusable state >> case answering of
+            Suspends task summary -> suspends g state task summary
+            Focuses task -> focuses g state task
+
+{- | A pick moves along its label's edge, unless the budget of the step it
+enters is used up: the advice offers only the actions a budget leaves, so
+a pick never strands the run at a step it may not spend.
+-}
+pick :: OpenGraph -> RunState -> ScopePath -> SomeOutcome PickStep -> Either Refusal RunState
+pick g state scope some = do
+    let outcome = AnyOutcome PickLayer some
+    for_ (edgeHere g state (tookEvent scope outcome)) $ \(_, edge) -> maybe (Right ()) Left (usedUpAt g state edge)
+    walked g state scope outcome
+
+-- | A question asked from a stopped child is its stop, triaged; from a worker, its oldest hand-back.
+fromChild :: Asker -> RunState -> RunState
+fromChild from after = case from of
+    ChildRun child -> after {fans = maybe id (Map.adjust (Fan.triaged child)) (fanAt after.at) after.fans}
+    Itself -> after
+    Subagent role -> after {untriaged = triagedBy role after.untriaged}
 
 -- | A refusal is logged whatever the run's state; anything else needs a run going. @n@ is the event's seq.
 applyEvent :: OpenGraph -> RunState -> Natural -> Event -> Either Refusal RunState
@@ -373,14 +507,17 @@ applyEvent g state n = \case
     Started _ -> going (Left StartedTwice)
     Targeted target -> going (targeted state target)
     Extended _ -> going (extended g state)
+    Gapped gap -> going (Right state {gaps = state.gaps <> [gap]})
+    Took scope (AnyOutcome PickLayer some) -> going (handle AgentPicks g state (Picked scope some))
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
-    Asked asking -> going (fromChild asking.from <$> asked g state asking)
-    RetaggedSecurity qid -> going (retagged state qid)
-    RuledOn qid proposal -> going (ruledOn state qid proposal)
-    Forwarded qid to -> going (forwarded state qid to)
-    Answered qid answer by -> going (answered state qid answer by)
+    Asked asking -> going (handle PrincipalAnswers g state (Asks asking))
+    RetaggedSecurity qid -> going (handle PrincipalAnswers g state (Retags qid))
+    RuledOn qid proposal -> going (handle PrincipalAnswers g state (RulesOn qid proposal))
+    Forwarded qid to -> going (handle PrincipalAnswers g state (Forwards qid to))
+    Answered qid reply by -> going (handle PrincipalAnswers g state (Answers qid reply by))
+    QuestionParked qid why -> going (handle PrincipalAnswers g state (Parks qid why))
     Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
     Spawned child -> going (atAwait g state >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))
@@ -394,15 +531,11 @@ applyEvent g state n = \case
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
     WorkerSpawned role agent -> going (Right state {workers = state.workers <> [Worker role agent n]})
     WorkerReturned role agent -> going (Right state {workers = returned role agent state.workers})
+    Suspended task summary -> going (handle FocusHere g state (Suspends task summary))
+    Focused task -> going (handle FocusHere g state (Focuses task))
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
-    -- A question asked from a stopped child is its stop, triaged.
-    fromChild from after = case from of
-        ChildRun child -> after {fans = maybe id (Map.adjust (Fan.triaged child)) (fanAt after.at) after.fans}
-        Itself -> after
-        -- A question asked from a worker triages its oldest hand-back.
-        Subagent role -> after {untriaged = triagedBy role after.untriaged}
     afterMove task = \case
         Event.Round _ -> reopened g
         InCi _ -> Right
@@ -494,7 +627,7 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     let effect = effects scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
-    maybe (Right ()) Left (pickedUsedUp g state from edge)
+    if effect.confirmed then confirmedHere state else Right ()
     case (edge.to == At from, awaitedOpen g state from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
@@ -503,23 +636,18 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
-    Right state {at = edge.to, fuel = effect.level <|> state.fuel, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
+    Right state {at = edge.to, fuel = effect.level <|> state.fuel, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, focus = if effect.anew then nextTask state else state.focus, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.written <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.written <|> state.latest}
 
-{- | A pick into a step whose budget is used up: refused, as the advice
-offers only the actions a budget leaves, so a pick never strands the run
-at a step it may not spend.
--}
-pickedUsedUp :: OpenGraph -> RunState -> Place -> Edge Node -> Maybe Refusal
-pickedUsedUp g state from edge = case edge.to of
-    At next
-        | isPick from.name ->
-            listToMaybe
-                [ OutOfBudget budget.cap most
-                | (metered, budget@Budget {allows = Just most}) <- Map.toList (budgets g state)
-                , metered.place == next
-                , budget.spent >= most
-                ]
-    At _ -> Nothing
+-- | The refusal of an edge into a step whose budget is used up.
+usedUpAt :: OpenGraph -> RunState -> Edge Node -> Maybe Refusal
+usedUpAt g state edge = case edge.to of
+    At next ->
+        listToMaybe
+            [ OutOfBudget budget.cap most
+            | (metered, budget@Budget {allows = Just most}) <- Map.toList (budgets g state)
+            , metered.place == next
+            , budget.spent >= most
+            ]
     Out -> Nothing
     Exit -> Nothing
 
@@ -554,9 +682,11 @@ data Effect = Effect
     , problems :: Set Problem
     , draft :: Maybe DraftPr
     , pr :: Maybe Url
-    , opened :: Maybe Url
+    , written :: Maybe Url
     , anew :: Bool
     -- ^ A new request starts: it has no target until one is named.
+    , confirmed :: Bool
+    -- ^ The outcome is the user's word: the Confirm asked at its step has its answer in the log first.
     , level :: Maybe Fuel
     -- ^ The run's Fuel from here on, as a 'Fuel' step sets it.
     , skip :: Maybe Skipping
@@ -577,13 +707,13 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     BuildLayer -> none {draft = built o}
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url, skip = keeps o}
-    TicketLayer -> none {opened = ticketOf o}
+    TicketLayer -> none {written = ticketOf o, confirmed = userWord o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
     PickLayer -> none
     FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False, level = Nothing, skip = Nothing}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, written = Nothing, anew = False, confirmed = False, level = Nothing, skip = Nothing}
 
 -- | The level a 'Fuel' step sets; a skip sets none.
 fuelOutcome :: Outcome (s :: FuelStep) l -> Maybe Fuel
@@ -610,14 +740,32 @@ keeps = \case
     AwaitCiRed _ _ -> Nothing
     FixPrDone _ -> Nothing
 
--- | The ticket an @open_ticket@ names.
+-- | The ticket a confirmed design was written into.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
 ticketOf = \case
-    OpenTicketDone url -> Just url
-    UpdateTicketDone -> Nothing
-    ConfirmDesignConfirmed -> Nothing
+    ConfirmDesignConfirmed url -> Just url
     ConfirmDesignAdjusted -> Nothing
-    FinalizeTicketDone -> Nothing
+    ProblemUnderstood -> Nothing
+    ProblemMore -> Nothing
+
+-- | Leaving the problem or the design loop: the user said so, in answer to the step's Confirm.
+userWord :: Outcome (s :: TicketStep) l -> Bool
+userWord = \case
+    ProblemUnderstood -> True
+    ConfirmDesignConfirmed _ -> True
+    ProblemMore -> False
+    ConfirmDesignAdjusted -> False
+
+{- | A Confirm asked since the run came here has its answer: the gate on an
+outcome that records the user's word, so prose alone never leaves the loop.
+-}
+confirmedHere :: RunState -> Either Refusal ()
+confirmedHere state = case (confirms, filter (isJust . heldAnswer state) confirms) of
+    (_, _ : _) -> Right ()
+    ([], []) -> Left ConfirmUnasked
+    (open : _, []) -> Left (ConfirmOpen open)
+  where
+    confirms = [question.qid | question <- state.askedHere, question.kind == Ask.Confirm]
 
 -- | The PR an @open_pr@ names: a ship from it waits on that PR's CI.
 openedPr :: Outcome (s :: RequestStep) l -> Maybe Url
@@ -753,7 +901,7 @@ asked g state asking
                 { pending = state.pending <> [Pending asking ForTriage]
                 , everAsked = Set.insert qid state.everAsked
                 , meters
-                , askedHere = if spends && any usedUp (spentByAsk g state {meters}) then [] else state.askedHere <> [asking.question.kind]
+                , askedHere = if spends && any usedUp (spentByAsk g state {meters}) then [] else state.askedHere <> [asking.question]
                 , onTarget = (\on -> on {designAsked = on.designAsked || opens asking.question.kind}) <$> state.onTarget
                 }
   where
@@ -884,19 +1032,34 @@ forwarded state qid to = do
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
 -- | 'append' takes the answer the run holds again as no news; another is refused.
-answered :: RunState -> QId -> Text -> Above -> Either Refusal RunState
-answered state qid answer by = case heldAnswer state qid of
+answered :: RunState -> QId -> Reply -> Above -> Either Refusal RunState
+answered state qid reply by = case heldAnswer state qid of
     Just earlier -> Left (AnsweredOtherwise qid earlier)
-    Nothing -> firstAnswer state qid answer by
+    Nothing -> firstAnswer state qid reply by
 
-firstAnswer :: RunState -> QId -> Text -> Above -> Either Refusal RunState
-firstAnswer state qid answer by = do
-    pending <- pendingOf qid state.pending
-    case pending.waits of
-        ForTriage -> Left (NotForwarded qid)
-        ForAnswer -> Right ()
+-- | Only a forwarded question is answered from above: a parked one was forwarded before it was parked ('parked').
+firstAnswer :: RunState -> QId -> Reply -> Above -> Either Refusal RunState
+firstAnswer state qid reply by = do
+    asking <- forwardedAsking qid state.pending
     fromAbove state.start.principal by
-    Right state {pending = close qid state.pending, answers = state.answers <> [Answer pending.asking.question answer]}
+    Right state {pending = close qid state.pending, answers = state.answers <> [Answer asking.question reply asking.step]}
+
+{- | A forwarded question parked, or parked again with another reason: it
+stays open. One still in triage is refused like its answer, so a park never
+lets a kind the run must answer itself be answered from above ('Ask.pass').
+-}
+parked :: RunState -> QId -> OneLine -> Either Refusal RunState
+parked state qid why = do
+    _ <- forwardedAsking qid state.pending
+    Right state {pending = adjust qid (\pending -> pending {waits = ForLater why}) state.pending}
+
+-- | The question this run forwarded, parked or not, for its answer to come down.
+forwardedAsking :: QId -> [Pending] -> Either Refusal Asking
+forwardedAsking qid pending =
+    pendingOf qid pending >>= \open -> case open.waits of
+        ForTriage -> Left (NotForwarded qid)
+        ForAnswer -> Right open.asking
+        ForLater _ -> Right open.asking
 
 -- | The question this run has yet to rule on or forward.
 forTriage :: QId -> [Pending] -> Either Refusal Asking
@@ -904,6 +1067,7 @@ forTriage qid pending =
     pendingOf qid pending >>= \open -> case open.waits of
         ForTriage -> Right open.asking
         ForAnswer -> Left (AlreadyForwarded qid)
+        ForLater _ -> Left (IsParked qid)
 
 pendingOf :: QId -> [Pending] -> Either Refusal Pending
 pendingOf qid = maybe (Left (NotPending qid)) Right . find ((== qid) . pendingId)
@@ -918,12 +1082,24 @@ pendingId :: Pending -> QId
 pendingId pending = pending.asking.question.qid
 
 -- | The answer from above the run holds to this question, if it was answered.
-heldAnswer :: RunState -> QId -> Maybe Text
+heldAnswer :: RunState -> QId -> Maybe Reply
 heldAnswer state qid = (.given) <$> find ((== qid) . (.about.qid)) state.answers
 
--- | Each question the run ruled on or had answered from above, with its answer.
-given :: RunState -> [(QId, Text)]
-given state = [(ruling.qid, oneLineText ruling.proposal.answer) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
+-- | Each question the run ruled on or had answered from above, with its answer: a ruling's is an option chosen.
+given :: RunState -> [(QId, Reply)]
+given state = [(ruling.qid, Chose (oneLineText ruling.proposal.answer)) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
+
+-- | The question pending under this id, if one is.
+pendingAt :: RunState -> QId -> Maybe Pending
+pendingAt state qid = find ((== qid) . pendingId) state.pending
+
+-- | Why the question is parked, if it is.
+parkedFor :: RunState -> QId -> Maybe OneLine
+parkedFor state qid =
+    pendingAt state qid >>= \pending -> case pending.waits of
+        ForLater why -> Just why
+        ForTriage -> Nothing
+        ForAnswer -> Nothing
 
 {- | A parked task's children wait on no answer: the questions they asked
 leave the pending ones, as no child of it will read an answer.
@@ -947,7 +1123,11 @@ nextQId state = QId state.run (1 + maximum (0 : [n | QId asker n <- Set.toList s
 
 -- | The state a question asked now is asked at, inside its scopes; past the end, the port's name.
 askedAt :: RunState -> StateName
-askedAt state = case state.at of
+askedAt state = nodeName state.at
+
+-- | A node's state, inside its scopes; past the end, the port's name.
+nodeName :: Node -> StateName
+nodeName = \case
     At place -> placeName place
     Out -> StateName "out"
     Exit -> StateName "exit"
@@ -968,9 +1148,105 @@ fromAbove principal named
 
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> placeName place == target) (places g)) of
-    [place] -> do
-        Right state {at = At place, rounds = enter g Nothing state.at (At place) state.rounds, meters = kept g (At place) state.meters, askedHere = []}
+    [place] -> Right (movedTo g state (At place))
     _ -> Left (NoSingleState target)
+
+-- | The run moved to the node off the flow's edges, as an override or a new request moves it.
+movedTo :: OpenGraph -> RunState -> Node -> RunState
+movedTo g state to = state {at = to, rounds = enter g Nothing state.at to state.rounds, meters = kept g to state.meters, askedHere = []}
+
+{- | A run whose flow switches requests, the chief's, going on: its flow
+handles 'FocusE' ("State.Flow.Chief").
+-}
+focusable :: RunState -> Either Refusal ()
+focusable state = case (state.start.flow, over state) of
+    (ChiefFlow, False) -> Right ()
+    (ChiefFlow, True) -> Left NoFocus
+    (EngineerFlow, _) -> Left NoFocus
+    (TenXFlow, _) -> Left NoFocus
+    (ArchitectFlow, _) -> Left NoFocus
+
+{- | The request in focus waits where it stands, its own open questions
+waiting apart, a forwarded one parked: a new request opens.
+-}
+suspends :: OpenGraph -> RunState -> TaskNo -> OneLine -> Either Refusal RunState
+suspends g state task summary
+    | task /= state.focus = Left (NotInFocus task)
+    | otherwise =
+        Right
+            (opened g state)
+                { suspended = Map.insert task (Suspension (positionOf state) summary [(pendingId p, p.waits) | p <- own]) state.suspended
+                , pending = map park state.pending
+                }
+  where
+    own = filter ((== Itself) . (.asking.from)) state.pending
+    park p = case (p.asking.from, p.waits) of
+        (Itself, ForAnswer) -> p {waits = ForLater (flattened ("suspended " <> taskNoText task))}
+        (Itself, ForTriage) -> p
+        (Itself, ForLater _) -> p
+        (Subagent _, _) -> p
+        (ChildRun _, _) -> p
+
+{- | Focus on the waiting request, where it stood, its questions waiting as
+they did. The request in focus, untouched or finished, is dropped: one
+underway is suspended first.
+-}
+focuses :: OpenGraph -> RunState -> TaskNo -> Either Refusal RunState
+focuses g state task = case (Map.lookup task state.suspended, stage g state) of
+    (Nothing, _) -> Left (NotSuspended task)
+    (Just _, Underway) -> Left (FocusRecorded state.focus)
+    (Just suspension, Untouched) -> Right (resumed suspension)
+    (Just suspension, Finished) -> Right (resumed suspension)
+  where
+    resumed (Suspension position _ asks) =
+        (placed g position state)
+            { focus = task
+            , suspended = Map.delete task state.suspended
+            , pending = map (\p -> maybe p (\waits -> p {waits}) (lookup (pendingId p) asks)) state.pending
+            }
+
+-- | A new request in focus, at the flow's start, numbered past every request still open.
+opened :: OpenGraph -> RunState -> RunState
+opened g state = (movedTo g state (At g.inPort)) {onTarget = Nothing, focus = nextTask state}
+
+nextTask :: RunState -> TaskNo
+nextTask state = case maximum (state.focus : Map.keys state.suspended) of
+    TaskNo n -> TaskNo (n + 1)
+
+{- | How far the chief's request in focus went, read off the cursor, never
+stored: a turn away loses nothing of one untouched or finished.
+-}
+data Stage
+    = -- | At the flow's start, its target unnamed: it recorded nothing.
+      Untouched
+    | -- | Past its start and not yet at @next@: a turn away suspends it.
+      Underway
+    | -- | At @next@: its route ran to the end, and the next request is the run's to take.
+      Finished
+    deriving stock (Eq, Show)
+
+stage :: OpenGraph -> RunState -> Stage
+stage g state
+    | state.at == At g.inPort && isNothing state.onTarget = Untouched
+    | nodeName state.at == stepName Request.Next = Finished
+    | otherwise = Underway
+
+positionOf :: RunState -> Position
+positionOf state = Position state.at state.fuel state.rounds state.meters state.askedHere state.onTarget state.latest
+
+{- | The run at the waiting request's position. A meter whose loop holds the
+request's start counts across requests, as the Requests cap does: it keeps
+its live spend, so the requests finished while this one waited still count.
+-}
+placed :: OpenGraph -> Position -> RunState -> RunState
+placed g (Position at fuel rounds meters askedHere onTarget latest) state =
+    state {at, fuel, rounds, meters = Map.union (Map.filterWithKey (const . acrossRequests) state.meters) (Map.filterWithKey (\metered _ -> not (acrossRequests metered)) meters), askedHere, onTarget, latest}
+  where
+    acrossRequests metered = heldIn g metered.place (At g.inPort)
+
+-- | The questions the waiting requests hold: none waits on the request in focus.
+suspendedAsks :: RunState -> [QId]
+suspendedAsks state = [qid | suspension <- Map.elems state.suspended, (qid, _) <- suspension.asks]
 
 {- | The rounds after a move from one node to another. A loop's own back
 edge starts its next round; one entered from outside, or restarted by an
@@ -1046,7 +1322,7 @@ something outside the run: a stuck CI loop never claims @await_ci.green@.
 stuckExits :: OpenGraph -> RunState -> Place -> [(EventName, Edge Node)]
 stuckExits g state place = case innermost g place of
     Just loop
-        | Ask.Stuck `elem` state.askedHere && loop.entry /= place && not (awaits loop.entry) ->
+        | Ask.Stuck `elem` map (.kind) state.askedHere && loop.entry /= place && not (awaits loop.entry) ->
             [(event, edge) | (event, edge) <- outOf loop.entry g.edges, not (inBody loop edge.to)]
     _ -> []
   where
@@ -1059,8 +1335,9 @@ stuckExits g state place = case innermost g place of
             AwaitsCi -> True
             AwaitsMerge -> True
             Ordinary -> False
-            AsksConfirm _ -> False
+            AsksConfirm _ _ -> False
             TellsResult -> False
+            Discusses -> False
         Nothing -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses

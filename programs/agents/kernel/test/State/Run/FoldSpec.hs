@@ -10,19 +10,19 @@ import Data.Maybe (isJust, isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe, failure, forAll, (/==), (===))
+import Hedgehog (Gen, PropertyT, annotate, annotateShow, assert, cover, discard, evalEither, evalMaybe, failure, forAll, success, (/==), (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), Group (..), scopePath, unqualify)
-import State.Category.FlowGen (composes, genFlow, genWalk, threeWay, threeWayGraph, threeWayPick)
+import State.Category.Flow (Flow (..), Group (..), Name, scopePath, unqualify)
+import State.Category.FlowGen (AnyFlow (..), builds, composes, genFlow, genWalk, threeWay, threeWayGraph, threeWayPick)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (someMeterName)
 import State.Category.Path (ty, unrecorded)
 import State.Category.Step (EventName (..), OutcomeName (..), StepSet (stepName), stateNameText)
-import State.Flow.Drawn (fuelTakes)
+import State.Flow.Drawn (drawnOutcomes, fuelTakes)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library qualified as Library
 import State.Flow.TenX (tenX)
@@ -30,12 +30,12 @@ import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Decision (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (Merge)
-import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
+import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genReading, genReply, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold hiding (Answer (..))
+import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketOpened, ticketUrl, within)
-import State.Step.Catalog (flowOutcomes, outcome, outcomeEvent, termSteps)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, userConfirms, within)
+import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
 import State.Step.Gather (Outcome (..))
@@ -43,7 +43,7 @@ import State.Step.Plan (Outcome (..), Sing (PlanS))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
-import State.Step.Ticket (Outcome (..))
+import State.Step.Ticket (Outcome (..), Sing (ConfirmDesign))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -208,7 +208,7 @@ spec = describe "State.Run.Fold" $ do
         inScope flow state event === event
 
     it "every_accepted_log_of_a_scoped_flow_is_a_path" . hedgehog $ do
-        f <- forAll (Gen.filter (isRight . graph) genFlow)
+        AnyFlow f <- forAll (Gen.filter builds genFlow)
         flow <- evalEither (graph f)
         events <- forAll (genAcceptedOn (concatMap flowOutcomes (termSteps f)) flow)
         cover 10 "a step's outcome inside a scope" (or [scope /= mempty | Took scope _ <- events])
@@ -310,6 +310,117 @@ spec = describe "State.Run.Fold" $ do
         spawned [hook 3, hook 4] `shouldSatisfy` isRight
         spawned [hook 3, hook 4] `shouldBe` spawned [hook 3]
 
+    {- One pure handler per effect serves a live run and its replay: live
+    makes the event and appends it to the log so far, as the shell's commit
+    does ('appendTo'), and a replay folds the same events. The log written
+    live holds voids and hooks fired again, where 'appendTo' is no 'append'.
+    -}
+    describe "effects, live and replayed" $ do
+        it "live_appends_reach_the_run_the_log_replays" . hedgehog $ do
+            (flow, written, live) <- forAll genShellLog
+            let events = map (.event) (NonEmpty.toList written)
+            cover 30 "a pick" (or [isPick took | Took _ took <- events])
+            cover 10 "a question" (or [True | Asked _ <- events])
+            cover 20 "a void" (or [True | Voided _ _ <- events])
+            replay flow written === Right live
+
+        it "replaying_a_prefix_then_appending_the_rest_is_replaying_the_whole" . hedgehog $ do
+            (flow, written, _) <- forAll genShellLog
+            k <- forAll (Gen.int (Range.linear 1 (length written)))
+            let (before, rest) = NonEmpty.splitAt k written
+            prefix <- evalMaybe (NonEmpty.nonEmpty before)
+            (replay flow prefix >>= \state -> appendAll flow prefix state rest) === replay flow written
+
+        it "a_pick_replayed_off_its_choice_is_refused" . hedgehog $ do
+            flow <- forAll (Gen.element roleGraphs)
+            events <- forAll (genAcceptedOn [] flow)
+            let picks = [(take k events, scope, took, drop (k + 1) events) | (k, Took scope took) <- zip [0 :: Int ..] events, isPick took]
+            (before, scope, took, after) <- if null picks then discard else forAll (Gen.element picks)
+            other <- forAll (Gen.element [o | o <- drawnOutcomes, isPick o, (outcomeEvent o).step /= (outcomeEvent took).step])
+            case replay flow (logOf (started :| before <> [Took scope other] <> after)) of
+                Left (NoEdge _ _) -> success
+                refused -> annotateShow refused >> failure
+
+        it "the_answer_that_came_down_is_the_answer_the_run_holds" . hedgehog $ do
+            (state, logged) <- forAll genAskLog
+            let answers = [(qid, reply) | Answered qid reply _ <- NonEmpty.toList logged]
+            cover 5 "an answer" (not (null answers))
+            map (heldAnswer state . fst) answers === map (Just . snd) answers
+
+        it "a_park_keeps_its_forwarded_question_open_and_an_answer_then_closes_it_touching_no_other" . hedgehog $ do
+            (state, logged) <- forAll genAskLog
+            let forwarded = [p | p <- state.pending, p.waits /= ForTriage]
+            open <- if null forwarded then discard else forAll (Gen.element forwarded)
+            why <- forAll genOneLine
+            reply <- forAll genReply
+            let qid = open.asking.question.qid
+                others = filter ((/= qid) . (.asking.question.qid))
+                parkedLog = logged <> pure (QuestionParked qid why)
+            cover 10 "a forwarded question parked" (open.waits == ForAnswer)
+            parkedState <- evalEither (replay g (logOf parkedLog))
+            [p.waits | p <- parkedState.pending, p.asking.question.qid == qid] === [ForLater why]
+            others parkedState.pending === others state.pending
+            answeredState <- evalEither (replay g (logOf (parkedLog <> pure (Answered qid reply (deliver state.start.principal)))))
+            ([p | p <- answeredState.pending, p.asking.question.qid == qid], heldAnswer answeredState qid) === ([], Just reply)
+            others answeredState.pending === others state.pending
+
+        it "a_question_in_triage_is_refused_a_park_as_it_is_an_answer" . hedgehog $ do
+            (state, logged) <- forAll genAskLog
+            let inTriage = [p.asking.question.qid | p <- state.pending, p.waits == ForTriage, isNothing state.stopped]
+            qid <- if null inTriage then discard else forAll (Gen.element inTriage)
+            why <- forAll genOneLine
+            case replay g (logOf (logged <> pure (QuestionParked qid why))) of
+                Left (NotForwarded refused) -> refused === qid
+                parkedInTriage -> annotateShow parkedInTriage >> failure
+
+        it "an_answer_to_a_question_never_asked_is_refused" . hedgehog $ do
+            (state, logged) <- forAll genAskLog
+            let unasked = QId run 1000
+            case replay g (logOf (logged <> pure (Answered unasked (Chose "yes") TheUser))) of
+                Left (NotPending qid) -> qid === unasked
+                Left (AfterStop _) -> state.stopped /== Nothing
+                refused -> annotateShow refused >> failure
+
+    describe "a request switch" $ do
+        it "turning_away_from_a_request_and_back_lands_where_the_log_without_the_turn_does" . hedgehog $ do
+            events <- forAll (genAcceptedOn [] chiefGraph)
+            split <- forAll (Gen.int (Range.linear 0 (length events)))
+            summary <- forAll genOneLine
+            let (prefix, rest) = splitAt split events
+            before <- evalEither (chief prefix)
+            if over before then discard else success
+            cover 10 "turned away mid-request" (stage chiefGraph before == Fold.Underway)
+            cover 5 "more of the request after the turn" (not (null rest))
+            (landing <$> chief (prefix <> [Suspended before.focus summary, Focused before.focus] <> rest)) === (landing <$> chief (prefix <> rest))
+
+        it "a_turn_away_opens_a_new_request_at_the_start_and_parks_the_waiting_requests_forwarded_question" $ do
+            let asking = Asking (Question (QId run 1) Design (oneLine "which store?")) (StateName "fuel") Itself
+            away <- either (fail . show) pure (chief [fuelSet Balanced, Asked asking, Forwarded (QId run 1) TheUser, Suspended (TaskNo 1) (oneLine "asked the store")])
+            (away.focus, away.at, Map.keys away.suspended, (.waits) <$> away.pending)
+                `shouldBe` (TaskNo 2, At chiefGraph.inPort, [TaskNo 1], [ForLater (oneLine "suspended r1")])
+
+        it "refuses a turn to a request that is not waiting" $
+            chief [Focused (TaskNo 1)] `shouldBe` Left (NotSuspended (TaskNo 1))
+
+        it "refuses a turn away from a request that recorded work without suspending it" $
+            chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Focused (TaskNo 1)] `shouldBe` Left (FocusRecorded (TaskNo 2))
+
+        it "drops a finished request, at next, on the turn back to a waiting one" $ do
+            back <- either (fail . show) pure (chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Took mempty (pickOf "route" "other"), stepTook (DirectDone "done"), Focused (TaskNo 1)])
+            (back.focus, nodeName back.at, Map.keys back.suspended) `shouldBe` (TaskNo 1, StateName "route", [])
+
+        it "keeps the requests finished while one waited on the turn back to it" $ do
+            back <- either (fail . show) pure (chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Took mempty (pickOf "route" "other"), stepTook (DirectDone "done"), stepTook NextRequest, Focused (TaskNo 1)])
+            Map.elems (Map.filterWithKey (\metered _ -> metered.step == StateName "next") back.meters) `shouldBe` [1]
+
+        it "shows no url of a later request on the turn back to a waiting one" $ do
+            let engineered = Took mempty (pickOf "route" "engineer") : within "engineer" (fuelSet Balanced : happyPath)
+            back <- either (fail . show) pure (chief ([fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max] <> engineered <> [Focused (TaskNo 1)]))
+            back.latest `shouldBe` Nothing
+
+        it "refuses a request switch in a run of a flow that does not switch requests" $
+            replay g (logOf (started :| [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x")])) `shouldBe` Left NoFocus
+
     describe "a void" $ do
         it "a_void_replays_as_the_line_never_logged" . hedgehog $ do
             events <- forAll genAccepted
@@ -400,6 +511,13 @@ pickRounds :: [Picks] -> [Event]
 pickRounds = \case
     [] -> []
     picks -> stepTook (ReviewRows sha) : intercalate [stepTook (FixDone commit), stepTook (ReReviewRows sha)] [[stepTook (PickLoop p)] | p <- picks]
+
+-- | The state the run is at, by its name.
+nameAt :: RunState -> Maybe Text
+nameAt state = case state.at of
+    At place -> Just (stateNameText (placeName place))
+    Out -> Nothing
+    Graph.Exit -> Nothing
 
 -- | Refused as a spend past the named meter's cap, which allows this many at the run's Fuel.
 outOf :: Text -> Natural -> Either Fold.Refusal a -> Bool
@@ -531,6 +649,11 @@ gatherBudgets = describe "the gather's choice" $ do
         let adjusted = spent <> replicate 5 handedBack <> enoughIn "gather" <> [stepTook (PlanDone "p"), Took mempty (runOf "simplify_plan"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted]
         replay g (logOf (started :| fuelSet Balanced : adjusted <> asks 31 30 <> spawns 5)) `shouldSatisfy` isRight
 
+    it "keeps each gap recorded, oldest first, and stays where it is" $ do
+        let at = fuelSet Balanced : take 7 happyPath
+        fmap (\state -> (state.at, state.gaps)) (replay g (logOf (started :| at <> [Gapped "one", Gapped "two"])))
+            `shouldBe` fmap (\state -> (state.at, ["one", "two"])) (replay g (logOf (started :| at)))
+
     it "refuses extend outside the gather" $
         replay g (logOf (started :| fuelSet Balanced : take 10 happyPath <> [Extended "why"])) `shouldBe` Left NothingToExtend
   where
@@ -578,24 +701,53 @@ gatherBudgets = describe "the gather's choice" $ do
 interviewed :: [Event] -> [Event]
 interviewed asked = Took mempty (pickOf "gather" "interview") : asked <> [stepTook InterviewAsked]
 
-{- | The architect's run: research, a ticket opened, design rounds until the
-user confirms one, the ticket finalized and its url kept.
+{- | The architect's run: research and the problem until the user understands
+it, design rounds until the user confirms one, and only then the ticket's url.
 -}
 architectRun :: Spec
 architectRun = describe "the architect's run" $ do
-    it "researches, opens the ticket, adjusts the design once, then finalizes the confirmed one, keeping the ticket's url" $
-        (\state -> (state.at, state.ticket)) <$> architect (ticketOpened <> designRound ConfirmDesignAdjusted <> designRound ConfirmDesignConfirmed <> [stepTook FinalizeTicketDone])
+    it "researches, understands the problem, adjusts the design once, then keeps the confirmed design's ticket url" $
+        (\state -> (state.at, state.ticket)) <$> architect (problemUnderstood <> designRound ConfirmDesignAdjusted <> designConfirmed)
             `shouldBe` Right (Out, Just ticketUrl)
 
+    it "refuses the problem understood where no Confirm was asked" $
+        architect (explored <> [stepTook ProblemUnderstood]) `shouldBe` Left ConfirmUnasked
+
+    it "refuses the problem understood while its Confirm waits for the user's answer" $
+        architect (explored <> take 2 (userConfirms 1 (StateName "problem")) <> [stepTook ProblemUnderstood]) `shouldBe` Left (ConfirmOpen (QId run 1))
+
+    it "refuses the problem understood on the answer of an earlier round's Confirm" $
+        architect (explored <> userConfirms 1 (StateName "problem") <> [stepTook ProblemMore] <> explored <> [stepTook ProblemUnderstood]) `shouldBe` Left ConfirmUnasked
+
+    it "refuses the design confirmed where no Confirm was asked" $
+        architect (problemUnderstood <> designDiscussed <> [stepTook (ConfirmDesignConfirmed ticketUrl)]) `shouldBe` Left ConfirmUnasked
+
+    it "researches again after the problem needs more" $
+        nameAt <$> architect (researchedIn "exploring" <> enoughIn "exploring" <> [stepTook ProblemMore]) `shouldBe` Right (Just "exploring")
+
+    it "refuses a fourth problem round at Balanced's three" $
+        architect (concat (replicate 4 (enoughIn "exploring" <> [stepTook ProblemMore]))) `shouldSatisfy` outOf "Problem rounds" 3
+
     it "refuses a fourth adjusted design at Balanced's three rounds" $
-        architect (ticketOpened <> concat (replicate 4 (designRound ConfirmDesignAdjusted))) `shouldSatisfy` outOf "Design rounds" 3
+        architect (problemUnderstood <> concat (replicate 4 (designRound ConfirmDesignAdjusted))) `shouldSatisfy` outOf "Design rounds" 3
 
     it "accepts a fourth adjusted design after extend" $ do
-        let extended = ticketOpened <> concat (replicate 3 (designRound ConfirmDesignAdjusted)) <> designWritten <> [Extended "the user goes on"]
+        let extended = problemUnderstood <> concat (replicate 3 (designRound ConfirmDesignAdjusted)) <> designDiscussed <> [Extended "the user goes on"]
         architect (extended <> [stepTook ConfirmDesignAdjusted]) `shouldSatisfy` isRight
+
+    it "records_no_ticket_url_before_the_design_is_confirmed" . hedgehog $ do
+        events <- forAll (genAcceptedOn [] architectGraph)
+        let (unconfirmed, rest) = break confirmed events
+        cover 5 "the design confirmed" (not (null rest))
+        states <- traverse (evalEither . replay architectGraph . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| unconfirmed)))
+        for_ states $ \state -> (state.ticket, state.latest) === (Nothing, Nothing)
   where
     architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
-    designRound verdict = designWritten <> [stepTook verdict]
+    explored = researchedIn "exploring" <> enoughIn "exploring"
+    designRound verdict = designDiscussed <> [stepTook verdict]
+    confirmed = \case
+        Took _ took -> outcomeEvent took == EventName (stepName ConfirmDesign) (OutcomeName "confirmed")
+        _ -> False
 
 {- | The chief's requests: each is picked at the hub, runs inline in its
 branch's scope by the events its own skill records bare, and ends at @next@,
@@ -654,23 +806,17 @@ chiefRequests = describe "the chief's requests" $ do
                 `shouldBe` (Right (OwnPr, True), Left (NotSkippable "engineer/ready"))
 
     it "chains architect, a block and architect again through next, naming the newest url each time" $ do
-        let designed = request "architect" <> within "architect" (fuelSet Balanced : ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])
+        let designed = request "architect" <> within "architect" (fuelSet Balanced : problemUnderstood <> designConfirmed)
             researched = request "blocks" <> [Took mempty (pickOf "block" "researching")] <> within "researching" (researchedIn "exploring" <> enoughIn "exploring")
             shipped = request "blocks" <> [Took mempty (pickOf "block" "shipping")] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
             andThen first later = first <> [stepTook NextRequest] <> later
         map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed `andThen` researched, designed `andThen` shipped, shipped `andThen` designed]
             `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just pr), Right (Just "next", Just ticketUrl)]
   where
-    chief events = replay chiefGraph (logOf (Started (startOf ChiefFlow (ByUser OwnPr)) :| events))
     -- A request: its Fuel, then its pick.
     request branch = [fuelSet Balanced, pick branch]
     pick branch = Took mempty (pickOf "route" branch)
     engineered = within "engineer" (fuelSet Balanced : happyPath)
-    nameAt :: RunState -> Maybe Text
-    nameAt state = case state.at of
-        At place -> Just (stateNameText (placeName place))
-        Out -> Nothing
-        Graph.Exit -> Nothing
     pr = Url "https://github.com/o/r/pull/7"
     firstRequest = [fuelSet Max, pick "other", stepTook (DirectDone "done")]
     toReadySkipped = request "engineer" <> within "engineer" (fuelSet Balanced : init happyPath <> [stepTook (ReadySkipped pr)])
@@ -726,7 +872,7 @@ tenXRounds = describe "the 10x's rounds" $ do
   where
     pr = Url "https://pr/1"
     t1 = TaskId "t1"
-    parent = Parent (runId "p1") "p1/events.jsonl" t1
+    parent = Parent (runId "p1") (AtFan t1)
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| fuelSet fuel : init happyPath <> [stepTook (ReadySkipped pr)]))
     tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
     agreed = spawnedIn "gather" <> [stepTook ResearchHandedBack] <> planned
@@ -745,8 +891,25 @@ questions :: Spec
 questions = describe "questions" $ do
     it "keeps a question pending, oldest first, until it is ruled on or its answer comes down" $
         map (\pending -> (pending.asking.question.qid, pending.waits)) . (.pending)
-            <$> replay g (logOf (started :| fuelSet Balanced : [ask 3 Design, ask 1 Design, ask 2 Pick, ask 4 Design, RuledOn (q 2) proposal, Forwarded (q 1) TheUser, Forwarded (q 4) TheUser, Answered (q 4) "yes" TheUser]))
+            <$> replay g (logOf (started :| fuelSet Balanced : [ask 3 Design, ask 1 Design, ask 2 Pick, ask 4 Design, RuledOn (q 2) proposal, Forwarded (q 1) TheUser, Forwarded (q 4) TheUser, Answered (q 4) yes TheUser]))
             `shouldBe` Right [(q 3, ForTriage), (q 1, ForAnswer)]
+
+    it "keeps a parked question open, parked and why, until an answer closes it" $ do
+        let parkedQ = [ask 1 Design, Forwarded (q 1) TheUser, QuestionParked (q 1) (oneLine "after the release")]
+        map (\pending -> (pending.asking.question.qid, pending.waits)) . (.pending) <$> replay g (logOf (started :| fuelSet Balanced : parkedQ))
+            `shouldBe` Right [(q 1, ForLater (oneLine "after the release"))]
+        (.pending) <$> replay g (logOf (started :| fuelSet Balanced : parkedQ <> [Answered (q 1) yes TheUser]))
+            `shouldBe` Right []
+
+    it "refuses a ruling or a forward of a parked question: only its answer is left" $
+        map
+            (\closing -> replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, QuestionParked (q 1) (oneLine "later"), closing])))
+            [RuledOn (q 1) proposal, Forwarded (q 1) TheUser]
+            `shouldBe` replicate 2 (Left (IsParked (q 1)))
+
+    it "keeps an Other reply apart from a chosen one" $
+        map (\reply -> fmap (.given) . (.answers) <$> replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) reply TheUser]))) [yes, Other "a new request"]
+            `shouldBe` [Right [yes], Right [Other "a new request"]]
 
     it "keeps the run at its step while a question waits, the step named in the log (law Resume)" $
         ((.at) <$> replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser])), map (.asking.step) . (.pending) <$> replay g (logOf (started :| fuelSet Balanced : [ask 1 Design])))
@@ -778,7 +941,7 @@ questions = describe "questions" $ do
         replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) parent])) `shouldBe` Left (NotAbove parent)
 
     it "refuses an answer to a question the run never forwarded" $
-        replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Answered (q 1) "yes" TheUser])) `shouldBe` Left (NotForwarded (q 1))
+        replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Answered (q 1) yes TheUser])) `shouldBe` Left (NotForwarded (q 1))
 
     it "refuses a retag once the question is forwarded" $
         replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, RetaggedSecurity (q 1)])) `shouldBe` Left (AlreadyForwarded (q 1))
@@ -793,17 +956,18 @@ questions = describe "questions" $ do
         replay g (logOf (started :| fuelSet Balanced : [ask 1 Pick, RuledOn (q 1) proposal, ask 1 Pick])) `shouldBe` Left (AskedTwice (q 1))
 
     it "takes an answer it holds again as no news, and refuses another" $ do
-        let answered = [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser]
-        map (\more -> (.answers) <$> replay g (logOf (started :| fuelSet Balanced : answered <> more))) [[], [Answered (q 1) "yes" TheUser]]
-            `shouldBe` replicate 2 (Right [Fold.Answer (Question (q 1) Design (oneLine "a question")) "yes"])
-        replay g (logOf (started :| fuelSet Balanced : answered <> [Answered (q 1) "no" TheUser])) `shouldBe` Left (AnsweredOtherwise (q 1) "yes")
+        let answered = [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) yes TheUser]
+        map (\more -> (.answers) <$> replay g (logOf (started :| fuelSet Balanced : answered <> more))) [[], [Answered (q 1) yes TheUser]]
+            `shouldBe` replicate 2 (Right [Fold.Answer (Question (q 1) Design (oneLine "a question")) yes (StateName "implement")])
+        replay g (logOf (started :| fuelSet Balanced : answered <> [Answered (q 1) (Chose "no") TheUser])) `shouldBe` Left (AnsweredOtherwise (q 1) yes)
 
     it "refuses asking an answered question again" $
-        replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser, ask 1 Design]))
+        replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) yes TheUser, ask 1 Design]))
             `shouldBe` Left (AskedTwice (q 1))
 
     it "every_ruling_is_in_show_and_in_the_handback" . hedgehog $ do
-        (state, events) <- forAll genAskLog
+        (state, logged) <- forAll genAskLog
+        let events = NonEmpty.toList logged
         let ruled = [(qid, ruling) | RuledOn qid ruling <- events]
             sent = Text.lines (handback "READY ref" state.run state.rulings)
         -- About 37% of runs: a 100-test run misses 15% on about 1 seed in 3 million.
@@ -813,7 +977,8 @@ questions = describe "questions" $ do
             assert (any (\sentLine -> all (`Text.isInfixOf` sentLine) (qidText qid <> " " : map oneLineText [ruling.answer, ruling.why, ruling.cost])) sent)
 
     it "no_event_retags_security" . hedgehog $ do
-        (state, events) <- forAll genAskLog
+        (state, logged) <- forAll genAskLog
+        let events = NonEmpty.toList logged
         let security = Set.fromList ([asking.question.qid | Asked asking <- events, asking.question.kind == Security] <> [qid | RetaggedSecurity qid <- events])
             kinds =
                 [pending.asking.question.kind | pending <- state.pending, Set.member pending.asking.question.qid security]
@@ -838,9 +1003,13 @@ questions = describe "questions" $ do
             for_ [(qid, answer, by) | Answered qid answer by <- events] $ \(qid, answer, by) -> do
                 again <- evalEither (replay g (runLog rung (events <> [Answered qid answer by])))
                 (again.answers, again.pending) === (state.answers, state.pending)
-                replay g (runLog rung (events <> [Answered qid (answer <> " or not") by])) === Left (AnsweredOtherwise qid answer)
+                replay g (runLog rung (events <> [Answered qid (orNot answer) by])) === Left (AnsweredOtherwise qid answer)
   where
     q = QId run
+    yes = Chose "yes"
+    orNot = \case
+        Chose answer -> Chose (answer <> " or not")
+        Other answer -> Other (answer <> " or not")
     ask n kind = Asked (Asking (Question (q n) kind (oneLine "a question")) (StateName "implement") Itself)
     askIn at kind = Asked (Asking (Question (q 1) kind (oneLine "a question")) (StateName at) Itself)
     proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
@@ -872,28 +1041,41 @@ atName state = case state.at of
     Out -> Nothing
     Graph.Exit -> Nothing
 
+-- | Where a run stands, less the line numbers it holds, which a log with more lines shifts.
+landing :: RunState -> (Node, Map.Map Name (NonEmpty Round), Map.Map Metered Natural, Maybe Fuel, [Pending], [Ask.Question], TaskNo, Map.Map TaskNo Suspension, Maybe OnTarget, Maybe Stop)
+landing s = (s.at, s.rounds, s.meters, s.fuel, s.pending, s.askedHere, s.focus, s.suspended, s.onTarget, s.stopped)
+
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
 startOf flow principal = Start flow "notes" principal Set.empty
 
+-- | The chief run a user started, replayed over these lines.
+chief :: [Event] -> Either Fold.Refusal RunState
+chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
+
 {- | Up to 60 tries at an ask event on a run of the engineer or the 10x flow,
 one per rung that rules, under the user or a parent, keeping those the fold
-accepts: the run state and the events.
+accepts: the run state and its log, @started@ first.
 -}
-genAskLog :: Gen (RunState, [Event])
+genAskLog :: Gen (RunState, NonEmpty Event)
 genAskLog = do
     flow <- Gen.element [EngineerFlow, TenXFlow]
-    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms]
-    first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
+    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") (AtFan (TaskId "t1"))) OwnPr ChildConfirms]
+    let begun = Started (startOf flow principal)
+    first <- either (fail . show) pure (replay g (logOf (begun :| [])))
     tries <- Gen.int (Range.linear 0 60)
-    go tries first 1 0
+    fmap (begun :|) <$> go tries first 1 0
   where
     go :: Int -> RunState -> Natural -> Natural -> Gen (RunState, [Event])
     go 0 state _ _ = pure (state, [])
     go k state n fresh = do
-        -- Each ask takes a fresh id; the rest name any id so far, or the next.
-        let known = QId run <$> Gen.integral (Range.constant 0 fresh)
-            above = Gen.element [TheUser, ParentRun (runId "p1")]
+        {- Each ask takes a fresh id; the rest mostly name an open question,
+        so forwards and answers land, else any id so far, or the next.
+        -}
+        let open = [p.asking.question.qid | p <- state.pending]
+            known = Gen.frequency ((1, QId run <$> Gen.integral (Range.constant 0 fresh)) : [(4, Gen.element open) | not (null open)])
+            -- Whoever started the run: another's forward or answer is refused, which 'NotAbove''s test pins.
+            above = pure (deliver state.start.principal)
             same = fmap (,fresh)
         (event, next) <-
             Gen.frequency
@@ -901,7 +1083,8 @@ genAskLog = do
                 , (10, same (RetaggedSecurity <$> known))
                 , (40, same (RuledOn <$> known <*> genProposal))
                 , (30, same (Forwarded <$> known <*> above))
-                , (20, same (Answered <$> known <*> genText <*> above))
+                , (20, same (Answered <$> known <*> genReply <*> above))
+                , (10, same (QuestionParked <$> known <*> genOneLine))
                 , (1, same (pure (Stopped halt)))
                 ]
         case append g state (line n event) of
@@ -914,7 +1097,7 @@ data Rung = Rung {run :: RunId, start :: Start}
     deriving stock (Show)
 
 -- | How a climb ended for the runs it passed.
-data End = Answer Text | Halt
+data End = Answer Reply | Halt
     deriving stock (Eq, Show)
 
 data Try = Rule Proposal | Pass
@@ -929,7 +1112,7 @@ genChain =
         <*> Gen.element
             [ [rung "e1" EngineerFlow (ByUser OwnPr)]
             , [rung "x1" TenXFlow (ByUser OwnPr)]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") (AtFan (TaskId "t1"))) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)
@@ -943,7 +1126,7 @@ climb from question = \case
     [] -> do
         annotate "the user is never asked a Fact"
         question.kind /== Fact
-        pure ([], Answer "the user's answer")
+        pure ([], Answer (Chose "the user's answer"))
     rung : above -> do
         reading <- forAll genReading
         stops <- forAll (Gen.frequency [(9, pure False), (1, pure True)])
@@ -964,7 +1147,7 @@ climb from question = \case
             (False, []) -> do
                 annotate "the run may neither rule nor forward"
                 failure
-            (False, Rule ruling : _) -> pure ([taken <> [event (Rule ruling)]], Answer (oneLineText ruling.answer))
+            (False, Rule ruling : _) -> pure ([taken <> [event (Rule ruling)]], Answer (Chose (oneLineText ruling.answer)))
             (False, Pass : _) -> do
                 (logs, end) <- climb (ChildRun rung.run) raised above
                 let closing = case end of
@@ -983,3 +1166,84 @@ unseenIn :: Append -> Append
 unseenIn = \case
     Appended state -> Appended (unseen state)
     AlreadyLogged -> AlreadyLogged
+
+-- | The graphs of the engineer, 10x, architect and chief flows.
+roleGraphs :: [OpenGraph]
+roleGraphs = [g, tenXGraph, architectGraph, chiefGraph]
+
+{- | An accepted log with the graph it replays on: a role's steps and
+picks, or the engineer's questions. Picks come from the first only, so it
+is drawn twice as often: a pick in about 60% of logs, far over the 30% its
+cover needs on any seed.
+-}
+genEffectLog :: Gen (OpenGraph, NonEmpty Event)
+genEffectLog =
+    Gen.frequency
+        [ (2, Gen.element roleGraphs >>= \flow -> (flow,) . (started :|) <$> genAcceptedOn [] flow)
+        , (1, (g,) . snd <$> genAskLog)
+        ]
+
+-- | Whether the outcome is a choice's pick.
+isPick :: AnyOutcome -> Bool
+isPick = \case
+    AnyOutcome PickLayer _ -> True
+    AnyOutcome _ _ -> False
+
+{- | A line the shell is sent: a new event, a void of the line logged @k@
+lines back, or the hook of the line logged @k@ lines back fired again.
+-}
+data Sent = Fresh Event | VoidBack Int | Refire Int
+    deriving stock (Show)
+
+{- | A run's flow, the log the shell writes for it and the run the shell
+holds. Between a run's events the shell also meets: a line voided just
+after it is logged, its hook fired again and the event logged anew; a hook
+fired twice; a void of an older line, which the run may refuse.
+-}
+genShellLog :: Gen (OpenGraph, NonEmpty Envelope, RunState)
+genShellLog = do
+    (flow, begun :| events) <- genEffectLog
+    sends <- concat <$> traverse withExtras events
+    (written, live) <- either (fail . show) pure (shellLog flow begun sends)
+    pure (flow, written, live)
+  where
+    withExtras event =
+        (Fresh event :)
+            <$> Gen.frequency
+                [ (6, pure [])
+                , (1, pure [VoidBack 0, Refire 1, Fresh event])
+                , (1, pure . Refire <$> Gen.int (Range.linear 0 5))
+                , (1, pure . VoidBack <$> Gen.int (Range.linear 0 10))
+                ]
+
+{- | Each sent line numbered and appended to the log so far ('appendTo'), as
+the shell's commit appends it ('State.Cli.Shell' exports none): a line
+refused or logged already is not written. Each new line is a hook's, so a
+hook fired again is the same line.
+-}
+shellLog :: OpenGraph -> Event -> [Sent] -> Either Fold.Refusal (NonEmpty Envelope, RunState)
+shellLog flow begun sends = do
+    let first = line 0 begun
+    state <- replay flow (first :| [])
+    Right (foldl' send (first :| [], state) sends)
+  where
+    send (logged, state) sent = case appendTo flow state logged envelope of
+        Right (Appended later) -> (logged <> pure envelope, later)
+        Right AlreadyLogged -> (logged, state)
+        Left _ -> (logged, state)
+      where
+        next = fromIntegral (length logged)
+        back k = NonEmpty.reverse logged NonEmpty.!! min k (length logged - 1)
+        envelope = case sent of
+            Fresh event -> hookLine (Text.pack ("d" <> show next)) next event
+            VoidBack k -> line next (Voided (back k).seq "logged in error")
+            Refire k -> (back k) {seq = next}
+
+-- | The lines appended one by one to the log so far, as the shell appends them.
+appendAll :: OpenGraph -> NonEmpty Envelope -> RunState -> [Envelope] -> Either Fold.Refusal RunState
+appendAll flow logged state = \case
+    [] -> Right state
+    envelope : rest ->
+        appendTo flow state logged envelope >>= \case
+            Appended later -> appendAll flow (logged <> pure envelope) later rest
+            AlreadyLogged -> appendAll flow logged state rest

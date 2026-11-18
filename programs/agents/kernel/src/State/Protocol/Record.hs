@@ -143,7 +143,10 @@ usageOf r = Text.unwords (filter (not . Text.null) (r.positional : map flagUsage
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
 recordables =
-    [ nothing ResearchSpawned
+    [ stay "gap" "<text>" $ \case
+        [] -> Left "the gap"
+        gap -> Right (Gapped (Text.unwords gap))
+    , nothing ResearchSpawned
     , nothing ResearchHandedBack
     , nothing InterviewAsked
     , nothing DiscussAsked
@@ -190,11 +193,10 @@ recordables =
            , atHead FixPR FixPrDone
            , url "the PR's url" Ready ReadyDone
            , url "the PR's url" Ready ReadySkipped
-           , url "the issue's url" OpenTicket OpenTicketDone
-           , nothing UpdateTicketDone
-           , nothing ConfirmDesignConfirmed
+           , nothing ProblemUnderstood
+           , nothing ProblemMore
+           , url "the issue's url" ConfirmDesign ConfirmDesignConfirmed
            , nothing ConfirmDesignAdjusted
-           , nothing FinalizeTicketDone
            , url "the issue's url" OpenPlan OpenPlanDone
            , outcome (builtEvent OpenBranch OpenBranchDone) "<branch|sha>" [] $ \a -> case a.positional of
                 [ref] -> Right (Plain (tookIn a.scope (OpenBranchDone (Branch ref))))

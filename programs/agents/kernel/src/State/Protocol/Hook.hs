@@ -57,6 +57,7 @@ module State.Protocol.Hook (
     followedAt,
     tracked,
     spawnedAt,
+    opensChild,
     hookSources,
     restartOf,
     loggedAlready,
@@ -75,7 +76,7 @@ import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty, toList)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -455,6 +456,10 @@ spawnedAt steps at spawned = case at of
     Out -> Nothing
     Exit -> Nothing
 
+-- | Whether a lead's spawn of this step's role records the step's spawn: 'spawnedAt's rule, scope aside.
+opensChild :: Layer k -> Sing (s :: k) -> Bool
+opensChild l s = isJust (opening mempty l s)
+
 -- | The event of a step's spawn of a child: only an action that opens children has one.
 opening :: ScopePath -> Layer k -> Sing (s :: k) -> Maybe Event
 opening scope l s = case l of
@@ -584,9 +589,10 @@ encodeReply = \case
     Note context -> Just (encode (object ["context" .= context]))
 
 {- | After the lead put a question to the user: the line recording each answer
-still awaited. A run started by a parent asks it, not the user.
+still awaited. A run started by a parent or a caller asks it, not the user.
 -}
 awaitingUser :: RunState -> [Text]
 awaitingUser state = case state.start.principal of
     ByUser _ -> ["state: record the user's answer: state answer " <> qidText p.asking.question.qid <> " <answer>" | p <- state.pending, p.waits == ForAnswer]
     ByRole {} -> []
+    ByCaller _ -> []

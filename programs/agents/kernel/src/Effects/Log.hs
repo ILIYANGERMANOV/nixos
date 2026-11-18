@@ -1,60 +1,72 @@
-{- | A run's log, @events.jsonl@: its first line read without a lock, and every
-write one read-decide-append under an exclusive lock, so two writers never
-number a line alike.
+{- | A run's log, by its id: its first event read without the write lock, and
+every write one read-decide-append under it, so two writers never number an
+event alike. The real one is the kernel's run store ("Effects.Store").
 -}
 module Effects.Log (
     Log (..),
     exists,
     firstLine,
     locked,
+    children,
     runLogIO,
 ) where
 
-import Data.ByteString qualified as BS
+import Control.Exception (handle, throwIO)
 import Data.Text (Text)
+import Database.SQLite.Simple (SQLError)
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
 import Effectful.Dispatch.Dynamic (interpret, send)
-import GHC.IO.Handle.Lock (LockMode (ExclusiveLock), hLock)
-import State.Run.Codec (LogError, decodeLogBytes, encodeLines, firstLineBytes, firstLineOf)
-import State.Run.Event (Envelope)
-import System.Directory (doesFileExist)
-import System.IO (IOMode (ReadMode, ReadWriteMode), SeekMode (SeekFromEnd), hFileSize, hSeek, withBinaryFile)
+import Effects.Environment (Environment, lookupEnv)
+import Effects.Store (Durability, Store, withStore)
+import Effects.Store qualified as Store
+import State.Protocol.Binding (runStore)
+import State.Run.Codec (LogError)
+import State.Run.Event (Envelope, RunId)
 
 data Log :: Effect where
-    Exists :: FilePath -> Log m Bool
-    FirstLine :: FilePath -> Log m (Maybe Text)
-    Locked :: FilePath -> (Either LogError [Envelope] -> ([Envelope], a)) -> Log m a
+    Exists :: RunId -> Log m Bool
+    FirstLine :: RunId -> Log m (Maybe Text)
+    Locked :: RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Log m a
+    Children :: RunId -> Log m [RunId]
 
 type instance DispatchOf Log = Dynamic
 
-exists :: (Log :> es) => FilePath -> Eff es Bool
+-- | Whether the run was started.
+exists :: (Log :> es) => RunId -> Eff es Bool
 exists = send . Exists
 
--- | The log's first line, read leniently, if the file exists.
-firstLine :: (Log :> es) => FilePath -> Eff es (Maybe Text)
+-- | The run's first event, as written, if it was started.
+firstLine :: (Log :> es) => RunId -> Eff es (Maybe Text)
 firstLine = send . FirstLine
 
-{- | The log, created if absent, locked for one decision: @decide@ gets every
-line so far, or the first it cannot read, and returns the lines to append.
-The lock lasts until the lines are written. Its directory must exist.
+{- | The run's log, locked for one decision: @decide@ gets every event so far,
+or the first it cannot read, and returns the events to append. The lock lasts
+until they are written. Events for a run never started that do not start it
+throw.
 -}
-locked :: (Log :> es) => FilePath -> (Either LogError [Envelope] -> ([Envelope], a)) -> Eff es a
-locked path = send . Locked path
+locked :: (Log :> es) => RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Eff es a
+locked run = send . Locked run
 
-runLogIO :: (IOE :> es) => Eff (Log : es) a -> Eff es a
-runLogIO = interpret $ \_ -> \case
-    Exists path -> liftIO (doesFileExist path)
-    FirstLine path ->
-        liftIO $
-            doesFileExist path >>= \case
-                False -> pure Nothing
-                True -> Just . firstLineOf <$> withBinaryFile path ReadMode (`BS.hGet` firstLineBytes)
-    Locked path decide -> liftIO . withBinaryFile path ReadWriteMode $ \h -> do
-        hLock h ExclusiveLock
-        size <- hFileSize h
-        bytes <- BS.hGet h (fromIntegral size)
-        let (new, result) = decide (decodeLogBytes bytes)
-        hSeek h SeekFromEnd 0
-        -- One write, so a reader without the lock never sees half a call's lines.
-        BS.hPut h (encodeLines new)
-        pure result
+-- | The runs started as children of this one, oldest first.
+children :: (Log :> es) => RunId -> Eff es [RunId]
+children = send . Children
+
+{- | The log in the run store the environment names ('runStore'), opened for
+each operation at this durability. A store error, such as a lock still held after the wait, or
+no store at all, throws an 'IOException': an outage the shell tells.
+-}
+runLogIO :: (Environment :> es, IOE :> es) => Durability -> Eff (Log : es) a -> Eff es a
+runLogIO durability = interpret $ \_ op -> do
+    path <- runStore <$> lookupEnv "XDG_STATE_HOME" <*> lookupEnv "HOME"
+    liftIO . asIOError $ case path of
+        Nothing -> throwIO (userError "no run store: neither XDG_STATE_HOME nor HOME is an absolute path")
+        Just db -> withStore durability db (onStore op)
+  where
+    asIOError = handle (\(e :: SQLError) -> throwIO (userError ("the run store: " <> show e)))
+
+onStore :: Log m a -> Store -> IO a
+onStore op store = case op of
+    Exists run -> Store.exists store run
+    FirstLine run -> Store.firstEvent store run
+    Locked run decide -> Store.locked store run decide
+    Children run -> Store.children store run

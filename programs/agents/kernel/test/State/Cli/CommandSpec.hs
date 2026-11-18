@@ -13,11 +13,11 @@ import State.Category.Graph (Cap (..), OpenGraph (..))
 import State.Category.Meter (someMeterName)
 import State.Category.Path (unrecorded)
 import State.Category.Step (eventText)
-import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
+import State.Cli.Command (BriefPart (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
-import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLineText)
-import State.Run.Event (Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
+import State.Run.Ask (Above (..), Kind (..), Link (..), Parent (..), Proposal (..), Reply (..), Route (..), oneLineText)
+import State.Run.Event (AgentRole (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), RunId, StateName (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
 import State.Run.EventGen (fuelSet, runId)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, happyPath, loadSteps, pickOf, runAt, securityScope, sha)
@@ -50,6 +50,20 @@ spec = describe "State.Cli.Command" $ do
             Left said -> fromRight "not help" (usage "state" said)
             Right _ -> "not help"
 
+    describe "brief" $ do
+        it "takes one step's section" $
+            case parse ["brief", "researcher", "--section", "research"] of
+                Right (OnRun (Brief (AgentRole "researcher") (Section (StateName "research")))) -> pure ()
+                _ -> expectationFailure "not the research section"
+
+        it "takes a whole brief, with a child engineer's task" $
+            case parse ["brief", "engineer", "--task", "t1"] of
+                Right (OnRun (Brief (AgentRole "engineer") (Whole (Just (TaskId "t1"))))) -> pure ()
+                _ -> expectationFailure "not the task's brief"
+
+        it "refuses a section and a task together" $
+            fromLeft "parsed" (parse ["brief", "engineer", "--task", "t1", "--section", "research"]) `shouldBe` "Invalid option `--section'"
+
     describe "record" $ do
         it "parses the Fuel step's level" $
             recorded ["fuel.set", "low"] `shouldBe` Right (fuelSet Low)
@@ -62,6 +76,12 @@ spec = describe "State.Cli.Command" $ do
             case parseCommand steps ["record", "target", "pr", "https://github.com/o/r/issues/3"] of
                 Right (_, Left failure) -> failure.why `shouldSatisfy` Text.isInfixOf "is not a GitHub PR URL"
                 _ -> expectationFailure "not a refusal"
+
+        it "records a gap with its text, words joined back" $
+            recorded ["gap", "no", "hook", "fact"] `shouldBe` Right (Gapped "no hook fact")
+
+        it "refuses a gap with no text" $
+            recorded ["gap"] `shouldBe` Left "record gap"
 
         it "records an extend with its why" $
             recorded ["extend", "the", "user", "goes", "on"] `shouldBe` Right (Extended "the user goes on")
@@ -112,8 +132,19 @@ spec = describe "State.Cli.Command" $ do
     describe "other commands" $ do
         it "takes a question's words as one line, asked by the run itself" $
             case parse ["ask", "--kind", "Scope", "include", "docs?"] of
-                Right (OnRun (AskQuestion kind from question)) -> (kind, from, oneLineText question) `shouldBe` (Scope, Itself, "include docs?")
+                Right (OnRun (AskOwn kind how question)) -> (kind, how, oneLineText question) `shouldBe` (Scope, ByRow, "include docs?")
                 _ -> expectationFailure "not a question"
+
+        it "takes --to user as the run's own question sent up at once, and refuses it with --from" $
+            case (parse ["ask", "--kind", "Pick", "--to", "user", "which", "rows?"], parse ["ask", "--kind", "Pick", "--to", "user", "--from", "fixer", "q?"]) of
+                (Right (OnRun (AskOwn kind how question)), Left refused) -> (kind, how, oneLineText question, refused) `shouldBe` (Pick, ToUser, "which rows?", "--to with --from")
+                _ -> expectationFailure "not a question sent to the user and a refusal"
+
+        it "takes an answer as chosen, --other as a reply none of the options covers, and --park as why it waits" $
+            case (parse ["answer", "r1:1", "use", "Y"], parse ["answer", "r1:1", "--other", "add", "a", "CLI"], parse ["answer", "r1:1", "--park", "after", "the", "release"]) of
+                (Right (OnRun (Answer _ chosen Nothing)), Right (OnRun (Answer _ other Nothing)), Right (OnRun (Park qid why))) ->
+                    (chosen, other, qid, oneLineText why) `shouldBe` (Chose "use Y", Other "add a CLI", "r1:1", "after the release")
+                _ -> expectationFailure "not an answer, an other reply and a park"
 
         it "takes a stop's reason and the rest as why" $
             case parse ["stop", "blocked", "no", "access"] of
@@ -132,12 +163,12 @@ spec = describe "State.Cli.Command" $ do
 
         it "keeps free words that start with a dash, an option it takes aside" $
             case (parse ["stop", "blocked", "-x", "--force", "failed"], parse ["ask", "--kind", "Scope", "-v", "or", "--verbose?"], parse ["answer", "r1:1", "use", "-f", "--by", "user"]) of
-                (Right (OnRun (StopRun stop)), Right (OnRun (AskQuestion _ _ question)), Right (OnRun (Answer _ answer by))) ->
-                    (stop.why, oneLineText question, answer, by) `shouldBe` ("-x --force failed", "-v or --verbose?", "use -f", Just TheUser)
+                (Right (OnRun (StopRun stop)), Right (OnRun (AskOwn _ _ question)), Right (OnRun (Answer _ answer by))) ->
+                    (stop.why, oneLineText question, answer, by) `shouldBe` ("-x --force failed", "-v or --verbose?", Chose "use -f", Just TheUser)
                 _ -> expectationFailure "not a stop, a question and an answer"
 
         it "takes a question's kind in any case" $
-            [kind | kindName <- ["design", "DESIGN", "Design"], Right (OnRun (AskQuestion kind _ _)) <- [parse ["ask", "--kind", kindName, "q?"]]]
+            [kind | kindName <- ["design", "DESIGN", "Design"], Right (OnRun (AskOwn kind _ _)) <- [parse ["ask", "--kind", kindName, "q?"]]]
                 `shouldBe` [Design, Design, Design]
 
         it "refuses an unknown kind, listing the kinds" $
@@ -158,14 +189,23 @@ spec = describe "State.Cli.Command" $ do
         it "needs the free words" $
             failureWhat (parse ["override", "review"]) `shouldBe` Just "Missing: <why>"
 
-        it "refuses a parent log that is not an absolute events.jsonl" $
-            (failureWhat . parse) ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/other.jsonl", "--task", "t1"]
-                `shouldBe` Just "--parent-log /p/other.jsonl"
-
-        it "keeps an absolute parent log" $
-            case parse ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"] of
-                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") "/p/events.jsonl" (TaskId "t1"))
+        it "takes a child's parent run and task" $
+            case parse ["init", "--notes", "/n", "--parent", "r1", "--task", "t1"] of
+                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") (AtFan (TaskId "t1")))
                 _ -> expectationFailure "not an init"
+
+        it "takes a direct child's parent run, with no task" $
+            case parse ["init", "--notes", "/n", "--parent", "r1"] of
+                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") Direct)
+                _ -> expectationFailure "not an init"
+
+        it "refuses --parent-log: a child names its parent by run id alone" $
+            (failureWhat . parse) ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"]
+                `shouldBe` Just "Invalid option `--parent-log'"
+
+        it "takes dump with a run id, refusing an event id" $
+            (fmap dumped . parse <$> [["dump", "r1"], ["dump", "r1:2"]])
+                `shouldBe` [Right (Just (runId "r1")), Left "no run id r1:2"]
 
         it "refuses a notes dir that is relative or holds what a shell reads" $
             map (failureWhat . parse . (["init", "--notes"] <>) . pure) ["rel/dir", ".", "/a b", "/a;b", "/a$(b)"]
@@ -175,15 +215,22 @@ spec = describe "State.Cli.Command" $ do
             map (fmap notesOf . parse . (["init", "--notes"] <>) . pure) ["/n/", "/n", "/./n//"]
                 `shouldBe` replicate 3 (Right (Just "/n"))
 
-        it "refuses --parent, its log or its task without the other two" $
-            map
-                (failureWhat . parse . (["init", "--notes", "/n"] <>))
-                [["--parent", "r1", "--task", "t1"], ["--parent", "r1", "--parent-log", "/p/events.jsonl"], ["--task", "t1"], ["--parent", "r1"]]
-                `shouldBe` replicate 4 (Just "--parent, --parent-log and --task go together")
+        it "refuses a task with no parent run" $
+            failureWhat (parse ["init", "--notes", "/n", "--task", "t1"]) `shouldBe` Just "--task without --parent"
 
         it "takes --pr as a user's round on that PR" $
             map (fmap originOf . parse . (["init", "--notes", "/n"] <>)) [[], ["--pr", "https://github.com/o-1/r.x/pull/12"]]
                 `shouldBe` [Right (Just (FromUser OwnPr)), Right (Just (FromUser (RoundOn (Url "https://github.com/o-1/r.x/pull/12"))))]
+
+        it "takes --child as a caller's run, on its own PR or a round on --pr's" $
+            map (fmap originOf . parse . (["init", "--notes", "/n", "--child"] <>)) [[], ["--pr", "https://github.com/o/r/pull/3"]]
+                `shouldBe` [Right (Just (FromCaller OwnPr)), Right (Just (FromCaller (RoundOn (Url "https://github.com/o/r/pull/3"))))]
+
+        it "refuses --child with --parent, its task or both" $
+            map
+                (failureWhat . parse . (["init", "--notes", "/n", "--child"] <>))
+                [["--parent", "r1", "--task", "t1"], ["--task", "t1"], ["--parent", "r1"]]
+                `shouldBe` replicate 3 (Just "--child with --parent")
 
         it "refuses a --pr that is no GitHub PR URL, its fix the URL's form" $ do
             let bad =
@@ -205,10 +252,10 @@ spec = describe "State.Cli.Command" $ do
                 Right (_, Left failure) -> failure.fix `shouldBe` "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>"
                 _ -> expectationFailure "not a refusal"
 
-        it "refuses --pr with any of --parent, its log or its task: a child's PR is its task's" $
+        it "refuses --pr with --parent or its task: a child's PR is its task's" $
             map
                 (failureWhat . parse . (["init", "--notes", "/n", "--pr", "https://github.com/o/r/pull/1"] <>))
-                [["--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"], ["--parent", "r1"], ["--task", "t1"]]
+                [["--parent", "r1", "--task", "t1"], ["--parent", "r1"], ["--task", "t1"]]
                 `shouldBe` replicate 3 (Just "--pr with --parent")
 
     describe "failures" $ do
@@ -266,7 +313,7 @@ spec = describe "State.Cli.Command" $ do
             (unknownEvent g (runAt fueled) "nope").fix `shouldBe` "state next"
 
         it "lists every event with no run, fixed by the help" $
-            (\failure -> (Text.isPrefixOf "the events are research.spawned, " failure.why, failure.fix)) (anyEvent "nope") `shouldBe` (True, "state help")
+            (\failure -> (Text.isPrefixOf "the events are gap, research.spawned, " failure.why, failure.fix)) (anyEvent "nope") `shouldBe` (True, "state help")
 
         it "refuses a question id that is not open, malformed or not" $
             [(failure.what, failure.why, failure.fix) | raw <- ["q1", "r1:99"], Left failure <- [openQid (runAt fueled) raw]]
@@ -322,6 +369,10 @@ spec = describe "State.Cli.Command" $ do
     originOf :: Command -> Maybe Origin
     originOf = \case
         Init args -> Just args.origin
+        _ -> Nothing
+    dumped :: Command -> Maybe RunId
+    dumped = \case
+        Dump run -> Just run
         _ -> Nothing
     notesOf :: Command -> Maybe FilePath
     notesOf = \case

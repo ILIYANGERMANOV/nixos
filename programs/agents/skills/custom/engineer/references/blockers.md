@@ -46,6 +46,19 @@ is `engineer`. `Security` is above every other kind: raise a question to it
 | Security | forwards | forwards | answers if the user already answered it, or it is obvious | answers |
 | Stuck | forwards | forwards | answers if no retry was spent on it yet | answers |
 
+## Answers
+
+| You have | Run |
+|---|---|
+| A question your row forwards | `state ask --kind <K> --to user "<q>"`: asks and forwards in one; refused where your row answers the kind |
+| The user's pick | `state answer <qid> <answer>`; on a question still in triage it forwards and answers in one |
+| A reply no option covers, or a new request | `state answer <qid> --other <text>` |
+| No answer yet, on purpose | `state answer <qid> --park <why>`: the question stays open, the asker's `state next` prints `PARKED`, a later `state answer` closes it |
+
+`ASK user` is one `AskUserQuestion`, or, when the context is long (a phone),
+plain text that ends the turn with lettered options. A parent answers, parks
+or rules a child run's qid from its own run; only that child resumes.
+
 ## Triage
 
 A worker's `NEEDS_DECISION` with no kind is recorded as `triage:`, with
@@ -83,8 +96,9 @@ review-lead's `plan wrong:` line you agree with: `state stop replan <why>`,
 then do what it prints. On `STOP replan`, or resumed after its
 `HANDBACK NEEDS_DECISION plan wrong`, start a new run in a fresh notes
 directory, `state init --notes <dir>-replan-<n>`, `<dir>` your first notes
-directory without its trailing `/`, plus the `--parent`,
-`--parent-log` and `--task` of your first `state init` when it had them, on
+directory without its trailing `/`, plus the `--parent` and
+`--task`, or the `--child`, of your first `state init` when it had
+them, on
 the same branch and PR, at the same Fuel: Gather for the open question
 only, never re-asking what was just answered, then Propose and confirm. The
 new plan and

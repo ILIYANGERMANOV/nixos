@@ -47,10 +47,16 @@ module State.Run.Ask (
     principalShape,
     principalPlan,
     Parent (..),
+    Link (..),
     Op (..),
     Delivery (..),
     Above (..),
     ask,
+    Route (..),
+    route,
+    Reply (..),
+    replyText,
+    replyNote,
     deliver,
     questionLine,
     handback,
@@ -309,10 +315,12 @@ andThen first next question =
         Forward forwarded -> next forwarded
 
 {- | Who started the run, and the shape of its work: the user, who names a
-round's PR at init, or a parent run, which gave it a task of this shape and
-plan call, read from the parent's breakdown when the run started.
+round's PR at init; a parent run, which gave it a task of this shape and
+plan call, read from the parent's breakdown when the run started; or the
+agent that spawned this subagent with no run link, which names a round's PR
+at init as the user does.
 -}
-data Principal = ByUser Shape | ByRole Parent Shape PlanCall
+data Principal = ByUser Shape | ByRole Parent Shape PlanCall | ByCaller Shape
     deriving stock (Eq, Show)
 
 -- | What the run does to its PR, whoever started it.
@@ -320,15 +328,24 @@ principalShape :: Principal -> Shape
 principalShape = \case
     ByUser shape -> shape
     ByRole _ shape _ -> shape
+    ByCaller shape -> shape
 
 -- | Who settles the run's plan: the user confirms its own run's.
 principalPlan :: Principal -> PlanCall
 principalPlan = \case
     ByUser _ -> ChildConfirms
     ByRole _ _ plan -> plan
+    ByCaller _ -> ChildConfirms
 
--- | The parent run, its log and the task of its breakdown it gave this run.
-data Parent = Parent {run :: RunId, log :: FilePath, task :: TaskId}
+-- | The parent run, and how it gave this run its work.
+data Parent = Parent {run :: RunId, link :: Link}
+    deriving stock (Eq, Show)
+
+{- | A child of a fan-out takes a task of its parent's breakdown; a direct
+child, of a parent at no fan-out (the chief delegating one engineer), none.
+Either way its questions go up to the parent.
+-}
+data Link = AtFan TaskId | Direct
     deriving stock (Eq, Show)
 
 -- | What the run's interface can do: a subagent cannot ask the user or wait.
@@ -349,6 +366,8 @@ data Above
       TheUser
     | -- | Hand back with the question's @NEEDS_DECISION@ line to the parent run.
       ParentRun RunId
+    | -- | Hand back with the question's @NEEDS_DECISION@ line to the agent that spawned this one, which holds no run of this one's.
+      TheCaller
     deriving stock (Eq, Show)
 
 {- | Where a role's own question goes: its own row first, then its principal.
@@ -369,11 +388,41 @@ ask principal role kind = case authority role kind of
   where
     up = Up (deliver principal)
 
+-- | How a run's own question is sent: as its row says, or put to the user at once.
+data Route = ByRow | ToUser
+    deriving stock (Eq, Show)
+
+{- | Where a run's own question goes on this route. Put to the user, it goes
+up from a row that may pass it on ('pass'), and is refused where the row
+answers it itself: a 'Fact' below the user.
+-}
+route :: Route -> Principal -> Rung -> Question -> Either Refusal Delivery
+route how principal role question = case how of
+    ByRow -> Right (ask principal role question.kind)
+    ToUser -> Up (deliver principal) <$ pass role question.kind question
+
 -- | Where a forwarded question goes: up to whoever started the run.
 deliver :: Principal -> Above
 deliver = \case
     ByUser _ -> TheUser
     ByRole parent _ _ -> ParentRun parent.run
+    ByCaller _ -> TheCaller
+
+{- | An answer from above: one of the options the question offered, or a
+reply that is none of them, which may be a new request.
+-}
+data Reply = Chose Text | Other Text
+    deriving stock (Eq, Show)
+
+-- | The reply's text, an 'Other' marked as none of the options.
+replyText :: Reply -> Text
+replyText = \case
+    Chose answer -> answer
+    Other reply -> reply <> " (" <> replyNote <> ")"
+
+-- | What an 'Other' reply asks of the run that reads it.
+replyNote :: Text
+replyNote = "none of the options: it may be a new request - re-plan for it, or take it up as one"
 
 -- | A question on one line, @<Kind> <qid>: <question>@, as a hand-back's @NEEDS_DECISION@ carries it (#360's wire format).
 questionLine :: Question -> Text

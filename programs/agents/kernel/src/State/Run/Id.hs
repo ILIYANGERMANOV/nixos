@@ -5,6 +5,9 @@ module State.Run.Id (
     RunId,
     TaskId (..),
     AgentId (..),
+    TaskNo (..),
+    taskNoText,
+    parseTaskNo,
     parseRunId,
     runIdText,
     numberedText,
@@ -37,6 +40,21 @@ newtype RunId = RunId Text
 -- | A subagent's id, as its agent gives it: Claude Code's are hex.
 newtype AgentId = AgentId {agentIdText :: Text}
     deriving stock (Eq, Show)
+
+{- | A chief's request, by the order the run opened it: @r1@, @r2@, ...
+Not a 'TaskId', which names a task of a fan-out's breakdown.
+-}
+newtype TaskNo = TaskNo Natural
+    deriving stock (Eq, Ord, Show)
+
+taskNoText :: TaskNo -> Text
+taskNoText (TaskNo n) = "r" <> Text.pack (show n)
+
+-- | @r<n>@, @n@ from 1.
+parseTaskNo :: Text -> Maybe TaskNo
+parseTaskNo raw = case decimal <$> Text.stripPrefix "r" raw of
+    Just (Right (n, "")) | n > 0 -> Just (TaskNo n)
+    _ -> Nothing
 
 {- | A CLI record's id is @<run>:<seq>@ and a hook record's @h:<hash>@ (#360),
 so a run id is never @h@ and holds no @:@: either would let a CLI id spell a

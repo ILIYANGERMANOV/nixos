@@ -6,9 +6,9 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), branchesWith, qualifyEvent, scopePath)
+import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Shape (..), branchesWith, qualifyEvent, scopePath)
 import State.Category.Flow qualified as Flow
-import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
+import State.Category.FlowGen (AnyFlow (..), ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
 import State.Category.Fuel (always)
 import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, outOf, places)
 import State.Category.Graph qualified as Graph
@@ -18,11 +18,11 @@ import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), ou
 import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Library (choiceLoop, par)
 import State.Flow.Triage (Sing (..))
-import State.Step.Build (Sing (..))
+import State.Step.Build (BuildStep (..), Sing (..))
 import State.Step.Fan (Sing (..))
-import State.Step.Gather (Sing (..))
-import State.Step.Plan (Sing (..))
-import State.Step.Ship (Sing (..))
+import State.Step.Gather (GatherStep (..), Sing (..))
+import State.Step.Plan (PlanStep (..), Sing (..))
+import State.Step.Ship (ShipStep (..), Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -61,11 +61,11 @@ spec = describe "State.Category.Graph" $ do
     must keep every arrow of the term.
     -}
     it "graph_has_one_target_per_state_event" . hedgehog $ do
-        (flow, g) <- forAll (Gen.mapMaybe (\flow -> either (const Nothing) (Just . (flow,)) (graph flow)) genFlow)
+        (AnyFlow flow, g) <- forAll (Gen.mapMaybe (\any'@(AnyFlow flow) -> either (const Nothing) (Just . (any',)) (graph flow)) genFlow)
         Map.size g.edges === arrows flow
 
     it "every_state_is_reached_from_the_start_and_reaches_the_end" . hedgehog $ do
-        g <- forAll (Gen.mapMaybe (either (const Nothing) Just . graph) genBranching)
+        g <- forAll (Gen.mapMaybe (\(AnyFlow flow) -> either (const Nothing) Just (graph flow)) genBranching)
         [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
 
     it "refuses a loop id used twice: their rounds would mix" $
@@ -106,7 +106,7 @@ spec = describe "State.Category.Graph" $ do
                 `shouldBe` Right [(EventName (StateName "research") (OutcomeName "spawned"), At (Place [1] mempty (StateName "researchers")))]
 
         it "refuses two states of one name: an event names its state, so one would stand for both" $
-            map (void . graph) [Do Describe :> Do FixPR :> Do FixPR, Do Describe :> Do FixPR :> Scope "x" (Do FixPR)]
+            [void (graph (Do Describe :> Do FixPR :> Do FixPR)), void (graph (Do Describe :> Do FixPR :> Scope "x" (Do FixPR)))]
                 `shouldBe` [Left (SameState (StateName "fix_pr")), Right ()]
 
     describe "a choice" $ do
@@ -127,14 +127,14 @@ outOfStart :: OpenGraph -> [(EventName, Node)]
 outOfStart g = [(event, edge.to) | (event, edge) <- outOf g.inPort g.edges]
 
 -- | The gather's questions, capped as an action of its choice.
-questions :: Flow 'Ctx 'Nothing 'Ctx
+questions :: Flow (CappedS (DoS Interview)) 'Ctx 'Nothing 'Ctx
 questions = Capped (always (UpTo 3)) Extend (Step Interview)
 
 -- | The graphs of two terms and of their series, over terms that build: 'Clash' has its own cases.
-seqGraphs :: (NotSum a, NotSum b, NotSum c) => Gen (Flow a e1 b) -> Gen (Flow b e2 c) -> PropertyT IO (OpenGraph, OpenGraph, OpenGraph)
+seqGraphs :: (NotSum a, NotSum b, NotSum c) => Gen (AnyFlow a e1 b) -> Gen (AnyFlow b e2 c) -> PropertyT IO (OpenGraph, OpenGraph, OpenGraph)
 seqGraphs genF genG = forAll (Gen.mapMaybe builds ((,) <$> genF <*> genG))
   where
-    builds (f, g) = case (graph f, graph g, graph (f :> g)) of
+    builds (AnyFlow f, AnyFlow g) = case (graph f, graph g, graph (f :> g)) of
         (Right left, Right right, Right whole) -> Just (left, right, whole)
         _ -> Nothing
 
@@ -148,7 +148,7 @@ endOf g = foldM next (At g.inPort)
         Graph.Exit -> Nothing
 
 -- | One per outcome of each step, a fork's spawn, an each's done and an await's two events.
-arrows :: Flow i e o -> Int
+arrows :: Flow s i e o -> Int
 arrows = \case
     Do s -> length (outcomeNames (outcomes s))
     Capped _ _ (Step s) -> length (outcomeNames (outcomes s))
@@ -164,21 +164,22 @@ arrows = \case
     Await _ -> 2
     Catch body -> arrows body
     Scope _ body -> arrows body
+    Handle _ body -> arrows body
 
 -- | The 10x's engineers, each a child run from a task's context to its PR.
 engineerGroup :: Group 'PR
 engineerGroup = Group "engineers" (AgentRole "engineer")
 
 -- | Researchers forked one at a time, three at most: a fork of one step.
-researchers :: Flow 'Ctx 'Nothing 'Ctx
+researchers :: Flow (CappedS (ForkS (DoS Research))) 'Ctx 'Nothing 'Ctx
 researchers = Capped (always (UpTo 3)) Extend (ForkOf researcherGroup Research)
 
 researcherGroup :: Group 'Ctx
 researcherGroup = Group "researchers" (AgentRole "researcher")
 
-engineerChild :: Flow 'Ctx 'Nothing 'PR
+engineerChild :: Flow (DoS PlanS :>> DoS Implement :>> DoS Describe) 'Ctx 'Nothing 'PR
 engineerChild = Do PlanS :> Do Implement :> Do Describe
 
 -- | A fix of a red CI, capped as the ship flow caps it.
-fixCapped :: Flow 'PR 'Nothing 'PR
+fixCapped :: Flow (CappedS (DoS FixPR)) 'PR 'Nothing 'PR
 fixCapped = Capped (always (UpTo 5)) Stop (Step FixPR)

@@ -5,9 +5,11 @@ module State.Cli.View (
     showRun,
     pendingLines,
     brief,
+    briefSection,
     taskBrief,
     briefOf,
     beginText,
+    cardLines,
 ) where
 
 import Data.Bool (bool)
@@ -15,30 +17,35 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Time (UTCTime, diffUTCTime)
+import State.Category.Flow (qualifyEvent)
 import State.Category.Fuel (fuelLabel)
-import State.Category.Graph (Node (..), OpenGraph, Place (..))
-import State.Category.Step (SomeStep (..), StateName, stateNameText, stepName)
+import State.Category.Graph (Node (..), OpenGraph (..), Place (..))
+import State.Category.Step (EventName (..), SomeStep (..), StateName, eventText, handedBackOutcome, spawnedOutcome, stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.FlowName (namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
-import State.Protocol.Hook (Begin (..))
+import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
-import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
-import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
+import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, replyText, rulingLine)
+import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), advice, resumeWindow)
+import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText, taskNoText)
 import State.Run.Fan (Fan (..), lookupTask, tries)
-import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
+import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan, fanAt)
 import State.Show (tshow)
 import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
-import State.Table (Row (..), Steps, row, stepsRunBy)
+import State.Table (Row (..), Steps, agentRoles, row, stepsRunBy)
 
--- | Where the run is and what it carries: step, mode, rounds, questions, rulings.
-showRun :: OpenGraph -> RunState -> Text
-showRun g state =
+{- | Where the run is and what it carries: step, mode, rounds, questions,
+rulings, gaps; and which hook records which of the flow's events.
+-}
+showRun :: Steps -> OpenGraph -> RunState -> Text
+showRun steps g state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
-            <> ["task: " <> taskIdText parent.task | ByRole parent _ _ <- [state.start.principal]]
+            <> concat [linkLine parent.link | ByRole parent _ _ <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
             <> factLines g (Facts Nothing Nothing []) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]
@@ -46,11 +53,60 @@ showRun g state =
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
             <> section "answered:" (map answerLine state.answers)
+            <> section "gaps:" state.gaps
+            <> section "hooks:" (hookLines steps g)
   where
-    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> answered.given
+    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> replyText answered.given
     section title = \case
         [] -> []
         items -> title : map ("  " <>) items
+    linkLine = \case
+        AtFan task -> ["task: " <> taskIdText task]
+        Direct -> []
+
+{- | What the hooks record of the flow's events, so no agent records them
+by hand: the spawn and the hand-back of each step a subagent runs as a child
+of a choice, the only steps whose spawn a hook sees ('opensChild'), at each
+place this flow takes it, named in its scopes.
+-}
+hookLines :: Steps -> OpenGraph -> [Text]
+hookLines steps g =
+    [ line
+    | role <- agentRoles steps
+    , AnyStep l (SomeStep s) <- stepsRunBy steps role
+    , opensChild l s
+    , spawned <- Set.toList (Set.fromList [event | (place, event) <- Map.keys g.edges, place.name == stepName s, event == qualifyEvent place.scope (EventName (stepName s) spawnedOutcome)])
+    , line <-
+        [ eventText spawned <> ": the " <> hookName SpawnHook <> " hook, as the lead spawns a " <> roleText role
+        , eventText spawned {outcome = handedBackOutcome} <> ": the " <> hookName HandbackHook <> " hook, at its hand-back"
+        ]
+    ]
+
+{- | A request's resume card at this time: where it stands, what was
+decided in it, what it still asks, and how to take it up again.
+-}
+cardLines :: UTCTime -> Card -> [Text]
+cardLines now card =
+    headline
+        : ["  decided " <> qidText qid <> " - " <> replyText reply | (qid, reply) <- card.decisions]
+            <> ["  open " <> qidText q.qid <> " " <> kindName q.kind <> ": " <> oneLineText q.text | q <- card.open]
+            <> ["  " <> adviceLine resume | Just resume <- [advice now card]]
+  where
+    headline = case card.standing of
+        InFocus -> taskNoText card.task <> " in focus at " <> stateNameText card.node
+        Paused at summary -> taskNoText card.task <> " paused " <> minutes at <> " at " <> stateNameText card.node <> ": " <> oneLineText summary
+    minutes at = tshow (floor (diffUTCTime now at / 60) :: Integer) <> "m"
+
+adviceLine :: ResumeAdvice -> Text
+adviceLine = \case
+    ResumeAgent agent -> "resume agent " <> agent.agentIdText <> ": paused under " <> life <> ", its cache is warm (SendMessage)"
+    FreshFromCard -> "fresh agent from card: paused " <> life <> " or more, its cache is cold"
+  where
+    life = minutesSeconds (round resumeWindow)
+
+-- | Whole seconds as @4m45s@.
+minutesSeconds :: Integer -> Text
+minutesSeconds total = let (m, s) = total `divMod` 60 in tshow m <> "m" <> tshow s <> "s"
 
 -- | One line per open question, oldest first.
 pendingLines :: RunState -> [Text]
@@ -69,6 +125,7 @@ pendingLines state = map line state.pending
     waiting = \case
         ForTriage -> "to triage"
         ForAnswer -> "forwarded"
+        ForLater why -> "parked (" <> oneLineText why <> ")"
     askerText = \case
         Itself -> "this run"
         Subagent (AgentRole role) -> role
@@ -83,11 +140,12 @@ the breakdown lacks is returned as the failure.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state agent task = case (leads agent, task) of
-    (Just flow, Nothing) -> Right (initLine state flow "<dir>" "<id>")
+    -- At no fan-out the child is direct: it names --parent alone.
+    (Just flow, Nothing) -> Right (initLine state flow "<dir>" ("<id>" <$ fanAt state.at))
     (Just _, Just taskId) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
-    (Nothing, _) -> Right $ case [step | step@(name, _) <- runsOf steps agent, At place <- [state.at], place.name == name] of
+    (Nothing, _) -> Right $ case [text | At place <- [state.at], Right text <- [briefSection steps agent place.name]] of
         [] -> briefOf steps agent
-        here -> sections here <> rulesOf agent
+        here : _ -> here
 
 {- | A child engineer's brief head: its task's fields, then the line that
 starts its run under this one, on the task's flow: in the task's worktree and
@@ -99,7 +157,7 @@ taskBrief state found = Text.unlines (taskLines found) <> "\n" <> taskInit
     fan = currentFan state
     taskInit =
         maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
-            <> initLine state found.flow (maybe "<dir>" (engineerNotes (Map.findWithDefault 0 found.id fan.rounds) (tries fan found.id) found.branch) found.repo) (taskIdText found.id)
+            <> initLine state found.flow (maybe "<dir>" (engineerNotes (Map.findWithDefault 0 found.id fan.rounds) (tries fan found.id) found.branch) found.repo) (Just (taskIdText found.id))
     taskLines task =
         [ "Task: " <> taskIdText task.id
         , "Fuel: " <> fuelLabel task.fuel
@@ -118,18 +176,15 @@ taskBrief state found = Text.unlines (taskLines found) <> "\n" <> taskInit
         items -> Text.intercalate ", " items
     yesNo = bool "no" "yes"
 
--- | The line that starts a child run under this one: on this flow, in these notes, taking this task.
-initLine :: RunState -> FlowName -> Text -> Text -> Text
+-- | The line that starts a child run under this one: on this flow, in these notes, taking this task, if at a fan-out.
+initLine :: RunState -> FlowName -> Text -> Maybe Text -> Text
 initLine state flow notesText taskText =
     "state init --notes "
         <> notesText
         <> flowFlag
         <> " --parent "
         <> runIdText state.run
-        <> " --parent-log "
-        <> Text.pack (logOf state.start.notes)
-        <> " --task "
-        <> taskText
+        <> foldMap (" --task " <>) taskText
         <> "\n"
   where
     -- The default flow is left out, so an engineer's line reads as it always has.
@@ -149,6 +204,16 @@ engineerNotes rounds tried branch repo =
     slug c = if slugChar c then c else '-'
     roundSuffix = if rounds > 0 then "-r" <> tshow rounds else ""
     trySuffix = if tried > rounds then "-t" <> tshow (tried + 1) else ""
+
+{- | One section of a role's brief: the task text of the step named, then
+the rules its hand-back follows; the role's step names when it runs no such step.
+-}
+briefSection :: Steps -> AgentRole -> StateName -> Either [StateName] Text
+briefSection steps agent name = case filter ((== name) . fst) runs of
+    [] -> Left (map fst runs)
+    named -> Right (sections named <> rulesOf agent)
+  where
+    runs = runsOf steps agent
 
 {- | A role's brief wherever a run is: the task text of each step it runs,
 then the rules its hand-back follows. 'brief' gives it at a step the role

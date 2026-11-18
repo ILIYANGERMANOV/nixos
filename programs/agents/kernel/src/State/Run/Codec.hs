@@ -10,15 +10,10 @@ split the review flow, and no run resumes across it.
 -}
 module State.Run.Codec (
     version,
-    logName,
-    logOf,
     encodeLine,
     decodeLine,
     decodeLog,
-    decodeLogBytes,
-    encodeLines,
-    firstLineBytes,
-    firstLineOf,
+    decodeLines,
     LineError (..),
     LogError (..),
     eventType,
@@ -48,8 +43,6 @@ import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, 
 import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, null_, pair, pairs, text)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
-import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -57,7 +50,6 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding (decodeUtf8', decodeUtf8Lenient, encodeUtf8)
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
@@ -77,10 +69,12 @@ import State.Run.Event (
     Envelope (..),
     Event (..),
     EventId (..),
+    Link (..),
     Note (..),
     Op (..),
     Parent (..),
     Principal (..),
+    Reply (..),
     RunId,
     Said (..),
     SessionId (..),
@@ -91,26 +85,21 @@ import State.Run.Event (
     Stop (..),
     StopReason (..),
     TaskId (..),
+    TaskNo,
     TaskState (..),
     Url (..),
     Waiting (..),
     eventId,
     parseRunId,
+    parseTaskNo,
     runIdText,
+    taskNoText,
     tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
 import State.Step.Artifact (Shape (..), areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, planData, planOf, repoText, shaText, shapeData, shapeOf, targetData, targetOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders)
-import System.FilePath ((</>))
-
--- | The log's file in a run's notes dir.
-logName :: FilePath
-logName = "events.jsonl"
-
-logOf :: FilePath -> FilePath
-logOf notes = notes </> logName
 
 -- | The log version this kernel writes and reads.
 version :: Int
@@ -129,25 +118,13 @@ data LogError = LogError {line :: Int, why :: LineError}
 
 -- | Every line, or the first that is not read.
 decodeLog :: Text -> Either LogError [Envelope]
-decodeLog = traverse numbered . zip [1 ..] . Text.lines
+decodeLog = decodeLines . Text.lines
+
+-- | Every line, counted from 1, or the first that is not read.
+decodeLines :: [Text] -> Either LogError [Envelope]
+decodeLines = traverse numbered . zip [1 ..]
   where
     numbered (n, raw) = first (LogError n) (decodeLine raw)
-
--- | A log file's bytes; bytes that are not UTF-8 are line 0's error.
-decodeLogBytes :: ByteString -> Either LogError [Envelope]
-decodeLogBytes = either (const (Left (LogError 0 (Malformed "the log is not UTF-8")))) decodeLog . decodeUtf8'
-
--- | The bytes that append these lines to a log, each ending in a newline.
-encodeLines :: [Envelope] -> ByteString
-encodeLines = encodeUtf8 . foldMap ((<> "\n") . encodeLine)
-
--- | How much of a log 'firstLineOf' reads, so a huge log is not read whole.
-firstLineBytes :: Int
-firstLineBytes = 65536
-
--- | A log's first line, read leniently from its first 'firstLineBytes' bytes.
-firstLineOf :: ByteString -> Text
-firstLineOf = Text.takeWhile (/= '\n') . decodeUtf8Lenient . BS.take firstLineBytes
 
 decodeLine :: Text -> Either LineError Envelope
 decodeLine raw = do
@@ -209,6 +186,7 @@ eventType = \case
     Started _ -> "started"
     Targeted _ -> "target"
     Extended _ -> "extend"
+    Gapped _ -> "gap"
     Took scope outcome -> eventText (tookEvent scope outcome)
     Stopped _ -> "stop"
     Overridden _ _ -> "overridden"
@@ -218,6 +196,7 @@ eventType = \case
     RuledOn _ _ -> "ruled"
     Forwarded _ _ -> "forwarded"
     Answered {} -> "answered"
+    QuestionParked _ _ -> "parked"
     Spawning _ -> "spawning"
     Spawned _ -> "spawned"
     Resumed _ -> "resumed"
@@ -230,6 +209,8 @@ eventType = \case
     WorkerHandedBack _ _ -> "worker_handed_back"
     WorkerSpawned _ _ -> "worker_spawned"
     WorkerReturned _ _ -> "worker_returned"
+    Suspended _ _ -> "suspended"
+    Focused _ -> "focused"
     Voided _ _ -> "voided"
 
 eventData :: Event -> Series
@@ -241,6 +222,7 @@ eventData = \case
             <> "interface" .= map opText (Set.toList start.interface)
     Targeted target -> targetData target
     Extended why -> "why" .= why
+    Gapped gap -> "text" .= gap
     Took _ outcome -> outcomeData outcome
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
     Overridden (StateName to) why -> "to" .= to <> "why" .= why
@@ -260,11 +242,11 @@ eventData = \case
             <> "cost" .= oneLineText proposal.cost
             <> pair "basis" (maybe null_ basisEncoding proposal.basis)
     Forwarded qid to -> qidData qid <> pair "to" (aboveEncoding to)
-    Answered qid answer by -> qidData qid <> "answer" .= answer <> pair "by" (aboveEncoding by)
+    Answered qid reply by -> qidData qid <> replyData reply <> pair "by" (aboveEncoding by)
+    QuestionParked qid why -> qidData qid <> "why" .= oneLineText why
     Spawned child ->
         "child" .= runIdText child.run
             <> "task" .= taskIdText child.task
-            <> "log" .= child.log
             <> "worktree" .= child.worktree
     Spawning task -> "task" .= taskIdText task
     Resumed child -> "child" .= runIdText child
@@ -277,6 +259,8 @@ eventData = \case
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
     WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
     WorkerReturned (AgentRole role) agent -> "role" .= role <> "agent" .= fmap (.agentIdText) agent
+    Suspended task summary -> "request" .= taskNoText task <> "summary" .= oneLineText summary
+    Focused task -> "request" .= taskNoText task
     Voided n why -> "seq" .= n <> "why" .= why
   where
     qidData qid = "qid" .= qidText qid
@@ -286,6 +270,7 @@ eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
     "target" -> Targeted <$> targetOf obj
     "extend" -> Extended <$> obj .: "why"
+    "gap" -> Gapped <$> obj .: "text"
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
@@ -293,8 +278,9 @@ eventOf kind obj = case kind of
     "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "kind" >>= security)
     "ruled" -> RuledOn <$> qidOf obj <*> (Proposal <$> oneLineAt "answer" obj <*> oneLineAt "why" obj <*> oneLineAt "cost" obj <*> (obj .: "basis" >>= traverse basisOf))
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
-    "answered" -> Answered <$> qidOf obj <*> obj .: "answer" <*> (obj .: "by" >>= aboveOf)
-    "spawned" -> Spawned <$> (Child <$> childOf obj <*> taskOf obj <*> obj .: "log" <*> obj .: "worktree")
+    "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= aboveOf)
+    "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "why" obj
+    "spawned" -> Spawned <$> (Child <$> childOf obj <*> taskOf obj <*> obj .: "worktree")
     "spawning" -> Spawning <$> taskOf obj
     "resumed" -> Resumed <$> childOf obj
     "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
@@ -306,6 +292,8 @@ eventOf kind obj = case kind of
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
     "worker_returned" -> WorkerReturned . AgentRole <$> obj .: "role" <*> (fmap AgentId <$> obj .: "agent")
+    "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
+    "focused" -> Focused <$> requestOf obj
     "voided" -> Voided <$> obj .: "seq" <*> obj .: "why"
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
@@ -322,6 +310,9 @@ outcomeParsers = Map.fromList (map (first eventText) (outcomeDecoders <> drawnDe
 
 childOf :: Object -> Parser RunId
 childOf obj = obj .: "child" >>= runIdOf
+
+requestOf :: Object -> Parser TaskNo
+requestOf obj = obj .: "request" >>= \raw -> maybe (fail (show raw <> " is no request, r<n>")) pure (parseTaskNo raw)
 
 taskOf :: Object -> Parser TaskId
 taskOf obj = TaskId <$> obj .: "task"
@@ -445,23 +436,37 @@ startOf obj =
         <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
 
 {- | The user on its own PR is a bare word, as a log older than rounds wrote
-it; the user's round is its PR; a parent run is its id, its log, the task it
-gave, a round's PR and a decided plan.
+it; the user's round is its PR; a parent run is its id, the task it
+gave a fan-out's child, a round's PR and a decided plan; the caller is the user's form marked
+@caller@.
 -}
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser OwnPr -> text "user"
     ByUser shape@(RoundOn _) -> pairs (shapeData shape)
-    ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task <> shapeData shape <> planData plan)
+    ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> linkData parent.link <> shapeData shape <> planData plan)
+    ByCaller OwnPr -> text "caller"
+    ByCaller shape@(RoundOn _) -> pairs ("caller" .= True <> shapeData shape)
 
 principalOf :: Value -> Parser Principal
 principalOf = \case
     String "user" -> pure (ByUser OwnPr)
+    String "caller" -> pure (ByCaller OwnPr)
     Object obj ->
-        obj .:? "run" >>= \case
-            Nothing -> ByUser . RoundOn . Url <$> obj .: "pr"
-            Just run -> ByRole <$> (Parent <$> runIdOf run <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj <*> planOf obj
-    other -> fail ("a principal is \"user\", {pr} or {run, log}, not " <> show other)
+        (,) <$> obj .:? "run" <*> obj .:? "caller" >>= \case
+            (Just run, _) -> ByRole <$> (Parent <$> runIdOf run <*> linkOf obj) <*> shapeOf obj <*> planOf obj
+            (Nothing, Just True) -> ByCaller . RoundOn . Url <$> obj .: "pr"
+            (Nothing, _) -> ByUser . RoundOn . Url <$> obj .: "pr"
+    other -> fail ("a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task?}, not " <> show other)
+
+-- | A fan-out's child names its task; a direct child, none.
+linkData :: Link -> Series
+linkData = \case
+    AtFan task -> "task" .= taskIdText task
+    Direct -> mempty
+
+linkOf :: Object -> Parser Link
+linkOf obj = maybe Direct (AtFan . TaskId) <$> obj .:? "task"
 
 askingOf :: Object -> Parser Asking
 askingOf obj = do
@@ -494,17 +499,32 @@ askerOf = \case
     Object obj -> obj .:? "role" >>= maybe (ChildRun <$> (obj .: "run" >>= runIdOf)) (pure . Subagent . AgentRole)
     other -> fail ("a question is from \"self\", {role} or {run}, not " <> show other)
 
--- | As a principal: the user is a bare word, a parent run is its id.
+-- | As a principal: the user and the caller are bare words, a parent run is its id.
 aboveEncoding :: Above -> Encoding
 aboveEncoding = \case
     TheUser -> text "user"
     ParentRun run -> pairs ("run" .= runIdText run)
+    TheCaller -> text "caller"
+
+-- | @"reply": "chose"@ or @"other"@, beside the @answer@ text.
+replyData :: Reply -> Series
+replyData = \case
+    Chose answer -> "reply" .= ("chose" :: Text) <> "answer" .= answer
+    Other answer -> "reply" .= ("other" :: Text) <> "answer" .= answer
+
+replyOf :: Object -> Parser Reply
+replyOf obj =
+    obj .: "reply" >>= \case
+        "chose" -> Chose <$> obj .: "answer"
+        "other" -> Other <$> obj .: "answer"
+        other -> fail ("reply \"chose\" or \"other\", not " <> show (other :: Text))
 
 aboveOf :: Value -> Parser Above
 aboveOf = \case
     String "user" -> pure TheUser
+    String "caller" -> pure TheCaller
     Object obj -> ParentRun <$> (obj .: "run" >>= runIdOf)
-    other -> fail ("\"user\" or {run}, not " <> show other)
+    other -> fail ("\"user\", \"caller\" or {run}, not " <> show other)
 
 basisEncoding :: Basis -> Encoding
 basisEncoding = \case
