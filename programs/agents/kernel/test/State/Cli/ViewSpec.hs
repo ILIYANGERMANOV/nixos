@@ -67,10 +67,11 @@ spec = describe "the texts that need no run" $ do
                     [ "hooks:\n"
                     , "  gather/research.spawned: the spawn hook, as the lead spawns a researcher\n"
                     , "  gather/research.handed_back: the handback hook, at its hand-back\n"
+                    , "  best effort: with no recorded line after a spawn or hand-back, run state record <step>.spawned or state handback <role>\n"
                     ]
 
-        it "lists the run's gaps, oldest first" $
-            showRun steps g (runAt [Gapped "one", Gapped "two"]) `shouldSatisfy` Text.isInfixOf "gaps:\n  one\n  two\n"
+        it "lists the run's gaps, oldest first, each after its seq" $
+            showRun steps g (runAt [Gapped "one", Gapped "two"]) `shouldSatisfy` Text.isInfixOf "gaps:\n  1 one\n  2 two\n"
 
     describe "how work begins" $ do
         it "gives a spawned step runner its brief" $

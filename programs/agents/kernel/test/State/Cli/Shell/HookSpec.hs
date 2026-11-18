@@ -168,22 +168,30 @@ spec = describe "state-hook over the doubles" $ do
                         (Just opened, 0, Just closed) -> "recorded event 4 gather/research.spawned -> gather" `Text.isInfixOf` opened && "recorded event 7 gather/research.handed_back -> gather/researchers" `Text.isInfixOf` closed && "recorded 8 worker_returned -> gather/notes" `Text.isInfixOf` closed
                         _ -> False
 
-            it "tells a recorded spawn's line, the researchers left, and to spawn more or wait, not the advice" $ \world -> do
+            it "tells a recorded spawn's line, the researchers left, and the pick to record before each more spawn, not the advice" $ \world -> do
                 _ <- drive world researching
-                _ <- hook world "spawn" (spawned "researcher")
+                first <- hook world "spawn" (spawned "researcher")
                 _ <- state world ["record", "gather.research"]
 
                 said <- hook world "spawn" (spawned "researcher")
 
                 run <- runOf world
-                contextOf said
-                    `shouldBe` Just
-                        ( Text.unlines
-                            [ "run " <> run <> ": recorded event 6 gather/research.spawned -> gather"
-                            , "  researchers: 3 of 5 left"
-                            , "  next: spawn more, or end your turn until they hand back"
-                            ]
-                        )
+                (contextOf first, contextOf said)
+                    `shouldBe` ( Just
+                                    ( Text.unlines
+                                        [ "run " <> run <> ": recorded event 4 gather/research.spawned -> gather"
+                                        , "  researchers: 4 of 5 left"
+                                        , "  next: for each more, `state record gather.research`, then spawn; or end your turn until they hand back"
+                                        ]
+                                    )
+                               , Just
+                                    ( Text.unlines
+                                        [ "run " <> run <> ": recorded event 6 gather/research.spawned -> gather"
+                                        , "  researchers: 3 of 5 left"
+                                        , "  next: for each more, `state record gather.research`, then spawn; or end your turn until they hand back"
+                                        ]
+                                    )
+                               )
 
             it "tells a spawn that spends the researchers' budget only to wait" $ \world -> do
                 _ <- drive world [Record ["fuel.set", "low"], Record ["gather.research"]]

@@ -47,7 +47,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Discusses, Ordinary, TellsResult), StepSet (..), confirmText, eventText, outcomeNames, stateNameText)
+import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Discusses, Ordinary, TellsResult), StepSet (..), confirmText, eventText, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
@@ -55,7 +55,7 @@ import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (A
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), Reply (..), Route, kindName, oneLineText, qidText, questionLine, replyNote, replyText)
+import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), Route, kindName, oneLineText, otherNote, qidText, questionLine, replyText, replyWords)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
 import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
@@ -249,7 +249,7 @@ waitedOn state = filter (\pending -> waits pending && pending.asking.question.qi
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
-advise steps g facts state = Advice action more (atLine steps state) leads (factLines g facts state) prompt notify
+advise steps g facts state = Advice action more (atLine steps g state) leads (factLines g facts state) prompt notify
   where
     plain next = (next, "")
     askedKinds = map (.kind) state.askedHere
@@ -396,8 +396,8 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
             Just _ -> Run records
       where
         records = maybe (recordOutcomes g place s) (someOptions . capRecords g place . (.cap.atCap)) (usedUpAt place)
-    -- A discussion's question is about the design, its scope or a fact: no kind of its own.
-    discussAsk = commandOption ("state ask --kind <" <> Text.intercalate "|" (map kindName [Ask.Design, Ask.Scope, Ask.Fact]) <> "> <question>") "one question to the user, explained first and answered before the next"
+    -- A discussion's question is about the design or its scope: a fact is the researchers' to find.
+    discussAsk = commandOption ("state ask --kind <" <> Text.intercalate "|" (map kindName [Ask.Design, Ask.Scope]) <> "> <question>") "one question to the user, explained first and answered before the next"
 
 {- | Options the graph guarantees: a state always has an edge out, and a
 used-up budget always a way on ('State.Category.Graph.RefuseWithoutWayOut').
@@ -417,7 +417,10 @@ shownBudgets g state = sortOn (\(metered, budget) -> shownOrder metered budget.c
 advice, which parallel spawns would each repeat:
 
 > researchers: 3 of 5 left
-> next: spawn more, or end your turn until they hand back
+> next: for each more, `state record gather.research`, then spawn; or end your turn until they hand back
+
+Each spawn is one pick into the forking step: the hook records the spawn
+only at that step, so a second spawn in the turn needs the pick again.
 
 A hand-back tells the children of its group's role still open in the
 run's 'State.Run.Fold.ledger' instead: a spawn's own child is not in it
@@ -426,15 +429,19 @@ before its bind. None for an event that opens or closes no child.
 childBudget :: OpenGraph -> RunState -> Event -> Maybe [Text]
 childBudget g state event =
     listToMaybe
-        [ childLines owed budget (genericLength (filter ((== group.runner) . (.role)) (ledger g state)))
+        [ childLines owed budget (pickInto metered.place) (genericLength (filter ((== group.runner) . (.role)) (ledger g state)))
         | Event.Took _ (AnyOutcome _ some) <- [event]
         , (metered, budget) <- shownBudgets g state
         , Just owed <- [owedBy budget.cap.meter (RecordedOutcome some)]
         , Just (Forking group) <- [Map.lookup metered.place g.groupStates]
         ]
+  where
+    -- The event that leads from where the run is into the forking step, if one does.
+    pickInto forking = listToMaybe [eventText into | ((from, into), edge) <- Map.toList g.edges, At from == state.at, edge.to == At forking]
 
-childLines :: Owed -> Budget -> Natural -> [Text]
-childLines owed budget open =
+-- | The lines under a child's line; @pick@ is the event to record before each further spawn, if any.
+childLines :: Owed -> Budget -> Maybe Text -> Natural -> [Text]
+childLines owed budget pick open =
     [ Text.toLower (someMeterName budget.cap.meter) <> ": " <> Text.intercalate ", " (running <> foldMap left budget.allows)
     , "next: " <> next
     ]
@@ -446,7 +453,7 @@ childLines owed budget open =
     howMany n = if n == 0 then "none" else tshow n
     next = case owed of
         Opens | usedUp budget -> "end your turn until they hand back"
-        Opens -> "spawn more, or end your turn until they hand back"
+        Opens -> maybe "spawn more," (\event -> "for each more, `state record " <> event <> "`, then spawn;") pick <> " or end your turn until they hand back"
         Closes | open == 0 -> "state next"
         Closes | open == 1 -> "end your turn until it hands back"
         Closes -> "end your turn until they hand back"
@@ -515,7 +522,7 @@ atOnce at ended state =
         { unrecorded = [(c.child.task, Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in"))) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.lookupTask here c.child.task]]
         , triage = [(child.task, TriageStop child.run (retryable child.task) stop) | (child, stop) <- Fan.untriaged here]
         , record = recordsFinished here
-        , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> replyText answer)) | (qid, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
+        , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> replyText kind answer)) | (qid, kind, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
         , spawn = [(task.id, Spawn (taskRole task) (Just task.id)) | task <- Fan.spawnable (askingChildren state) here]
         }
   where
@@ -609,7 +616,7 @@ factLines g facts state =
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
         <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]
         -- While the run is still where it asked, a reply that is none of the options says what it asks.
-        <> [qidText answer.about.qid <> " answered: " <> reply <> " - " <> replyNote | answer <- state.answers, answer.step == askedAt state, Other reply <- [answer.given]]
+        <> [qidText answer.about.qid <> " answered: " <> replyWords answer.given <> " - " <> note | answer <- state.answers, answer.step == askedAt state, Just note <- [otherNote answer.about.kind answer.given]]
   where
     readinessText = \case
         IsDraft -> " (draft)"
@@ -766,8 +773,8 @@ ownAsk state how kind text = sent <$> Ask.route how state.start.principal (Role.
 {- | Where the run is, in one plain line: the state, and what it means to
 an agent that knows nothing of the kernel.
 -}
-atLine :: Steps -> RunState -> Text
-atLine steps state = case state.at of
+atLine :: Steps -> OpenGraph -> RunState -> Text
+atLine steps g state = case state.at of
     At place -> "at " <> stateNameText (placeName place) <> ": " <> meaning place
     Out -> "at the end: the flow is done"
     Exit -> "at the end: the flow is done"
@@ -778,8 +785,13 @@ atLine steps state = case state.at of
         | otherwise = case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
                 Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
-                Agent role _ -> "a step " <> withArticle (roleText role) <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
+                Agent role _ -> "a step " <> withArticle (roleText role) <> " subagent runs - spawn it with the task below; " <> hooked role (spawnedAt place) <> "; then state next"
             Nothing -> "children at work - each runs on its own; do what each unindented line says, then state next"
+    -- A hook can miss its line: the advice names the command that records it by hand.
+    hooked role = \case
+        Just spawned -> "its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record " <> eventText spawned <> ", or pipe the hand-back into state handback " <> roleText role
+        Nothing -> "its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback " <> roleText role
+    spawnedAt place = listToMaybe [event | (event, _) <- shownEdges g place, event.outcome == spawnedOutcome]
 
 -- | A role after its indefinite article, by the role's first letter: @an implementer@, @a fixer@.
 withArticle :: Text -> Text

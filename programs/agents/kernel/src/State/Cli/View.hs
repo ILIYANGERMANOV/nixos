@@ -53,10 +53,10 @@ showRun steps g state =
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
             <> section "answered:" (map answerLine state.answers)
-            <> section "gaps:" state.gaps
+            <> section "gaps:" [tshow n <> " " <> gap | (n, gap) <- state.gaps]
             <> section "hooks:" (hookLines steps g)
   where
-    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> replyText answered.given
+    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> replyText answered.about.kind answered.given
     section title = \case
         [] -> []
         items -> title : map ("  " <>) items
@@ -67,20 +67,25 @@ showRun steps g state =
 {- | What the hooks record of the flow's events, so no agent records them
 by hand: the spawn and the hand-back of each step a subagent runs as a child
 of a choice, the only steps whose spawn a hook sees ('opensChild'), at each
-place this flow takes it, named in its scopes.
+place this flow takes it, named in its scopes. A hook is best effort: the
+last line names the commands that record a missed line by hand.
 -}
 hookLines :: Steps -> OpenGraph -> [Text]
-hookLines steps g =
-    [ line
-    | role <- agentRoles steps
-    , AnyStep l (SomeStep s) <- stepsRunBy steps role
-    , opensChild l s
-    , spawned <- Set.toList (Set.fromList [event | (place, event) <- Map.keys g.edges, place.name == stepName s, event == qualifyEvent place.scope (EventName (stepName s) spawnedOutcome)])
-    , line <-
-        [ eventText spawned <> ": the " <> hookName SpawnHook <> " hook, as the lead spawns a " <> roleText role
-        , eventText spawned {outcome = handedBackOutcome} <> ": the " <> hookName HandbackHook <> " hook, at its hand-back"
+hookLines steps g = case hooked of
+    [] -> []
+    _ -> hooked <> ["best effort: with no recorded line after a spawn or hand-back, run state record <step>.spawned or state handback <role>"]
+  where
+    hooked =
+        [ line
+        | role <- agentRoles steps
+        , AnyStep l (SomeStep s) <- stepsRunBy steps role
+        , opensChild l s
+        , spawned <- Set.toList (Set.fromList [event | (place, event) <- Map.keys g.edges, place.name == stepName s, event == qualifyEvent place.scope (EventName (stepName s) spawnedOutcome)])
+        , line <-
+            [ eventText spawned <> ": the " <> hookName SpawnHook <> " hook, as the lead spawns a " <> roleText role
+            , eventText spawned {outcome = handedBackOutcome} <> ": the " <> hookName HandbackHook <> " hook, at its hand-back"
+            ]
         ]
-    ]
 
 {- | A request's resume card at this time: where it stands, what was
 decided in it, what it still asks, and how to take it up again.
@@ -88,7 +93,7 @@ decided in it, what it still asks, and how to take it up again.
 cardLines :: UTCTime -> Card -> [Text]
 cardLines now card =
     headline
-        : ["  decided " <> qidText qid <> " - " <> replyText reply | (qid, reply) <- card.decisions]
+        : ["  decided " <> qidText qid <> " - " <> replyText kind reply | (qid, kind, reply) <- card.decisions]
             <> ["  open " <> qidText q.qid <> " " <> kindName q.kind <> ": " <> oneLineText q.text | q <- card.open]
             <> ["  " <> adviceLine resume | Just resume <- [advice now card]]
   where

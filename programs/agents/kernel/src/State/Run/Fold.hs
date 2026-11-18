@@ -141,8 +141,8 @@ data RunState = RunState
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     , answers :: [Answer]
     -- ^ Every forwarded question answered from above, oldest first: @show@ lists them.
-    , gaps :: [Text]
-    -- ^ Every gap the lead recorded, oldest first: @show@ lists them.
+    , gaps :: [(Natural, Text)]
+    -- ^ Every gap the lead recorded with its line's seq, oldest first: @show@ lists them, @state void@ takes the seq.
     , drafted :: Maybe DraftPr
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
     , untriaged :: [(AgentRole, OneLine)]
@@ -508,7 +508,7 @@ applyEvent g state n = \case
     Started _ -> going (Left StartedTwice)
     Targeted target -> going (targeted state target)
     Extended _ -> going (extended g state)
-    Gapped gap -> going (Right state {gaps = state.gaps <> [gap]})
+    Gapped gap -> going (Right state {gaps = state.gaps <> [(n, gap)]})
     Took scope (AnyOutcome PickLayer some) -> going (handle AgentPicks g state (Picked scope some))
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
@@ -1090,9 +1090,9 @@ pendingId pending = pending.asking.question.qid
 heldAnswer :: RunState -> QId -> Maybe Reply
 heldAnswer state qid = (.given) <$> find ((== qid) . (.about.qid)) state.answers
 
--- | Each question the run ruled on or had answered from above, with its answer: a ruling's is an option chosen.
-given :: RunState -> [(QId, Reply)]
-given state = [(ruling.qid, Chose (oneLineText ruling.proposal.answer)) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
+-- | Each question the run ruled on or had answered from above, with its kind and answer: a ruling's is an option chosen.
+given :: RunState -> [(QId, Kind, Reply)]
+given state = [(ruling.qid, ruling.kind, Chose (oneLineText ruling.proposal.answer)) | ruling <- state.rulings] <> [(answer.about.qid, answer.about.kind, answer.given) | answer <- state.answers]
 
 -- | The question pending under this id, if one is.
 pendingAt :: RunState -> QId -> Maybe Pending

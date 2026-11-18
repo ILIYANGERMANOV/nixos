@@ -135,7 +135,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "advises a researcher's spawn at the research state, the hook recording it, as its SPAWN says" $ do
             explained child (advise steps g noFacts (runAt (knobs Balanced <> [pickResearch])))
-                `shouldBe` [ "at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next"
+                `shouldBe` [ "at gather/research: a step a researcher subagent runs - spawn it with the task below; its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record gather/research.spawned, or pipe the hand-back into state handback researcher; then state next"
                            , "outcomes:"
                            , "  gather/research.spawned - back to gather, the gather loop's next round"
                            ]
@@ -170,7 +170,7 @@ spec = describe "State.Protocol.Advice" $ do
 
     it "names where a spawned step's outcomes lead, for the hook records them" $
         explainedAt (runAt (knobs Balanced <> take 13 happyPath))
-            `shouldBe` [ "at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next"
+            `shouldBe` [ "at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback review-lead; then state next"
                        , "outcomes:"
                        , "  review.clean - on to describe"
                        , "  review.rows - on to pick"

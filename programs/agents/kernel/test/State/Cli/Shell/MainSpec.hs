@@ -414,6 +414,19 @@ spec = describe "state over the doubles" $ do
 
                 (voided, "step: review" `elem` shown) `shouldBe` (["recorded 3 voided -> fuel"], False)
 
+            it "voids a gap by the seq state show lists it with" $ \world -> do
+                let gapsOf = map Text.strip . takeWhile ("  " `Text.isPrefixOf`) . drop 1 . dropWhile (/= "gaps:")
+                    textOf = Text.drop 1 . Text.dropWhile (/= ' ')
+                _ <- drive world []
+                _ <- succeeded =<< state world ["record", "gap", "one"]
+                _ <- succeeded =<< state world ["record", "gap", "two"]
+                listed <- gapsOf <$> (succeeded =<< state world ["show"])
+
+                _ <- succeeded =<< state world (["void"] <> take 1 (map (Text.takeWhile (/= ' ')) listed) <> ["recorded", "in", "error"])
+                shown <- gapsOf <$> (succeeded =<< state world ["show"])
+
+                (map textOf listed, map textOf shown) `shouldBe` (["one", "two"], ["two"])
+
             it "refuses a seq no line the run replays has, and the started line, which the run needs" $ \world -> do
                 _ <- drive world []
 
@@ -527,16 +540,29 @@ spec = describe "state over the doubles" $ do
             drop 1 asked `shouldBe` ["ASK user"]
             reverse . take 2 . reverse <$> loggedEvents world `shouldReturn` ["asked", "forwarded"]
 
-        it "records a reply none of the options covers, saying it may be a new request" $ \world -> do
+        it "records a reply none of a Pick's options covers, saying it may be a new request" $ \world -> do
             _ <- startedRun world
-            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            asked : _ <- succeeded =<< state world ["ask", "--kind", "Pick", "--to", "user", "which", "store?"]
             let qid = Text.drop (Text.length "asked ") asked
 
             answered <- succeeded =<< state world ["answer", qid, "--other", "add", "a", "CLI", "first"]
             shown <- succeeded =<< state world ["show"]
 
             answered `shouldBe` ["answered " <> qid, Ask.replyNote]
-            shown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - add a CLI first (" <> Ask.replyNote <> ")"]
+            shown `shouldContain` ["answered:", "  " <> qid <> " Pick: which store? - add a CLI first (" <> Ask.replyNote <> ")"]
+
+        for_ ["Design", "Scope"] $ \kind ->
+            it ("records a free-text reply to a " <> Text.unpack kind <> " question as only recorded, no new request") $ \world -> do
+                _ <- startedRun world
+                [asked, _] <- succeeded =<< state world ["ask", "--kind", kind, "which", "store?"]
+                let qid = Text.drop (Text.length "asked ") asked
+
+                answered <- succeeded =<< state world ["answer", qid, "--other", "add", "a", "CLI", "first"]
+                shown <- succeeded =<< state world ["show"]
+                advised <- succeeded =<< state world ["next"]
+
+                (answered, filter (Text.isInfixOf Ask.replyNote) (shown <> advised)) `shouldBe` (["answered " <> qid], [])
+                shown `shouldContain` ["answered:", "  " <> qid <> " " <> kind <> ": which store? - add a CLI first"]
 
         it "refuses to park a question in triage its row must answer itself, as it refuses its answer" $ \world -> do
             _ <- startedRun world

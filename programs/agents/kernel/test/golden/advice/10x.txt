@@ -55,7 +55,7 @@ Notes: merge every researcher's hand-back into your notes, each fact once, then 
 
 == gather/research
 SPAWN researcher background: no
-  at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at gather/research: a step a researcher subagent runs - spawn it with the task below; its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record gather/research.spawned, or pipe the hand-back into state handback researcher; then state next
   outcomes:
     gather/research.spawned - back to gather, the gather loop's next round
   fuel: balanced
@@ -106,7 +106,7 @@ RUN state record skip_simplify_plan.run
 
 == simplify_plan
 SPAWN researcher background: no
-  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback researcher; then state next
   outcomes:
     simplify_plan.done - on to confirm
   fuel: balanced

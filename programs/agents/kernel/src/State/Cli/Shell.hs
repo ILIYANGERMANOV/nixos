@@ -613,7 +613,7 @@ planOf steps worktreeHead file g state = \case
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
     Answer raw reply by ->
         answeredQid state raw >>= \qid ->
-            answerEvents state qid reply by <&> \events -> Plan events (\after _ -> printed ("answered " <> qidText qid <> "\n" <> otherNote reply) <> writtenDown state after qid)
+            answerEvents state qid reply by <&> \events -> Plan events (\after _ -> printed ("answered " <> qidText qid <> "\n" <> otherNote after qid) <> writtenDown state after qid)
     Park raw why -> open raw >>= \qid -> Right (Plan (forwardedFirst state qid <> [QuestionParked qid why]) (\after _ -> printed ("parked " <> qidText qid <> "\n") <> writtenDown state after qid))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> printed (showRun steps g state)))
@@ -633,9 +633,7 @@ planOf steps worktreeHead file g state = \case
     raised raise qid = case raise of
         AsAsked -> []
         ToSecurity -> [RetaggedSecurity qid]
-    otherNote = \case
-        Ask.Chose _ -> ""
-        Ask.Other _ -> Ask.replyNote <> "\n"
+    otherNote after qid = Text.unlines [note | answer <- after.answers, answer.about.qid == qid, Just note <- [Ask.otherNote answer.about.kind answer.given]]
     notSent kind refusal = Failure BadInput ("--to user on a " <> kindName kind <> " question") (explain g (Fold.fuelOf state) state.at (Fold.NotAllowed refusal)).why ("state ask --kind " <> kindName kind <> " <question>, without --to: the run answers it")
 
 -- | The events of an answer: forwarded first if still in triage, so one command takes it from triage to closed.
@@ -888,16 +886,13 @@ sentEvent :: Down -> (Event, Text)
 sentEvent down = case down.sent of
     Replied reply ->
         ( Answered down.qid reply (ParentRun down.above)
-        , "state answer " <> qidText down.qid <> otherFlag reply <> shellWord (replyWords reply) <> " --by " <> runIdText down.above
+        , "state answer " <> qidText down.qid <> otherFlag reply <> shellWord (Ask.replyWords reply) <> " --by " <> runIdText down.above
         )
     ParkedFor why -> (QuestionParked down.qid why, "state answer " <> qidText down.qid <> " --park " <> shellWord (oneLineText why))
   where
     otherFlag = \case
         Ask.Chose _ -> " "
         Ask.Other _ -> " --other "
-    replyWords = \case
-        Ask.Chose answer -> answer
-        Ask.Other answer -> answer
 
 -- | The child a question came up from: one of the fan-out's, or a direct child.
 data Below = FanChild Child | DirectChild RunId
@@ -915,7 +910,7 @@ is neither.
 downOf :: RunState -> RunState -> QId -> Maybe Down
 downOf before after qid = do
     asker <- (FanChild . (.child) <$> Fan.askedBy fan qid) <|> listToMaybe [DirectChild run | open <- maybeToList (Fold.pendingAt before qid), ChildRun run <- [open.asking.from], run `notElem` map (.child.run) fan.children]
-    sent <- (Replied <$> lookup qid (Fold.given after)) <|> (ParkedFor <$> Fold.parkedFor after qid)
+    sent <- listToMaybe [Replied reply | (answered, _, reply) <- Fold.given after, answered == qid] <|> (ParkedFor <$> Fold.parkedFor after qid)
     Just (Down after.run asker qid sent)
   where
     fan = Fold.currentFan before
