@@ -97,7 +97,8 @@ A program built on this ADR proves these, each as a test:
   so analysis cannot replay a run, and a crash mid-write leaves half a state.
 - **A database.** Rejected for a single run: one writer and about fifty events
   need no transactions or indexes; cross-run queries are the analyzer's job
-  over many logs.
+  over many logs. Superseded: linked runs and writers at once moved the
+  kernel to one SQLite database (ADR 0022).
 - **An enforcing machine** that blocks a step out of order. Rejected: it
   limits the agent, and the measured runs show the order holds without it.
 
