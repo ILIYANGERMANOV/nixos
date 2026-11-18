@@ -36,3 +36,8 @@ setup() {
   grep -q '^fourmolu -q --mode check src test$' "$log"
   grep -q '^cabal-fmt --check state.cabal$' "$log"
 }
+
+@test "the repl runs GHC through the heap-capped wrapper" {
+  run run_repl "$BATS_TEST_TMPDIR/stamp"
+  grep -q -- '^cabal repl .*--with-repl=ghc-capped' "$log"
+}
