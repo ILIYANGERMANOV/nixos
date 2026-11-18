@@ -564,10 +564,12 @@ shapedAs :: Principal -> Principal -> Principal
 shapedAs like = \case
     ByRole parent _ plan -> ByRole parent shape plan
     ByUser _ -> ByUser shape
+    ByCaller _ -> ByCaller shape
   where
     shape = case like of
         ByRole _ s _ -> s
         ByUser s -> s
+        ByCaller s -> s
 
 confirming :: Principal -> Principal
 confirming = \case

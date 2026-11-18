@@ -16,6 +16,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Category.Flow (qualifyEvent)
 import State.Category.Fuel (fuelLabel)
 import State.Category.Graph (Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName (..), SomeStep (..), StateName, eventText, handedBackOutcome, spawnedOutcome, stateNameText, stepName)
@@ -59,7 +60,8 @@ showRun steps g state =
 
 {- | What the hooks record of the flow's events, so no agent records them
 by hand: the spawn and the hand-back of each step a subagent runs as a child
-of a choice, the only steps whose spawn a hook sees ('opensChild'), that this flow takes.
+of a choice, the only steps whose spawn a hook sees ('opensChild'), at each
+place this flow takes it, named in its scopes.
 -}
 hookLines :: Steps -> OpenGraph -> [Text]
 hookLines steps g =
@@ -67,15 +69,12 @@ hookLines steps g =
     | role <- agentRoles steps
     , AnyStep l (SomeStep s) <- stepsRunBy steps role
     , opensChild l s
-    , let spawned = EventName (stepName s) spawnedOutcome
-    , Set.member spawned flowEvents
+    , spawned <- Set.toList (Set.fromList [event | (place, event) <- Map.keys g.edges, place.name == stepName s, event == qualifyEvent place.scope (EventName (stepName s) spawnedOutcome)])
     , line <-
         [ eventText spawned <> ": the " <> hookName SpawnHook <> " hook, as the lead spawns a " <> roleText role
-        , eventText (EventName (stepName s) handedBackOutcome) <> ": the " <> hookName HandbackHook <> " hook, at its hand-back"
+        , eventText spawned {outcome = handedBackOutcome} <> ": the " <> hookName HandbackHook <> " hook, at its hand-back"
         ]
     ]
-  where
-    flowEvents = Set.fromList (map snd (Map.keys g.edges))
 
 -- | One line per open question, oldest first.
 pendingLines :: RunState -> [Text]

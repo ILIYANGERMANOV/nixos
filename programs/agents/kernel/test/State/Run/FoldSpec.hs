@@ -529,7 +529,7 @@ gatherBudgets = describe "the gather's choice" $ do
         replay g (logOf (started :| fuelSet Balanced : adjusted <> asks 31 30 <> spawns 5)) `shouldSatisfy` isRight
 
     it "keeps each gap recorded, oldest first, and stays where it is" $ do
-        let at = map (Took mempty) (take 7 happyPath)
+        let at = fuelSet Balanced : take 7 happyPath
         fmap (\state -> (state.at, state.gaps)) (replay g (logOf (started :| at <> [Gapped "one", Gapped "two"])))
             `shouldBe` fmap (\state -> (state.at, ["one", "two"])) (replay g (logOf (started :| at)))
 

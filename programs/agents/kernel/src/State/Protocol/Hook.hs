@@ -76,7 +76,7 @@ import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty, toList)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text

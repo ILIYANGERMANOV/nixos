@@ -7,7 +7,7 @@ import State.Cli.Render qualified as Render
 import State.Cli.View (beginText, brief, briefOf, briefSection, showRun)
 import State.Protocol.Handback (tokenWords)
 import State.Protocol.Hook (Begin (..), LeadSkill (..))
-import State.Run.Event (AgentRole (..), Event (Gapped, Took), StateName (..))
+import State.Run.Event (AgentRole (..), Event (Gapped), StateName (..))
 import State.Run.EventGen (fuelSet)
 import State.Run.RunGen (g, happyPath, loadSteps, runAt)
 import State.Table (agentRoles)
@@ -65,8 +65,8 @@ spec = describe "the texts that need no run" $ do
                 all
                     (`Text.isInfixOf` text)
                     [ "hooks:\n"
-                    , "  research.spawned: the spawn hook, as the lead spawns a researcher\n"
-                    , "  research.handed_back: the handback hook, at its hand-back\n"
+                    , "  gather/research.spawned: the spawn hook, as the lead spawns a researcher\n"
+                    , "  gather/research.handed_back: the handback hook, at its hand-back\n"
                     ]
 
         it "lists the run's gaps, oldest first" $
