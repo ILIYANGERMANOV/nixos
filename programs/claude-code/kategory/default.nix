@@ -24,7 +24,7 @@ let
   home = import ../codegen/home.nix { inherit lib; };
 
   name = "claude-kategory";
-  configDir = ".claude-kategory";
+  configDir = ".${name}";
 
   # What the user may choose and Claude Code saves to their settings.json.
   # `--settings` outranks that file, so any of these left in would undo the
