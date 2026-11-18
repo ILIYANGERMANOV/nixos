@@ -34,7 +34,7 @@ spec = describe "State.Category.Path" $ do
         ends path === Just (Ctx, PR)
 
     it "takes a skip to where running the skipped step goes" $ do
-        let built = graph (skippable "refactor" (always Skippable) (Do Refactor) :> Do Review)
+        let built = graph (skippable Refactor (always Skippable) :> Do Review)
             from state event = do
                 g <- either (const Nothing) Just built
                 at <- find ((== StateName state) . (.name)) (places g)

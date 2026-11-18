@@ -9,7 +9,7 @@ import State.Category.Meter (AtCap (..), Limit (..), someMeterName)
 import State.Category.Step (eventText)
 import State.Category.Ty (TyOf (..))
 import State.Flow.Engineer (engineer)
-import State.Flow.Library (ChoiceS, SkippableS, agree, build, choice, describe, fixReReview, gather, propose, review, ship, skippable)
+import State.Flow.Library (ChoiceS, SkippableS, agree, build, choice, describe, fixReReview, gather, propose, review, ship, skippableBlock)
 import State.Step.Catalog (flowOutcomes, outcomeEvent, termSkips, termSteps)
 import Test.Hspec (Spec, it, shouldBe)
 import Test.Hspec qualified as Hspec
@@ -57,5 +57,5 @@ spec = Hspec.describe "State.Flow.Library" $ do
             `shouldBe` ["size.small", "size.big", "skip_tidy.skip", "skip_tidy.run"]
   where
     sized :: Flow (ChoiceS 'Ctx '[ '("small", 'Ctx), '("big", 'Ctx)] '[IdS, IdS] :>> SkippableS 'Ctx IdS) 'Ctx 'Nothing 'Ctx
-    sized = choice "size" (#small :-> Id :& #big :-> Id :& End) :> skippable "tidy" (always Skippable) Id
+    sized = choice "size" (#small :-> Id :& #big :-> Id :& End) :> skippableBlock "tidy" (always Skippable) Id
     skippableAt level = Set.fromList [name | (name, when) <- termSkips engineer, atFuel level when == Skippable]

@@ -16,14 +16,14 @@ import State.Category.Effect (Handler (..))
 import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Shape (..))
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
-import State.Category.Meter (AtCap (..), Limit (..))
+import State.Category.Meter (AtCap (..))
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
 import State.Category.Ty qualified
 import State.Flow.Architect (architect)
 import State.Flow.Attend (Sing (..))
 import State.Flow.Chief (chief)
 import State.Flow.Engineer (engineer)
-import State.Flow.Library (gather, skippable)
+import State.Flow.Library (gather, skippable, skippableBlock, upTo)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
 import State.Role (SomeFlow (..), flowOut)
@@ -47,12 +47,12 @@ spec = describe "State.Category.Flow" $ do
         it "an optional step that changes the type" $
             rejected
                 "Couldn't match type: State.Category.Ty.Diff with: State.Category.Ty.Plan"
-                (skippable "refactor" (always Never) (Do Implement))
+                (skippable Implement (always Never))
 
         it "an optional step with an exit" $
             rejected
                 "Couldn't match type: Just State.Category.Ty.Plan with: Nothing"
-                (skippable "simplify_plan" (always Never) (Do Confirm))
+                (skippable Confirm (always Never))
 
         it "a loop whose body never exits" $
             rejected
@@ -67,7 +67,7 @@ spec = describe "State.Category.Flow" $ do
         it "capping a step with no meter" $
             rejectedShown
                 "Could not deduce ‘State.Category.Meter.Meter State.Step.Build.Implement’"
-                (graph (Capped (always (UpTo 1)) Stop (Step Implement)))
+                (graph (upTo 1 Stop (Step Implement)))
 
         {- The exit is pinned: left free, nothing asks GHC to reduce the
         clashing 'Join'. 'Ty' is imported qualified, so GHC still prints every
@@ -81,7 +81,7 @@ spec = describe "State.Category.Flow" $ do
         it "capping a flow that is neither a step nor a fork of one" $
             rejected
                 "Couldn't match expected type: CapTarget"
-                (Capped (always (UpTo 1)) Stop (Do Fix) :: Flow _ 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
+                (upTo 1 Stop (Do Fix) :: Flow _ 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
 
         it "a case after a step whose out is not a sum" $
             rejected
@@ -109,7 +109,7 @@ spec = describe "State.Category.Flow" $ do
         it "an optional block over a sum: its skip would be one edge for two summands" $
             rejectedShown
                 "A sum State.Category.Ty.Sum"
-                (graph (Do Triage :> skippable "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
+                (graph (Do Triage :> skippableBlock "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
 
     {- 'Unhandled' names the effects left, in 'Eff''s order. 'Eff' is not
     imported, so GHC prints its constructors qualified.

@@ -8,6 +8,7 @@ module State.Flow.Library (
     choiceLoop,
     ChoiceLoopS,
     skippable,
+    skippableBlock,
     SkippableS,
     upTo,
     researchers,
@@ -47,7 +48,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Label (..), Name (..), Shape (..))
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Step (StepSet (Sing, stepName), stateNameText)
+import State.Category.Step (StepSet (Sig, Sing, stepName), stateNameText)
 import State.Category.Ty (KnownTy, NotSum, Summands, Ty, TyOf (..))
 import State.Step.Build (BuildStep (..), Sing (..))
 import State.Step.Fuel (FuelStep (Skip), Sing (Skip))
@@ -89,8 +90,12 @@ type ChoiceLoopS a ss enough bs = LoopS (ChoiceS a ('("enough", a) ': ss) ((enou
 block, or @run@. The kernel decides the pick where the level may skip.
 Law: at a level that never skips, the block alone.
 -}
-skippable :: (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Flow f a 'Nothing a -> Flow (SkippableS a f) a 'Nothing a
-skippable name skips block = Do (Skip name skips) :> Case (#skip :-> Id :& #run :-> block :& End)
+skippable :: (StepSet k, Sig s ~ '(a, 'Nothing, a), KnownTy a, NotSum a, Typeable a) => Sing (s :: k) -> PerFuel SkipWhen -> Flow (SkippableS a (DoS s)) a 'Nothing a
+skippable step skips = skippableBlock (nameOf step) skips (Do step)
+
+-- | 'skippable' over any block, its skip named @name@.
+skippableBlock :: (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Flow f a 'Nothing a -> Flow (SkippableS a f) a 'Nothing a
+skippableBlock name skips block = Do (Skip name skips) :> Case (#skip :-> Id :& #run :-> block :& End)
 
 type SkippableS :: Ty -> Shape -> Shape
 type SkippableS a f = DoS (Skip a) :>> CaseS '[IdS, f]
@@ -193,7 +198,7 @@ the skip by its step's name.
 propose :: Flow ProposeS 'Ctx ('Just 'Plan) 'Ctx
 propose =
     Do PlanS
-        :> skippable (nameOf SimplifyP) skippableAtLow (Do SimplifyP)
+        :> skippable SimplifyP skippableAtLow
         :> upTo 3 Stop (Step Confirm)
 
 type ProposeS = DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS Confirm)
@@ -202,7 +207,7 @@ type ProposeS = DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS 
 refactor at or below 100 changed lines, Low on a trivial task.
 -}
 build :: Flow BuildS 'Plan 'Nothing 'Diff
-build = Do Draft :> Do Implement :> skippable (nameOf Refactor) (PerFuel Skippable (AtOrBelow 100) Never) (Do Refactor)
+build = Do Draft :> Do Implement :> skippable Refactor (PerFuel Skippable (AtOrBelow 100) Never)
 
 type BuildS = DoS Draft :>> DoS Implement :>> SkippableS 'Diff (DoS Refactor)
 

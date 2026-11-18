@@ -33,13 +33,13 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Join, Name (..), ScopePath, Shape (..), scopePath)
-import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
+import State.Category.Fuel (PerFuel (..), SkipWhen (..))
 import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, outOf, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName)
 import State.Category.Ty (KnownTy, NotSum, TyOf (..))
-import State.Flow.Library (ChoiceS, choice, gather, parallel, skippable)
+import State.Flow.Library (ChoiceS, choice, gather, parallel, skippableBlock, upTo)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (BuildStep (..), Sing (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), outcomeEvent)
@@ -79,10 +79,10 @@ planKit = Kit [AnyFlow (Do SimplifyP), AnyFlow (Do Draft)] []
 
 -- | A review with rows always fixes them before the diff goes on.
 diffKit :: Kit 'Diff
-diffKit = Kit [AnyFlow (Do Refactor)] [AnyFlow (Do Review :> Capped (always (UpTo 3)) Refuse (Step PickRows) :> Do Fix), AnyFlow (Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse (Step PickRows) :> Do Fix)]
+diffKit = Kit [AnyFlow (Do Refactor)] [AnyFlow (Do Review :> upTo 3 Refuse (Step PickRows) :> Do Fix), AnyFlow (Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse (Step PickRows) :> Do Fix)]
 
 prKit :: Kit 'PR
-prKit = Kit [AnyFlow (Do SimplifyPR), AnyFlow (Do FixPR)] [AnyFlow (Do AwaitCi :> Capped (always (UpTo 5)) Stop (Step FixPR))]
+prKit = Kit [AnyFlow (Do SimplifyPR), AnyFlow (Do FixPR)] [AnyFlow (Do AwaitCi :> upTo 5 Stop (Step FixPR))]
 
 -- | A term from @Ctx@ to @PR@ through every type, any combinator on each.
 genFlow :: Gen (AnyFlow 'Ctx 'Nothing 'PR)
@@ -91,7 +91,7 @@ genFlow = do
     AnyFlow plan <- genEndo planKit
     Gen.choice
         [ (\(AnyFlow diff) (AnyFlow pr) -> AnyFlow (ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr)) <$> genEndo diffKit <*> genEndo prKit
-        , pure (AnyFlow (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> parallel (Group "engineers" (AgentRole "engineer")) engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers)))))
+        , pure (AnyFlow (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> parallel (Group "engineers" (AgentRole "engineer")) engineer :> upTo 9 Stop (Step (Merge engineers)))))
         ]
   where
     engineer = Do PlanS :> Do Implement :> Do Describe
@@ -137,7 +137,7 @@ genEndo kit =
         Gen.recursive
             Gen.choice
             [inFresh (Gen.element kit.endo)]
-            ( [ inFresh ((\name skips (AnyFlow f) -> AnyFlow (skippable name skips f)) <$> genName <*> genSkips <*> genEndo kit)
+            ( [ inFresh ((\name skips (AnyFlow f) -> AnyFlow (skippableBlock name skips f)) <$> genName <*> genSkips <*> genEndo kit)
               , series <$> genEndo kit <*> genEndo kit
               , scope <$> genName <*> genEndo kit
               , inFresh ((\name (AnyFlow f) (AnyFlow g) -> AnyFlow (choice name (#small :-> f :& #big :-> g :& End))) <$> genName <*> genEndo kit <*> genEndo kit)

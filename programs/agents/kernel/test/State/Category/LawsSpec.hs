@@ -20,14 +20,14 @@ import State.Category.Effect (Handler (..))
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Name (..), Shape (..), branchesWith, nameText, qualify, qualifyText, scoped, unqualify)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (AnyFlow (..), Kit (..), builds, diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn, series)
-import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
+import State.Category.Fuel (PerFuel (..), SkipWhen, monotone, skipsAtMost)
 import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, outOf, placeName, places)
 import State.Category.Graph qualified as Graph
-import State.Category.Meter (AtCap (..), Limit (..), limitAtMost, meterName)
+import State.Category.Meter (AtCap (..), Limit, limitAtMost, meterName)
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Sing, StateName (..), StepSet, stateNameText)
 import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Engineer (engineer)
-import State.Flow.Library (choice, choiceLoop, parallel)
+import State.Flow.Library (choice, choiceLoop, parallel, upTo)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..), TriageStep (..))
 import State.Step.Build (BuildStep (..), Sing (..))
@@ -173,7 +173,7 @@ engineers = Group "engineers" (AgentRole "engineer")
 
 -- | A capped fix of a PR: what bounds a choice loop over PRs.
 fixCapped :: Flow (CappedS (DoS FixPR)) 'PR 'Nothing 'PR
-fixCapped = Capped (always (UpTo 5)) Stop (Step FixPR)
+fixCapped = upTo 5 Stop (Step FixPR)
 
 -- | The graph with each state's path its rank, or the clash that refuses the term.
 drawn :: (NotSum i, NotSum o) => Flow s i e o -> Either Clash OpenGraph
