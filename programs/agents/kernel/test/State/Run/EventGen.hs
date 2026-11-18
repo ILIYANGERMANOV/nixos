@@ -193,7 +193,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> genTaskId) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
+        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.choice [AtFan <$> genTaskId, pure Direct]) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.

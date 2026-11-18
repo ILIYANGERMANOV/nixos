@@ -800,7 +800,7 @@ tenXRounds = describe "the 10x's rounds" $ do
   where
     pr = Url "https://pr/1"
     t1 = TaskId "t1"
-    parent = Parent (runId "p1") t1
+    parent = Parent (runId "p1") (AtFan t1)
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| fuelSet fuel : init happyPath <> [stepTook (ReadySkipped pr)]))
     tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
     agreed = spawnedIn "gather" <> [stepTook ResearchHandedBack] <> planned
@@ -959,7 +959,7 @@ accepts: the run state and its log, @started@ first.
 genAskLog :: Gen (RunState, NonEmpty Event)
 genAskLog = do
     flow <- Gen.element [EngineerFlow, TenXFlow]
-    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") (TaskId "t1")) OwnPr ChildConfirms]
+    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") (AtFan (TaskId "t1"))) OwnPr ChildConfirms]
     let begun = Started (startOf flow principal)
     first <- either (fail . show) pure (replay g (logOf (begun :| [])))
     tries <- Gen.int (Range.linear 0 60)
@@ -1006,7 +1006,7 @@ genChain =
         <*> Gen.element
             [ [rung "e1" EngineerFlow (ByUser OwnPr)]
             , [rung "x1" TenXFlow (ByUser OwnPr)]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") (TaskId "t1")) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") (AtFan (TaskId "t1"))) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)

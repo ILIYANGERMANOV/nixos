@@ -16,7 +16,7 @@ import State.Category.Step (eventText)
 import State.Cli.Command (BriefPart (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
-import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLineText)
+import State.Run.Ask (Above (..), Kind (..), Link (..), Parent (..), Proposal (..), oneLineText)
 import State.Run.Event (AgentRole (..), Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), RunId, StateName (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
 import State.Run.EventGen (fuelSet, runId)
 import State.Run.Fold (Refusal (..), RunState (..))
@@ -180,7 +180,12 @@ spec = describe "State.Cli.Command" $ do
 
         it "takes a child's parent run and task" $
             case parse ["init", "--notes", "/n", "--parent", "r1", "--task", "t1"] of
-                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") (TaskId "t1"))
+                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") (AtFan (TaskId "t1")))
+                _ -> expectationFailure "not an init"
+
+        it "takes a direct child's parent run, with no task" $
+            case parse ["init", "--notes", "/n", "--parent", "r1"] of
+                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") Direct)
                 _ -> expectationFailure "not an init"
 
         it "refuses --parent-log: a child names its parent by run id alone" $
@@ -199,11 +204,8 @@ spec = describe "State.Cli.Command" $ do
             map (fmap notesOf . parse . (["init", "--notes"] <>) . pure) ["/n/", "/n", "/./n//"]
                 `shouldBe` replicate 3 (Right (Just "/n"))
 
-        it "refuses --parent or --task without the other" $
-            map
-                (failureWhat . parse . (["init", "--notes", "/n"] <>))
-                [["--task", "t1"], ["--parent", "r1"]]
-                `shouldBe` replicate 2 (Just "--parent and --task go together")
+        it "refuses a task with no parent run" $
+            failureWhat (parse ["init", "--notes", "/n", "--task", "t1"]) `shouldBe` Just "--task without --parent"
 
         it "takes --pr as a user's round on that PR" $
             map (fmap originOf . parse . (["init", "--notes", "/n"] <>)) [[], ["--pr", "https://github.com/o-1/r.x/pull/12"]]

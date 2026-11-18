@@ -69,6 +69,7 @@ import State.Run.Event (
     Envelope (..),
     Event (..),
     EventId (..),
+    Link (..),
     Note (..),
     Op (..),
     Parent (..),
@@ -420,14 +421,14 @@ startOf obj =
 
 {- | The user on its own PR is a bare word, as a log older than rounds wrote
 it; the user's round is its PR; a parent run is its id, the task it
-gave, a round's PR and a decided plan; the caller is the user's form marked
+gave a fan-out's child, a round's PR and a decided plan; the caller is the user's form marked
 @caller@.
 -}
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser OwnPr -> text "user"
     ByUser shape@(RoundOn _) -> pairs (shapeData shape)
-    ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> "task" .= taskIdText parent.task <> shapeData shape <> planData plan)
+    ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> linkData parent.link <> shapeData shape <> planData plan)
     ByCaller OwnPr -> text "caller"
     ByCaller shape@(RoundOn _) -> pairs ("caller" .= True <> shapeData shape)
 
@@ -437,10 +438,19 @@ principalOf = \case
     String "caller" -> pure (ByCaller OwnPr)
     Object obj ->
         (,) <$> obj .:? "run" <*> obj .:? "caller" >>= \case
-            (Just run, _) -> ByRole <$> (Parent <$> runIdOf run <*> taskOf obj) <*> shapeOf obj <*> planOf obj
+            (Just run, _) -> ByRole <$> (Parent <$> runIdOf run <*> linkOf obj) <*> shapeOf obj <*> planOf obj
             (Nothing, Just True) -> ByCaller . RoundOn . Url <$> obj .: "pr"
             (Nothing, _) -> ByUser . RoundOn . Url <$> obj .: "pr"
-    other -> fail ("a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task}, not " <> show other)
+    other -> fail ("a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task?}, not " <> show other)
+
+-- | A fan-out's child names its task; a direct child, none.
+linkData :: Link -> Series
+linkData = \case
+    AtFan task -> "task" .= taskIdText task
+    Direct -> mempty
+
+linkOf :: Object -> Parser Link
+linkOf obj = maybe Direct (AtFan . TaskId) <$> obj .:? "task"
 
 askingOf :: Object -> Parser Asking
 askingOf obj = do

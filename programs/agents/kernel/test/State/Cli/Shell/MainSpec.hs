@@ -10,16 +10,22 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
+import Data.Traversable (for)
+import Hedgehog (evalIO, forAll, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (Max))
 import State.Cli.Command (help)
 import State.Cli.Render qualified as Render
 import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
+import State.Run.Codec (eventType)
 import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), PlanCall (..), Repo (..), SessionId (..), Task (..))
 import State.Run.RunGen (breakdownJson, loadSteps, plainTask, roundTask)
 import State.Step.Artifact (shellPath)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
+import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "state over the doubles" $ do
@@ -751,6 +757,57 @@ spec = describe "state over the doubles" $ do
                 (other.code, other.err)
                     `shouldBe` (2, ["state answer: another answer to " <> qid <> " - it was answered already: postgres", "fix: state show"])
 
+            describe "a direct child, of a parent at no fan-out" $ do
+                it "is refused by a parent at a fan-out: it takes one of its tasks" $ \world -> do
+                    parent <- tenXAtFanOut world
+                    atWorktree world childWorktree
+
+                    refused <- state world ["init", "--notes", "/child", "--parent", parent]
+
+                    (refused.code, refused.err)
+                        `shouldBe` (2, ["state init: --parent " <> parent <> " - its run is at a fan-out: a child takes one of its tasks", "fix: state brief engineer, in the parent's worktree, prints the init line"])
+                    filter (== "spawned") <$> loggedEvents world `shouldReturn` []
+
+                it "writes a grandchild's question, forwarded by the middle run and ruled at the top, down to the grandchild" $ \world -> do
+                    (_, _, grand) <- directLevels world
+                    let qid = grand <> ":1"
+                    _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                    atWorktree world midWorktree
+                    _ <- succeeded =<< state world ["forward", qid]
+                    atWorktree world "/work"
+                    pending <- succeeded =<< state world ["pending"]
+
+                    ruled <- succeeded =<< state world ["rule", qid, "--answer", "postgres", "--why", "already used", "--cost", "none"]
+                    atWorktree world grandWorktree
+                    grandShown <- succeeded =<< state world ["show"]
+
+                    pending `shouldSatisfy` any ("which store?" `Text.isSuffixOf`)
+                    ruled `shouldBe` ["ruled " <> qid]
+                    grandShown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - postgres"]
+                    answersIn world `shouldReturn` [0, 1, 1]
+
+                it "ruling_one_childs_question_changes_no_other_childs_log" $ \_ -> hedgehog $ do
+                    children <- forAll (Gen.int (Range.linear 2 4))
+                    asker <- forAll (Gen.int (Range.linear 1 children))
+                    (asked, ruled) <- evalIO $ do
+                        world <- newWorld
+                        parent <- startedIn world ["--flow", "10x"]
+                        runs <- for [1 .. children] $ \i -> do
+                            atWorktree world (directWorktree i)
+                            run <- startedIn world ["--notes", Text.pack (directNotes i), "--parent", parent]
+                            _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                            pure run
+                        asked <- traverse (loggedIn world . directNotes) [1 .. children]
+                        atWorktree world "/work"
+                        for_ [run | (i, run) <- zip [1 ..] runs, i == asker] $ \run ->
+                            succeeded =<< state world ["rule", run <> ":1", "--answer", "postgres", "--why", "already used", "--cost", "none"]
+                        ruled <- traverse (loggedIn world . directNotes) [1 .. children]
+                        pure (asked, ruled)
+                    let others = filter ((/= asker) . fst) . zip [1 ..]
+                        grown = [map (eventType . (.event)) (drop (length b) a) | (i, b, a) <- zip3 [1 ..] asked ruled, i == asker]
+                    others ruled === others asked
+                    grown === [["answered"]]
+
             it "shows each task, its PR and what is held" $ \world -> do
                 _ <- tenXAtFanOut world
                 for_ [["task", "t1", "review", prUrl], ["held", "t2", "https://github.com/o/r/issues/9"]] $ \argv -> succeeded =<< state world ("record" : argv)
@@ -915,6 +972,24 @@ threeLevels world = do
     atWorktree world grandWorktree
     grand <- startedIn world ["--notes", Text.pack grandNotes, "--parent", mid, "--task", "t1"]
     pure (top, mid, grand)
+
+{- | A 10x run at no fan-out, an engineer its direct child, and an engineer
+that one's direct child, each in its own worktree; later calls run in the
+grandchild's. Their ids, top first.
+-}
+directLevels :: IORef World -> IO (Text, Text, Text)
+directLevels world = do
+    top <- startedIn world ["--flow", "10x"]
+    atWorktree world midWorktree
+    mid <- startedIn world ["--notes", Text.pack midNotes, "--parent", top]
+    atWorktree world grandWorktree
+    grand <- startedIn world ["--notes", Text.pack grandNotes, "--parent", mid]
+    pure (top, mid, grand)
+
+-- | The notes and worktree of the i-th direct child.
+directNotes, directWorktree :: Int -> FilePath
+directNotes i = "/direct-" <> show i
+directWorktree i = "/direct-work-" <> show i
 
 {- | The grandchild asks a Design question, the middle run forwards it, and
 the top forwards it to the user; later calls run in the top's worktree.

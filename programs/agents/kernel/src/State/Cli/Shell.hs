@@ -16,7 +16,7 @@ import Data.Foldable (for_, toList, traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (fromMaybe, listToMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -54,25 +54,25 @@ import State.Cli.View (beginText, brief, briefSection, pendingLines, showRun, ta
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
-import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), areaNames, parseHandback, refusalText, typeHandback)
+import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), areaNames, parseHandback, refusalText, typeDirectHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, qidText)
+import State.Run.Ask (Above (ParentRun), Link (..), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, encodeLine, eventType, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), TaskId, parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
 import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
-import State.Step.Artifact (Shape (..), shellPathText, shellWord)
+import State.Step.Artifact (PlanCall (ChildConfirms), Shape (..), shellPathText, shellWord)
 import State.Step.Catalog (outcome, termSkips)
 import State.Step.Fuel (Outcome (LevelSet))
 import State.Table (Steps, parseSteps)
@@ -508,9 +508,11 @@ instance Monoid Output where
 printed :: Text -> Output
 printed text = Output text Nothing Nothing
 
--- | The answer to the question, written down to the child that asked it, if one did.
-writtenDown :: RunState -> QId -> Output
-writtenDown state qid = Output "" Nothing (downOf state qid)
+{- | The answer to the question, written down to the child that asked it, if
+one did: the asker read before the answer closed it, the answer after.
+-}
+writtenDown :: RunState -> RunState -> QId -> Output
+writtenDown before after qid = Output "" Nothing (downOf before after qid)
 
 -- | A line per event written, delivering no hand-back.
 recorded :: [Written] -> Output
@@ -531,7 +533,7 @@ planOf steps worktreeHead file g state = \case
             let question = Question (nextQId state) kind text
             Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
     RecordUnknown name -> Left (unknownEvent g state name)
-    RuleOn raw raise proposal -> open raw >>= \qid -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\after _ -> printed ("ruled " <> qidText qid <> "\n") <> writtenDown after qid))
+    RuleOn raw raise proposal -> open raw >>= \qid -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\after _ -> printed ("ruled " <> qidText qid <> "\n") <> writtenDown state after qid))
     Retry task why ->
         retryOf state task <&> \(found, child, stop) ->
             let question = Question (nextQId state) Ask.Stuck (Ask.flattened ("retry task " <> taskIdText task <> "? child " <> runIdText child.run <> ": " <> Handback.stopLine stop))
@@ -542,7 +544,7 @@ planOf steps worktreeHead file g state = \case
     Forward raw raise ->
         open raw >>= \qid -> Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
-    Answer raw answer by -> answeredQid state raw >>= \qid -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\after _ -> printed ("answered " <> qidText qid <> "\n") <> writtenDown after qid))
+    Answer raw answer by -> answeredQid state raw >>= \qid -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\after _ -> printed ("answered " <> qidText qid <> "\n") <> writtenDown state after qid))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> printed (showRun steps g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
@@ -752,23 +754,47 @@ handedUp steps up =
     sources = [Hook (digestOf [runIdText up.child, up.once, tshow n]) | n <- [0 :: Int ..]]
     append stamp run
         | loggedAlready run.logged sources = ([], Right ())
-        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.g run.state up.role Nothing (Just up.child) up.text) of
+        | otherwise = case record stamp run sources (planned stamp run) of
             -- The child tells its refusal; the parent's log does not keep it.
             (_, Left failure) -> ([], Left failure)
             (new, Right _) -> (new, Right ())
     told why = "parent: " <> why <> "\nfix: hand back as printed; the parent's state next catches it\n"
+    planned stamp run = case up.parent.link of
+        AtFan _ -> handbackPlan steps stamp.head run.g run.state up.role Nothing (Just up.child) up.text
+        Direct -> directPlan run.state up.child up.text
+
+-- | A direct child's hand-back as its parent records it: its question, if it asks one.
+directPlan :: RunState -> RunId -> Text -> Either Failure Plan
+directPlan state child message = do
+    typed <- Bifunctor.first unread (typeDirectHandback state child =<< parseHandback message)
+    Right (Plan typed.events (\_ new -> recorded new))
+  where
+    unread refusal = Failure BadInput "the hand-back" (refusalText refusal) "state help"
 
 {- | An answer on its way down: the run that holds it, the child that asked
 it of that run, the question and its answer.
 -}
-data Down = Down {above :: RunId, child :: Child, qid :: QId, answer :: Text}
+data Down = Down {above :: RunId, child :: Below, qid :: QId, answer :: Text}
 
--- | The answer the run holds to the question, for the child of its fan-out that asked it.
-downOf :: RunState -> QId -> Maybe Down
-downOf state qid = do
-    asker <- Fan.askedBy (Fold.currentFan state) qid
-    answer <- lookup qid (Fold.given state)
-    Just (Down state.run asker.child qid answer)
+-- | The child a question came up from: one of the fan-out's, or a direct child.
+data Below = FanChild Child | DirectChild RunId
+
+belowRun :: Below -> RunId
+belowRun = \case
+    FanChild child -> child.run
+    DirectChild run -> run
+
+{- | The answer the run holds to the question, for the child that asked it:
+the fan-out's child waiting on it, else the direct child it came up from. A
+fan-out's child that stopped, its stop asked here, is neither.
+-}
+downOf :: RunState -> RunState -> QId -> Maybe Down
+downOf before after qid = do
+    asker <- (FanChild . (.child) <$> Fan.askedBy fan qid) <|> listToMaybe [DirectChild run | open <- before.pending, open.asking.question.qid == qid, ChildRun run <- [open.asking.from], run `notElem` map (.child.run) fan.children]
+    answer <- lookup qid (Fold.given after)
+    Just (Down after.run asker qid answer)
+  where
+    fan = Fold.currentFan before
 
 {- | The answer, appended to the asking child's log under its lock by ids
 hashed from both runs and the question, so a retry appends it once; then on
@@ -778,19 +804,19 @@ writes it there by hand.
 -}
 answeredDown :: (Shell es) => Down -> Eff es Text
 answeredDown down =
-    try (onLog write down.child.run) >>= \case
-        Right (Right below) -> maybe (pure "") answeredDown (downOf below down.qid)
+    try (onLog write (belowRun down.child)) >>= \case
+        Right (Right (before, below)) -> maybe (pure "") answeredDown (downOf before below down.qid)
         Right (Left failure) -> pure (told (failure.what <> " - " <> failure.why))
         Left (e :: IOException) -> pure (told (tshow e))
   where
-    source = Hook (digestOf [runIdText down.above, qidText down.qid, runIdText down.child.run])
+    source = Hook (digestOf [runIdText down.above, qidText down.qid, runIdText (belowRun down.child)])
     write stamp run = case commit stamp run [(source, Answered down.qid down.answer (ParentRun down.above))] of
-        Right (new, after) -> (map (.envelope) new, Right after.state)
+        Right (new, after) -> (map (.envelope) new, Right (run.state, after.state))
         -- The answering run tells the refusal; the child's log does not keep it.
         Left refusal -> ([], Left (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
     told why =
         "child "
-            <> runIdText down.child.run
+            <> runIdText (belowRun down.child)
             <> ": "
             <> why
             <> "\nfix: state answer "
@@ -800,8 +826,11 @@ answeredDown down =
             <> " --by "
             <> runIdText down.above
             <> ", in "
-            <> Text.pack down.child.worktree
+            <> worktreeOf down.child
             <> "\n"
+    worktreeOf = \case
+        FanChild child -> Text.pack child.worktree
+        DirectChild run -> "run " <> runIdText run <> "'s worktree"
 
 -- | The worktree's run, locked for one command.
 onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Ran a)
@@ -883,7 +912,10 @@ initRun gd args = do
                         _ -> ([], Left (Failure Outage ("run id " <> runIdText fresh) "another run in the store has it" "retry the same state init"))
             -- The pointer only once the parent took the child: a refused child has no run here.
             accepted <- case (result, args.origin) of
-                (Right said@(_, run), FromParent parent) -> fmap (const said) <$> spawnedIn parent.run (Child run parent.task worktree)
+                (Right said@(_, run), FromParent parent) -> case parent.link of
+                    AtFan task -> fmap (const said) <$> spawnedIn parent.run (Child run task worktree)
+                    -- No fan-out to tell: the store's runs.parent links it.
+                    Direct -> pure (Right said)
                 (Right said, FromUser _) -> pure (Right said)
                 (Right said, FromCaller _) -> pure (Right said)
                 (Left failure, _) -> pure (Left failure)
@@ -1067,18 +1099,25 @@ parentStarts parent =
         True -> Right ()
         False -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "no such run in the run store" initLineFix)
 
--- | The child's principal, with its task's shape, its flow and its Fuel.
+{- | The child's principal, its flow and its Fuel. A fan-out's child takes
+its task's shape, flow and Fuel. A direct child, of a parent at no fan-out,
+opens its own PR, runs the flow named (else the default) and settles its
+own plan and Fuel, as a user's run does.
+-}
 childStart :: Parent -> Maybe FlowName -> RunState -> Either Failure Begin
-childStart parent named state = do
-    task <- childTask parent state
-    flow <- childFlow named task
-    Right (Begin (ByRole parent task.shape task.plan) flow (Just task.fuel))
+childStart parent named state = case (parent.link, Fold.fanAt state.at) of
+    (AtFan taskId, _) -> do
+        task <- childTask parent.run taskId state
+        flow <- childFlow named task
+        Right (Begin (ByRole parent task.shape task.plan) flow (Just task.fuel))
+    (Direct, Just _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at a fan-out: a child takes one of its tasks" initLineFix)
+    (Direct, Nothing) -> let flow = fromMaybe defaultFlow named in Right (Begin (ByRole parent OwnPr ChildConfirms) flow (fixedFuel flow))
 
 -- | The parent's task the child runs: the parent must be at a fan-out whose breakdown names it.
-childTask :: Parent -> RunState -> Either Failure Task
-childTask parent state = case (Fold.fanAt state.at, Fan.lookupTask (Fold.currentFan state) parent.task) of
-    (Nothing, _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at no fan-out whose children run a flow" "state show, in the parent's worktree")
-    (Just _, Nothing) -> Left (Failure BadInput ("--task " <> taskIdText parent.task) "the parent's breakdown has no such task" initLineFix)
+childTask :: RunId -> TaskId -> RunState -> Either Failure Task
+childTask parent taskId state = case (Fold.fanAt state.at, Fan.lookupTask (Fold.currentFan state) taskId) of
+    (Nothing, _) -> Left (Failure BadInput ("--task " <> taskIdText taskId) ("run " <> runIdText parent <> " is at no fan-out: a direct child names --parent alone") "state show, in the parent's worktree")
+    (Just _, Nothing) -> Left (Failure BadInput ("--task " <> taskIdText taskId) "the parent's breakdown has no such task" initLineFix)
     (Just _, Just task) -> Right task
 
 -- | The task's flow; a @--flow@ named must be that one.

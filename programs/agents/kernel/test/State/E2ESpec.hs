@@ -319,6 +319,35 @@ spec = describe "the state binary" $ do
             listed <- withStore (storeOf repo) (\store -> Store.children store (runId parent))
             listed `shouldBe` [runId child]
 
+        it "rules one direct child's question from the parent's run; only that child resumes, its sibling runs on unaffected" $ \repo -> do
+            parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+            w1 <- worktree repo "w1"
+            w2 <- worktree repo "w2"
+            asking <- directChild bin w1 parent "n1"
+            sibling <- directChild bin w2 parent "n2"
+            let qid = asking <> ":1"
+            _ <- succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
+            waiting <- succeeded =<< state bin w1 ["next"]
+            moved <- succeeded =<< state bin w2 ["record", "fuel.set", "low"]
+            siblingAsked <- succeeded =<< state bin w2 ["next"]
+            pending <- succeeded =<< state bin repo ["pending"]
+
+            _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "postgres", "--why", "already used", "--cost", "none"]
+            resumed <- succeeded =<< state bin w1 ["next"]
+            siblingRuled <- succeeded =<< state bin w2 ["next"]
+            shownAsking <- succeeded =<< state bin w1 ["show"]
+            shownSibling <- succeeded =<< state bin w2 ["show"]
+            listed <- withStore (storeOf repo) (\store -> Store.children store (runId parent))
+
+            listed `shouldBe` map runId [asking, sibling]
+            take 1 waiting `shouldSatisfy` all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`)
+            recorded moved `shouldBe` ["fuel.set -> gather"]
+            pending `shouldSatisfy` mentions qid
+            take 1 resumed `shouldSatisfy` (not . any ("HANDBACK" `Text.isPrefixOf`))
+            shownAsking `shouldSatisfy` mentions (qid <> " Design: which store? - postgres")
+            siblingRuled `shouldBe` siblingAsked
+            shownSibling `shouldSatisfy` (not . mentions qid)
+
         describe "the review loop" $ do
             it "asks Stuck when rounds 1 and 2 pick the same row" $ \repo -> do
                 _ <- drive bin repo (atReview <> reviewRound "R1" [] <> [Handback "fixer" ready] <> reviewRound "R1" [])
@@ -1205,6 +1234,10 @@ tenXAtFanOut bin repo = do
 -- | The child run a parent's brief starts for this task, its notes in @dir@ under the repo's root; its id.
 childRun :: FilePath -> Repo -> Text -> FilePath -> Text -> IO Text
 childRun bin repo parent dir task = startedIn bin repo ["--notes", repo.root </> dir, "--parent", Text.unpack parent, "--task", Text.unpack task]
+
+-- | A direct child of a parent at no fan-out, its notes in @dir@ under the repo's root; its id.
+directChild :: FilePath -> Repo -> Text -> FilePath -> IO Text
+directChild bin repo parent dir = startedIn bin repo ["--notes", repo.root </> dir, "--parent", Text.unpack parent]
 
 -- | A 10x run at its fan-out with task t1's child started in its own worktree; the child's run id.
 childAtWork :: FilePath -> Repo -> IO Text

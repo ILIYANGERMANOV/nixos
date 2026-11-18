@@ -24,6 +24,7 @@ module State.Run.Event (
     FlowName (..),
     Principal (..),
     Parent (..),
+    Link (..),
     Op (..),
     Asking (..),
     Asker (..),
@@ -71,7 +72,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
-import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
+import State.Run.Ask (Above, Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Target (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)

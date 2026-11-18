@@ -25,7 +25,7 @@ import State.FlowName (namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
-import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
+import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText)
 import State.Run.Fan (Fan (..), lookupTask, tries)
@@ -42,7 +42,7 @@ showRun :: Steps -> OpenGraph -> RunState -> Text
 showRun steps g state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
-            <> ["task: " <> taskIdText parent.task | ByRole parent _ _ <- [state.start.principal]]
+            <> concat [linkLine parent.link | ByRole parent _ _ <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
             <> factLines g (Facts Nothing Nothing []) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]
@@ -57,6 +57,9 @@ showRun steps g state =
     section title = \case
         [] -> []
         items -> title : map ("  " <>) items
+    linkLine = \case
+        AtFan task -> ["task: " <> taskIdText task]
+        Direct -> []
 
 {- | What the hooks record of the flow's events, so no agent records them
 by hand: the spawn and the hand-back of each step a subagent runs as a child

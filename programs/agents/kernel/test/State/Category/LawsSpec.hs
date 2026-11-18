@@ -123,7 +123,7 @@ spec = describe "laws" $ do
     describe "Handle" $
         it "a_handler_draws_as_the_flow_it_handles" . hedgehog $ do
             AnyFlow f <- forAll (Gen.filter builds genFlow)
-            (drawn (Handle AgentPicks f), drawn (Handle UserAsks f), drawn (Handle FocusHere f)) === (drawn f, drawn f, drawn f)
+            (drawn (Handle AgentPicks f), drawn (Handle PrincipalAnswers f), drawn (Handle FocusHere f)) === (drawn f, drawn f, drawn f)
 
     describe "Scope" $ do
         it "scope_preserves_the_graph_but_its_names" . hedgehog $ do

@@ -397,7 +397,7 @@ does not: pure, so a replay of the log gives the run its live commands gave.
 handle :: Handler eff -> OpenGraph -> RunState -> Answering eff -> Either Refusal RunState
 handle handler g state = case handler of
     AgentPicks -> \(Picked scope some) -> pick g state scope some
-    UserAsks -> \case
+    PrincipalAnswers -> \case
         Asks asking -> fromChild asking.from <$> asked g state asking
         Retags qid -> retagged state qid
         RulesOn qid proposal -> ruledOn state qid proposal
@@ -434,11 +434,11 @@ applyEvent g state n = \case
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
-    Asked asking -> going (handle UserAsks g state (Asks asking))
-    RetaggedSecurity qid -> going (handle UserAsks g state (Retags qid))
-    RuledOn qid proposal -> going (handle UserAsks g state (RulesOn qid proposal))
-    Forwarded qid to -> going (handle UserAsks g state (Forwards qid to))
-    Answered qid text by -> going (handle UserAsks g state (Answers qid text by))
+    Asked asking -> going (handle PrincipalAnswers g state (Asks asking))
+    RetaggedSecurity qid -> going (handle PrincipalAnswers g state (Retags qid))
+    RuledOn qid proposal -> going (handle PrincipalAnswers g state (RulesOn qid proposal))
+    Forwarded qid to -> going (handle PrincipalAnswers g state (Forwards qid to))
+    Answered qid text by -> going (handle PrincipalAnswers g state (Answers qid text by))
     Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
     Spawned child -> going (atAwait g state >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))

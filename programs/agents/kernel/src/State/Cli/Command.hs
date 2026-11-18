@@ -56,7 +56,7 @@ import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
 import State.Role (RoleDef (..), defaultFlow)
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, Question (..), kindName, parseOneLine, parseQId, qidText)
+import State.Run.Ask (Above (..), Basis (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), kindName, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, reasonText)
 import State.Run.Codec qualified as Codec
@@ -322,7 +322,7 @@ initArgs =
         <$> textOption "notes" "<dir>" "the directory of the run's notes, an absolute path"
         <*> optional flowOption
         <*> optional (textOption "parent" "<run>" "a child run's parent run")
-        <*> optional (textOption "task" "<id>" "the parent's task this child run takes")
+        <*> optional (textOption "task" "<id>" "the task of the parent's fan-out this child run takes")
         <*> optional (textOption "pr" "<url>" "the open PR a user's run takes another round on")
         <*> Optparse.switch (Optparse.long "child" <> Optparse.help "a subagent's run whose spawner holds no run to link: it hands everything back")
   where
@@ -335,10 +335,11 @@ initArgs =
             (Nothing, Nothing, Nothing) -> Right (mine OwnPr)
             (Just pr, Nothing, Nothing) -> mine . RoundOn <$> roundPr pr
             (Just _, _, _) -> Left (usage "--pr with --parent" "a child run takes its PR from its parent's task")
-            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (TaskId task))) <$> runId run
-            (Nothing, _, _) -> Left (usage "--parent and --task go together" "a child run names its parent's run and its task")
+            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (AtFan (TaskId task)))) <$> runId run
+            (Nothing, Just run, Nothing) -> (\r -> FromParent (Parent r Direct)) <$> runId run
+            (Nothing, Nothing, Just _) -> Left (usage "--task without --parent" "a child run names its parent's run, and its task at a fan-out")
         Right (Init InitArgs {notes, flow, origin})
-    childWithParent = usage "--child with --parent" "a --child run links to no parent run; a fan-out's child names --parent and --task alone"
+    childWithParent = usage "--child with --parent" "a --child run links to no parent run; a linked child names --parent alone, and --task at a fan-out"
     roundPr raw = maybe (Left (Failure BadInput ("--pr " <> raw) ("the PR is " <> prUrlRule) "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>")) Right (parsePrUrl raw)
 
 -- | One subcommand per event the table holds, its flags its options.

@@ -47,6 +47,7 @@ module State.Run.Ask (
     principalShape,
     principalPlan,
     Parent (..),
+    Link (..),
     Op (..),
     Delivery (..),
     Above (..),
@@ -331,8 +332,15 @@ principalPlan = \case
     ByRole _ _ plan -> plan
     ByCaller _ -> ChildConfirms
 
--- | The parent run and the task of its breakdown it gave this run.
-data Parent = Parent {run :: RunId, task :: TaskId}
+-- | The parent run, and how it gave this run its work.
+data Parent = Parent {run :: RunId, link :: Link}
+    deriving stock (Eq, Show)
+
+{- | A child of a fan-out takes a task of its parent's breakdown; a direct
+child, of a parent at no fan-out (the chief delegating one engineer), none.
+Either way its questions go up to the parent.
+-}
+data Link = AtFan TaskId | Direct
     deriving stock (Eq, Show)
 
 -- | What the run's interface can do: a subagent cannot ask the user or wait.

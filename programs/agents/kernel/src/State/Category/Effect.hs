@@ -22,7 +22,7 @@ import Data.Type.Bool (type (||))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 
 {- | @PickE@: a branch is picked, by the agent. @AskE@: a question is put,
-to the user. @FocusE@: the run waits for the user's attention.
+to the run's principal. @FocusE@: the run waits for the user's attention.
 -}
 type data Eff = PickE | AskE | FocusE
 
@@ -32,8 +32,12 @@ table do not see it ('State.Category.Flow.Handle' is drawn as its body).
 data Handler (eff :: Eff) where
     -- | The agent picks a branch by its label.
     AgentPicks :: Handler PickE
-    -- | The user answers the question, through @state ask@.
-    UserAsks :: Handler AskE
+    {- | Whoever started the run answers the question: the user for a run of
+    their own, the parent run for a linked child, which rules or re-raises
+    it up. Who that is, is the run's 'State.Run.Ask.Principal', a runtime
+    value: the same flow roots both runs.
+    -}
+    PrincipalAnswers :: Handler AskE
     -- | Focus is granted at once.
     FocusHere :: Handler FocusE
 
