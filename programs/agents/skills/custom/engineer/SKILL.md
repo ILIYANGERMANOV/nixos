@@ -138,9 +138,9 @@ research and the final fixer.
 
 ## State hooks
 
-**Hooks are best effort.** A hook prints `recorded <n> <event> -> <state>`
-after a spawn or a hand-back. No `recorded` line means it missed: record
-it yourself, `state record <step>.spawned` or `state handback <role>`.
+**Hooks are best effort.** A hook prints a `recorded` line after a spawn or
+a hand-back. No `recorded` line means it missed: record it yourself,
+`state record <step>.spawned` or `state handback <role>`.
 
 Where hooks reach your session, they record a worker's hand-back and add
 context. Under a parent, your `state` records your own hand-back in the

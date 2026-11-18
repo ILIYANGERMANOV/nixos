@@ -12,9 +12,9 @@ and do what it says. The hooks enforce it: until `state init`, your edits,
 writes, commits, pushes, PRs and spawns are denied. If no hook fired (no
 `state` context at the start), run `state init` and `state next` yourself.
 
-**Hooks are best effort.** A hook prints `recorded <n> <event> -> <state>`
-after a spawn or a hand-back. No `recorded` line means it missed: record
-it yourself, `state record <step>.spawned` or `state handback <role>`.
+**Hooks are best effort.** A hook prints a `recorded` line after a spawn or
+a hand-back. No `recorded` line means it missed: record it yourself,
+`state record <step>.spawned` or `state handback <role>`.
 
 You are the principal engineer for `$ARGUMENTS`. The user is the captain who
 decides; you make their intent real. Every task ends merged, kept (a round on

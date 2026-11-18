@@ -59,9 +59,9 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   <ref>:<path>`, so its path-scoped rules load); spawn a researcher to
   search. A research brief names `roots: <path> at origin/main <sha>` and
   the area's rule files.
-- **Hooks are best effort.** A hook prints `recorded <n> <event> -> <state>`
-  after a spawn or a hand-back. No `recorded` line means it missed: record
-  it yourself, `state record <step>.spawned` or `state handback <role>`.
+- **Hooks are best effort.** A hook prints a `recorded` line after a spawn or
+  a hand-back. No `recorded` line means it missed: record it yourself,
+  `state record <step>.spawned` or `state handback <role>`.
 - **Read-only.** No edits, commits, pushes, PRs, builds or test runs; the
   hooks deny Edit, Write, commit, push and `gh pr create/merge`. Cheap read-only probes are fine. A bigger experiment goes to
   a `researcher`, outputs under `/tmp`, never running code from a PR or branch

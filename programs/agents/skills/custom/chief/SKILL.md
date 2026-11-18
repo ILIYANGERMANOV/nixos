@@ -93,9 +93,9 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   <ref>:<path>`, so its path-scoped rules load); spawn a researcher to
   search. A research brief names `roots: <path> at origin/main <sha>` and
   the area's rule files.
-- **Hooks are best effort.** A hook prints `recorded <n> <event> -> <state>`
-  after a spawn or a hand-back. No `recorded` line means it missed: record
-  it yourself, `state record <step>.spawned` or `state handback <role>`.
+- **Hooks are best effort.** A hook prints a `recorded` line after a spawn or
+  a hand-back. No `recorded` line means it missed: record it yourself,
+  `state record <step>.spawned` or `state handback <role>`.
 - **Gaps.** A **gap** is friction an agent actually hit with a flow, a
   skill or `state` (a bug that makes agent runs harder counts). Code tech
   debt (refactors, DRY, large files) is not a gap. Record only a gap you
