@@ -13,7 +13,7 @@ import State.Flow.Chief (ChiefS)
 import State.Flow.Engineer (EngineerS)
 import State.Flow.Library (Handled, ParS, agree, handled)
 import State.Flow.TenX (TenXS)
-import State.Role (AgentRole (..), FlowName (..), RoleDef (..), Rung (..), SomeFlow (..), flowOut, role, rungAt)
+import State.Role (AgentRole (..), FlowName (..), RoleDef (..), Root, Rung (..), SomeFlow (..), flowOut, role, rooted, rungAt)
 import State.Run.RunGen (chiefGraph, flowGraph)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
@@ -42,7 +42,7 @@ spec = describe "State.Role" $ do
 
     describe "RoleDef" $ do
         it "leads a flow that ends in a plan, not a PR" $ do
-            let planner = RoleDef (AgentRole "planner") (SomeFlow (handled agree)) Lead
+            let planner = RoleDef (AgentRole "planner") (SomeFlow (rooted (handled agree))) Lead
             flowOut planner.flow `shouldBe` Plan
             case planner.flow of
                 SomeFlow flow -> graph flow `shouldSatisfy` isRight
@@ -51,17 +51,28 @@ spec = describe "State.Role" $ do
             map (flowOut . (.flow) . role) [minBound .. maxBound] `shouldBe` [PR, PR, Ticket, Result]
 
     describe "Effects" $
-        it "each registered flow raises picks and questions, a forked engineer none: checked as this module compiles" $
+        it "each registered flow raises picks and questions, a forked engineer its questions, a root none: checked as this module compiles" $ do
             effectsRaised `shouldBe` (Refl, Refl, Refl, Refl, Refl)
+            rootsHandled `shouldBe` (Refl, Refl, Refl, Refl)
 
 {- | The effects each registered flow's body leaves to its handlers. The 10x
-forks handled engineers, so its picks are its own gather's.
+forks handled engineers: their picks are their own, their questions bubble
+up to the 10x.
 -}
 effectsRaised ::
     ( Effects EngineerS :~: '[PickE, AskE]
     , Effects TenXS :~: '[PickE, AskE]
     , Effects ChiefS :~: '[PickE, AskE]
     , Effects ArchitectS :~: '[PickE, AskE]
-    , Effects (ParS (Handled EngineerS)) :~: '[]
+    , Effects (ParS (Handled EngineerS)) :~: '[AskE]
     )
 effectsRaised = (Refl, Refl, Refl, Refl, Refl)
+
+-- | A registered flow, rooted, leaves nothing: its principal answers its questions.
+rootsHandled ::
+    ( Effects (Root (Handled EngineerS)) :~: '[]
+    , Effects (Root (Handled TenXS)) :~: '[]
+    , Effects (Root (Handled ChiefS)) :~: '[]
+    , Effects (Root (Handled ArchitectS)) :~: '[]
+    )
+rootsHandled = (Refl, Refl, Refl, Refl)

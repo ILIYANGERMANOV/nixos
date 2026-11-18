@@ -25,7 +25,7 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   |---|---|
   | `SPAWN <role> background: yes\|no` | spawn `subagent_type: <role>` as it says; its prompt is `state brief <role>` plus the step's part |
   | `ASK <Kind> <what>` | `state ask --kind <Kind> "<question>"`, then do what it prints |
-  | `ASK user` | one `AskUserQuestion`, then `state answer <qid> <answer>` |
+  | `ASK user` | one `AskUserQuestion`, or on a long context plain text ending the turn with lettered options; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers, `--park <why>` to leave it open |
   | `RUN <command>` | do the step, then run the command, placeholders filled |
   | `AWAIT worker <role> <id>` | end the turn: its hand-back wakes you |
   | `STOP <reason>` | the run is over: say why in one line |
@@ -39,7 +39,8 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   goes on to the design; more researches again.
 - **Explain, then ask.** In the design, one question at a time. Each Discuss
   question comes after an Explain message in the same turn: the context, then
-  pseudo-code, a diagram or a table.
+  pseudo-code, a diagram or a table. A Discuss question is
+  `state ask --kind <Design|Scope|Fact>`: there is no Discuss kind.
   The question puts one recommendation first, plus the alternatives worth
   weighing, each with its trade-offs. Where a standard applies, recommend the
   option that follows it. When the design is code, invoke `engineering` first.

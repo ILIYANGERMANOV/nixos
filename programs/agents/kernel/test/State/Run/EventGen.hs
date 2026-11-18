@@ -10,6 +10,7 @@ module State.Run.EventGen (
     genReading,
     genProposal,
     genBasis,
+    genReply,
     genText,
     genOneLine,
     genTasks,
@@ -91,7 +92,8 @@ genEvent =
         , RetaggedSecurity <$> genQId
         , RuledOn <$> genQId <*> genProposal
         , Forwarded <$> genQId <*> genAbove
-        , Answered <$> genQId <*> genText <*> genAbove
+        , Answered <$> genQId <*> genReply <*> genAbove
+        , QuestionParked <$> genQId <*> genOneLine
         , Spawning <$> genTaskId
         , Spawned <$> (Child <$> genRunId <*> genTaskId <*> genPath)
         , Resumed <$> genRunId
@@ -193,7 +195,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> genTaskId) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
+        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.choice [AtFan <$> genTaskId, pure Direct]) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -376,6 +378,9 @@ genProposal = Proposal <$> genOneLine <*> genOneLine <*> genOneLine <*> Gen.mayb
 
 genBasis :: Gen Basis
 genBasis = Gen.choice [AnsweredBy <$> genEventId, Obvious <$> genOneLine]
+
+genReply :: Gen Reply
+genReply = Gen.choice [Chose <$> genText, Other <$> genText]
 
 genEventId :: Gen EventId
 genEventId =

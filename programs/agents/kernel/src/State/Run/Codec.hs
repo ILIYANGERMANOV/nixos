@@ -69,10 +69,12 @@ import State.Run.Event (
     Envelope (..),
     Event (..),
     EventId (..),
+    Link (..),
     Note (..),
     Op (..),
     Parent (..),
     Principal (..),
+    Reply (..),
     RunId,
     Said (..),
     SessionId (..),
@@ -191,6 +193,7 @@ eventType = \case
     RuledOn _ _ -> "ruled"
     Forwarded _ _ -> "forwarded"
     Answered {} -> "answered"
+    QuestionParked _ _ -> "parked"
     Spawning _ -> "spawning"
     Spawned _ -> "spawned"
     Resumed _ -> "resumed"
@@ -234,7 +237,8 @@ eventData = \case
             <> "cost" .= oneLineText proposal.cost
             <> pair "basis" (maybe null_ basisEncoding proposal.basis)
     Forwarded qid to -> qidData qid <> pair "to" (aboveEncoding to)
-    Answered qid answer by -> qidData qid <> "answer" .= answer <> pair "by" (aboveEncoding by)
+    Answered qid reply by -> qidData qid <> replyData reply <> pair "by" (aboveEncoding by)
+    QuestionParked qid why -> qidData qid <> "why" .= oneLineText why
     Spawned child ->
         "child" .= runIdText child.run
             <> "task" .= taskIdText child.task
@@ -267,7 +271,8 @@ eventOf kind obj = case kind of
     "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "kind" >>= security)
     "ruled" -> RuledOn <$> qidOf obj <*> (Proposal <$> oneLineAt "answer" obj <*> oneLineAt "why" obj <*> oneLineAt "cost" obj <*> (obj .: "basis" >>= traverse basisOf))
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
-    "answered" -> Answered <$> qidOf obj <*> obj .: "answer" <*> (obj .: "by" >>= aboveOf)
+    "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= aboveOf)
+    "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "why" obj
     "spawned" -> Spawned <$> (Child <$> childOf obj <*> taskOf obj <*> obj .: "worktree")
     "spawning" -> Spawning <$> taskOf obj
     "resumed" -> Resumed <$> childOf obj
@@ -420,14 +425,14 @@ startOf obj =
 
 {- | The user on its own PR is a bare word, as a log older than rounds wrote
 it; the user's round is its PR; a parent run is its id, the task it
-gave, a round's PR and a decided plan; the caller is the user's form marked
+gave a fan-out's child, a round's PR and a decided plan; the caller is the user's form marked
 @caller@.
 -}
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser OwnPr -> text "user"
     ByUser shape@(RoundOn _) -> pairs (shapeData shape)
-    ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> "task" .= taskIdText parent.task <> shapeData shape <> planData plan)
+    ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> linkData parent.link <> shapeData shape <> planData plan)
     ByCaller OwnPr -> text "caller"
     ByCaller shape@(RoundOn _) -> pairs ("caller" .= True <> shapeData shape)
 
@@ -437,10 +442,19 @@ principalOf = \case
     String "caller" -> pure (ByCaller OwnPr)
     Object obj ->
         (,) <$> obj .:? "run" <*> obj .:? "caller" >>= \case
-            (Just run, _) -> ByRole <$> (Parent <$> runIdOf run <*> taskOf obj) <*> shapeOf obj <*> planOf obj
+            (Just run, _) -> ByRole <$> (Parent <$> runIdOf run <*> linkOf obj) <*> shapeOf obj <*> planOf obj
             (Nothing, Just True) -> ByCaller . RoundOn . Url <$> obj .: "pr"
             (Nothing, _) -> ByUser . RoundOn . Url <$> obj .: "pr"
-    other -> fail ("a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task}, not " <> show other)
+    other -> fail ("a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task?}, not " <> show other)
+
+-- | A fan-out's child names its task; a direct child, none.
+linkData :: Link -> Series
+linkData = \case
+    AtFan task -> "task" .= taskIdText task
+    Direct -> mempty
+
+linkOf :: Object -> Parser Link
+linkOf obj = maybe Direct (AtFan . TaskId) <$> obj .:? "task"
 
 askingOf :: Object -> Parser Asking
 askingOf obj = do
@@ -479,6 +493,19 @@ aboveEncoding = \case
     TheUser -> text "user"
     ParentRun run -> pairs ("run" .= runIdText run)
     TheCaller -> text "caller"
+
+-- | @"reply": "chose"@ or @"other"@, beside the @answer@ text.
+replyData :: Reply -> Series
+replyData = \case
+    Chose answer -> "reply" .= ("chose" :: Text) <> "answer" .= answer
+    Other answer -> "reply" .= ("other" :: Text) <> "answer" .= answer
+
+replyOf :: Object -> Parser Reply
+replyOf obj =
+    obj .: "reply" >>= \case
+        "chose" -> Chose <$> obj .: "answer"
+        "other" -> Other <$> obj .: "answer"
+        other -> fail ("reply \"chose\" or \"other\", not " <> show (other :: Text))
 
 aboveOf :: Value -> Parser Above
 aboveOf = \case

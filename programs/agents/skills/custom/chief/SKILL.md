@@ -45,7 +45,8 @@ request -> fuel -> route -> branch, inline -> next -> request | done
 
 - **Discussion.** Read-only: no edits, commits, pushes or PRs; the hooks deny
   them. Explain and show: findings, diagrams, pseudo-code, tables; then ask
-  the next question, your recommendation first, at `discuss` (then
+  the next question, your recommendation first, at `discuss`, through
+  `state ask --kind <Design|Scope|Fact>` (no Discuss kind; then
   `discuss.asked`). Facts come from researchers, never from memory. Record
   `discussing.enough` when the user moves on: it waits for every open
   researcher, then `notes` merges their hand-backs. A ticket only when the
@@ -62,8 +63,12 @@ request -> fuel -> route -> branch, inline -> next -> request | done
 
   | Prints | You |
   |---|---|
-  | `ASK user`, `ASK <Kind> <qid>` | one `AskUserQuestion`, then `state answer <qid> <answer>` |
-  | `ANSWER yourself`, then `RUN state rule \| forward` | settle it yourself: `state rule <qid> --answer <a> --why <w> --cost <c>`; a choice that is the user's (the route of an ambiguous request): `state forward <qid>`, then as `ASK` |
+  | `ASK user`, `ASK <Kind> <qid>` | one `AskUserQuestion`, or on a long context plain text ending the turn with lettered options; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers or a new request, `--park <why>` to leave it open |
+  | `ANSWER yourself`, then `RUN state rule \| forward` | settle it yourself: `state rule <qid> --answer <a> --why <w> --cost <c>`; a choice that is the user's (the route of an ambiguous request): ask as for `ASK`, then `state answer <qid> <answer>` forwards and answers in one |
+
+  An engineer you spawn as a subagent starts with the init line
+  `state brief engineer` prints (`state init --parent <run>`): its questions
+  come to your `state pending`; answer, park or rule them from this run.
 
   A `fix:` line names the command that works now: run it.
 - **Gaps.** Record each gap you meet in a flow, a skill or `state` with

@@ -26,7 +26,7 @@ import State.Flow.Engineer (engineer)
 import State.Flow.Library (gather, handled, opt)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
-import State.Role (SomeFlow (..), flowOut)
+import State.Role (SomeFlow (..), flowOut, rooted)
 import State.Step.Artifact (Commit (..), Sha (..))
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..), engineers)
@@ -118,7 +118,7 @@ spec = describe "State.Category.Flow" $ do
         it "a pick no handler takes" $
             rejectedShown
                 "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
-                (flowOut (SomeFlow (Handle UserAsks gather)))
+                (flowOut (SomeFlow (rooted gather)))
 
         it "a question no handler takes" $
             rejectedShown
@@ -128,14 +128,21 @@ spec = describe "State.Category.Flow" $ do
         it "a wait for focus no handler takes" $
             rejectedShown
                 "A whole flow leaves effects unhandled: '[State.Category.Effect.FocusE]"
-                (flowOut (SomeFlow (handled (Do Attend))))
+                (flowOut (SomeFlow (rooted (handled (Do Attend)))))
 
         it "each registered flow, its pick handler removed" $ do
             let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
-            rejectedShown fragment (flowOut (SomeFlow (unhandled engineer)))
-            rejectedShown fragment (flowOut (SomeFlow (unhandled tenX)))
-            rejectedShown fragment (flowOut (SomeFlow (unhandled architect)))
-            rejectedShown fragment (flowOut (SomeFlow (unhandled chief)))
+            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled engineer))))
+            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled tenX))))
+            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled architect))))
+            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled chief))))
+
+        it "each registered flow, not rooted: its questions bubble out" $ do
+            let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.AskE]"
+            rejectedShown fragment (flowOut (SomeFlow engineer))
+            rejectedShown fragment (flowOut (SomeFlow tenX))
+            rejectedShown fragment (flowOut (SomeFlow architect))
+            rejectedShown fragment (flowOut (SomeFlow chief))
 
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $

@@ -237,7 +237,10 @@ undo. This is the only test for answering yourself:
 `state rule <qid> --answer <a> --why <w> --cost <c>`, plus
 `--basis <event id>|obvious:<why>` on a Security question. Forward the rest, and
 always repeated same-theme findings that keep patching a doubtful
-abstraction. A forward prints `ASK`: ask, then `state answer <qid> <answer>`.
+abstraction. A forward prints `ASK` (or `HANDBACK` under a parent): ask,
+then `state answer <qid> <answer>`. At the root, skip the forward: ask, then
+`state answer` forwards and answers in one. `--other` and `--park` are as the
+Answers table in `~/.claude/skills/engineer/references/blockers.md` says.
 What the user already decided on this exact point is applied, never re-asked.
 A severity label on a finding is evidence about it, never authority to
 broaden scope. Other tasks keep moving.

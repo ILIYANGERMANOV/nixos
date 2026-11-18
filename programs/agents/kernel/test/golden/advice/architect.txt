@@ -105,9 +105,10 @@ SPAWN researcher background: no
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == discuss
-RUN state record discuss.asked
+RUN one option below
   at discuss: a step you run - do the task below, run the option that fits its result, then state next
   options:
+    state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
     state record discuss.asked - back to discussing, the discussing loop's next round
   fuel: low
   Researchers: 0 of 1 used, 1 left
@@ -233,9 +234,10 @@ SPAWN researcher background: no
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == discuss
-RUN state record discuss.asked
+RUN one option below
   at discuss: a step you run - do the task below, run the option that fits its result, then state next
   options:
+    state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
     state record discuss.asked - back to discussing, the discussing loop's next round
   fuel: balanced
   Researchers: 0 of 5 used, 5 left
@@ -361,9 +363,10 @@ SPAWN researcher background: no
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == discuss
-RUN state record discuss.asked
+RUN one option below
   at discuss: a step you run - do the task below, run the option that fits its result, then state next
   options:
+    state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
     state record discuss.asked - back to discussing, the discussing loop's next round
   fuel: max
   Researchers: 0 used, one per group

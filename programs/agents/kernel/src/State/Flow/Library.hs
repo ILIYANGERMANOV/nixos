@@ -73,15 +73,16 @@ choice name branches = Do (Pick name) :> Case branches
 type ChoiceS :: Ty -> [(Symbol, Ty)] -> [Shape] -> Shape
 type ChoiceS a ss bs = DoS (Pick a ss) :>> CaseS bs
 
-{- | A whole flow's handlers: the agent picks, the user answers. Each named
-flow wraps its term in them, so its own picks and questions are answered
-in its run.
+{- | A named flow's handler: the agent picks, in its run. Its questions stay
+open, so a flow nested in another (a forked engineer, a chief's branch)
+raises them to the enclosing flow: they bubble up to the root, which
+'State.Role.rooted' handles once.
 -}
 handled :: Flow f i e o -> Flow (Handled f) i e o
-handled = Handle AgentPicks . Handle UserAsks
+handled = Handle AgentPicks
 
 type Handled :: Shape -> Shape
-type Handled f = HandleS PickE (HandleS AskE f)
+type Handled f = HandleS PickE f
 
 {- | The agent's choice, round after round, of one of the actions, or
 @enough@, which runs its own flow and leaves: Elgot's iteration of a

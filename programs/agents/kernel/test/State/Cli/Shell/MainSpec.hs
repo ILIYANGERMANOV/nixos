@@ -10,16 +10,23 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
+import Data.Traversable (for)
+import Hedgehog (evalIO, forAll, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (Max))
 import State.Cli.Command (help)
 import State.Cli.Render qualified as Render
 import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
+import State.Run.Ask qualified as Ask
+import State.Run.Codec (eventType)
 import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), PlanCall (..), Repo (..), SessionId (..), Task (..))
 import State.Run.RunGen (breakdownJson, loadSteps, plainTask, roundTask)
 import State.Step.Artifact (shellPath)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
+import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "state over the doubles" $ do
@@ -512,6 +519,46 @@ spec = describe "state over the doubles" $ do
             waiting `shouldContain` ["  resumed with the answer: state answer " <> qid <> " <answer>"]
             filter ("HANDBACK " `Text.isPrefixOf`) (take 1 answered) `shouldBe` []
 
+        it "asks a question its row answers of the user in one command, with --to user" $ \world -> do
+            _ <- startedRun world
+
+            asked <- succeeded =<< state world ["ask", "--kind", "Pick", "--to", "user", "which", "rows?"]
+
+            drop 1 asked `shouldBe` ["ASK user"]
+            reverse . take 2 . reverse <$> loggedEvents world `shouldReturn` ["asked", "forwarded"]
+
+        it "records a reply none of the options covers, saying it may be a new request" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            let qid = Text.drop (Text.length "asked ") asked
+
+            answered <- succeeded =<< state world ["answer", qid, "--other", "add", "a", "CLI", "first"]
+            shown <- succeeded =<< state world ["show"]
+
+            answered `shouldBe` ["answered " <> qid, Ask.replyNote]
+            shown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - add a CLI first (" <> Ask.replyNote <> ")"]
+
+        it "refuses to park a question in triage its row must answer itself, as it refuses its answer" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Fact", "which", "store", "is", "used?"]
+            let qid = Text.drop (Text.length "asked ") asked
+            triaged <- loggedEvents world
+
+            parked <- state world ["answer", qid, "--park", "after", "the", "release"]
+
+            parked.code `shouldBe` 2
+            drop (length triaged) <$> loggedEvents world `shouldReturn` ["refused"]
+
+        it "forwards a question in triage before it parks it" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Pick", "which", "rows?"]
+            let qid = Text.drop (Text.length "asked ") asked
+            triaged <- loggedEvents world
+
+            _ <- succeeded =<< state world ["answer", qid, "--park", "after", "the", "release"]
+
+            drop (length triaged) <$> loggedEvents world `shouldReturn` ["forwarded", "parked"]
+
         it "shows a forwarded question with the answer that came down for it" $ \world -> do
             _ <- startedRun world
             [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
@@ -751,6 +798,104 @@ spec = describe "state over the doubles" $ do
                 (other.code, other.err)
                     `shouldBe` (2, ["state answer: another answer to " <> qid <> " - it was answered already: postgres", "fix: state show"])
 
+            describe "a direct child, of a parent at no fan-out" $ do
+                it "is refused by a parent at a fan-out: it takes one of its tasks" $ \world -> do
+                    parent <- tenXAtFanOut world
+                    atWorktree world childWorktree
+
+                    refused <- state world ["init", "--notes", "/child", "--parent", parent]
+
+                    (refused.code, refused.err)
+                        `shouldBe` (2, ["state init: --parent " <> parent <> " - its run is at a fan-out: a child takes one of its tasks", "fix: state brief engineer, in the parent's worktree, prints the init line"])
+                    filter (== "spawned") <$> loggedEvents world `shouldReturn` []
+
+                it "writes a grandchild's question, forwarded by the middle run and ruled at the top, down to the grandchild" $ \world -> do
+                    (_, _, grand) <- directLevels world
+                    let qid = grand <> ":1"
+                    _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                    atWorktree world midWorktree
+                    _ <- succeeded =<< state world ["forward", qid]
+                    atWorktree world "/work"
+                    pending <- succeeded =<< state world ["pending"]
+
+                    ruled <- succeeded =<< state world ["rule", qid, "--answer", "postgres", "--why", "already used", "--cost", "none"]
+                    atWorktree world grandWorktree
+                    grandShown <- succeeded =<< state world ["show"]
+
+                    pending `shouldSatisfy` any ("which store?" `Text.isSuffixOf`)
+                    ruled `shouldBe` ["ruled " <> qid]
+                    grandShown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - postgres"]
+                    answersIn world `shouldReturn` [0, 1, 1]
+
+                it "answers a child's question in triage with state answer, forwarding and answering in one, down to the grandchild" $ \world -> do
+                    (_, _, grand) <- directLevels world
+                    let qid = grand <> ":1"
+                    _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                    atWorktree world midWorktree
+                    _ <- succeeded =<< state world ["forward", qid]
+                    atWorktree world "/work"
+                    triaging <- loggedEvents world
+
+                    answered <- succeeded =<< state world ["answer", qid, "postgres"]
+                    closed <- loggedEvents world
+
+                    answered `shouldBe` ["answered " <> qid]
+                    drop (length triaging) closed `shouldBe` ["forwarded", "answered"]
+                    answersIn world `shouldReturn` [1, 1, 1]
+
+                it "parks a child's question from the parent: the grandchild's next says so, the parent goes on, a later answer closes it" $ \world -> do
+                    (_, _, grand) <- directLevels world
+                    let qid = grand <> ":1"
+                    _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                    atWorktree world midWorktree
+                    _ <- succeeded =<< state world ["forward", qid]
+                    atWorktree world "/work"
+
+                    parked <- succeeded =<< state world ["answer", qid, "--park", "after", "the", "release"]
+                    topNext <- succeeded =<< state world ["next"]
+                    atWorktree world grandWorktree
+                    grandNext <- succeeded =<< state world ["next"]
+                    atWorktree world "/work"
+                    _ <- succeeded =<< state world ["answer", qid, "postgres"]
+                    atWorktree world grandWorktree
+                    grandAnswered <- succeeded =<< state world ["next"]
+
+                    parked `shouldBe` ["parked " <> qid]
+                    take 1 topNext `shouldSatisfy` (not . any ("PARKED" `Text.isPrefixOf`))
+                    take 1 grandNext `shouldBe` ["PARKED " <> qid <> " after the release"]
+                    take 1 grandAnswered `shouldSatisfy` (not . any ("PARKED" `Text.isPrefixOf`))
+                    answersIn world `shouldReturn` [1, 1, 1]
+
+                it "ruling_answering_or_parking_one_child_question_changes_no_other_child_log" $ \_ -> hedgehog $ do
+                    children <- forAll (Gen.int (Range.linear 2 4))
+                    asker <- forAll (Gen.int (Range.linear 1 children))
+                    -- The parent's command on the asker's question, its words after the qid, and the one event it writes down there.
+                    (command, rest, written) <-
+                        forAll . Gen.element $
+                            [ ("rule", ["--answer", "postgres", "--why", "already used", "--cost", "none"], "answered")
+                            , ("answer", ["postgres"], "answered")
+                            , ("answer", ["--other", "add", "a", "CLI"], "answered")
+                            , ("answer", ["--park", "after", "the", "release"], "parked")
+                            ]
+                    (asked, ruled) <- evalIO $ do
+                        world <- newWorld
+                        parent <- startedIn world ["--flow", "10x"]
+                        runs <- for [1 .. children] $ \i -> do
+                            atWorktree world (directWorktree i)
+                            run <- startedIn world ["--notes", Text.pack (directNotes i), "--parent", parent]
+                            _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                            pure run
+                        asked <- traverse (loggedIn world . directNotes) [1 .. children]
+                        atWorktree world "/work"
+                        for_ [run | (i, run) <- zip [1 ..] runs, i == asker] $ \run ->
+                            succeeded =<< state world ([command, run <> ":1"] <> rest)
+                        ruled <- traverse (loggedIn world . directNotes) [1 .. children]
+                        pure (asked, ruled)
+                    let others = filter ((/= asker) . fst) . zip [1 ..]
+                        grown = [map (eventType . (.event)) (drop (length b) a) | (i, b, a) <- zip3 [1 ..] asked ruled, i == asker]
+                    others ruled === others asked
+                    grown === [[written]]
+
             it "shows each task, its PR and what is held" $ \world -> do
                 _ <- tenXAtFanOut world
                 for_ [["task", "t1", "review", prUrl], ["held", "t2", "https://github.com/o/r/issues/9"]] $ \argv -> succeeded =<< state world ("record" : argv)
@@ -915,6 +1060,24 @@ threeLevels world = do
     atWorktree world grandWorktree
     grand <- startedIn world ["--notes", Text.pack grandNotes, "--parent", mid, "--task", "t1"]
     pure (top, mid, grand)
+
+{- | A 10x run at no fan-out, an engineer its direct child, and an engineer
+that one's direct child, each in its own worktree; later calls run in the
+grandchild's. Their ids, top first.
+-}
+directLevels :: IORef World -> IO (Text, Text, Text)
+directLevels world = do
+    top <- startedIn world ["--flow", "10x"]
+    atWorktree world midWorktree
+    mid <- startedIn world ["--notes", Text.pack midNotes, "--parent", top]
+    atWorktree world grandWorktree
+    grand <- startedIn world ["--notes", Text.pack grandNotes, "--parent", mid]
+    pure (top, mid, grand)
+
+-- | The notes and worktree of the i-th direct child.
+directNotes, directWorktree :: Int -> FilePath
+directNotes i = "/direct-" <> show i
+directWorktree i = "/direct-work-" <> show i
 
 {- | The grandchild asks a Design question, the middle run forwards it, and
 the top forwards it to the user; later calls run in the top's worktree.

@@ -24,7 +24,9 @@ module State.Run.Event (
     FlowName (..),
     Principal (..),
     Parent (..),
+    Link (..),
     Op (..),
+    Reply (..),
     Asking (..),
     Asker (..),
     AgentRole (..),
@@ -71,7 +73,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
-import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
+import State.Run.Ask (Above, Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question, Reply (..))
 import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Target (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
@@ -137,7 +139,11 @@ data Event
     | -- | This run passed the question up, to whoever started it.
       Forwarded QId Above
     | -- | The answer that came down, and who gave it.
-      Answered QId Text Above
+      Answered QId Reply Above
+    | {- | The question waits for a later answer, and why: it stays open, and
+      only 'Answered' closes it. Not @Parked@: a task's 'TaskState' is.
+      -}
+      QuestionParked QId OneLine
     | -- | The escape edge, outside the graph: to the named state, and why.
       Overridden StateName Text
     | -- | An event the run refused, logged so the next read can warn of it.

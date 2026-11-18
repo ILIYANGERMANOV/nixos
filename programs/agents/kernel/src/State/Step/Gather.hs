@@ -69,7 +69,7 @@ instance StepSet GatherStep where
     special = \case
         Research -> Ordinary
         Interview -> Ordinary
-        Discuss -> Ordinary
+        Discuss -> Discusses
         Notes -> Ordinary
 
     sameStep a b = case (a, b) of

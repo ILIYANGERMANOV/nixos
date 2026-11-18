@@ -27,8 +27,9 @@ effects of the term. Design: #461 (slice S2); implementation: PR #470.
   graphs, states tables, the catalog and the advice do not change.
 - **`Handle` takes one effect off.** `Handle :: Handler eff -> Flow s i e o
   -> Flow (HandleS eff s) i e o`, with `Handler` a closed GADT naming who
-  answers: `AgentPicks`, `UserAsks`, `FocusHere`. It is drawn as its body.
-  A named flow is `handled (...)`, `Handle AgentPicks . Handle UserAsks`.
+  answers: `AgentPicks`, `PrincipalAnswers`, `FocusHere`. It is drawn as
+  its body. A named flow is `handled (...)`, `Handle AgentPicks`: its Ask
+  stays open (see S3 below).
 - **A whole flow handles every effect.** `SomeFlow` demands
   `Unhandled (Effects s) ~ '[]`; a flow that leaves one does not compile
   and names it: `A whole flow leaves effects unhandled: '[PickE]`.
@@ -41,6 +42,29 @@ effects of the term. Design: #461 (slice S2); implementation: PR #470.
   `type data Effs = Flags Bool Bool Bool`, one flag per `Eff`; a union is
   three `||`s, and `Effects s = ToList (EffectSet s)` reads the list off.
 
+## S3: Ask bubbles up
+
+#461 slice S3 (PR #474) makes a nested flow's question the enclosing
+flow's, as an unhandled operation goes to the enclosing handler:
+
+- **Ask is handled once, at the root.** `handled` takes Pick only, so
+  every named flow's `Effects` keep `AskE`, and a flow nested in another
+  (a 10x's forked engineer, a chief's branch) raises its questions to it.
+  The role registry (`State.Role`) is the one root: `rooted =
+  Handle PrincipalAnswers`, under which `Unhandled (Effects s) ~ '[]`
+  holds.
+- **The handler is the principal, decided at runtime.** The same term
+  roots a user's run and a linked child's, so the term cannot say who
+  answers; `PrincipalAnswers` means the run's `Principal`, which
+  `Ask.deliver` already reads: the user for a run of their own, the parent
+  run for a linked child.
+- **A parent link is a sum.** `Parent {run, link}`, `data Link = AtFan
+  TaskId | Direct`: a fan-out's child takes one of its tasks; a direct
+  child (`state init --parent <run>`, no `--task`) is linked to a parent at
+  no fan-out, the chief delegating one engineer. Its question reaches the
+  parent's log as `Asked (ChildRun child)`; the parent rules or forwards
+  it, and the answer goes down to that child only.
+
 ## Laws
 
 | Law | Where |
@@ -49,7 +73,8 @@ effects of the term. Design: #461 (slice S2); implementation: PR #470.
 | live appends reach the run the log replays | `FoldSpec` |
 | replaying a prefix then the rest is replaying the whole | `FoldSpec` |
 | a perturbed event is refused (a pick off its choice, an answer to no question) | `FoldSpec` |
-| `Effects` of each registered flow, and of a handled `par`, is the stated list | `RoleSpec` (`:~:`) |
+| `Effects` of each registered flow, and of a handled `par`, is the stated list; each root's is `'[]` | `RoleSpec` (`:~:`) |
+| ruling one direct child's question changes no other child's log | `MainSpec` |
 | a whole flow with an unhandled Pick, Ask or Focus does not compile | `FlowSpec` |
 
 ## Consequences

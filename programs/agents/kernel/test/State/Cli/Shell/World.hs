@@ -23,6 +23,7 @@ module State.Cli.Shell.World (
     addWorktree,
     childWorktree,
     logged,
+    loggedIn,
     runOf,
     storeDown,
     loggedEvents,

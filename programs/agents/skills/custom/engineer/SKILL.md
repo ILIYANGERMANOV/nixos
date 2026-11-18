@@ -20,10 +20,11 @@ who owns each decision.
 ## Rules
 
 - **Ask, do not guess.** Every question, yours or one a worker hands back,
-  goes through `state ask --kind <K> "<question>"`; the kinds, and who answers
-  each, are in `${CLAUDE_SKILL_DIR}/references/blockers.md`. Then do what it
-  prints:
-  - `ASK user`: one `AskUserQuestion`, then `state answer <qid> <answer>`.
+  goes through `state ask --kind <K> "<question>"`; kinds, who answers each
+  and answer forms: `${CLAUDE_SKILL_DIR}/references/blockers.md`. Then do as
+  it prints:
+  - `ASK user`: `AskUserQuestion`, or on a long context plain text ending the
+    turn with lettered options; then `state answer <qid> <answer>`.
   - `ANSWER yourself` or `RUN state rule ...`: when your row in the kinds
     table answers, `state rule <qid> --answer <a> --why <w> --cost <c>`; else
     `state forward <qid>`, and do what that prints.
