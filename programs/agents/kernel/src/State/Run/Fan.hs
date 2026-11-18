@@ -30,6 +30,7 @@ module State.Run.Fan (
     leave,
     closed,
     unmerged,
+    merged,
     allParked,
     lookupTask,
     childTask,
@@ -412,7 +413,7 @@ spawnable asking fan =
     , task.id `notElem` map (.id) (busy fan)
     , task.id `notElem` map ((.task) . fst) (untriaged fan)
     , all ((`notElem` asking) . (.child.run)) (childrenOf fan task.id)
-    , all (built fan) task.deps
+    , all (merged fan) task.deps
     ]
   where
     inCi task = case Map.lookup task fan.moves of
@@ -428,8 +429,8 @@ spawnable asking fan =
 GitHub Actions' @needs@ waits for success. A dependency in review, kept or
 parked keeps its dependents waiting; 'settled' still lets the fan-out leave then.
 -}
-built :: Fan -> TaskId -> Bool
-built fan task = case Map.lookup task fan.moves of
+merged :: Fan -> TaskId -> Bool
+merged fan task = case Map.lookup task fan.moves of
     Just (Merged _) -> True
     Just (Kept _) -> False
     Just (Round _) -> False

@@ -417,10 +417,12 @@ shownBudgets g state = sortOn (\(metered, budget) -> shownOrder metered budget.c
 advice, which parallel spawns would each repeat:
 
 > researchers: 3 of 5 left
-> next: for each more, `state record gather.research`, then spawn; or end your turn until they hand back
+> next: for each more, `state record gather.research`, then spawn it in a message of its own; or end your turn until they hand back
 
 Each spawn is one pick into the forking step: the hook records the spawn
-only at that step, so a second spawn in the turn needs the pick again.
+only at that step, so a second spawn in the turn needs the pick again. Two
+spawns in one message both reach the hook before the lead reads this, so
+the second finds no pick.
 
 A hand-back tells the children of its group's role still open in the
 run's 'State.Run.Fold.ledger' instead: a spawn's own child is not in it
@@ -453,7 +455,7 @@ childLines owed budget pick open =
     howMany n = if n == 0 then "none" else tshow n
     next = case owed of
         Opens | usedUp budget -> "end your turn until they hand back"
-        Opens -> maybe "spawn more," (\event -> "for each more, `state record " <> event <> "`, then spawn;") pick <> " or end your turn until they hand back"
+        Opens -> maybe "spawn more," (\event -> "for each more, `state record " <> event <> "`, then spawn it in a message of its own;") pick <> " or end your turn until they hand back"
         Closes | open == 0 -> "state next"
         Closes | open == 1 -> "end your turn until it hands back"
         Closes -> "end your turn until they hand back"

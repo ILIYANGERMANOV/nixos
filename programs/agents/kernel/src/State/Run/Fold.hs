@@ -523,7 +523,8 @@ applyEvent g state n = \case
     Spawned child -> going (atAwait g state >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))
     HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
-    TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= afterMove task moved)
+    -- 'Fan.moved' ignores a merged task's later move, so the run skips its effects too.
+    TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= if Fan.merged (currentFan state) task then Right else afterMove task moved)
     Held task url -> going (inFan (Fan.held task url))
     ActedOn task url -> going (inFan (Fan.actedOn task url))
     TaskAdded task -> going (inFan (Fan.added task) >>= reopened g)

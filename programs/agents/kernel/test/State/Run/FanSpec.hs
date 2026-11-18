@@ -13,7 +13,7 @@ import Hedgehog.Range qualified as Range
 import State.Run.Ask (QId (..))
 import State.Run.Event
 import State.Run.EventGen (genSaid, genTaskAt, genTaskId, genTaskState, genTasks, oneLine, runId, tasksOf)
-import State.Run.Fan
+import State.Run.Fan hiding (merged)
 import State.Run.RunGen (plainTask)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)

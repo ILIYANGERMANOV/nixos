@@ -887,6 +887,11 @@ tenXRounds = describe "the 10x's rounds" $ do
         let added = settled (plainTask "t1" []) (Merged pr) <> [TaskAdded (plainTask "fix" [])]
         atName <$> tenXRun added `shouldBe` Right (Just (StateName "engineers"))
         atName <$> tenXRun (added <> [Spawned (childOf "c2" "fix")]) `shouldBe` Right (Just (StateName "engineers"))
+
+    it "ignores a park of a merged task, keeping its child's question pending" $ do
+        let asks = Question (QId (runId "c1") 1) Design (oneLine "which store?")
+            merged = toEngineers (plainTask "t1" []) <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AsksUp asks.qid), Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1"))), TaskMoved t1 (Merged pr)]
+        map (.asking.question.qid) . (.pending) <$> tenXRun (merged <> [TaskMoved t1 (Parked "out of scope" Nothing)]) `shouldBe` Right [asks.qid]
   where
     pr = Url "https://pr/1"
     t1 = TaskId "t1"

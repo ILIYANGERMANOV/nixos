@@ -42,6 +42,14 @@ spec = describe "state-hook over the doubles" $ do
 
                 said `shouldBe` []
 
+            it "is silent on a log of another version, as only a spawn or a hand-back is lost there" $ \world -> do
+                _ <- startedRun world
+                editLog world (const ["{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"])
+
+                said <- succeeded =<< hook world "resume" sessionStart
+
+                said `shouldBe` []
+
             it "tells a log line it does not read, as context" $ \world -> do
                 _ <- drive world []
                 editLog world (<> ["{\"v\":3,broken"])
@@ -191,14 +199,14 @@ spec = describe "state-hook over the doubles" $ do
                                     ( Text.unlines
                                         [ "run " <> run <> ": recorded event 4 gather/research.spawned -> gather"
                                         , "  researchers: 4 of 5 left"
-                                        , "  next: for each more, `state record gather.research`, then spawn; or end your turn until they hand back"
+                                        , "  next: for each more, `state record gather.research`, then spawn it in a message of its own; or end your turn until they hand back"
                                         ]
                                     )
                                , Just
                                     ( Text.unlines
                                         [ "run " <> run <> ": recorded event 6 gather/research.spawned -> gather"
                                         , "  researchers: 3 of 5 left"
-                                        , "  next: for each more, `state record gather.research`, then spawn; or end your turn until they hand back"
+                                        , "  next: for each more, `state record gather.research`, then spawn it in a message of its own; or end your turn until they hand back"
                                         ]
                                     )
                                )

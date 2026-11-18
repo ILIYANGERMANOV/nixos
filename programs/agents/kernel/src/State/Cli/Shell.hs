@@ -59,7 +59,7 @@ import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), areaNames, parseHandback, refusalText, typeDirectHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (..), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..), SomeFlow (..))
@@ -375,8 +375,9 @@ pointedRun =
 
 {- | What the worktree's run says to a hook's want, naming it, a disk or git
 error too. A log of another log version, as an older one, the hook records
-nothing in, so it names the fallbacks (#475); one whose first line does not
-read names no run but the bound one.
+nothing in: a spawn or hand-back hook names the fallbacks (#475), as that
+record is lost, and the others stay silent (#360). One whose first line does
+not read names no run but the bound one.
 -}
 hookAnswer :: (Shell es) => Steps -> HookName -> Call -> Maybe Binding -> Want -> Eff es Text
 hookAnswer steps name call bound want =
@@ -388,14 +389,23 @@ hookAnswer steps name call bound want =
   where
     at found = telling name found (runAnswer steps call bound found want)
 
--- | A log of another version: the hook records nothing, so the spawn or hand-back is recorded by hand.
+-- | A log of another version: the hook records nothing, so a spawn or hand-back is recorded by hand.
 unreadByHook :: HookName -> Int -> Text
-unreadByHook name v =
-    "state hook "
-        <> hookName name
-        <> ": the run's "
-        <> versionText v
-        <> ", so the hook records nothing\nfix: with the state that wrote the log, state record <step>.spawned, or pipe the hand-back into state handback <role>\n"
+unreadByHook name v = case name of
+    SpawnHook -> byHand
+    HandbackHook -> byHand
+    ResumeHook -> ""
+    AskedHook -> ""
+    BindHook -> ""
+    RouteHook -> ""
+    BeginHook -> ""
+  where
+    byHand =
+        "state hook "
+            <> hookName name
+            <> ": the run's "
+            <> versionText v
+            <> ", so the hook records nothing\nfix: with the state that wrote the log, state record <step>.spawned, or pipe the hand-back into state handback <role>\n"
 
 -- | What the run found says to a hook's want, recording what it must; empty when silent, a failure as its text.
 runAnswer :: (Shell es) => Steps -> Call -> Maybe Binding -> Maybe RunId -> Want -> Eff es Text
