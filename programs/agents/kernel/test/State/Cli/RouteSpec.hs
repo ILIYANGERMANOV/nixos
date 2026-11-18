@@ -145,7 +145,7 @@ readOnlySpec = describe "the architect's read-only run" $ do
     let codeWrites = [Edits, Writes] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
         ticketCalls = [Spawns] <> map RunsShell ["gh issue create --repo o/r --title t --body b", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\nbody\nEOF", "git status", "state next"]
     it "denies an edit, a write, a commit, a push and a PR opened or merged, naming the ticket as the fix" $
-        map (readOnly ArchitectFlow) codeWrites `shouldSatisfy` all (maybe False ("fix: write the design into the ticket" `Text.isInfixOf`))
+        map (readOnly ArchitectFlow) codeWrites `shouldSatisfy` all (maybe False ("only at confirm_design, once the user confirms, write the ticket" `Text.isInfixOf`))
 
     it "lets a researcher spawn, the ticket be written and reads go on" $
         map (readOnly ArchitectFlow) ticketCalls `shouldBe` map (const Nothing) ticketCalls

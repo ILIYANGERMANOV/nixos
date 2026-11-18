@@ -27,6 +27,7 @@ module State.Category.Step (
     decodeWith,
     SomeStep (..),
     Special (..),
+    Cue (..),
     StateName (..),
     stateNameText,
     OutcomeName (..),
@@ -238,13 +239,21 @@ data Special
     = -- | Run it as its row says.
       Ordinary
     | -- | Ask the user to confirm this, once, before recording: @the simplified plan@.
-      AsksConfirm Text
+      AsksConfirm Cue Text
     | -- | Wait on the PR's CI.
       AwaitsCi
     | -- | Wait on the tasks' PRs to merge.
       AwaitsMerge
     | -- | Name the url the run recorded last, what the request ended in.
       TellsResult
+    deriving stock (Eq, Show)
+
+-- | When a step's Confirm question is asked.
+data Cue
+    = -- | On entering the step.
+      OnEntry
+    | -- | Once the user says the discussion is done: until then the agent talks free-form.
+      OnUserWord
     deriving stock (Eq, Show)
 
 -- | A state of a flow's graph, by name: what people read, and an override's target.

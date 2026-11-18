@@ -182,8 +182,8 @@ readOnly flow call = denial <$> (guard (writesNoCode flow) *> codeWrite)
             Failure
                 { exit = BadInput
                 , what = "the architect flow changes no code, so " <> act <> " is denied"
-                , why = "an architect run's design goes into its ticket"
-                , fix = "write the design into the ticket: a quoted heredoc (<<'EOF') into `gh issue edit <number> --body-file -`"
+                , why = "an architect run's one write is its ticket, written once the user confirms the design"
+                , fix = "keep the design in the discussion; only at confirm_design, once the user confirms, write the ticket, once: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
                 }
 
 -- | Whether a flow changes no code, so 'readOnly' denies its writes.

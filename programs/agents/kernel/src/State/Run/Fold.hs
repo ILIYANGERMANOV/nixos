@@ -144,7 +144,7 @@ data RunState = RunState
     , fans :: Map ScopedFan Fan
     -- ^ Each fan-out's tasks and child runs, by its name in its scopes: none before its breakdown.
     , ticket :: Maybe Url
-    -- ^ The ticket @open_ticket@ recorded last: the url an architect run hands back.
+    -- ^ The ticket @confirm_design@ recorded last: the url an architect run hands back.
     , latest :: Maybe Url
     {- ^ The PR or ticket url any step recorded last: what a chief's request
     ended in, as an earlier request's PR must not stand for a later ticket.
@@ -554,7 +554,7 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
-    Right state {at = edge.to, fuel = effect.level <|> state.fuel, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
+    Right state {at = edge.to, fuel = effect.level <|> state.fuel, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.written <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.written <|> state.latest}
 
 -- | The refusal of an edge into a step whose budget is used up.
 usedUpAt :: OpenGraph -> RunState -> Edge Node -> Maybe Refusal
@@ -600,7 +600,7 @@ data Effect = Effect
     , problems :: Set Problem
     , draft :: Maybe DraftPr
     , pr :: Maybe Url
-    , opened :: Maybe Url
+    , written :: Maybe Url
     , anew :: Bool
     -- ^ A new request starts: it has no target until one is named.
     , level :: Maybe Fuel
@@ -623,13 +623,13 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     BuildLayer -> none {draft = built o}
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url, skip = keeps o}
-    TicketLayer -> none {opened = ticketOf o}
+    TicketLayer -> none {written = ticketOf o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
     PickLayer -> none
     FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False, level = Nothing, skip = Nothing}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, written = Nothing, anew = False, level = Nothing, skip = Nothing}
 
 -- | The level a 'Fuel' step sets; a skip sets none.
 fuelOutcome :: Outcome (s :: FuelStep) l -> Maybe Fuel
@@ -656,14 +656,13 @@ keeps = \case
     AwaitCiRed _ _ -> Nothing
     FixPrDone _ -> Nothing
 
--- | The ticket an @open_ticket@ names.
+-- | The ticket a confirmed design was written into.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
 ticketOf = \case
-    OpenTicketDone url -> Just url
-    UpdateTicketDone -> Nothing
-    ConfirmDesignConfirmed -> Nothing
+    ConfirmDesignConfirmed url -> Just url
     ConfirmDesignAdjusted -> Nothing
-    FinalizeTicketDone -> Nothing
+    ProblemUnderstood -> Nothing
+    ProblemMore -> Nothing
 
 -- | The PR an @open_pr@ names: a ship from it waits on that PR's CI.
 openedPr :: Outcome (s :: RequestStep) l -> Maybe Url
@@ -1105,7 +1104,7 @@ stuckExits g state place = case innermost g place of
             AwaitsCi -> True
             AwaitsMerge -> True
             Ordinary -> False
-            AsksConfirm _ -> False
+            AsksConfirm _ _ -> False
             TellsResult -> False
         Nothing -> False
 

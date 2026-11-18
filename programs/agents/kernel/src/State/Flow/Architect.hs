@@ -1,8 +1,9 @@
 {- | The architect flow: from an idea to a confirmed design ticket, changing
-no code. Research opens the ticket as a work in progress; each design round
-discusses, writes the design into the ticket and asks the user to confirm
-it; an adjusted design discusses again, up to three rounds before the user
-is asked whether to go on.
+no code. Research, then the problem talked through with the user until they
+say it is understood; more research reopens it. Then design rounds, each
+discussed and confirmed with the user; an adjusted design discusses again.
+Only the confirmed design is written into a ticket, once. Each loop goes up
+to three rounds before the user is asked whether to go on.
 -}
 module State.Flow.Architect (architect, ArchitectS) where
 
@@ -18,14 +19,10 @@ architect :: Flow (Handled ArchitectS) 'Ctx 'Nothing 'Ticket
 architect =
     handled $
         Do Fuel
-            :> research
-            :> Do OpenTicket
-            :> Loop "design" (discuss :> Do UpdateTicket :> Capped (always (UpTo 3)) Extend (Step ConfirmDesign))
-            :> Do FinalizeTicket
+            :> Loop "understanding" (research :> Capped (always (UpTo 3)) Extend (Step Problem))
+            :> Loop "design" (discuss :> Capped (always (UpTo 3)) Extend (Step ConfirmDesign))
 
 type ArchitectS =
     DoS Fuel
-        :>> ResearchS
-        :>> DoS OpenTicket
-        :>> LoopS (DiscussS :>> DoS UpdateTicket :>> CappedS (DoS ConfirmDesign))
-        :>> DoS FinalizeTicket
+        :>> LoopS (ResearchS :>> CappedS (DoS Problem))
+        :>> LoopS (DiscussS :>> CappedS (DoS ConfirmDesign))
