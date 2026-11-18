@@ -39,6 +39,27 @@ cmd_kill() {
 
 kill_usage() { die "usage: kill [--force] <pid> | kill ghcid <worktree>|--all"; }
 
+# systemd stops a scope's whole process tree, TERM then KILL. A package at the
+# worktree's root is ghcid-<worktree>.scope, one below it ghcid-<worktree>-*.scope;
+# systemd-escape turns a `-` in a name into \x2d, so no sibling worktree matches.
+# The [.] makes the exact name a glob too: a glob matching nothing is no error,
+# a missing unit name is.
+stop_ghcid() {
+  local dir unit
+  case "$1" in
+    --all)
+      systemctl --user stop ghci.slice
+      echo "Stopped every GHCi daemon."
+      ;;
+    *)
+      dir=$(realpath -m -- "$1")
+      unit="ghcid-$(systemd-escape --path "$dir")"
+      systemctl --user stop "${unit}[.]scope" "$unit-*.scope"
+      echo "Stopped the GHCi daemons of $1, if any ran."
+      ;;
+  esac
+}
+
 # Only the factory user's own processes, and never a Remote Control server
 # unless forced: ending one ends every session it carries.
 kill_pid() {
@@ -77,25 +98,4 @@ running() {
   stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
   stat="${stat##*) }"
   [ "${stat%% *}" != Z ]
-}
-
-# systemd stops a scope's whole process tree, TERM then KILL. A package at the
-# worktree's root is ghcid-<worktree>.scope, one below it ghcid-<worktree>-*.scope;
-# systemd-escape turns a `-` in a name into \x2d, so no sibling worktree matches.
-# The [.] makes the exact name a glob too: a glob matching nothing is no error,
-# a missing unit name is.
-stop_ghcid() {
-  local dir unit
-  case "$1" in
-    --all)
-      systemctl --user stop ghci.slice
-      echo "Stopped every GHCi daemon."
-      ;;
-    *)
-      dir=$(realpath -m -- "$1")
-      unit="ghcid-$(systemd-escape --path "$dir")"
-      systemctl --user stop "${unit}[.]scope" "$unit-*.scope"
-      echo "Stopped the GHCi daemons of $1, if any ran."
-      ;;
-  esac
 }
