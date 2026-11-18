@@ -176,6 +176,12 @@
             src = self;
           };
         }
+        # claude-kategory builds: its relocated files name no ~/.claude path
+        # (kategory/relocate.sh) and its wrapper passes shellcheck. Where
+        # `llm-agents` has a Claude Code.
+        // pkgs.lib.optionalAttrs (self.packages.${pkgs.stdenv.hostPlatform.system} ? claude-kategory) {
+          kategory = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-kategory;
+        }
         # That a .kt file gets kotlin_lsp running the binary programs/kotlin
         # packages, ktlint as its formatter, and that <leader>tt runs
         # `./gradlew test` in a Gradle project. Only where a kotlin-lsp release
@@ -259,6 +265,13 @@
             inherit pkgs;
             inherit (inputs.llm-agents.packages.${system}) claude-code;
           };
+          # The factory's harness in ~/.claude-kategory, for anyone with Nix:
+          # `nix profile add github:ILIYANGERMANOV/nixos#claude-kategory`.
+          claude-kategory =
+            (import ./adapters/claude-code.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).kategory;
         }
       );
 
