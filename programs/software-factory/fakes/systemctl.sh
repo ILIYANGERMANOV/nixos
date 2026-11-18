@@ -16,5 +16,16 @@ case "$1" in
       exit 3
     fi
     ;;
+  show)
+    # show -p MainPID --value <pattern>...: a unit file holds its MainPID, an
+    # empty one has none (0).
+    shift 4
+    for pattern in "$@"; do
+      for unit in "$UNITS"/$pattern; do
+        [ -e "$unit" ] || continue
+        if [ -s "$unit" ]; then cat "$unit"; else echo 0; fi
+      done
+    done
+    ;;
   *) ;;
 esac
