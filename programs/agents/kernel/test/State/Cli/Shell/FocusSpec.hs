@@ -63,6 +63,29 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
 
             tasks `shouldBe` ["notes /notes", "r1 in focus at architect/fuel"]
 
+        it "records a finished request done on a turn away, with no summary: no card is left of it, and it is not waiting" $ \world -> do
+            finished world
+
+            away <- succeeded =<< state world ["focus"]
+            tasks <- succeeded =<< state world ["tasks"]
+            refused <- state world ["focus", "r1"]
+
+            (away, tasks, (refused.code, refused.err))
+                `shouldBe` ( ["recorded 5 next.request -> fuel", "r2 in focus at fuel"]
+                           , ["notes /notes", "r2 in focus at fuel"]
+                           , (2, ["state focus: the focus on r1 - it is not a waiting request", "fix: state tasks"])
+                           )
+
+        it "drops a finished request on the turn back to a waiting one: only the waiting one is left" $ \world -> do
+            researching world
+            _ <- succeeded =<< state world ["focus", "--summary", "researching the store"]
+            mapM_ (succeeded <=< state world) ([["record", "fuel.set", "balanced"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]])
+
+            _ <- succeeded =<< state world ["focus", "r1"]
+            tasks <- succeeded =<< state world ["tasks"]
+
+            tasks `shouldBe` ["notes /notes", "r1 in focus at architect/fuel"]
+
         it "refuses a turn to a request that is not waiting, naming state tasks" $ \world -> do
             researching world
 
@@ -91,6 +114,12 @@ researching world = do
     mapM_ (succeeded <=< state world) ([["record", "fuel.set", "balanced"], ["record", "route.architect"]] :: [[Text]])
     _ <- hook world "bind" (spawnResultOf "researcher" "a7")
     pure ()
+
+-- | A chief run whose first request ran to its end, at @next@.
+finished :: IORef World -> IO ()
+finished world = do
+    _ <- startedIn world ["--flow", "chief"]
+    mapM_ (succeeded <=< state world) ([["record", "fuel.set", "balanced"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]])
 
 later :: IORef World -> NominalDiffTime -> IO ()
 later world seconds = modifyIORef' world (\w -> w {clock = addUTCTime seconds w.clock})

@@ -48,7 +48,8 @@ request -> fuel -> route -> branch, inline -> next -> request | done
 - **Focus.** One request is in focus, the others wait. At any state, one
   step switches: `state focus --summary "<where this one stands>"` opens
   a new request at `fuel`; `state focus rK --summary ...` resumes waiting
-  `rK` at its node. `--summary` is needed once the request recorded work.
+  `rK` at its node. `--summary` is needed once the request recorded work;
+  one at `next` is finished: the turn records `next.request`, no card.
   A side request while a branch waits on an Ask is the same step: the ask
   is parked, still in `state pending`, answer it any time. `state tasks`
   prints a card per request (node, decisions, open questions, last agent)

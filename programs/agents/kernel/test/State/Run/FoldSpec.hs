@@ -32,7 +32,7 @@ import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (Merge)
 import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genReading, genReply, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold hiding (Answer (..))
+import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
 import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, within)
 import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
@@ -390,7 +390,7 @@ spec = describe "State.Run.Fold" $ do
                 chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
             before <- evalEither (chief prefix)
             if over before then discard else success
-            cover 10 "turned away mid-request" (not (untouched chiefGraph before))
+            cover 10 "turned away mid-request" (stage chiefGraph before == Fold.Underway)
             cover 5 "more of the request after the turn" (not (null rest))
             (landing <$> chief (prefix <> [Suspended before.focus summary, Focused before.focus] <> rest)) === (landing <$> chief (prefix <> rest))
 
@@ -405,6 +405,11 @@ spec = describe "State.Run.Fold" $ do
             let chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
             (chief [Focused (TaskNo 1)], chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Focused (TaskNo 1)])
                 `shouldBe` (Left (NotSuspended (TaskNo 1)), Left (FocusRecorded (TaskNo 2)))
+
+        it "drops a finished request, at next, on the turn back to a waiting one" $ do
+            let chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
+            back <- either (fail . show) pure (chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Took mempty (pickOf "route" "other"), stepTook (DirectDone "done"), Focused (TaskNo 1)])
+            (back.focus, nodeName back.at, Map.keys back.suspended) `shouldBe` (TaskNo 1, StateName "route", [])
 
         it "refuses a request switch in a run of a flow that does not switch requests" $
             replay g (logOf (started :| [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x")])) `shouldBe` Left NoFocus

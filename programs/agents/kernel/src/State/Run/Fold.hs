@@ -13,7 +13,8 @@ module State.Run.Fold (
     Suspension (..),
     Position,
     waitsAt,
-    untouched,
+    Stage (..),
+    stage,
     focusable,
     suspendedAsks,
     trace,
@@ -105,6 +106,7 @@ import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
 import State.Step.Fuel (FuelStep, Outcome (..), Sing (Fuel, Skip))
 import State.Step.Pick (PickStep)
 import State.Step.Request (Outcome (..), RequestStep)
+import State.Step.Request qualified as Request
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
 import State.Step.Ticket (Outcome (..), TicketStep)
@@ -1160,20 +1162,22 @@ suspends g state task summary
         (ChildRun _, _) -> p
 
 {- | Focus on the waiting request, where it stood, its questions waiting as
-they did. The request in focus, untouched, is dropped: one that recorded
-work is suspended first.
+they did. The request in focus, untouched or finished, is dropped: one
+underway is suspended first.
 -}
 focuses :: OpenGraph -> RunState -> TaskNo -> Either Refusal RunState
-focuses g state task = case Map.lookup task state.suspended of
-    Nothing -> Left (NotSuspended task)
-    Just _ | not (untouched g state) -> Left (FocusRecorded state.focus)
-    Just (Suspension position _ asks) ->
-        Right
-            (placed position state)
-                { focus = task
-                , suspended = Map.delete task state.suspended
-                , pending = map (\p -> maybe p (\waits -> p {waits}) (lookup (pendingId p) asks)) state.pending
-                }
+focuses g state task = case (Map.lookup task state.suspended, stage g state) of
+    (Nothing, _) -> Left (NotSuspended task)
+    (Just _, Underway) -> Left (FocusRecorded state.focus)
+    (Just suspension, Untouched) -> Right (resumed suspension)
+    (Just suspension, Finished) -> Right (resumed suspension)
+  where
+    resumed (Suspension position _ asks) =
+        (placed position state)
+            { focus = task
+            , suspended = Map.delete task state.suspended
+            , pending = map (\p -> maybe p (\waits -> p {waits}) (lookup (pendingId p) asks)) state.pending
+            }
 
 -- | A new request in focus, at the flow's start, numbered past every request still open.
 opened :: OpenGraph -> RunState -> RunState
@@ -1183,11 +1187,23 @@ nextTask :: RunState -> TaskNo
 nextTask state = case maximum (state.focus : Map.keys state.suspended) of
     TaskNo n -> TaskNo (n + 1)
 
-{- | The request in focus is at the flow's start, its target unnamed: it
-recorded nothing a turn away would lose.
+{- | How far the chief's request in focus went, read off the cursor, never
+stored: a turn away loses nothing of one untouched or finished.
 -}
-untouched :: OpenGraph -> RunState -> Bool
-untouched g state = state.at == At g.inPort && isNothing state.onTarget
+data Stage
+    = -- | At the flow's start, its target unnamed: it recorded nothing.
+      Untouched
+    | -- | Past its start and not yet at @next@: a turn away suspends it.
+      Underway
+    | -- | At @next@: its route ran to the end, and the next request is the run's to take.
+      Finished
+    deriving stock (Eq, Show)
+
+stage :: OpenGraph -> RunState -> Stage
+stage g state
+    | state.at == At g.inPort && isNothing state.onTarget = Untouched
+    | nodeName state.at == stepName Request.Next = Finished
+    | otherwise = Underway
 
 positionOf :: RunState -> Position
 positionOf state = Position state.at state.fuel state.rounds state.meters state.askedHere state.onTarget

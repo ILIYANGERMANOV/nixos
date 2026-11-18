@@ -68,7 +68,7 @@ import State.Run.Ask qualified as Ask
 import State.Run.Card qualified as Card
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, encodeLine, eventType, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), TaskId, TaskNo, parseRunId, roleText, runIdText, taskNoText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), TaskId, TaskNo, parseRunId, roleText, runIdText, stepTook, taskNoText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Append (..), Pending (asking, waits), RunState (..), Waits (..), askedAt, nextQId, replay)
@@ -78,6 +78,7 @@ import State.Show (tshow)
 import State.Step.Artifact (PlanCall (ChildConfirms), Shape (..), shellPathText, shellWord)
 import State.Step.Catalog (outcome, termSkips)
 import State.Step.Fuel (Outcome (LevelSet))
+import State.Step.Request (Outcome (NextRequest))
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
@@ -489,8 +490,9 @@ execute steps = \case
         Pending -> Nothing
 
 {- | @state focus [rK] --summary <line>@: the chief's request in focus
-waits, unless it recorded nothing, which is dropped; the waiting request
-named takes the focus, else a new one. A turn back prints its card, and
+waits, unless it recorded nothing, which is dropped, or it is finished, at
+@next@, which takes the next request; the waiting request named takes the
+focus, else a new one. A turn back prints its card, and
 the advice from the two logged times, so a replay prints the same.
 -}
 focusPlan :: Loaded -> Maybe TaskNo -> Maybe OneLine -> Either Failure Plan
@@ -498,10 +500,11 @@ focusPlan run target summary = do
     Bifunctor.first refusal (Fold.focusable run.state)
     -- The request in focus waits on nothing: turning to it is no turn.
     for_ target (\task -> if task == run.state.focus then Left (refusal (Fold.NotSuspended task)) else Right ())
-    waits <- case (Fold.untouched run.g run.state, summary) of
-        (True, _) -> Right []
-        (False, Just line) -> Right [Suspended run.state.focus line]
-        (False, Nothing) -> Left (Failure BadInput ("the turn away from " <> taskNoText run.state.focus) "it recorded work: its card says where it stands" ("state focus" <> foldMap ((" " <>) . taskNoText) target <> " --summary <where it stands>"))
+    waits <- case (Fold.stage run.g run.state, summary) of
+        (Fold.Untouched, _) -> Right []
+        (Fold.Finished, _) -> Right [stepTook NextRequest]
+        (Fold.Underway, Just line) -> Right [Suspended run.state.focus line]
+        (Fold.Underway, Nothing) -> Left (Failure BadInput ("the turn away from " <> taskNoText run.state.focus) "it recorded work: its card says where it stands" ("state focus" <> foldMap ((" " <>) . taskNoText) target <> " --summary <where it stands>"))
     before <- Bifunctor.first refusal (Card.cards <$> Fold.trace run.g run.logged)
     Right $ Plan (waits <> map Focused (toList target)) $ \after written ->
         printed . (recordedLines written <>) . Text.unlines $ case (target >>= \task -> find ((== task) . (.task)) before, listToMaybe (reverse written)) of

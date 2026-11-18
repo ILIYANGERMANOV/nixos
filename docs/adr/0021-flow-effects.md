@@ -76,7 +76,8 @@ flow's, as an unhandled operation goes to the enclosing handler:
 - **Two events, one command.** `Suspended TaskNo OneLine` (where it stands)
   and `Focused TaskNo`, from `state focus [rK] --summary <line>`: the
   focus waits and the target, or a new request at `fuel`, takes it. A
-  request with nothing recorded is dropped, not suspended. Its forwarded
+  request with nothing recorded is dropped, not suspended; one at `next`
+  is finished, read off its cursor: the turn records `next.request`. Its forwarded
   questions are parked (S3's `QuestionParked`) and stay answerable.
 - **Cards are derived.** `Card.cards` reads each request's card off the
   traced log (node, decisions, open questions, last worker, paused-at);
