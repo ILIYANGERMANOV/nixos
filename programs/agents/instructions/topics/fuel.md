@@ -7,6 +7,9 @@ by Fuel: a skill reads its row for what, its text how.
 |---|---|---|---|
 | Researchers | 1 for all, 8 calls, notes past the hand-back limit | up to 5, 15 calls, notes | one per group, 30 calls, notes, top 5 facts re-checked |
 | Interview questions | up to 15 | up to 30 | up to 50 |
+| Design researchers | up to 10, 8 calls, notes past the hand-back limit | up to 30, 15 calls, notes | up to 60, 30 calls, notes, top 5 facts re-checked |
+| Discussion questions | up to 50 | up to 100 | up to 200 |
+| Requests | up to 50 | up to 100 | up to 200 |
 | Skippable when trivial | `simplify_plan`, `refactor` | none | none |
 | Refactor | unless trivial, quick: items 1-3, no `tests.md` | above about 100 changed lines | always |
 | Skill dry run | new or rewritten skill | new or rewritten skill | any skill change |
@@ -16,8 +19,14 @@ by Fuel: a skill reads its row for what, its text how.
 | Large fix widens on | rewritten history | rewritten history | history, size, file count |
 | DEEP security | where tier or requirement says | where tier or requirement says | where tier or requirement says |
 
-Researchers and questions count from zero each time the run gathers; at
-either cap the user says whether to go on (`extend` grants both again).
+Researchers and Interview questions are a gather's: the engineer's, the
+10x's, and Researchers a chief's research request too. Design researchers
+and Discussion questions are a design's: the architect's and a chief's
+discussion. Researchers and questions count from zero each time the run
+gathers or designs; at either cap the user says whether to go on (`extend`
+grants both again). Requests is the chief's guard against a runaway loop,
+not a budget: each request after the first spends one, and each request's
+own path keeps its caps.
 
 Every Fuel asks Confirm and ends merge-ready. A task is trivial when it is
 clear, a revert undoes it, it is about 100 changed lines, and it touches no
