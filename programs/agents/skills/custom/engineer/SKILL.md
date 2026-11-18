@@ -73,10 +73,10 @@ who owns each decision.
   each step runs. A run you start stops at `fuel` first: a `Fuel:` line in
   your prompt is `state record fuel.set <level>`. Else ask Fuel in one
   `Confirm` question, Balanced recommended; a re-plan keeps it. A child run
-  (your brief's `state init --parent` line) starts at `gather`, its Fuel
-  already recorded from the brief: record no `fuel.set`. An optional block is a
-  `skip_<block>` state: record `skip` or `run` as `state next` says. At Low,
-  it names the blocks a trivial task may skip.
+  whose `state init` line names `--task` starts at `gather`, its Fuel already
+  recorded: record no `fuel.set`. An optional block is a `skip_<block>`
+  state: record `skip` or `run` as `state next` says. At Low, it names the
+  blocks a trivial task may skip.
 - **One plan text.** The plan exists once, as a file: your brief when it holds
   the plan, a plan file you were given, else `plan.md` in the notes directory.
   Never write a second plan beside one. Every brief and review prompt names

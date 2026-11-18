@@ -151,7 +151,9 @@ parseToken line = case parseByName tokenWordText word of
     Just FailedWord -> Just . Failed <$> line1 payload
     Nothing -> Right Nothing
   where
-    (word, payload) = Text.drop 1 <$> Text.breakOn " " line
+    (written, payload) = Text.drop 1 <$> Text.breakOn " " line
+    -- "READY: done" reads as "READY done": agents often colon the token.
+    word = fromMaybe written (Text.stripSuffix ":" written)
     (what, refs) = Text.drop 1 <$> Text.breakOn " " payload
     line1 = Bifunctor.first Why . oneLine
 
