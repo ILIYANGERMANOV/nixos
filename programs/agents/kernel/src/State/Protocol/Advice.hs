@@ -47,7 +47,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), OutcomeName (..), eventText, outcomeNames, stateNameText)
+import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), OutcomeName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
