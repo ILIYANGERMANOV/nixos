@@ -62,8 +62,9 @@ let
     };
   };
 
-  # The architect's steps: its design discussion and the ticket it writes,
-  # each run by the lead, who changes no code.
+  # The architect's steps: the problem and design discussions and the ticket
+  # it writes once the design is confirmed, each run by the lead, who changes
+  # no code.
   architectSteps = {
     discuss = {
       dom = "Ctx";
@@ -71,7 +72,7 @@ let
       exit = null;
       outcomes = [ "asked" ];
       runner = "inline";
-      task = "Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Once this round's are answered, `discuss.asked` takes you back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.";
+      task = "Discuss: one design question at a time, each through `state ask`, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Once this round's are answered, `discuss.asked` takes you back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.";
       tools = [
         "read"
         "web"
@@ -81,34 +82,27 @@ let
       ops = [ "ask" ];
       flows = [ "architect" ];
     };
-    open_ticket = {
+    problem = {
       dom = "Ctx";
       cod = "Ctx";
-      exit = null;
-      outcomes = [ "done" ];
+      exit = "Ctx";
+      outcomes = [
+        "understood"
+        "more"
+      ];
       runner = "inline";
-      task = "Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, its body the skill's `references/issue.md` sections filled with what is known so far (the research in What & Why, Decisions candidates, Open questions), from a quoted heredoc (`<<'EOF'`): `gh issue create --repo <owner>/<repo>`, or a Linear issue when the request names Linear. Record its url.";
-      tools = [ "shell" ];
+      task = "Problem: talk the problem through with the user: what hurts, for whom, and why now. No ticket yet. A fact gap is `problem.more`, back to research.";
+      tools = [
+        "read"
+        "web"
+      ];
       skills = [ "architect" ];
       prose = leadProse;
-      ops = [ ];
-      flows = [ "architect" ];
-    };
-    update_ticket = {
-      dom = "Ctx";
-      cod = "Ticket";
-      exit = null;
-      outcomes = [ "done" ];
-      runner = "inline";
-      task = "Ticket: write the design into the ticket, as the skill's `references/issue.md` says: a quoted heredoc (`<<'EOF'`) into `gh issue edit <number> --repo <owner>/<repo> --body-file -`, or through the `linear` MCP when the request names Linear.";
-      tools = [ "shell" ];
-      skills = [ "architect" ];
-      prose = leadProse;
-      ops = [ ];
+      ops = [ "ask" ];
       flows = [ "architect" ];
     };
     confirm_design = {
-      dom = "Ticket";
+      dom = "Ctx";
       cod = "Ctx";
       exit = "Ticket";
       outcomes = [
@@ -116,24 +110,11 @@ let
         "adjusted"
       ];
       runner = "inline";
-      task = "Design: the ticket as one Confirm question, its url in it. `confirmed` finalizes it; `adjusted` discusses again.";
-      tools = [ ];
-      skills = [ "architect" ];
-      prose = leadProse;
-      ops = [ "ask" ];
-      flows = [ "architect" ];
-    };
-    finalize_ticket = {
-      dom = "Ticket";
-      cod = "Ticket";
-      exit = null;
-      outcomes = [ "done" ];
-      runner = "inline";
-      task = "Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`, or through the `linear` MCP when the request names Linear); the run hands back its url.";
+      task = "Design: the agreed design as one Confirm question. `adjusted` discusses again. Only once it is `confirmed`, write the ticket, once: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear. Then record `confirm_design.confirmed <url>`.";
       tools = [ "shell" ];
       skills = [ "architect" ];
       prose = leadProse;
-      ops = [ ];
+      ops = [ "ask" ];
       flows = [ "architect" ];
     };
   };

@@ -191,9 +191,9 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes and reads an architect run's start by its flow's name, and its ticket by its url" $ do
         let architectStart = reviewRows {event = Started (Start ArchitectFlow "/n" (ByUser OwnPr) Set.empty)}
-            opened = reviewRows {event = stepTook (OpenTicketDone (Url "https://github.com/o/r/issues/1"))}
-        (encodeLine architectStart, encodeLine opened) `shouldSatisfy` \(start, ticket) -> "\"flow\":\"architect\"" `Text.isInfixOf` start && "\"url\":\"https://github.com/o/r/issues/1\"" `Text.isInfixOf` ticket
-        map (fmap (.event) . decodeLine . encodeLine) [architectStart, opened] `shouldBe` map (Right . (.event)) [architectStart, opened]
+            confirmed = reviewRows {event = stepTook (ConfirmDesignConfirmed (Url "https://github.com/o/r/issues/1"))}
+        (encodeLine architectStart, encodeLine confirmed) `shouldSatisfy` \(start, ticket) -> "\"flow\":\"architect\"" `Text.isInfixOf` start && "\"url\":\"https://github.com/o/r/issues/1\"" `Text.isInfixOf` ticket
+        map (fmap (.event) . decodeLine . encodeLine) [architectStart, confirmed] `shouldBe` map (Right . (.event)) [architectStart, confirmed]
 
     it "reads a task the chief leads by its flow's name" $
         fmap (.flow) (decodeTask (taskFileJson ledBy10x `replacing` ("\"10x\"", "\"chief\""))) `shouldBe` Right ChiefFlow

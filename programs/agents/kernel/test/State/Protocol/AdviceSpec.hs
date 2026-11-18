@@ -21,7 +21,7 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, pickOf, plainTask, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketOpened, ticketUrl, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designDiscussed, enoughIn, flowGraph, g, genAccepted, happyPath, loadSteps, pickOf, plainTask, problemUnderstood, researchedIn, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketUrl, within)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Gather (Outcome (..))
@@ -121,9 +121,6 @@ spec = describe "State.Protocol.Advice" $ do
         it "skips ready on a targeted PR, as GitHub reads it by its url" $
             due withPr (chiefAt (onPr : routed "engineer" <> inScope "engineer" (take 17 happyPath)))
                 `shouldBe` Just (Took (scopePath "engineer") (outcome (ReadySkipped prUrl)))
-        it "adopts a targeted ticket, opening none" $
-            due noFacts (chiefAt (Targeted (OnTicket ticketUrl) : routed "architect" <> inScope "architect" (init ticketOpened)))
-                `shouldBe` Just (Took (scopePath "architect") (outcome (OpenTicketDone ticketUrl)))
         it "explains each discussion question before it is asked, as the architect's discussion does" $
             (atChief (routed "discussion")).prompt `shouldSatisfy` Text.isInfixOf "First send the Explain message"
 
@@ -207,25 +204,39 @@ spec = describe "State.Protocol.Advice" $ do
     describe "the architect" $ do
         let architectFrom events = either (error . show) id (replay architectGraph (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
             architectRun = architectFrom . (knobs Balanced <>)
-            atCap = ticketOpened <> concat (replicate 3 (designWritten <> [stepTook ConfirmDesignAdjusted])) <> designWritten
+            atProblem = architectRun (researchedIn "exploring" <> enoughIn "exploring")
+            atDesignConfirm = problemUnderstood <> designDiscussed
+            atCap = problemUnderstood <> concat (replicate 3 (designDiscussed <> [stepTook ConfirmDesignAdjusted])) <> designDiscussed
             designGoOn = Question (QId run 100) Stuck (oneLine "go on?")
             wentOn = [Asked (Asking designGoOn (StateName "design/confirm_design") Itself), Forwarded designGoOn.qid TheUser, Answered designGoOn.qid "yes" TheUser]
         it "asks the architect's Fuel first, as the engineer's" $
             next noFacts (architectFrom []) `shouldBe` next noFacts (runAt [])
 
-        it "asks the user to confirm the design ticket" $
-            next noFacts (architectRun (ticketOpened <> designWritten)) `shouldBe` Ask Confirm "the design ticket: confirmed, or adjusted?"
+        it "offers the problem's records without asking, and tells the agent to discuss free-form until the user says design" $ do
+            let advice = advise steps architectGraph noFacts atProblem
+            commandsOnly advice.action `shouldBe` offering ["state record problem.understood", "state record problem.more"]
+            advice.prompt `shouldSatisfy` \prompt -> all (`Text.isInfixOf` prompt) ["free-form: no picker", "Only when the user says design or enough", "state ask --kind Confirm \"the problem: confirmed, or adjusted?\"", "the user's own words"]
+
+        it "drops the line on when to ask once the problem's Confirm was asked and answered" $ do
+            let (question, asked, _) = ownAsk atProblem Confirm (oneLine "the problem: confirmed, or adjusted?")
+                answered = architectRun (researchedIn "exploring" <> enoughIn "exploring" <> asked <> [Answered question.qid "design" TheUser])
+                advice = advise steps architectGraph noFacts answered
+            (commandsOnly advice.action, "Only when the user says" `Text.isInfixOf` advice.prompt)
+                `shouldBe` (offering ["state record problem.understood", "state record problem.more"], False)
+
+        it "asks the user to confirm the design" $
+            next noFacts (architectRun atDesignConfirm) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
 
         it "asks whether to go on at the design rounds' cap, then the confirm again after extend" $ do
             next noFacts (architectRun atCap) `shouldBe` Ask Stuck "Design rounds: 3 of 3 used, none left: go on?"
-            next noFacts (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design ticket: confirmed, or adjusted?"
+            next noFacts (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
 
         it "tells the discussion to send its Explain message before each question, in the same turn" $
-            (advise steps architectGraph noFacts (architectRun ticketOpened)).prompt
+            (advise steps architectGraph noFacts (architectRun problemUnderstood)).prompt
                 `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the picker question" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
 
-        it "ends with the ticket's url" $
-            next noFacts (architectRun (ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])) `shouldBe` Done (Just ticketUrl)
+        it "ends with the confirmed design's ticket url" $
+            next noFacts (architectRun (atDesignConfirm <> [stepTook (ConfirmDesignConfirmed ticketUrl)])) `shouldBe` Done (Just ticketUrl)
 
     it "names a subagent's role with its article" $
         map (Text.isPrefixOf "at implement: a step an implementer subagent runs") (take 1 (explainedAt (runAt (knobs Balanced <> take 10 happyPath))))

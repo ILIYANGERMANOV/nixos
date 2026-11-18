@@ -140,7 +140,7 @@ data RunState = RunState
     , fans :: Map ScopedFan Fan
     -- ^ Each fan-out's tasks and child runs, by its name in its scopes: none before its breakdown.
     , ticket :: Maybe Url
-    -- ^ The ticket @open_ticket@ recorded last: the url an architect run hands back.
+    -- ^ The ticket @confirm_design@ recorded last: the url an architect run hands back.
     , latest :: Maybe Url
     {- ^ The PR or ticket url any step recorded last: what a chief's request
     ended in, as an earlier request's PR must not stand for a later ticket.
@@ -615,14 +615,13 @@ keeps = \case
     AwaitCiRed _ _ -> Nothing
     FixPrDone _ -> Nothing
 
--- | The ticket an @open_ticket@ names.
+-- | The ticket a confirmed design was written into.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
 ticketOf = \case
-    OpenTicketDone url -> Just url
-    UpdateTicketDone -> Nothing
-    ConfirmDesignConfirmed -> Nothing
+    ConfirmDesignConfirmed url -> Just url
     ConfirmDesignAdjusted -> Nothing
-    FinalizeTicketDone -> Nothing
+    ProblemUnderstood -> Nothing
+    ProblemMore -> Nothing
 
 -- | The PR an @open_pr@ names: a ship from it waits on that PR's CI.
 openedPr :: Outcome (s :: RequestStep) l -> Maybe Url
@@ -1064,7 +1063,7 @@ stuckExits g state place = case innermost g place of
             AwaitsCi -> True
             AwaitsMerge -> True
             Ordinary -> False
-            AsksConfirm _ -> False
+            AsksConfirm _ _ -> False
             TellsResult -> False
         Nothing -> False
 

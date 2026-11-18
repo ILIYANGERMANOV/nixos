@@ -47,7 +47,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
+import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
@@ -59,11 +59,11 @@ import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, oneLineText, qidText, questionLine)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Target (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), OnTarget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, targetsAt, usedUp)
+import State.Run.Fold (Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, targetsAt, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -72,7 +72,6 @@ import State.Step.Fan (fanNamed)
 import State.Step.Fuel (Sing (Fuel))
 import State.Step.Plan (Outcome (..), Sing (Confirm))
 import State.Step.Ship (Outcome (..), Sing (Ready))
-import State.Step.Ticket (Outcome (OpenTicketDone), Sing (OpenTicket))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
 {- | What GitHub, git and the children's logs say, read by the shell before
@@ -179,13 +178,13 @@ data Action
 
 {- | The one outcome the shell records before advising, when the facts or the
 Fuel already decide it: the draft PR or its readiness seen on GitHub, a
-skip the Fuel makes, the plan settled without the user, or the ticket a
-request targets, at the step's scope. The shell records it and asks
+skip the Fuel makes, or the plan settled without the user, at the step's
+scope. The shell records it and asks
 again, until 'Nothing'.
 -}
 due :: Facts -> RunState -> Maybe Event
 due facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> adopted place.name <> fromGitHub place.name <> skipped place)
+    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> fromGitHub place.name <> skipped place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -203,8 +202,6 @@ due facts state = case (state.stopped, state.at) of
     decided name
         | planSettled state = [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
         | otherwise = []
-    -- A request on a ticket works on that one: it opens none.
-    adopted name = [Catalog.outcome (OpenTicketDone url) | name == stepName OpenTicket, Just (OnTicket url) <- [(.target) <$> state.onTarget]]
     -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
     open = \case
         IsDraft -> True
@@ -336,11 +333,20 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         | otherwise = "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
     -- One line per action, so one action's task never reads as another's.
     choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (_, Edge {to = At next}) <- shownEdges g place, Just (AnyStep _ (SomeStep s)) <- [stepNamed next.name]]
+    confirmText what = what <> ": confirmed, or adjusted?"
     told :: (StepSet k) => Sing (s :: k) -> Text
     told s = case special s of
         TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
         Ordinary -> ""
-        AsksConfirm _ -> ""
+        AsksConfirm OnEntry _ -> ""
+        AsksConfirm OnUserWord what
+            | Ask.Confirm `elem` state.askedHere -> ""
+            | otherwise ->
+                "\nDiscuss "
+                    <> what
+                    <> " with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm \""
+                    <> confirmText what
+                    <> "\", and answer it with the user's own words. Then record."
         Step.AwaitsCi -> ""
         AwaitsMerge -> ""
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
@@ -357,7 +363,12 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
             (Agent role _, Nothing) -> Spawn role Nothing
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
-        AsksConfirm what -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm (what <> ": confirmed, or adjusted?")
+        AsksConfirm cue what
+            | Ask.Confirm `elem` state.askedHere -> Run records
+            | otherwise -> case cue of
+                OnEntry -> Ask Ask.Confirm (confirmText what)
+                -- The user's word, not the step's entry, asks the question: the records stay offered.
+                OnUserWord -> Run records
         Step.AwaitsCi -> AwaitOn Ci (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
         TellsResult -> Run records

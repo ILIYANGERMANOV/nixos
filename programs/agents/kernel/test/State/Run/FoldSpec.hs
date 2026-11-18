@@ -34,7 +34,7 @@ import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genRea
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketOpened, ticketUrl, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, within)
 import State.Step.Catalog (flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
@@ -43,7 +43,7 @@ import State.Step.Plan (Outcome (..), Sing (PlanS))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
-import State.Step.Ticket (Outcome (..))
+import State.Step.Ticket (Outcome (..), Sing (ConfirmDesign))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -401,6 +401,13 @@ pickRounds = \case
     [] -> []
     picks -> stepTook (ReviewRows sha) : intercalate [stepTook (FixDone commit), stepTook (ReReviewRows sha)] [[stepTook (PickLoop p)] | p <- picks]
 
+-- | The state the run is at, by its name.
+nameAt :: RunState -> Maybe Text
+nameAt state = case state.at of
+    At place -> Just (stateNameText (placeName place))
+    Out -> Nothing
+    Graph.Exit -> Nothing
+
 -- | Refused as a spend past the named meter's cap, which allows this many at the run's Fuel.
 outOf :: Text -> Natural -> Either Fold.Refusal a -> Bool
 outOf meter most = \case
@@ -580,24 +587,40 @@ gatherBudgets = describe "the gather's choice" $ do
 interviewed :: [Event] -> [Event]
 interviewed asked = Took mempty (pickOf "gather" "interview") : asked <> [stepTook InterviewAsked]
 
-{- | The architect's run: research, a ticket opened, design rounds until the
-user confirms one, the ticket finalized and its url kept.
+{- | The architect's run: research and the problem until the user understands
+it, design rounds until the user confirms one, and only then the ticket's url.
 -}
 architectRun :: Spec
 architectRun = describe "the architect's run" $ do
-    it "researches, opens the ticket, adjusts the design once, then finalizes the confirmed one, keeping the ticket's url" $
-        (\state -> (state.at, state.ticket)) <$> architect (ticketOpened <> designRound ConfirmDesignAdjusted <> designRound ConfirmDesignConfirmed <> [stepTook FinalizeTicketDone])
+    it "researches, understands the problem, adjusts the design once, then keeps the confirmed design's ticket url" $
+        (\state -> (state.at, state.ticket)) <$> architect (problemUnderstood <> designRound ConfirmDesignAdjusted <> designRound (ConfirmDesignConfirmed ticketUrl))
             `shouldBe` Right (Out, Just ticketUrl)
 
+    it "researches again after the problem needs more" $
+        nameAt <$> architect (researchedIn "exploring" <> enoughIn "exploring" <> [stepTook ProblemMore]) `shouldBe` Right (Just "exploring")
+
+    it "refuses a fourth problem round at Balanced's three" $
+        architect (concat (replicate 4 (enoughIn "exploring" <> [stepTook ProblemMore]))) `shouldSatisfy` outOf "Problem rounds" 3
+
     it "refuses a fourth adjusted design at Balanced's three rounds" $
-        architect (ticketOpened <> concat (replicate 4 (designRound ConfirmDesignAdjusted))) `shouldSatisfy` outOf "Design rounds" 3
+        architect (problemUnderstood <> concat (replicate 4 (designRound ConfirmDesignAdjusted))) `shouldSatisfy` outOf "Design rounds" 3
 
     it "accepts a fourth adjusted design after extend" $ do
-        let extended = ticketOpened <> concat (replicate 3 (designRound ConfirmDesignAdjusted)) <> designWritten <> [Extended "the user goes on"]
+        let extended = problemUnderstood <> concat (replicate 3 (designRound ConfirmDesignAdjusted)) <> designDiscussed <> [Extended "the user goes on"]
         architect (extended <> [stepTook ConfirmDesignAdjusted]) `shouldSatisfy` isRight
+
+    it "records_no_ticket_url_before_the_design_is_confirmed" . hedgehog $ do
+        events <- forAll (genAcceptedOn [] architectGraph)
+        let (unconfirmed, rest) = break confirmed events
+        cover 5 "the design confirmed" (not (null rest))
+        states <- traverse (evalEither . replay architectGraph . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| unconfirmed)))
+        for_ states $ \state -> (state.ticket, state.latest) === (Nothing, Nothing)
   where
     architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
-    designRound verdict = designWritten <> [stepTook verdict]
+    designRound verdict = designDiscussed <> [stepTook verdict]
+    confirmed = \case
+        Took _ took -> outcomeEvent took == EventName (stepName ConfirmDesign) (OutcomeName "confirmed")
+        _ -> False
 
 {- | The chief's requests: each is picked at the hub, runs inline in its
 branch's scope by the events its own skill records bare, and ends at @next@,
@@ -656,7 +679,7 @@ chiefRequests = describe "the chief's requests" $ do
                 `shouldBe` (Right (OwnPr, True), Left (NotSkippable "engineer/ready"))
 
     it "chains architect, a block and architect again through next, naming the newest url each time" $ do
-        let designed = request "architect" <> within "architect" (fuelSet Balanced : ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])
+        let designed = request "architect" <> within "architect" (fuelSet Balanced : problemUnderstood <> designDiscussed <> [stepTook (ConfirmDesignConfirmed ticketUrl)])
             researched = request "blocks" <> [Took mempty (pickOf "block" "researching")] <> within "researching" (researchedIn "exploring" <> enoughIn "exploring")
             shipped = request "blocks" <> [Took mempty (pickOf "block" "shipping")] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
             andThen first later = first <> [stepTook NextRequest] <> later
@@ -668,11 +691,6 @@ chiefRequests = describe "the chief's requests" $ do
     request branch = [fuelSet Balanced, pick branch]
     pick branch = Took mempty (pickOf "route" branch)
     engineered = within "engineer" (fuelSet Balanced : happyPath)
-    nameAt :: RunState -> Maybe Text
-    nameAt state = case state.at of
-        At place -> Just (stateNameText (placeName place))
-        Out -> Nothing
-        Graph.Exit -> Nothing
     pr = Url "https://github.com/o/r/pull/7"
     firstRequest = [fuelSet Max, pick "other", stepTook (DirectDone "done")]
     toReadySkipped = request "engineer" <> within "engineer" (fuelSet Balanced : init happyPath <> [stepTook (ReadySkipped pr)])

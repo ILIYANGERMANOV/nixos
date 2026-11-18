@@ -70,10 +70,38 @@ spec = describe "the state binary" $ do
             asked <- succeeded =<< state bin repo ["next"]
             take 1 asked `shouldSatisfy` all (Text.isInfixOf "confirmed, or adjusted?")
 
-        it "adopts a chief's targeted ticket, opening none" $ \repo -> do
+        it "walks a chief's architect request to its ticket, the user's answer logged before the problem is understood" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
-            transcript <- driveOn bin repo [Record ["fuel.set", "low"], Record ["route.architect"], Record ["target", "ticket", "https://github.com/o/r/issues/3"], Record ["fuel.set", "low"], Record ["exploring.enough"], Record ["exploring/notes.done"]]
-            transcript `shouldBe` ["fuel.set -> route", "route.architect -> architect/fuel", "target -> architect/fuel", "architect/fuel.set -> architect/exploring", "architect/exploring.enough -> architect/exploring/notes", "architect/exploring/notes.done -> architect/open_ticket", "architect/open_ticket.done -> architect/discussing"]
+            transcript <-
+                driveOn
+                    bin
+                    repo
+                    [ Record ["fuel.set", "low"]
+                    , Record ["route.architect"]
+                    , Record ["fuel.set", "low"]
+                    , Record ["exploring.enough"]
+                    , Record ["exploring/notes.done"]
+                    , AskUser "Confirm" ["the problem: confirmed, or adjusted?"]
+                    , Record ["problem.understood"]
+                    , Record ["discussing.enough"]
+                    , Record ["discussing/notes.done"]
+                    , AskUser "Confirm" ["the design: confirmed, or adjusted?"]
+                    , Record ["confirm_design.confirmed", "https://github.com/o/r/issues/3"]
+                    ]
+            transcript
+                `shouldBe` [ "fuel.set -> route"
+                           , "route.architect -> architect/fuel"
+                           , "architect/fuel.set -> architect/exploring"
+                           , "architect/exploring.enough -> architect/exploring/notes"
+                           , "architect/exploring/notes.done -> architect/problem"
+                           , "architect/problem.understood -> architect/discussing"
+                           , "architect/discussing.enough -> architect/discussing/notes"
+                           , "architect/discussing/notes.done -> architect/confirm_design"
+                           , "architect/confirm_design.confirmed -> next"
+                           ]
+            types <- loggedTypes bin repo
+            takeWhile (/= "architect/discussing.enough") (dropWhile (/= "architect/exploring/notes.done") types)
+                `shouldBe` ["architect/exploring/notes.done", "asked", "forwarded", "answered", "architect/problem.understood"]
 
         it "refuses init --pr of no GitHub PR URL in the house format" $ \repo -> do
             refused <- state bin repo ["init", "--notes", repo.notes, "--pr", "https://github.com/o/r/issues/7"]
