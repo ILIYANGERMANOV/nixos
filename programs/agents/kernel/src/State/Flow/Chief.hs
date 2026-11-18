@@ -19,13 +19,15 @@ import State.Step.Fuel (FuelStep (Fuel), Sing (Fuel))
 import State.Step.Request (RequestStep (..), Sing (..))
 
 {- | Each request sets its own Fuel, then is routed. Each request after the
-first spends one: at the cap the user is asked whether to go on. A whole
+first spends one: at the cap the user is asked whether to go on. The cap
+is a guard against a runaway loop, not a budget: each request's own path
+keeps its caps. A whole
 flow's label is its flow's name ('State.FlowName.flowText'). A request's
 steps raise 'FocusE', the user's attention: its handler suspends the
 request in focus at any state and turns to another ("State.Run.Fold").
 -}
 chief :: Flow (HandleS PickE (HandleS FocusE ChiefS)) 'Ctx 'Nothing 'Result
-chief = Handle AgentPicks . Handle FocusHere $ Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend (Step Next))
+chief = Handle AgentPicks . Handle FocusHere $ Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 50 100 200) Extend (Step Next))
   where
     requests =
         branch @"architect" architect
