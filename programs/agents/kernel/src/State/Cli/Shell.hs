@@ -51,7 +51,7 @@ import State.Category.Step (StateName, stateNameText)
 import State.Cli.Command (Block (..), BriefPart (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, chiefInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
-import State.Cli.Route (StateCall (..), Target (..), leadOf, pathWord, route, stateCalls)
+import State.Cli.Route (StateCall (..), Target (..), cdThen, leadOf, route, stateCalls)
 import State.Cli.Route qualified as Route
 import State.Cli.View (beginText, brief, briefSection, pendingLines, showRun, taskBrief)
 import State.Cli.View qualified as View
@@ -870,7 +870,7 @@ run (#479).
 parentRuns :: Maybe FilePath -> Start -> Advice -> Text
 parentRuns top start advice =
     Text.concat
-        [ "Parent runs: cd " <> pathWord at <> " && " <> option.command <> "\n"
+        [ "Parent runs: " <> cdThen at option.command <> "\n"
         | Just at <- [top]
         , ByRole {} <- [start.principal]
         , AwaitOn Ci _ <- [advice.action]
@@ -1098,7 +1098,7 @@ answeredDown down =
             <> ": "
             <> why
             <> "\nfix: "
-            <> maybe (byHand <> ", in run " <> runIdText down.child <> "'s worktree") (\at -> "cd " <> pathWord at <> " && " <> byHand) top
+            <> inWorktreeOf down.child top byHand
             <> "\n"
 
 -- | The worktree's run, locked for one command.
@@ -1337,7 +1337,13 @@ heldHere gd notes =
             BadInput
             ("--notes " <> Text.pack notes)
             ("unfinished run " <> runIdText run <> " keeps them in " <> maybe "another worktree" Text.pack top)
-            (maybe (resume <> ", in run " <> runIdText run <> "'s worktree") (\at -> "cd " <> pathWord at <> " && " <> resume) top)
+            (inWorktreeOf run top resume)
+
+{- | A command to run in the run's worktree: a @cd@ to the top its binding
+names ('boundTop'), else the command with words naming the run.
+-}
+inWorktreeOf :: RunId -> Maybe FilePath -> Text -> Text
+inWorktreeOf run top command = maybe (command <> ", in run " <> runIdText run <> "'s worktree") (`cdThen` command) top
 
 -- | The first unfinished run started in these notes, replayed; one gone or that does not read or replay is none.
 liveIn :: (Shell es) => FilePath -> Eff es (Maybe RunId)

@@ -542,7 +542,7 @@ applyEvent g state n = \case
     Resumed child -> going (inFan (Fan.resumed child))
     -- An untasked child hands back wherever the run is, as an agent child does.
     HandedBack child said -> going $ case untaskedFan state child of
-        Just fan -> (\changed -> state {fans = Map.insert fan changed state.fans}) <$> Bifunctor.first FanRefused (Fan.handedBack child said (fanIn state.fans fan))
+        Just fan -> inFanAt fan (Fan.handedBack child said) state
         Nothing -> atFan g state HandsBack >> inFan (Fan.handedBack child said)
     -- 'Fan.moved' ignores a merged task's later move, so the run skips its effects too.
     TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= if Fan.merged (currentFan state) task then Right else afterMove task moved)
@@ -570,7 +570,7 @@ applyEvent g state n = \case
         Parked _ _ -> Right . unaskedBy task
     -- A child's or a task's event names no fan-out: it is the one the run is at.
     inFan change = case fanAt state.at of
-        Just fan -> (\changed -> state {fans = Map.insert fan changed state.fans}) <$> Bifunctor.first FanRefused (change (fanIn state.fans fan))
+        Just fan -> inFanAt fan change state
         Nothing -> Left NotAtFan
     -- After any event, a state that goes on by itself does ('joined').
     going next = case state.stopped of
@@ -664,10 +664,12 @@ where the 'ledger' counts it open until it finishes or stops.
 -}
 forked :: OpenGraph -> RunState -> Child -> Either Refusal RunState
 forked g state child = case forkingAt g state of
-    Just (edge, fan) -> do
-        spawnedIn <- Bifunctor.first FanRefused (Fan.spawned (askingChildren state) child (fanIn state.fans fan))
-        Right (movedOn g edge state {fans = Map.insert fan spawnedIn state.fans})
+    Just (edge, fan) -> movedOn g edge <$> inFanAt fan (Fan.spawned (askingChildren state) child) state
     Nothing -> Left (NoEdge state.at (fanEvent Spawns (askedAt state)))
+
+-- | The run with this fan-out changed, or the fan-out's refusal.
+inFanAt :: ScopedFan -> (Fan -> Either Fan.Refusal Fan) -> RunState -> Either Refusal RunState
+inFanAt fan change state = (\changed -> state {fans = Map.insert fan changed state.fans}) <$> Bifunctor.first FanRefused (change (fanIn state.fans fan))
 
 -- | The run is at a fork of child runs ('childFork'): its edge on, and the fan-out its child joins.
 forkingAt :: OpenGraph -> RunState -> Maybe (Edge Node, ScopedFan)

@@ -21,7 +21,7 @@ module State.Cli.Route (
     stateCalls,
     parentlessInit,
     route,
-    pathWord,
+    cdThen,
     Lead (..),
     leadOf,
     gate,
@@ -173,7 +173,7 @@ route bound calls = listToMaybe [denial call ((.top) <$> target) | (call, target
                 { exit = BadInput
                 , what = maybe (Text.pack call.dir <> " is in no git worktree") (\other -> "the run at " <> Text.pack other <> " is not this agent's") top
                 , why = "this agent is bound to run " <> runIdText bound.run <> " at " <> Text.pack bound.toplevel
-                , fix = "cd " <> pathWord bound.toplevel <> " && " <> call.written
+                , fix = cdThen bound.toplevel call.written
                 }
 
 -- | Whether an agent leads a run, and so where its @state init@ line is.
@@ -290,9 +290,13 @@ recorded = \case
     "gh" : "pr" : sub : _ -> sub `elem` ["create", "merge"]
     _ -> False
 
+-- | A shell line that runs this command in this directory.
+cdThen :: FilePath -> Text -> Text
+cdThen dir command = "cd " <> shellWord dir <> " && " <> command
+
 -- | A path as a shell line reads it back: bare when it can be, else single-quoted.
-pathWord :: FilePath -> Text
-pathWord path = case shellPath path of
+shellWord :: FilePath -> Text
+shellWord path = case shellPath path of
     Just _ -> Text.pack path
     Nothing -> "'" <> Text.replace "'" "'\\''" (Text.pack path) <> "'"
 
