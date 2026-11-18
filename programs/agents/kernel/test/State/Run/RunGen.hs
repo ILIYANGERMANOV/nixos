@@ -5,8 +5,8 @@ module State.Run.RunGen (
     architectGraph,
     chiefGraph,
     ticketUrl,
-    ticketOpened,
-    designWritten,
+    problemUnderstood,
+    designDiscussed,
     securityGraph,
     securityScope,
     scopedIn,
@@ -105,17 +105,17 @@ architectGraph = either (error . show) id (graph architect)
 chiefGraph :: OpenGraph
 chiefGraph = either (error . show) id (graph chief)
 
--- | The ticket an architect run opens.
+-- | The ticket an architect run writes its confirmed design into.
 ticketUrl :: Url
 ticketUrl = Url "https://github.com/o/r/issues/1"
 
--- | An architect run up to its ticket: researched, explored enough, the ticket opened.
-ticketOpened :: [Event]
-ticketOpened = researchedIn "exploring" <> enoughIn "exploring" <> [stepTook (OpenTicketDone ticketUrl)]
+-- | An architect run up to its design: researched, explored enough, the problem understood.
+problemUnderstood :: [Event]
+problemUnderstood = researchedIn "exploring" <> enoughIn "exploring" <> [stepTook ProblemUnderstood]
 
--- | A design round up to the user's verdict: discussed, written into the ticket.
-designWritten :: [Event]
-designWritten = enoughIn "discussing" <> [stepTook UpdateTicketDone]
+-- | A design round up to the user's verdict: discussed enough.
+designDiscussed :: [Event]
+designDiscussed = enoughIn "discussing"
 
 -- | The graph a run of this flow walks.
 flowGraph :: FlowName -> OpenGraph

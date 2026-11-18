@@ -38,11 +38,10 @@ Available commands:
   fix_pr.done              no arguments
   ready.done               <url>
   ready.skipped            <url>
-  open_ticket.done         <url>
-  update_ticket.done       no arguments
-  confirm_design.confirmed no arguments
+  problem.understood       no arguments
+  problem.more             no arguments
+  confirm_design.confirmed <url>
   confirm_design.adjusted  no arguments
-  finalize_ticket.done     no arguments
   open_plan.done           <url>
   open_branch.done         <branch|sha>
   open_pr.done             <url>

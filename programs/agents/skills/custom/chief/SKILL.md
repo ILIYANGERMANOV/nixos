@@ -38,7 +38,7 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   | Branch | You |
   |---|---|
   | `architect`, `engineer`, `10x` | load that skill with the Skill tool (`architect`, `engineer`, `10x-engineer`) and follow it; its `state init` line prints the current step of this run. For `10x`, skip Intake's directory, `git init` and `state init`, which start a separate run: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
-  | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | at `fuel`, before its `fuel.set`, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` confirms the plan itself unless you ask a Design or Scope question, and takes the target's PR or ticket as the run's |
+  | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | at `fuel`, before its `fuel.set`, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` takes the target's PR as the run's; for `engineer` it confirms the plan itself unless you ask a Design or Scope question; `architect` writes its confirmed design into the target ticket |
   | `blocks` | pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
   | `discussion` | below |
   | `other` | do it yourself (`direct`) |
@@ -82,17 +82,15 @@ Each step is a state; `state next` names the one you are in.
 | architect/fuel | you | set: architect/exploring |
 | architect/exploring | you | enough: architect/exploring/researchers; research: architect/exploring/research |
 | architect/exploring/researchers | await | done: architect/exploring/notes; handed_back: architect/exploring/researchers |
-| architect/exploring/notes | you | done: architect/open_ticket |
+| architect/exploring/notes | you | done: architect/problem |
 | architect/exploring/research | researcher | spawned: architect/exploring |
-| architect/open_ticket | you | done: architect/discussing |
+| architect/problem | you | more: architect/exploring; understood: architect/discussing |
 | architect/discussing | you | discuss: architect/discuss; enough: architect/discussing/researchers; research: architect/discussing/research |
 | architect/discussing/researchers | await | done: architect/discussing/notes; handed_back: architect/discussing/researchers |
-| architect/discussing/notes | you | done: architect/update_ticket |
+| architect/discussing/notes | you | done: architect/confirm_design |
 | architect/discussing/research | researcher | spawned: architect/discussing |
 | architect/discuss | you | asked: architect/discussing |
-| architect/update_ticket | you | done: architect/confirm_design |
-| architect/confirm_design | you | adjusted: architect/discussing; confirmed: architect/finalize_ticket |
-| architect/finalize_ticket | you | done: next |
+| architect/confirm_design | you | adjusted: architect/discussing; confirmed: next |
 | engineer/fuel | you | set: engineer/gather |
 | engineer/gather | you | enough: engineer/gather/researchers; interview: engineer/interview; research: engineer/gather/research |
 | engineer/gather/researchers | await | done: engineer/gather/notes; handed_back: engineer/gather/researchers |
