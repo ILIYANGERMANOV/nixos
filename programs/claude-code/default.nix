@@ -90,6 +90,19 @@ let
     }
   );
 
+  # claude-factory's settings over the base. claude-kategory starts from the
+  # same ones.
+  factoryExtraSettings = {
+    inherit skillOverrides;
+    # The Claude Docs connector, used once ever and paid for on every call.
+    # claude-code-remote is not a connector: Remote Control's bridge
+    # delivers it, so add_repo and subscribe_pr_activity stay.
+    disableClaudeAiConnectors = true;
+    enabledPlugins = {
+      "typescript-lsp@claude-plugins-official" = true;
+    };
+  };
+
   # The factory's sessions and subagents get its profile's instructions on top
   # of the shared ones, and no other host does.
   agentSources = renderAgents agents.roles baseProfile.instructions;
@@ -174,22 +187,26 @@ rec {
         # Other sessions keep running while this one starts, and read the
         # directory the stock rm -rf would empty under them.
         applySkills = farm: "${lib.getExe linkSkills} ${farm}";
-        extraSettings = {
-          inherit skillOverrides;
-          # The Claude Docs connector, used once ever and paid for on every call.
-          # claude-code-remote is not a connector: Remote Control's bridge
-          # delivers it, so add_repo and subscribe_pr_activity stay.
-          disableClaudeAiConnectors = true;
-          enabledPlugins = {
-            "typescript-lsp@claude-plugins-official" = true;
-          };
-        };
+        extraSettings = factoryExtraSettings;
       };
     });
     unwrapped = claude-code;
     agentFiles = toHomeFiles factoryAgentSources;
     # What the wrapper puts on PATH, for hosts whose sessions run `unwrapped`.
     inherit (factoryProfile) runtime;
+  };
+
+  # The factory's harness for anyone with Nix, in ~/.claude-kategory: see
+  # kategory/. Outside `packages` and `check`, so no host installs it and no
+  # existing check changes.
+  kategory = import ./kategory {
+    inherit pkgs lib claude-code;
+    inherit (codegen) mkTarget;
+    inherit (agents) foldTargets;
+    profile = factoryProfile;
+    settings = lib.recursiveUpdate settings.base factoryExtraSettings;
+    roleSources = factoryAgentSources;
+    inherit ((import ../software-factory { inherit pkgs lib; }).managedSettingsValue.permissions) deny;
   };
 
   # The adapter running a profile's hooks and the tool table it reads, for
