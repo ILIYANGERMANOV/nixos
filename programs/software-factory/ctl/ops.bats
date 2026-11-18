@@ -30,6 +30,12 @@ load ../test_helper
   called "systemctl start --no-block factory-reboot.service"
 }
 
+@test "poweroff: starts its fixed root unit" {
+  factory-ctl poweroff
+
+  called "systemctl start --no-block factory-poweroff.service"
+}
+
 @test "gc: starts its fixed root unit" {
   factory-ctl gc
 

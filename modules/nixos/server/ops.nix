@@ -1,6 +1,6 @@
 # Root operations the agent account may trigger without sudo: deploying main
-# (pulled from GitHub on a timer), rolling back, rebooting and collecting
-# garbage. Each is a fixed unit that takes no input; polkit lets the agent
+# (pulled from GitHub on a timer), rolling back, rebooting, powering off and
+# collecting garbage. Each is a fixed unit that takes no input; polkit lets the agent
 # account start exactly these and nothing else. Any process of that account can
 # start them, which is an accepted availability risk - see
 # docs/adr/0007-software-factory.md.
@@ -35,6 +35,7 @@ let
   agentUnits = [
     "factory-rollback.service"
     "factory-reboot.service"
+    "factory-poweroff.service"
     "factory-gc.service"
   ];
 
@@ -83,6 +84,7 @@ in
       factory-deploy = oneshot "Deploy the pending GitHub deployment of main" (lib.getExe deploy);
       factory-rollback = oneshot "Roll back to the previous system generation" "${lib.getExe maintenance} rollback";
       factory-reboot = oneshot "Reboot, unless booted less than 10 minutes ago" "${lib.getExe maintenance} reboot";
+      factory-poweroff = oneshot "Power off" "${lib.getExe maintenance} poweroff";
       factory-gc = oneshot "Keep two generations per profile and collect garbage" "${lib.getExe maintenance} gc";
       factory-gc-pressure = oneshot "Collect garbage when less than ${toString gcBelowFreePercent}% of / is free" (
         lib.getExe gcOnPressure

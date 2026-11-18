@@ -280,7 +280,7 @@ let
         ./ops/deploy.sh
       ];
 
-  # rollback | reboot | gc, run as root by fixed units.
+  # rollback | reboot | poweroff | gc, run as root by fixed units.
   mkMaintenance =
     {
       stateDir,
