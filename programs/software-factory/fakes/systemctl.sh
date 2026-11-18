@@ -4,13 +4,17 @@ echo "systemctl $*" >>"$CALLS"
 [ "$1" != --no-block ] || shift
 mkdir -p "$UNITS"
 
-# The unit files matching glob $1. systemd matches with FNM_NOESCAPE, so a `\`
-# in a name like `\x2d` is literal, not an escape as in a bash glob.
+# Sets matches to the unit files matching glob $1. systemd matches with
+# FNM_NOESCAPE, so a `\` in a name like `\x2d` is literal, not an escape as in
+# a bash glob.
 matching() {
-  local unit
+  matches=()
+  local unit pattern=${1//\\/\\\\}
   for unit in "$UNITS"/*; do
+    [ -e "$unit" ] || continue
     unit=${unit##*/}
-    [[ $unit != ${1//\\/\\\\} ]] || echo "$unit"
+    # shellcheck disable=SC2053 # a glob on purpose
+    [[ $unit != $pattern ]] || matches+=("$unit")
   done
 }
 
@@ -25,7 +29,10 @@ case "$1" in
     shift 3
     for pattern in "$@"; do
       matching "$pattern"
-    done | sort -u | awk '{ print $0, "loaded active running Fake unit" }'
+      for unit in "${matches[@]}"; do
+        echo "$unit loaded active running Fake unit"
+      done
+    done
     ;;
   is-active)
     if [ "$2" = --quiet ]; then
@@ -42,7 +49,8 @@ case "$1" in
     # empty one has none (0).
     shift 4
     for pattern in "$@"; do
-      matching "$pattern" | while read -r unit; do
+      matching "$pattern"
+      for unit in "${matches[@]}"; do
         if [ -s "$UNITS/$unit" ]; then cat "$UNITS/$unit"; else echo 0; fi
       done
     done

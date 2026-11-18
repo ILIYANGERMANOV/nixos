@@ -218,7 +218,8 @@ start_daemon() {
 # runs in its own scope under it, so a GHCi past its cap is OOM-killed alone:
 # left in the claude-rc@ unit, oomd kills that whole unit, every session with
 # it. The scope is named after the package directory, so a worktree's escaped
-# path prefixes its scopes' names: `factory-ctl kill ghcid` stops them by that.
+# path prefixes its scopes' names: `factory-ctl kill ghcid` stops them by that
+# (software-factory/ctl/memory.sh; its check.nix pins the names on both sides).
 # Elsewhere (macOS, a laptop) the daemon starts as a plain process. Defined
 # means a unit file: systemd reports any slice name `loaded`, file or not.
 ghci_slice_defined() {

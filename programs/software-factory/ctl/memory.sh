@@ -2,6 +2,7 @@
 # What holds the memory, and ending it: a process of the factory user, or the
 # GHCi daemons, which run in their own scopes in ghci.slice named
 # ghcid-<systemd-escape --path of the package dir>.scope (programs/haskell).
+# check.nix pins these names to ghcid.sh and the factory module.
 
 readonly mem_rows=10
 readonly kill_grace_tenths=30 # how long a process gets after TERM, before KILL

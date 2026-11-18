@@ -40,6 +40,36 @@ let
   ];
   failedPolicy = lib.filter (a: !a.ok) policyAssertions;
 
+  # The GHCi scopes' names live in three files that build apart: ghcid.sh
+  # starts a scope, ctl/memory.sh finds and stops it, the factory module
+  # defines its slice. Each must still spell the same names.
+  ghciNames = [
+    {
+      file = ../haskell/ghcid.sh;
+      has = [
+        ''--unit="ghcid-$(systemd-escape --path "$PWD")"''
+        "--slice=ghci.slice"
+      ];
+    }
+    {
+      file = ./ctl/memory.sh;
+      has = [
+        ''unit="ghcid-$(systemd-escape --path "$1")"''
+        "stop ghci.slice"
+      ];
+    }
+    {
+      file = ../../modules/home/factory/claude-factory.nix;
+      has = [ "systemd.user.slices.ghci =" ];
+    }
+  ];
+  missingGhciNames = lib.concatMap (
+    { file, has }:
+    map (name: "${baseNameOf file} lacks ${name}") (
+      lib.filter (name: !lib.hasInfix name (builtins.readFile file)) has
+    )
+  ) ghciNames;
+
   work = "/tmp/factory-check";
   gcrootsAuto = "${work}/gcroots/auto";
   tmpDir = "${work}/tmp";
@@ -178,6 +208,9 @@ let
 in
 assert lib.assertMsg (failedPolicy == [ ]) (
   "software-factory managed settings: " + lib.concatMapStringsSep "; " (a: a.msg) failedPolicy
+);
+assert lib.assertMsg (missingGhciNames == [ ]) (
+  "GHCi scope names drifted: " + lib.concatStringsSep "; " missingGhciNames
 );
 pkgs.runCommand "shell-tests"
   {

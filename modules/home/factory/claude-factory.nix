@@ -169,6 +169,7 @@ in
   # this slice, capped together so a few warm sessions cannot starve the box.
   # Past it the kernel kills inside the slice, never claude-rc@. No MemoryHigh:
   # its reclaim stall is the pressure that makes oomd kill a whole unit.
+  # programs/software-factory/check.nix pins this name to ghcid.sh and ctl/memory.sh.
   systemd.user.slices.ghci = {
     Unit.Description = "GHCi sessions of the quick typecheck and test runners";
     Slice.MemoryMax = "24G";

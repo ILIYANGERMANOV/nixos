@@ -77,6 +77,19 @@ exec "$@"'
   wait_for "$BATS_TEST_TMPDIR/watchdog.args"
 }
 
+# Whether process $1 ends within ten seconds.
+ended() {
+  local _
+  for _ in $(seq 100); do
+    alive "$1" || return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# Killed, a process is a zombie until the test's shell reaps it.
+alive() { [ -e "/proc/$1" ] && [ "$(cut -d ' ' -f 3 "/proc/$1/stat")" != Z ]; }
+
 @test "on the factory the daemon runs in a capped scope under ghci.slice" {
   stub systemctl '[ "$*" = "--user show -p FragmentPath --value ghci.slice" ] && echo /etc/systemd/user/ghci.slice'
   launch_daemon
@@ -112,16 +125,3 @@ touch "$BATS_TEST_TMPDIR/slept"'
   run_ghcid_watchdog "$state" "$BATS_TEST_TMPDIR/removed"
   ended "$daemon"
 }
-
-# Whether process $1 ends within ten seconds.
-ended() {
-  local _
-  for _ in $(seq 100); do
-    alive "$1" || return 0
-    sleep 0.1
-  done
-  return 1
-}
-
-# Killed, a process is a zombie until the test's shell reaps it.
-alive() { [ -e "/proc/$1" ] && [ "$(cut -d ' ' -f 3 "/proc/$1/stat")" != Z ]; }
