@@ -67,13 +67,14 @@ setup() {
 launch_daemon() {
   root=$BATS_TEST_TMPDIR
   stub nix 'printf "%s\n" "$*" >"$BATS_TEST_TMPDIR/nix.args"'
-  stub kernel-ghcid-watchdog :
+  stub kernel-ghcid-watchdog 'printf "%s\n" "$@" >"$BATS_TEST_TMPDIR/watchdog.args"'
   stub systemd-escape 'echo "escaped$2" | tr / -'
   stub systemd-run 'printf "%s\n" "$*" >"$BATS_TEST_TMPDIR/systemd-run.args"
 while [ "$1" != nix ]; do shift; done
 exec "$@"'
   start_daemon
   wait_for "$BATS_TEST_TMPDIR/nix.args"
+  wait_for "$BATS_TEST_TMPDIR/watchdog.args"
 }
 
 @test "on the factory the daemon runs in a capped scope under ghci.slice" {
@@ -89,16 +90,38 @@ exec "$@"'
   [[ "$(<"$BATS_TEST_TMPDIR/nix.args")" == "develop $root#kernel "* ]]
 }
 
+@test "the watchdog of a package below the root watches the worktree root" {
+  stub systemctl 'echo'
+  cd src
+  launch_daemon
+  [ "$(sed -n 2p "$BATS_TEST_TMPDIR/watchdog.args")" = "$root" ]
+}
+
 @test "the watchdog stops the daemon once its worktree is removed" {
   local daemon
   bash -c 'sleep 1000; :' "ghcid --outputfile $outf" >/dev/null 2>&1 3>&- &
   daemon=$!
   touch "$lastuse"
   # One watchdog tick, then its loop ends: one that missed the removal returns
-  # with the daemon alive.
-  stub sleep '[ "$1" != 60 ] || [ ! -e "$BATS_TEST_TMPDIR/slept" ] || exit 1
+  # with the daemon alive. Any other sleep is a real one.
+  REAL_SLEEP=$(command -v sleep)
+  export REAL_SLEEP
+  stub sleep '[ "$1" = 60 ] || exec "$REAL_SLEEP" "$@"
+[ ! -e "$BATS_TEST_TMPDIR/slept" ] || exit 1
 touch "$BATS_TEST_TMPDIR/slept"'
   run_ghcid_watchdog "$state" "$BATS_TEST_TMPDIR/removed"
-  # Killed, it is a zombie until the test's shell reaps it.
-  [ ! -e "/proc/$daemon" ] || [ "$(cut -d ' ' -f 3 "/proc/$daemon/stat")" = Z ]
+  ended "$daemon"
 }
+
+# Whether process $1 ends within ten seconds.
+ended() {
+  local _
+  for _ in $(seq 100); do
+    alive "$1" || return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# Killed, a process is a zombie until the test's shell reaps it.
+alive() { [ -e "/proc/$1" ] && [ "$(cut -d ' ' -f 3 "/proc/$1/stat")" != Z ]; }
