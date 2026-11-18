@@ -13,6 +13,7 @@ module State.Protocol.Advice (
     pullRequestOf,
     Advice (..),
     Action (..),
+    End (..),
     explained,
     due,
     skippable,
@@ -38,7 +39,7 @@ import Data.List (genericLength, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -54,7 +55,7 @@ import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
-import State.Role (RoleDef (..))
+import State.Role (FlowName (..), RoleDef (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), Route, kindName, oneLineText, otherNote, qidText, questionLine, replyText, replyWords)
 import State.Run.Ask qualified as Ask
@@ -73,6 +74,7 @@ import State.Step.Fuel (Sing (Fuel))
 import State.Step.Plan (Outcome (..), Sing (Confirm))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
+import System.FilePath ((</>))
 
 {- | What GitHub, git and the children's logs say, read by the shell before
 it advises. @ended@ is the children whose own log shows their run over.
@@ -175,7 +177,16 @@ data Action
     | -- | One option to take, or several to choose from.
       Run (NonEmpty Option)
     | Stopped Stop
-    | Done (Maybe Url)
+    | -- | What the run names at its end.
+      Done End
+    deriving stock (Eq, Show)
+
+-- | What a run names at its end, by its flow: 'endRefs' renders it.
+data End
+    = -- | An architect's notes file, then its ticket's url if it wrote one.
+      ArchitectEnd FilePath (Maybe Url)
+    | -- | The url of what the run's flow ends in, when the run keeps one.
+      OutputEnd (Maybe Url)
     deriving stock (Eq, Show)
 
 {- | The one outcome the shell records before advising, when the facts or the
@@ -290,7 +301,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (Nothing, []) -> case state.untriaged of
             (role, line) : _ -> plain (TriageHandback role line)
             [] -> going
-    output = outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state
+    output = endOf facts state
     fanHere = case state.at of
         At place -> ScopedFan place.scope <$> fanNamed place.name
         Out -> Nothing
@@ -568,6 +579,26 @@ recordsFinished fan = [(task.id, Run (one (recordTask task) "its child finished:
 recordTask :: Task -> Text
 recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (InReview (Url "<url>"))
 
+{- | What a run names at its end. An architect's is its notes file, the
+fixed name its skill writes, then its ticket's url if it wrote one: by the
+run's flow, not its output, so a legacy architect run ends alike. Any other
+run names its flow's output url.
+-}
+endOf :: Facts -> RunState -> End
+endOf facts state = case state.start.flow of
+    ArchitectFlow -> ArchitectEnd (state.start.notes </> "notes.md") state.ticket
+    EngineerFlow -> output
+    TenXFlow -> output
+    ChiefFlow -> output
+  where
+    output = OutputEnd (outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state)
+
+-- | The words an 'End' names, in order.
+endRefs :: End -> [Text]
+endRefs = \case
+    ArchitectEnd notes ticket -> Text.pack notes : maybeToList (urlText <$> ticket)
+    OutputEnd url -> maybeToList (urlText <$> url)
+
 {- | The url of what the run's flow ends in, when the run keeps one: a PR's,
 a ticket's, or a request's, the url recorded last. No step records a url for
 any other type yet.
@@ -715,9 +746,9 @@ deliver start = \case
     Run (option :| []) -> "RUN " <> option.command
     Run (_ :| _ : _) -> "RUN one option below"
     Stopped stop -> above ("STOP " <> reasonText stop.reason <> " " <> stop.why) (stopLine stop)
-    Done url -> above ("DONE" <> prs) (tokenWordText ReadyWord <> prs)
+    Done end -> above ("DONE" <> named) (tokenWordText ReadyWord <> named)
       where
-        prs = foldMap ((" " <>) . urlText) url
+        named = foldMap (" " <>) (endRefs end)
   where
     above = upTo (Ask.deliver start.principal)
     has op = Set.member op start.interface

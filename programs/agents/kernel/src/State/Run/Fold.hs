@@ -162,7 +162,7 @@ data RunState = RunState
     , fans :: Map ScopedFan Fan
     -- ^ Each fan-out's tasks and child runs, by its name in its scopes: none before its breakdown.
     , ticket :: Maybe Url
-    -- ^ The ticket @confirm_design@ recorded last: the url an architect run hands back.
+    -- ^ The ticket @ticket@ recorded last: the url an architect run names at its end.
     , latest :: Maybe Url
     {- ^ The PR or ticket url any step recorded last: what a chief's request
     ended in, as an earlier request's PR must not stand for a later ticket.
@@ -751,9 +751,10 @@ keeps = \case
     AwaitCiRed _ _ -> Nothing
     FixPrDone _ -> Nothing
 
--- | The ticket a confirmed design was written into.
+-- | The ticket written or edited, or, in a legacy architect run, the one its confirmed design went into.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
 ticketOf = \case
+    TicketWritten url -> Just url
     ConfirmDesignConfirmed url -> Just url
     ConfirmDesignAdjusted -> Nothing
     ProblemUnderstood -> Nothing
@@ -762,6 +763,7 @@ ticketOf = \case
 -- | Leaving the problem or the design loop: the user said so, in answer to the step's Confirm.
 userWord :: Outcome (s :: TicketStep) l -> Bool
 userWord = \case
+    TicketWritten _ -> False
     ProblemUnderstood -> True
     ConfirmDesignConfirmed _ -> True
     ProblemMore -> False

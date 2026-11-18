@@ -5,11 +5,12 @@ paths:
 
 ## The kernel favours the better design
 
-**Backwards compatibility is not important in the kernel: make breaking
-changes confidently when they lead to a better long-term design.**
+**Backwards compatibility of the kernel's code, graphs and interfaces is not
+important: make breaking changes confidently when they lead to a better
+long-term design. Old logs are the one exception, below.**
 
-- Old event logs, graphs and sessions may break. Do not keep a special case
-  alive only so they still load.
+- Old event logs must keep replaying: keep old step decoders, or a legacy
+  graph fallback as `State.Flow.Legacy` does, until no old run is live.
 - Prefer general, category-theory-aligned designs (sums, cases, Elgot
   iteration and their laws) over special-case building blocks. The model and
   its laws live in `docs/adr/0018-category-model-haskell-state.md`,
@@ -18,7 +19,8 @@ changes confidently when they lead to a better long-term design.**
   effects, `docs/adr/0021-flow-effects.md`.
 - Example: ADR 0019 kept `Choice` and `Route` partly for log and graph
   compatibility. ADR 0020 dropped them for `choice` and `choiceLoop` built
-  from `Case`, `Exit` and `Loop`, breaking old logs.
+  from `Case`, `Exit` and `Loop`; today the old graph would stay behind as
+  a legacy fallback, so old logs still replay.
 - `state` keeps a **necessary and sufficient** command set: every command
   the chief and the flows need, nothing more. Each command's output carries
   the context to act on it, so an agent drives `state` from its output alone.

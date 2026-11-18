@@ -34,7 +34,7 @@ import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genRea
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, userConfirms, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, legacyArchitectGraph, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, ticketWritten, userConfirms, within)
 import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
@@ -49,11 +49,11 @@ import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Run.Fold" $ do
-    it "names every edge of the engineer, 10x, architect and chief flows by exactly one kind of outcome" $
+    it "names every edge of the engineer, 10x, architect, legacy architect and chief flows by exactly one kind of outcome" $
         -- A fan-out's stays are its children's events. A scope's are named bare. An await goes on
         -- by no event, and a researcher hands back by no edge: wherever the run is.
         Set.delete (outcomeEvent (outcome ResearchHandedBack)) outcomeNames
-            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place)]
+            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, legacyArchitectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place)]
 
     describe "the 10x's fan-out" $ do
         let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
@@ -303,6 +303,7 @@ spec = describe "State.Run.Fold" $ do
     gatherBudgets
     tenXRounds
     architectRun
+    legacyArchitectRun
     chiefRequests
 
     it "append_is_idempotent_by_id" . hedgehog $ do
@@ -710,11 +711,46 @@ gatherBudgets = describe "the gather's choice" $ do
 interviewed :: [Event] -> [Event]
 interviewed asked = Took mempty (pickOf "gather" "interview") : asked <> [stepTook InterviewAsked]
 
-{- | The architect's run: research and the problem until the user understands
-it, design rounds until the user confirms one, and only then the ticket's url.
+{- | The architect's run: one discussion, the agent's pick each round, the
+ticket written or edited at any point, any number of times; @enough@ ends
+it, with or without a ticket.
 -}
 architectRun :: Spec
 architectRun = describe "the architect's run" $ do
+    it "writes the ticket before any research or question, and ends on enough with its url" $
+        (\state -> (state.at, state.ticket)) <$> architect (ticketWritten <> enoughIn "architect")
+            `shouldBe` Right (Out, Just ticketUrl)
+
+    it "edits the ticket after more discussion, keeping the url recorded last" $ do
+        let edited = Url "https://github.com/o/r/issues/2"
+            discussed = [Took mempty (pickOf "architect" "discuss"), stepTook DiscussAsked]
+        (\state -> (nameAt state, state.ticket, state.latest)) <$> architect (ticketWritten <> researchedIn "architect" <> discussed <> ticketWritten <> [Took mempty (pickOf "architect" "ticket"), stepTook (TicketWritten edited)])
+            `shouldBe` Right (Just "architect", Just edited, Just edited)
+
+    it "ends on enough with no ticket" $
+        (\state -> (state.at, state.ticket)) <$> architect (researchedIn "architect" <> enoughIn "architect")
+            `shouldBe` Right (Out, Nothing)
+
+    it "refuses the legacy problem and design steps" $
+        map (\step -> architect [step]) [stepTook ProblemUnderstood, stepTook (ConfirmDesignConfirmed ticketUrl)]
+            `shouldSatisfy` all
+                ( \case
+                    Left (NoEdge _ _) -> True
+                    _ -> False
+                )
+  where
+    architect = architectOn architectGraph
+
+-- | An architect run at Balanced, of these events, replayed under this graph: the current architect's or the legacy one.
+architectOn :: OpenGraph -> [Event] -> Either Fold.Refusal RunState
+architectOn under events = replay under (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
+
+{- | The legacy architect's run, as old logs replay it: research and the
+problem until the user understands it, design rounds until the user confirms
+one, and only then the ticket's url.
+-}
+legacyArchitectRun :: Spec
+legacyArchitectRun = describe "the legacy architect's run" $ do
     it "researches, understands the problem, adjusts the design once, then keeps the confirmed design's ticket url" $
         (\state -> (state.at, state.ticket)) <$> architect (problemUnderstood <> designRound ConfirmDesignAdjusted <> designConfirmed)
             `shouldBe` Right (Out, Just ticketUrl)
@@ -745,13 +781,13 @@ architectRun = describe "the architect's run" $ do
         architect (extended <> [stepTook ConfirmDesignAdjusted]) `shouldSatisfy` isRight
 
     it "records_no_ticket_url_before_the_design_is_confirmed" . hedgehog $ do
-        events <- forAll (genAcceptedOn [] architectGraph)
+        events <- forAll (genAcceptedOn [] legacyArchitectGraph)
         let (unconfirmed, rest) = break confirmed events
         cover 5 "the design confirmed" (not (null rest))
-        states <- traverse (evalEither . replay architectGraph . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| unconfirmed)))
+        states <- traverse (evalEither . replay legacyArchitectGraph . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| unconfirmed)))
         for_ states $ \state -> (state.ticket, state.latest) === (Nothing, Nothing)
   where
-    architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
+    architect = architectOn legacyArchitectGraph
     explored = researchedIn "exploring" <> enoughIn "exploring"
     designRound verdict = designDiscussed <> [stepTook verdict]
     confirmed = \case
@@ -815,7 +851,7 @@ chiefRequests = describe "the chief's requests" $ do
                 `shouldBe` (Right (OwnPr, True), Left (NotSkippable "engineer/ready"))
 
     it "chains architect, a block and architect again through next, naming the newest url each time" $ do
-        let designed = request "architect" <> within "architect" (fuelSet Balanced : problemUnderstood <> designConfirmed)
+        let designed = request "architect" <> within "architect" (fuelSet Balanced : ticketWritten <> enoughIn "architect")
             researched = request "blocks" <> [Took mempty (pickOf "block" "researching")] <> within "researching" (researchedIn "exploring" <> enoughIn "exploring")
             shipped = request "blocks" <> [Took mempty (pickOf "block" "shipping")] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
             andThen first later = first <> [stepTook NextRequest] <> later

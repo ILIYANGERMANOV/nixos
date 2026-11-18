@@ -62,9 +62,10 @@ let
     };
   };
 
-  # The architect's steps: the problem and design discussions and the ticket
-  # it writes once the design is confirmed, each run by the lead, who changes
-  # no code.
+  # The architect's steps: the design discussion's questions and the ticket
+  # it writes or edits at any point, each run by the lead, who changes no
+  # code. `problem` and `confirm_design` are the legacy architect's
+  # (kernel State.Flow.Legacy), kept so old runs still replay and finish.
   architectSteps = {
     discuss = {
       dom = "Ctx";
@@ -72,7 +73,7 @@ let
       exit = null;
       outcomes = [ "asked" ];
       runner = "inline";
-      task = "Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.";
+      task = "Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.";
       tools = [
         "read"
         "web"
@@ -80,6 +81,19 @@ let
       skills = [ "architect" ];
       prose = leadProse;
       ops = [ "ask" ];
+      flows = [ "architect" ];
+    };
+    ticket = {
+      dom = "Ctx";
+      cod = "Ctx";
+      exit = null;
+      outcomes = [ "written" ];
+      runner = "inline";
+      task = "Ticket: write the design so far into the ticket, or edit it, at any point and as often as the design changes: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear; `gh issue comment` adds to it. Then record `ticket.written <url>`, back to the discussion's pick. The ticket is optional: `enough` ends the run with or without one.";
+      tools = [ "shell" ];
+      skills = [ "architect" ];
+      prose = leadProse;
+      ops = [ ];
       flows = [ "architect" ];
     };
     problem = {

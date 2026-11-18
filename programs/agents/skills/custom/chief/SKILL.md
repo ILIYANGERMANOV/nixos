@@ -36,9 +36,9 @@ request -> fuel -> route -> branch, inline -> next -> request | done
 
   | Branch | You |
   |---|---|
-  | `architect`, `engineer` | load that skill with the Skill tool and follow it from what `state next` prints, skipping its `state init` |
+  | `architect`, `engineer` | load that skill with the Skill tool and follow it from what `state next` prints, skipping its `state init`; an `architect` request adds its own section to this run's `<notes>/notes.md` (Edit and Write work on files directly in the notes dir). It ends at `next` with no `DONE` naming the notes, so your own message names that section and the ticket's URL, if any |
   | `10x` | load `10x-engineer`; skip Intake's directory, `git init` and `state init`: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
-  | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | at `fuel`, before its `fuel.set`, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` takes the target's PR as the run's; for `engineer` it confirms the plan itself unless you ask a Design or Scope question; `architect` writes its confirmed design into the target ticket |
+  | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | at `fuel`, before its `fuel.set`, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` takes the target's PR as the run's; for `engineer` it confirms the plan itself unless you ask a Design or Scope question; `architect`'s `ticket` edits the target ticket |
   | `blocks` | no skill: pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
   | `discussion` | no skill: below |
   | `other` | no skill: do it yourself (`direct`) |
@@ -55,16 +55,18 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   advice: `resume agent <id>`, paused under 4m45s (the 5-minute cache less
   a 15s buffer): SendMessage that agent; `fresh agent from card`: spawn a
   fresh agent briefed from the card.
-- **Discussion.** Read-only: no edits, commits, pushes or PRs; the hooks deny
-  them. Explain and show: findings, diagrams, pseudo-code, tables; then ask
-  the next question, your recommendation first, at `discuss`, through
-  `state ask --kind <Design|Scope>` (no Discuss kind; then
-  `discuss.asked`). The user's reply is always `state answer`, never
-  `state rule`. Record
-  `discussing.enough` when the user moves on: it waits for every open
-  researcher, then `notes` merges their hand-backs. A ticket only when the
-  user asks: then record `enough` and route the next request to
-  `architect`.
+- **Discussion.** The repo stays read-only: no repo edits, commits, pushes
+  or PRs; the hooks deny them. Edit and Write work only on files directly in the notes dir.
+  Issue writes only when the user asks: `gh issue create`, or `gh issue
+  edit` or `comment` on the issue they name. Explain and show: findings,
+  diagrams, pseudo-code, tables; then ask the next question, your
+  recommendation first, at `discuss`, through `state ask --kind
+  <Design|Scope>` (no Discuss kind; then `discuss.asked`). The user's reply
+  is always `state answer`, never `state rule`. Record `state record
+  discussing.enough` when the user moves on: it waits for every open
+  researcher, then `notes` merges their hand-backs. A design ticket still
+  routes to `architect`: record `state record discussing.enough`, then
+  route the next request there.
 - **Reviewing block.** Before it, write `requirements.md` in the notes
   dir: the request's requirements, one per line, for the review to judge.
   Pick rows as the review rules of `/engineer` say (load it with the Skill
@@ -113,18 +115,13 @@ is no arrow: it leaves a request at its state and turns to another.
 |---|---|---|
 | fuel | you | set: route |
 | route | you | 10x: 10x/fuel; architect: architect/fuel; blocks: block; discussion: discussion/discussing; engineer: engineer/fuel; other: direct |
-| architect/fuel | you | set: architect/exploring |
-| architect/exploring | you | enough: architect/exploring/researchers; research: architect/exploring/research |
-| architect/exploring/researchers | await | done: architect/exploring/notes; handed_back: architect/exploring/researchers |
-| architect/exploring/notes | you | done: architect/problem |
-| architect/exploring/research | researcher | spawned: architect/exploring |
-| architect/problem | you | more: architect/exploring; understood: architect/discussing |
-| architect/discussing | you | discuss: architect/discuss; enough: architect/discussing/researchers; research: architect/discussing/research |
-| architect/discussing/researchers | await | done: architect/discussing/notes; handed_back: architect/discussing/researchers |
-| architect/discussing/notes | you | done: architect/confirm_design |
-| architect/discussing/research | researcher | spawned: architect/discussing |
-| architect/discuss | you | asked: architect/discussing |
-| architect/confirm_design | you | adjusted: architect/discussing; confirmed: next |
+| architect/fuel | you | set: architect/architect |
+| architect/architect | you | discuss: architect/discuss; enough: architect/architect/researchers; research: architect/architect/research; ticket: architect/ticket |
+| architect/architect/researchers | await | done: architect/architect/notes; handed_back: architect/architect/researchers |
+| architect/architect/notes | you | done: next |
+| architect/architect/research | researcher | spawned: architect/architect |
+| architect/discuss | you | asked: architect/architect |
+| architect/ticket | you | written: architect/architect |
 | engineer/fuel | you | set: engineer/gather |
 | engineer/gather | you | enough: engineer/gather/researchers; interview: engineer/interview; research: engineer/gather/research |
 | engineer/gather/researchers | await | done: engineer/gather/notes; handed_back: engineer/gather/researchers |

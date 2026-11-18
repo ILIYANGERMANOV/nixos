@@ -100,6 +100,7 @@ import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..))
 import State.Step.Gather qualified as Gather
 import State.Table (Steps, agentRoles, stepsRunBy)
+import System.FilePath ((</>))
 
 data HookName = ResumeHook | SpawnHook | HandbackHook | AskedHook | BindHook | RouteHook | BeginHook | StopHook
     deriving stock (Eq, Show, Enum, Bounded)
@@ -220,8 +221,11 @@ a call to the agent's run, or tell how work begins.
 data Job = Asks Want | Binds Bind | Routes Gate | Begins Begin | Ends End
     deriving stock (Eq, Show)
 
--- | A call @route@ weighs: a shell command (its text), or a write no run may miss.
-data Gate = RunsShell Text | Edits | Writes | Spawns
+{- | A call @route@ weighs: a shell command (its text), or a write no run may
+miss. An edit or write carries its file, joined to the caller's directory
+when relative; 'Nothing' when its input names none.
+-}
+data Gate = RunsShell Text | Edits (Maybe FilePath) | Writes (Maybe FilePath) | Spawns
     deriving stock (Eq, Show)
 
 -- | What a hook asks of the worktree's run.
@@ -311,12 +315,12 @@ wants steps hook event = case hook of
         PromptExpansion _ _ -> undeclared
         AgentStop _ _ -> undeclared
     RouteHook -> case event of
-        BeforeTool _ tool input ->
+        BeforeTool call tool input ->
             Right $
                 Routes <$> case tool of
                     Shell -> RunsShell <$> textAt "command" input
-                    Edit -> Just Edits
-                    Write -> Just Writes
+                    Edit -> Just (Edits (fileOf call input))
+                    Write -> Just (Writes (fileOf call input))
                     Delegate -> Just Spawns
                     Read -> Nothing
                     HandbackTool -> Nothing
@@ -453,6 +457,10 @@ aboutRun run said
 -- | A hook's text, naming the run when one is known: none is before the hook found it.
 aboutKnown :: Maybe RunId -> Text -> Text
 aboutKnown = maybe id aboutRun
+
+-- | The file an edit or write names, joined to the caller's directory: an absolute one stays as it is.
+fileOf :: Call -> Object -> Maybe FilePath
+fileOf call input = (call.cwd </>) . Text.unpack <$> textAt "file_path" input
 
 textAt :: Text -> Object -> Maybe Text
 textAt key input = case KeyMap.lookup (Key.fromText key) input of

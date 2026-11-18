@@ -47,8 +47,8 @@ spec = describe "State.Role" $ do
             case planner.flow of
                 SomeFlow flow -> graph flow `shouldSatisfy` isRight
 
-        it "keeps the engineer's and the 10x's flows ending in a PR, the architect's in a ticket, the chief's in a request's result" $
-            map (flowOut . (.flow) . role) [minBound .. maxBound] `shouldBe` [PR, PR, Ticket, Result]
+        it "keeps the engineer's and the 10x's flows ending in a PR, the architect's in its context, the chief's in a request's result" $
+            map (flowOut . (.flow) . role) [minBound .. maxBound] `shouldBe` [PR, PR, Ctx, Result]
 
     describe "Effects" $
         it "each registered flow raises picks and questions, a forked engineer its questions, a root none: checked as this module compiles" $ do

@@ -112,7 +112,11 @@ spec = describe "the hooks" $ do
             map (\agent -> shell agent Shell "state next") [Nothing, Just reviewLead] `shouldBe` replicate 2 (Right (Just (Routes (RunsShell "state next"))))
 
         it "routes an edit, a write and a spawn, for the gate to weigh" $
-            map (\tool -> shell Nothing tool "") [Edit, Write, Delegate] `shouldBe` map (Right . Just . Routes) [Edits, Writes, Spawns]
+            map (\tool -> shell Nothing tool "") [Edit, Write, Delegate] `shouldBe` map (Right . Just . Routes) [Edits Nothing, Writes Nothing, Spawns]
+
+        it "routes an edit or write with its file, joined to the caller's directory when relative" $
+            [wants steps RouteHook (BeforeTool (Call (SessionId "s") "/w" Nothing) tool (KeyMap.fromList [("file_path", String file)])) | (tool, file) <- [(Edit, "a/notes.md"), (Write, "/n/notes.md")]]
+                `shouldBe` map (Right . Just . Routes) [Edits (Just "/w/a/notes.md"), Writes (Just "/n/notes.md")]
 
         it "routes no read, research or other call" $
             map (\tool -> shell Nothing tool "state next") [Read, Web, Ask, Skill, Other] `shouldBe` replicate 5 (Right Nothing)

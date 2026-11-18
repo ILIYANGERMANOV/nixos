@@ -10,6 +10,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
+import Data.Text.IO qualified as Text
 import Data.Traversable (for)
 import Hedgehog (evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
@@ -260,6 +261,47 @@ spec = describe "state over the doubles" $ do
 
                 (old.code, old.err)
                     `shouldBe` (2, ["state next: run " <> run <> " event 1 is not read - log version 2, this state reads 4", "fix: state init --notes <a new dir> starts afresh"])
+
+        describe "an old architect's or chief's log" $ do
+            it "replays a finished architect under its legacy flow, ending with its notes and ticket" $ \world -> do
+                _ <- oldLog world "legacy-architect-finished.jsonl" "ffe50d7b"
+
+                done <- succeeded =<< state world ["next"]
+
+                take 1 done `shouldBe` ["DONE /notes/notes.md https://github.com/o/r/issues/1"]
+
+            it "replays a chief stopped mid-way through an architect request, and appends to it under its legacy flow" $ \world -> do
+                -- Up to the problem's Confirm, forwarded to the user: seq 168.
+                run <- oldLogOf world (take 168) "legacy-chief.jsonl" "446e42ac"
+
+                _ <- succeeded =<< state world ["answer", run <> ":12", "understood"]
+                moved <- succeeded =<< state world ["record", "problem.understood"]
+
+                recorded moved `shouldBe` ["architect/problem.understood -> architect/discussing"]
+
+            it "replays a chief with three architect requests, and takes its next request" $ \world -> do
+                _ <- oldLog world "legacy-chief.jsonl" "446e42ac"
+
+                moved <- succeeded =<< state world ["record", "next.request"]
+
+                recorded moved `shouldBe` ["next.request -> fuel"]
+
+            it "replays a new run under the current flow, though its first lines fit the legacy one too" $ \world -> do
+                _ <- startedIn world ["--flow", "architect"]
+                _ <- succeeded =<< state world ["record", "fuel.set", "low"]
+
+                next <- succeeded =<< state world ["next"]
+
+                next `shouldSatisfy` any ("state record architect.ticket" `Text.isInfixOf`)
+
+            it "names the current flow's refusal of a log that neither flow replays" $ \world -> do
+                run <- oldLog world "legacy-architect-finished.jsonl" "ffe50d7b"
+                editLog world (<> [newOnly run])
+
+                broken <- state world ["next"]
+
+                (broken.code, broken.err)
+                    `shouldBe` (2, ["state next: run " <> run <> " does not replay - exploring.research - no such arrow out of the end", "fix: state dump " <> run <> " prints its events; state init --notes <a new dir> starts afresh"])
 
         describe "record" $ do
             it "refuses an event with no arrow: exit 2, a fix line, the refusal logged, and next warns" $ \world -> do
@@ -1258,3 +1300,24 @@ atReview = [Record ["fuel.set", "balanced"], Override "review"]
 -- | A review back with its rows, and the lead's picks: a loop on this row.
 reviewRound :: Text -> [Text] -> [Act]
 reviewRound label verdicts = [Commit, Handback "review-lead" reviewed, Record (["pick.loop", "--row", label] <> verdicts)]
+
+{- | A real log of an older flow from @test/fixtures@, its private text
+scrubbed, as the worktree's run: a run started here, its rows the fixture's
+under this run's id. Its notes are the world's. The finished architect's was
+written before #468: its answers gained their @reply@ and its problem the
+Confirm #468 asks, as the log that version writes.
+-}
+oldLog :: IORef World -> FilePath -> Text -> IO Text
+oldLog world = oldLogOf world id
+
+-- | 'oldLog' of these of the fixture's rows.
+oldLogOf :: IORef World -> ([Text] -> [Text]) -> FilePath -> Text -> IO Text
+oldLogOf world rowsOf fixture fixtureRun = do
+    run <- startedRun world
+    rows <- rowsOf . Text.lines <$> Text.readFile ("test/fixtures/" <> fixture)
+    editLog world (const (map (Text.replace fixtureRun run) rows))
+    pure run
+
+-- | The finished legacy architect's next line, an event of the current architect's only.
+newOnly :: Text -> Text
+newOnly run = "{\"v\":4,\"id\":\"" <> run <> ":26\",\"seq\":26,\"ts\":\"2026-11-18T10:52:54Z\",\"run\":\"" <> run <> "\",\"head\":null,\"session\":null,\"type\":\"architect.ticket\",\"data\":{}}"
