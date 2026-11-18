@@ -14,7 +14,7 @@ RUN one option below
     state record exploring.enough - on to exploring/researchers
     state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
   fuel: low
-  Researchers: 0 of 1 used, 1 left
+  Researchers: 0 of 10 used, 10 left
   Problem rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -24,7 +24,7 @@ RUN end your turn
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: low
-  Researchers: 0 of 1 used, 1 left
+  Researchers: 0 of 10 used, 10 left
   Problem rounds: 0 of 3 used, 3 left
 
 == exploring/notes
@@ -33,7 +33,7 @@ RUN state record exploring/notes.done
   options:
     state record exploring/notes.done - on to problem
   fuel: low
-  Researchers: 0 of 1 used, 1 left
+  Researchers: 0 of 10 used, 10 left
   Problem rounds: 0 of 3 used, 3 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
@@ -43,7 +43,7 @@ SPAWN researcher background: no
   outcomes:
     exploring/research.spawned - back to exploring, the exploring loop's next round
   fuel: low
-  Researchers: 0 of 1 used, 1 left
+  Researchers: 0 of 10 used, 10 left
   Problem rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -66,8 +66,8 @@ RUN one option below
     state record discussing.enough - on to discussing/researchers
     state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
   Design rounds: 0 of 3 used, 3 left
 Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
@@ -78,8 +78,8 @@ RUN end your turn
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
   Design rounds: 0 of 3 used, 3 left
 
 == discussing/notes
@@ -88,8 +88,8 @@ RUN state record discussing/notes.done
   options:
     state record discussing/notes.done - on to confirm_design
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
   Design rounds: 0 of 3 used, 3 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
@@ -99,8 +99,8 @@ SPAWN researcher background: no
   outcomes:
     discussing/research.spawned - back to discussing, the discussing loop's next round
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
   Design rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -111,8 +111,8 @@ RUN one option below
     state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
     state record discuss.asked - back to discussing, the discussing loop's next round
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
   Design rounds: 0 of 3 used, 3 left
 Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 
@@ -143,7 +143,7 @@ RUN one option below
     state record exploring.enough - on to exploring/researchers
     state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
+  Researchers: 0 of 30 used, 30 left
   Problem rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -153,7 +153,7 @@ RUN end your turn
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
+  Researchers: 0 of 30 used, 30 left
   Problem rounds: 0 of 3 used, 3 left
 
 == exploring/notes
@@ -162,7 +162,7 @@ RUN state record exploring/notes.done
   options:
     state record exploring/notes.done - on to problem
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
+  Researchers: 0 of 30 used, 30 left
   Problem rounds: 0 of 3 used, 3 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
@@ -172,7 +172,7 @@ SPAWN researcher background: no
   outcomes:
     exploring/research.spawned - back to exploring, the exploring loop's next round
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
+  Researchers: 0 of 30 used, 30 left
   Problem rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -195,8 +195,8 @@ RUN one option below
     state record discussing.enough - on to discussing/researchers
     state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
   Design rounds: 0 of 3 used, 3 left
 Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
@@ -207,8 +207,8 @@ RUN end your turn
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
   Design rounds: 0 of 3 used, 3 left
 
 == discussing/notes
@@ -217,8 +217,8 @@ RUN state record discussing/notes.done
   options:
     state record discussing/notes.done - on to confirm_design
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
   Design rounds: 0 of 3 used, 3 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
@@ -228,8 +228,8 @@ SPAWN researcher background: no
   outcomes:
     discussing/research.spawned - back to discussing, the discussing loop's next round
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
   Design rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -240,8 +240,8 @@ RUN one option below
     state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
     state record discuss.asked - back to discussing, the discussing loop's next round
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
   Design rounds: 0 of 3 used, 3 left
 Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 
@@ -272,7 +272,7 @@ RUN one option below
     state record exploring.enough - on to exploring/researchers
     state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
   fuel: max
-  Researchers: 0 used, one per group
+  Researchers: 0 of 60 used, 60 left
   Problem rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -282,7 +282,7 @@ RUN end your turn
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: max
-  Researchers: 0 used, one per group
+  Researchers: 0 of 60 used, 60 left
   Problem rounds: 0 of 3 used, 3 left
 
 == exploring/notes
@@ -291,7 +291,7 @@ RUN state record exploring/notes.done
   options:
     state record exploring/notes.done - on to problem
   fuel: max
-  Researchers: 0 used, one per group
+  Researchers: 0 of 60 used, 60 left
   Problem rounds: 0 of 3 used, 3 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
@@ -301,7 +301,7 @@ SPAWN researcher background: no
   outcomes:
     exploring/research.spawned - back to exploring, the exploring loop's next round
   fuel: max
-  Researchers: 0 used, one per group
+  Researchers: 0 of 60 used, 60 left
   Problem rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -324,8 +324,8 @@ RUN one option below
     state record discussing.enough - on to discussing/researchers
     state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
   fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
   Design rounds: 0 of 3 used, 3 left
 Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
@@ -336,8 +336,8 @@ RUN end your turn
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
   Design rounds: 0 of 3 used, 3 left
 
 == discussing/notes
@@ -346,8 +346,8 @@ RUN state record discussing/notes.done
   options:
     state record discussing/notes.done - on to confirm_design
   fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
   Design rounds: 0 of 3 used, 3 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
@@ -357,8 +357,8 @@ SPAWN researcher background: no
   outcomes:
     discussing/research.spawned - back to discussing, the discussing loop's next round
   fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
   Design rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
@@ -369,8 +369,8 @@ RUN one option below
     state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
     state record discuss.asked - back to discussing, the discussing loop's next round
   fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
   Design rounds: 0 of 3 used, 3 left
 Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 

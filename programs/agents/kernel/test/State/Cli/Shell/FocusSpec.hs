@@ -110,11 +110,11 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                 `shouldBe` (
                                ( 2
                                ,
-                                   [ "state focus: the spend at next - Requests allows 5 at this Fuel, all spent"
+                                   [ "state focus: the spend at next - Requests allows 50 at this Fuel, all spent"
                                    , "fix: state record extend <why> | state record next.done"
                                    ]
                                )
-                           , ["ASK Stuck Requests: 5 of 5 used, none left: go on?"]
+                           , ["ASK Stuck Requests: 50 of 50 used, none left: go on?"]
                            )
 
         it "turns back to a waiting request at the Requests cap, as a turn back opens no new request" $ \world -> do
@@ -148,15 +148,15 @@ finished world = do
     _ <- startedIn world ["--flow", "chief"]
     finishRequest world
 
-{- | A chief run at Low Fuel whose sixth request ran to its end: the five
+{- | A chief run at Low Fuel whose 51st request ran to its end: the 50
 @next.request@ the Requests cap allows at Low are spent.
 -}
 atCap :: IORef World -> IO ()
 atCap world = startedIn world ["--flow", "chief"] >> spendRequests world
 
--- | The request in focus and five more run to their end at Low Fuel: the Requests cap is spent.
+-- | The request in focus and 50 more run to their end at Low Fuel: the Requests cap is spent.
 spendRequests :: IORef World -> IO ()
-spendRequests world = mapM_ (succeeded <=< state world) (concat (replicate 5 (request <> [["record", "next.request"]])) <> request)
+spendRequests world = mapM_ (succeeded <=< state world) (concat (replicate 50 (request <> [["record", "next.request"]])) <> request)
   where
     request = [["record", "fuel.set", "low"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]]
 

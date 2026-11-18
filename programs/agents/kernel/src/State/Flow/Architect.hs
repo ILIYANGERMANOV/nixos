@@ -11,7 +11,7 @@ import State.Category.Effect (Eff (PickE), Handler (AgentPicks))
 import State.Category.Flow (CapTarget (..), Flow (..), Shape (..))
 import State.Category.Meter (AtCap (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Library (DiscussS, ResearchS, discuss, research, upTo)
+import State.Flow.Library (DiscussS, ResearchS, designResearchers, discuss, research, upTo)
 import State.Step.Fuel (FuelStep (Fuel), Sing (Fuel))
 import State.Step.Ticket (Sing (..), TicketStep (..))
 
@@ -19,7 +19,7 @@ architect :: Flow (HandleS PickE ArchitectS) 'Ctx 'Nothing 'Ticket
 architect =
     Handle AgentPicks $
         Do Fuel
-            :> Loop "understanding" (research :> upTo 3 Extend (Step Problem))
+            :> Loop "understanding" (research designResearchers :> upTo 3 Extend (Step Problem))
             :> Loop "design" (discuss :> upTo 3 Extend (Step ConfirmDesign))
 
 type ArchitectS =

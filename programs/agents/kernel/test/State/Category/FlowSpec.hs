@@ -188,16 +188,22 @@ rejectedShown fragment term =
 
 {- | Its words one space apart: GHC wraps a long type over lines. A session
 that loads the library beside its package (the quick test's) has GHC qualify
-a name by its package; the fragments name it as @cabal test@ prints it.
+a name by its unit id; the fragments name it as @cabal test@ prints it.
 -}
 headline :: String -> String
-headline = unwords . map unpackaged . concatMap words . takeWhile (not . ("In the " `isInfixOf`)) . lines
+headline = unpackaged . unwords . concatMap words . takeWhile (not . ("In the " `isInfixOf`)) . lines
 
--- | A word without the @state-0.1.0.0:@ before its name, its opening quote kept.
+{- | The text without unit ids before names (@state-0.1.0.0-inplace:@, or a
+hash in place of @inplace@), whatever punctuation precedes them. A unit id is
+a run of letters, digits, dots and hyphens holding a version (a hyphen then a
+digit), directly followed by a colon.
+-}
 unpackaged :: String -> String
-unpackaged word = case break (== ':') rest of
-    (package, ':' : name) | isPackageId package -> opening <> name
-    _ -> word
+unpackaged text = case span isUnitChar text of
+    ("", c : rest) -> c : unpackaged rest
+    ("", "") -> ""
+    (unit, ':' : rest) | isVersioned unit -> unpackaged rest
+    (run, rest) -> run <> unpackaged rest
   where
-    (opening, rest) = span (`elem` ("\x2018(" :: String)) word
-    isPackageId package = '-' `elem` package && all (\c -> isAlphaNum c || c `elem` ("-." :: String)) package && any isDigit (take 1 (reverse package))
+    isUnitChar c = isAlphaNum c || c `elem` ("-." :: String)
+    isVersioned unit = any (\(a, b) -> a == '-' && isDigit b) (zip unit (drop 1 unit))
