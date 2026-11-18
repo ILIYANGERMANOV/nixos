@@ -478,6 +478,46 @@ spec = describe "state-hook over the doubles" $ do
 
                 said `shouldSatisfy` any (Text.isInfixOf ("bound to run " <> run))
 
+            it "lets a parent run the command its child's AWAIT ci hand-back prints, which records it in the child's run" $ \world -> do
+                parent <- startedRun world
+                _ <- directChildAt world parent
+                _ <- succeeded =<< state world ["override", "await_ci", "the", "test", "starts", "here"]
+                handback <- succeeded =<< state world ["next"]
+                let green = "cd " <> Text.pack childWorktree <> " && state record await_ci.green"
+                putFile world (bindings <> "/main") ("run " <> parent <> " " <> Text.pack notes <> " /work\n")
+                inDir world "/work"
+
+                said <- hook world "route" (stateCall green)
+                inDir world childWorktree
+                recordedThere <- succeeded =<< state world ["record", "await_ci.green"]
+
+                handback `shouldContain` ["Parent runs: " <> green, "Parent runs: cd " <> Text.pack childWorktree <> " && state record await_ci.red <check>..."]
+                (said.code, said.out) `shouldBe` (0, [])
+                recordedThere `shouldSatisfy` any ("await_ci.green -> ready" `Text.isSuffixOf`)
+
+            it "lets a parent answer in its child's run, and denies it any other call there" $ \world -> do
+                parent <- startedRun world
+                _ <- directChildAt world parent
+                putFile world (bindings <> "/main") ("run " <> parent <> " " <> Text.pack notes <> " /work\n")
+                inDir world "/work"
+                let there = "cd " <> Text.pack childWorktree <> " && "
+
+                said <- traverse (hook world "route" . stateCall . (there <>)) ["state answer 0a0a0a0a:1 postgres", "state next", "state stop blocked why"]
+
+                map (any (Text.isInfixOf "is not this agent's") . (.out)) said `shouldBe` [False, True, True]
+
+            it "denies a run that is not the child's parent a record in the child's run" $ \world -> do
+                parent <- startedRun world
+                _ <- directChildAt world parent
+                addWorktree world "/other"
+                inDir world "/other"
+                other <- startedIn world ["--notes", "/other-notes"]
+                putFile world (bindings <> "/main") ("run " <> other <> " /other-notes /other\n")
+
+                said <- hook world "route" (stateCall ("cd " <> Text.pack childWorktree <> " && state record await_ci.green"))
+
+                said.out `shouldSatisfy` any (Text.isInfixOf ("bound to run " <> other))
+
             it "is silent for a session bound to a worktree since removed" $ \world -> do
                 run <- startedRun world
                 putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
@@ -629,6 +669,19 @@ contextOf :: Ran -> Maybe Text
 contextOf said = case decodeStrictText (Text.concat said.out) of
     Just (Object reply) | Just (String context) <- KeyMap.lookup "context" reply -> Just context
     _ -> Nothing
+
+{- | A direct child of this run, started in 'childWorktree' beside the
+parent's @/work@, where later calls run; its id.
+-}
+directChildAt :: IORef World -> Text -> IO Text
+directChildAt world parent = do
+    addWorktree world childWorktree
+    inDir world childWorktree
+    startedIn world ["--notes", "/child", "--parent", parent]
+
+-- | Later calls run in this directory, in whichever worktree holds it.
+inDir :: IORef World -> FilePath -> IO ()
+inDir world dir = modifyIORef' world (\w -> w {disk = w.disk {cwd = dir}})
 
 -- | Session @s1@'s bindings, under the world's @HOME@.
 bindings :: FilePath

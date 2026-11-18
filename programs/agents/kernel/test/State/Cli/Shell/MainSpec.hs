@@ -286,6 +286,14 @@ spec = describe "state over the doubles" $ do
 
                 recorded moved `shouldBe` ["next.request -> fuel"]
 
+            it "replays a chief whose last request ended it as over, past the await of its children it never had" $ \world -> do
+                _ <- oldLog world "legacy-chief.jsonl" "446e42ac"
+                _ <- succeeded =<< state world ["record", "next.done"]
+
+                done <- succeeded =<< state world ["next"]
+
+                take 2 done `shouldBe` ["DONE https://github.com/ILIYANGERMANOV/nixos/issues/479", "  at the end: the flow is done"]
+
             it "replays a new run under the current flow, though its first lines fit the legacy one too" $ \world -> do
                 _ <- startedIn world ["--flow", "architect"]
                 _ <- succeeded =<< state world ["record", "fuel.set", "low"]
@@ -497,6 +505,35 @@ spec = describe "state over the doubles" $ do
                 (moved, old.code, take 1 shown) `shouldBe` (["moved " <> run <> " to /target"], 2, ["run: " <> run <> " (engineer)"])
                 rebound
                     `shouldBe` [Just (encodeUtf8 ("run " <> run <> " /notes /target\n")), Just "run ffff0000 /elsewhere /work\n"]
+
+            it "refuses an init in the worktree a run moved from, naming the cd to where it went" $ \world -> do
+                run <- startedRun world
+                putFile world (sessionBindings </> "main") ("run " <> run <> " /notes /work\n")
+                addWorktree world "/target"
+                _ <- succeeded =<< state world ["move", "/target"]
+
+                again <- state world ["init", "--notes", "/notes"]
+                atWorktree world "/target"
+                resumed <- succeeded =<< state world ["init", "--notes", "/notes"]
+
+                (again.code, again.err)
+                    `shouldBe` (2, ["state init: --notes /notes - unfinished run " <> run <> " keeps them in /target", "fix: cd /target && state init --notes /notes"])
+                take 1 resumed `shouldBe` ["resumed " <> run]
+
+            it "refuses an init in notes an unfinished run keeps in a worktree no binding names, and starts one over a finished run's" $ \world -> do
+                run <- startedRun world
+                addWorktree world "/target"
+                atWorktree world "/target"
+
+                held <- state world ["init", "--notes", "/notes"]
+                atWorktree world "/work"
+                _ <- succeeded =<< state world ["stop", "failed", "no", "access"]
+                atWorktree world "/target"
+                started <- succeeded =<< state world ["init", "--notes", "/notes"]
+
+                (held.code, held.err)
+                    `shouldBe` (2, ["state init: --notes /notes - unfinished run " <> run <> " keeps them in another worktree", "fix: state init --notes /notes, in run " <> run <> "'s worktree"])
+                take 1 started `shouldSatisfy` all ("started " `Text.isPrefixOf`)
 
             it "refuses a target in no worktree, this worktree, and one holding an unfinished run" $ \world -> do
                 run <- startedRun world
@@ -868,6 +905,17 @@ spec = describe "state over the doubles" $ do
                     _ -> False
                 retried `shouldBe` ["answered " <> qid]
                 answersIn world `shouldReturn` [1, 1, 1]
+
+            it "names the cd into the asking child's worktree its binding names, for an answer it could not write down" $ \world -> do
+                (_, mid, grand) <- threeLevels world
+                let qid = grand <> ":1"
+                climbed world qid
+                putFile world "/home/.local/state/state/bindings/s1/e1" ("run " <> grand <> " " <> Text.pack grandNotes <> " /grand work\n")
+                editLogIn world grandNotes (<> ["{broken"])
+
+                failed <- succeeded =<< state world ["answer", qid, "postgres"]
+
+                drop 2 failed `shouldBe` ["fix: cd '/grand work' && state answer " <> qid <> " postgres --by " <> mid]
 
             it "takes the same answer again, appending nothing to any run" $ \world -> do
                 (_, _, grand) <- threeLevels world

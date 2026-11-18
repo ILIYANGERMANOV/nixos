@@ -53,10 +53,10 @@ import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), SomeStep (..), Special (AsksConfirm), StepSet (special), confirmText, eventText, handedBackOutcome, stateNameText)
 import State.Flow.Drawn (fuelTakes)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
-import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
+import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, spawnChildOption, usageOf)
 import State.Role (RoleDef (..), defaultFlow)
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Basis (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), Reply (..), Route (..), kindName, parseOneLine, parseQId, qidText, replyWords)
+import State.Run.Ask (Above (..), Basis (..), ChildTask (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), Reply (..), Route (..), kindName, parseOneLine, parseQId, qidText, replyWords)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, reasonText)
 import State.Run.Codec qualified as Codec
@@ -371,7 +371,7 @@ initArgs =
             (Nothing, Nothing, Nothing) -> Right (mine OwnPr)
             (Just pr, Nothing, Nothing) -> mine . RoundOn <$> roundPr pr
             (Just _, _, _) -> Left (usage "--pr with --parent" "a child run takes its PR from its parent's task")
-            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (AtFan (TaskId task)))) <$> runId run
+            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (InFan (Tasked (TaskId task))))) <$> runId run
             (Nothing, Just run, Nothing) -> (\r -> FromParent (Parent r Direct)) <$> runId run
             (Nothing, Nothing, Just _) -> Left (usage "--task without --parent" "a child run names its parent's run, and its task at a fan-out")
         Right (Init InitArgs {notes, flow, origin})
@@ -560,10 +560,12 @@ atText = \case
 {- | An event the grammar lacks, at a run: refused with the events the run's
 Fuel takes where it is, an @extend@ too where a budget here grants one. A
 hand-back is listed even with no child open: the name is what the reader lacks.
+At a fork of child runs nothing is recorded: the fix is the child's brief.
 -}
 unknownEvent :: OpenGraph -> RunState -> Text -> Failure
-unknownEvent g state name =
-    Failure BadInput ("no event " <> name) ("at " <> atText state.at <> " the run takes " <> listed (map fst events)) (closest name events)
+unknownEvent g state name = case Fold.forkingAt g state of
+    Just _ -> Failure BadInput ("no event " <> name) ("at " <> atText state.at <> ", run " <> spawnChildOption.command <> ", then " <> spawnChildOption.means) spawnChildOption.command
+    Nothing -> Failure BadInput ("no event " <> name) ("at " <> atText state.at <> " the run takes " <> listed (map fst events)) (closest name events)
   where
     events = edgeEvents <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
@@ -595,7 +597,7 @@ closest name events = case (sameStep, events) of
 left ('Fan.retryLeft'): what @state retry@ triages and retries.
 -}
 retryOf :: RunState -> TaskId -> Either Failure (Task, Child, Stop)
-retryOf state task = case (Fan.lookupTask fan task, lookup task [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]) of
+retryOf state task = case (Fan.lookupTask fan task, lookup (Tasked task) [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]) of
     (Nothing, _) -> Left (refused "the breakdown has no such task" "state show")
     (Just _, Nothing) -> Left (refused "no stopped child of it awaits triage" "state next")
     (Just _, Just (child, _))

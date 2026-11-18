@@ -18,6 +18,7 @@ module Effects.Store (
     locked,
     misnumbered,
     children,
+    inNotes,
 ) where
 
 import Control.Exception (throwIO)
@@ -114,9 +115,14 @@ their starts were written, the rowid's, as two in one second tie on
 @created_at@, whose text drops trailing zeros and so does not sort as time.
 -}
 children :: Store -> RunId -> IO [RunId]
-children (Store conn) parent =
-    query conn "SELECT id FROM runs WHERE parent = ? ORDER BY rowid" (Only (runIdText parent))
-        >>= traverse (\(Only raw) -> maybe (throwIO (userError ("the store holds a run id that does not parse: " <> Text.unpack raw))) pure (parseRunId raw))
+children (Store conn) parent = query conn "SELECT id FROM runs WHERE parent = ? ORDER BY rowid" (Only (runIdText parent)) >>= runIds
+
+-- | The runs started in this notes dir, oldest first, as 'children' orders them.
+inNotes :: Store -> FilePath -> IO [RunId]
+inNotes (Store conn) notes = query conn "SELECT id FROM runs WHERE notes = ? ORDER BY rowid" (Only notes) >>= runIds
+
+runIds :: [Only Text] -> IO [RunId]
+runIds = traverse (\(Only raw) -> maybe (throwIO (userError ("the store holds a run id that does not parse: " <> Text.unpack raw))) pure (parseRunId raw))
 
 -- | Brings the schema to the last migration, each one applied once, in order.
 migrate :: Connection -> IO ()

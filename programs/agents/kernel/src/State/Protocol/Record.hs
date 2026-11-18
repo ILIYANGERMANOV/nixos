@@ -16,6 +16,7 @@ module State.Protocol.Record (
     goes,
     extend,
     extendOption,
+    spawnChildOption,
     capRecords,
     Args (..),
     option,
@@ -96,6 +97,16 @@ goes edge = case (edge.arrow, edge.to, edge.back) of
 -- | The @state record@ line that extends a used-up budget, on the user's yes.
 extendOption :: Option
 extendOption = commandOption (Text.unwords ["state record", extend.name, usageOf extend]) "when the user goes on: the used-up budgets here start afresh"
+
+{- | At a fork of child runs (the chief's delegate): the brief to fill in
+and spawn the child with. Nothing is recorded here: the child's init moves
+the run on.
+-}
+spawnChildOption :: Option
+spawnChildOption =
+    commandOption
+        "state brief engineer"
+        "fill it in and spawn an engineer with it (state brief 10x: a 10x); record nothing - the child's state init --parent moves this run on"
 
 {- | What the run may record at a used-up budget of the step at this state:
 the ways out of its loop, then as its 'AtCap' says - nothing more, a stop,

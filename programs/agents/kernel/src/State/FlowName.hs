@@ -7,9 +7,22 @@ module State.FlowName (
     defaultFlow,
     flowText,
     namedFlowText,
+    fixedFuel,
 ) where
 
 import Data.Text (Text)
+import State.Category.Fuel (Fuel (Balanced))
+
+{- | The Fuel a flow runs at whoever starts it: the 10x picks each task's
+Fuel and runs at Balanced itself, so its user is asked none. The chief has
+none: each request, the first too, records its own at its Fuel step.
+-}
+fixedFuel :: FlowName -> Maybe Fuel
+fixedFuel = \case
+    TenXFlow -> Just Balanced
+    ChiefFlow -> Nothing
+    EngineerFlow -> Nothing
+    ArchitectFlow -> Nothing
 
 -- | A flow a run follows, named after the role that leads it.
 data FlowName = EngineerFlow | TenXFlow | ArchitectFlow | ChiefFlow

@@ -23,13 +23,13 @@ spec = describe "State.Run.Fan" $ do
     it "spawnable_respects_deps_and_agents" . hedgehog $ do
         fan <- forAll genFan
         let picks = spawnable [] fan
-            busy = [task | task <- fan.tasks, Set.member task.id fan.atWork || task.id `elem` map (.child.task) (running fan)]
+            busy = [task | task <- fan.tasks, Set.member task.id fan.atWork || Tasked task.id `elem` map (.child.task) (running fan)]
         cover 10 "spawns some" (not (null picks))
         for_ picks $ \task -> do
             assert (not (settled fan task.id))
             assert (task.id `notElem` map (.id) busy)
             assert (all (merged fan) task.deps)
-            assert (task.id `notElem` map ((.task) . fst) (untriaged fan))
+            assert (Tasked task.id `notElem` map ((.task) . fst) (untriaged fan))
             assert (not (awaitsCi fan task.id))
 
     it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
@@ -212,7 +212,7 @@ t1 = TaskId "t1"
 t2 = TaskId "t2"
 
 childFor :: Text.Text -> TaskId -> Child
-childFor child taskId = Child (runId child) taskId "worktree"
+childFor child taskId = Child (runId child) (Tasked taskId) "worktree"
 
 -- | A breakdown's fan-out: a first breakdown has no agent at work to refuse it.
 fresh :: Tasks -> Fan
