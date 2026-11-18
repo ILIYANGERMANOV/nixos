@@ -215,6 +215,7 @@ let
         ./ctl/status.sh
         ./ctl/disk.sh
         ./ctl/ops.sh
+        ./ctl/memory.sh
         ./ctl/main.sh
       ];
     in

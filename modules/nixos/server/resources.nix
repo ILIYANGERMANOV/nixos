@@ -130,9 +130,11 @@ in
       # first line for a path, and NixOS's 00-nixos.conf sorts before tmp.conf.
       tmpfiles.rules = [ "q /tmp 1777 root root 3d" ];
 
-      # Under sustained memory pressure, oomd kills the heaviest process in a
-      # user slice - in practice a compiler - instead of letting the kernel
-      # choose.
+      # Under sustained memory pressure, oomd kills the heaviest cgroup in a
+      # user slice, a whole unit or scope with every process in it, instead of
+      # letting the kernel choose. A GHCi left in claude-rc@ would take the
+      # server and every session with it, so it runs in its own scope under
+      # ghci.slice (programs/haskell/ghcid.sh).
       oomd = {
         enable = true;
         enableUserSlices = true;

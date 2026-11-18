@@ -102,8 +102,18 @@ let
   gcOnPressure = factory.mkGcOnPressure { gcBelowFreePercent = 10; };
 
   # An in-memory systemd: a unit is active while a file named after it exists.
-  # Answers `is-active --quiet` for the deploy's health gate from $SSHD_UP.
+  # Answers `is-active --quiet` for the deploy's health gate from $SSHD_UP, and
+  # `show -p MainPID --value` from what the matching unit files hold, and
+  # `list-units` with the files matching its patterns.
   fakeSystemctl = pkgs.writeShellScriptBin "systemctl" (builtins.readFile ./fakes/systemctl.sh);
+
+  # Prints a fixed table, as `systemd-cgtop -b` does.
+  fakeCgtop = pkgs.writeShellScriptBin "systemd-cgtop" (builtins.readFile ./fakes/systemd-cgtop.sh);
+
+  # The real one: escaping is pure string work.
+  systemdEscape = pkgs.writeShellScriptBin "systemd-escape" ''
+    exec ${pkgs.systemd}/bin/systemd-escape "$@"
+  '';
 
   # GitHub's CLI, for `resolve` and `deploy`. Repositories come from
   # $GH/user-repos.json; a dispatched workflow run gets id 42, and it fails
@@ -187,6 +197,8 @@ pkgs.runCommand "shell-tests"
       maintenance
       gcOnPressure
       fakeSystemctl
+      fakeCgtop
+      systemdEscape
       fakeGh
       fakeCurl
       fakeNix

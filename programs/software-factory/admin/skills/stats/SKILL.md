@@ -23,8 +23,8 @@ Reply phone-short:
    Then uptime on one line.
 3. For each warning or critical row only, one line on what to do:
 
-   - RAM, swap or Agents: the terminate-sessions skill, or stop-repo for an
-     idle repository
+   - RAM, swap or Agents: the memory skill, to find and end what holds it;
+     then terminate-sessions, or stop-repo for an idle repository
    - Disk: the free-disk skill
    - CPU load: terminate-sessions or stop-repo for the busiest repository
    - CPU temp, NVMe temp, Fan or Throttled: check the airflow - a hard

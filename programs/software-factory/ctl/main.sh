@@ -10,6 +10,8 @@ main() {
     terminate) cmd_terminate "$@" ;;
     status) cmd_status ;;
     stats) cmd_stats ;;
+    mem) cmd_mem ;;
+    kill) cmd_kill "$@" ;;
     free-disk) cmd_free_disk "$@" ;;
     root-shells) cmd_root_shells ;;
     deploy) cmd_deploy ;;
@@ -34,6 +36,9 @@ factory-ctl - run the software factory
   terminate [--force] [name]    end live sessions; servers keep running
   status                        servers, sessions, local work, last deploy
   stats                         RAM, disk, CPU, temps, fan, battery; health
+  mem                           the biggest cgroups and processes by memory
+  kill [--force] <pid>          end a process of this user, TERM then KILL
+  kill ghcid <worktree>|--all   stop the GHCi daemons of a worktree, or all
   free-disk plan|apply          list or delete what can be reclaimed
   root-shells                   keep main's dev shells and flake inputs from GC
   deploy                        deploy main's tip once CI is green
