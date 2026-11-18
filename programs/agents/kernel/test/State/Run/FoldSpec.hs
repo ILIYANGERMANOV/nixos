@@ -1172,13 +1172,15 @@ roleGraphs :: [OpenGraph]
 roleGraphs = [g, tenXGraph, architectGraph, chiefGraph]
 
 {- | An accepted log with the graph it replays on: a role's steps and
-picks, or the engineer's questions.
+picks, or the engineer's questions. Picks come from the first only, so it
+is drawn twice as often: a pick in about 60% of logs, far over the 30% its
+cover needs on any seed.
 -}
 genEffectLog :: Gen (OpenGraph, NonEmpty Event)
 genEffectLog =
-    Gen.choice
-        [ Gen.element roleGraphs >>= \flow -> (flow,) . (started :|) <$> genAcceptedOn [] flow
-        , (g,) . snd <$> genAskLog
+    Gen.frequency
+        [ (2, Gen.element roleGraphs >>= \flow -> (flow,) . (started :|) <$> genAcceptedOn [] flow)
+        , (1, (g,) . snd <$> genAskLog)
         ]
 
 -- | Whether the outcome is a choice's pick.
