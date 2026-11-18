@@ -1,6 +1,6 @@
-# A folded profile's hooks as Claude Code settings: one entry per Claude event an
-# event that has hooks covers, each running the adapter (hooks/adapter), which hands the event to the
-# frontend's dispatcher. Claude never sees the hooks themselves, so their order
+# A folded profile's hooks as Claude Code settings: one entry per Claude event
+# an event that has hooks covers, each running the adapter (hooks/adapter),
+# which hands the event to the frontend's dispatcher. Claude never sees the hooks themselves, so their order
 # and the threading of rewritten input are the frontend's, not Claude's
 # parallel run. Appended to what the flavor sets, as withSecretFileGuard is,
 # so a flavor's own hooks stay. Values only, no files.

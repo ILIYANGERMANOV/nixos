@@ -498,14 +498,20 @@ spec = describe "state-hook over the doubles" $ do
 
         describe "stop" $ do
             it "records a child run's agent ended with no hand-back once, at its stop and its spawner's stop call, saying nothing" $ \world -> do
-                child <- engineerAtWork world
+                _ <- engineerAtWork world
 
                 stopped <- hook world "stop" (agentStop "engineer" "e1" ["e1"])
                 called <- hook world "stop" (stopCall "e1")
 
                 (stopped.code, stopped.out, called.code, called.out) `shouldBe` (0, [], 0, [])
                 filter (== "agent_ended") <$> loggedEventsIn world "/child" `shouldReturn` ["agent_ended"]
+
+            it "lists a child whose agent stopped with no hand-back, with its resume step" $ \world -> do
+                child <- engineerAtWork world
+                _ <- hook world "stop" (agentStop "engineer" "e1" ["e1"])
                 atWorktree world "/work"
+
+
                 listed <- succeeded =<< state world ["tasks"]
                 listed `shouldSatisfy` any (Text.isPrefixOf ("child " <> child <> " engineer stopped, no hand-back at "))
                 listed `shouldContain` ["  RESUME " <> child <> " stopped, no hand-back: a fresh engineer from its notes /child"]
