@@ -14,6 +14,13 @@ let
     cabal-fmt = pkgs.haskell.lib.compose.justStaticExecutables hpkgs.cabal-fmt;
   };
 
+  # The repl's GHC, heap capped: the dev shell's own ghc, found on PATH.
+  ghcCapped = shellCheck.writeShellApplication {
+    name = "ghc-capped";
+    runtimeInputs = [ ];
+    text = shellCheck.fragment ./ghc-capped.sh;
+  };
+
   # A suite's environment as `export` lines: `env` verbatim, a path copied to
   # the store so a sandboxed check can read it, and each of `bins`
   # the path `binPath` gives the executable it names.
@@ -199,6 +206,7 @@ in
             pkgs.cabal-install
             pkgs.ghcid
             repl
+            ghcCapped
           ]
           ++ lib.attrValues tools;
         }
@@ -230,6 +238,7 @@ in
         ++ [
           watchdog
           repl
+          ghcCapped
         ]
       );
       # The lint runner's checks over the package's source.

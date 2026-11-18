@@ -37,10 +37,11 @@ run_format() {
 
 # The quick runners' GHCi session, every component in one multi-unit repl.
 # $1 is touched first, before cabal reads the cabal files: ghcid.sh's stamp.
+# GHC runs through ghc-capped (ghc-capped.sh), its heap capped.
 run_repl() {
   touch "$1"
   export_bins
-  exec cabal repl -v1 --enable-multi-repl "${components[@]}"
+  exec cabal repl -v1 --enable-multi-repl --with-repl=ghc-capped "${components[@]}"
 }
 
 # Paths only: a session's executables are the last build's.

@@ -251,6 +251,8 @@ in
           tools.bats
           pkgs.jq
           pkgs.git
+          # ghcid.sh finds its daemon with pgrep.
+          pkgs.procps
         ];
       }
       ''
