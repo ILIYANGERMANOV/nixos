@@ -8,6 +8,8 @@ import Data.IORef (IORef, modifyIORef')
 import Data.Text (Text)
 import Data.Time (NominalDiffTime, addUTCTime)
 import State.Cli.Shell.World
+import State.Run.Codec (decodeLine, encodeLine)
+import State.Run.Event (Envelope (..))
 import Test.Hspec (Spec, before, describe, it, shouldBe)
 
 spec :: Spec
@@ -154,11 +156,23 @@ finished world = do
 atCap :: IORef World -> IO ()
 atCap world = startedIn world ["--flow", "chief"] >> spendRequests world
 
--- | The request in focus and 50 more run to their end at Low Fuel: the Requests cap is spent.
+{- | The request in focus and 50 more run to their end at Low Fuel: the Requests cap is spent.
+The first runs through the CLI and the store holds its rows 49 times more, as
+each call replays the whole log: 200 calls cost seconds.
+-}
 spendRequests :: IORef World -> IO ()
-spendRequests world = mapM_ (succeeded <=< state world) (concat (replicate 50 (request <> [["record", "next.request"]])) <> request)
+spendRequests world = do
+    before' <- length <$> logRows world
+    mapM_ (succeeded <=< state world) (request <> [["record", "next.request"]])
+    spent <- drop before' <$> logRows world
+    editLog world (<> concatMap (\k -> map (renumbered (k * length spent)) spent) [1 .. 49])
+    mapM_ (succeeded <=< state world) request
   where
     request = [["record", "fuel.set", "low"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]]
+
+-- | A logged row moved on by @n@ seqs, its id with it.
+renumbered :: Int -> Text -> Text
+renumbered n row = either (error . show) (\e -> encodeLine e {seq = e.seq + fromIntegral n}) (decodeLine row)
 
 -- | The request in focus runs its route to its end, at @next@.
 finishRequest :: IORef World -> IO ()

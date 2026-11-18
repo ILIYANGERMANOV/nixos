@@ -813,11 +813,13 @@ chiefRequests = describe "the chief's requests" $ do
         map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed `andThen` researched, designed `andThen` shipped, shipped `andThen` designed]
             `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just pr), Right (Just "next", Just ticketUrl)]
 
-    it "starts a second request with its path's caps unused, the Requests guard counting on" $ do
-        let spentDiscussion = lowRequest "discussion" <> discussed 10 <> within "discussion" (enoughIn "discussing")
-            secondRequest = spentDiscussion <> [stepTook NextRequest] <> lowRequest "discussion"
+    it "starts a second request with its path's caps unused" $ do
+        let secondRequest = spentDiscussion <> lowRequest "discussion"
+        chief (secondRequest <> discussed 10) `shouldSatisfy` isRight
         chief (secondRequest <> discussed 11) `shouldSatisfy` outOf "Researchers" 10
-        Map.elems . Map.filterWithKey (\metered _ -> metered.step == StateName "next") . (.meters) <$> chief (secondRequest <> discussed 10 <> within "discussion" (enoughIn "discussing") <> [stepTook NextRequest])
+
+    it "counts the Requests guard on across requests" $
+        Map.elems . Map.filterWithKey (\metered _ -> metered.step == StateName "next") . (.meters) <$> chief (spentDiscussion <> spentDiscussion)
             `shouldBe` Right [2]
 
     it "gives a suspended request its meters back on the turn back to it" $
@@ -829,6 +831,8 @@ chiefRequests = describe "the chief's requests" $ do
     -- At Low, where a discussion allows 10 researchers.
     lowRequest branch = [fuelSet Low, pick branch]
     discussed n = within "discussion" (concat (replicate n (researchedIn "discussing")))
+    -- A Low discussion that spent its 10 researchers, then went on to the next request.
+    spentDiscussion = lowRequest "discussion" <> discussed 10 <> within "discussion" (enoughIn "discussing") <> [stepTook NextRequest]
     pick branch = Took mempty (pickOf "route" branch)
     engineered = within "engineer" (fuelSet Balanced : happyPath)
     pr = Url "https://github.com/o/r/pull/7"
