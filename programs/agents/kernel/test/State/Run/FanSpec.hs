@@ -13,7 +13,7 @@ import Hedgehog.Range qualified as Range
 import State.Run.Ask (QId (..))
 import State.Run.Event
 import State.Run.EventGen (genSaid, genTaskAt, genTaskId, genTaskState, genTasks, oneLine, runId, tasksOf)
-import State.Run.Fan
+import State.Run.Fan hiding (merged)
 import State.Run.RunGen (plainTask)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -119,6 +119,11 @@ spec = describe "State.Run.Fan" $ do
         map (.id) (spawnable [] twoTasks) `shouldBe` [t1]
         map (.id) . spawnable [] <$> reviewed `shouldBe` Right []
         map (.id) . spawnable [] <$> (reviewed >>= moved t1 (Merged (Url "pr"))) `shouldBe` Right [t2]
+
+    it "keeps_a_merged_task_merged_ignoring_any_later_move" . hedgehog $ do
+        later <- forAll genTaskState
+        let merged' = applied [moved t1 (Merged (Url "pr"))]
+        (merged' >>= moved t1 later) === merged'
 
     it "awaits the merge of a dependency in review" $
         mergesAwaited <$> moved t1 (InReview (Url "pr")) twoTasks `shouldBe` Right [t1]

@@ -827,11 +827,11 @@ spec = describe "the state binary" $ do
                 after <- logLines bin repo
                 after `shouldBe` before
 
-            it "are silent on a log they do not read" $ \repo -> do
+            it "name the record by hand on a log of another version, as they record nothing there" $ \repo -> do
                 run <- startedRun bin repo
                 replaceByHand repo run 1 "{\"v\":2,\"ts\":\"t\",\"type\":\"started\"}"
-                said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
-                said `shouldBe` []
+                said <- succeeded =<< hook hookBin repo "spawn" (spawned' repo Null "researcher")
+                replyField "context" said `shouldSatisfy` maybe False ("state handback <role>" `Text.isInfixOf`)
 
             it "tell an event they do not read, as context" $ \repo -> do
                 _ <- drive bin repo []

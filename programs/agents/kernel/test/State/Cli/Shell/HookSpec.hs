@@ -42,7 +42,7 @@ spec = describe "state-hook over the doubles" $ do
 
                 said `shouldBe` []
 
-            it "is silent on a log it does not read" $ \world -> do
+            it "is silent on a log of another version, as only a spawn or a hand-back is lost there" $ \world -> do
                 _ <- startedRun world
                 editLog world (const ["{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"])
 
@@ -147,6 +147,15 @@ spec = describe "state-hook over the doubles" $ do
                 length after `shouldBe` length before'
 
         describe "spawn" $ do
+            it "names the record by hand on a log of another version, as it records nothing there" $ \world -> do
+                _ <- startedRun world
+                editLog world (const ["{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"])
+
+                said <- hook world "spawn" (spawned "researcher")
+
+                said.code `shouldBe` 0
+                contextOf said `shouldSatisfy` maybe False ("state handback <role>" `Text.isInfixOf`)
+
             it "warns the lead spawning a role off the advice" $ \world -> do
                 _ <- drive world ([Record ["fuel.set", "balanced"]] <> gathered <> [Planned])
 
@@ -168,22 +177,39 @@ spec = describe "state-hook over the doubles" $ do
                         (Just opened, 0, Just closed) -> "recorded event 4 gather/research.spawned -> gather" `Text.isInfixOf` opened && "recorded event 7 gather/research.handed_back -> gather/researchers" `Text.isInfixOf` closed && "recorded 8 worker_returned -> gather/notes" `Text.isInfixOf` closed
                         _ -> False
 
-            it "tells a recorded spawn's line, the researchers left, and to spawn more or wait, not the advice" $ \world -> do
+            it "gives a researcher whose spawn led back to the gather's pick the research section of its brief alone" $ \world -> do
                 _ <- drive world researching
                 _ <- hook world "spawn" (spawned "researcher")
+                section <- succeeded =<< state world ["brief", "researcher", "--section", "research"]
+
+                said <- hook world "begin" (agentStarted "researcher")
+
+                contextOf said `shouldBe` Just (Text.unlines section)
+
+            it "tells a recorded spawn's line, the researchers left, and the pick to record before each more spawn, not the advice" $ \world -> do
+                _ <- drive world researching
+                first <- hook world "spawn" (spawned "researcher")
                 _ <- state world ["record", "gather.research"]
 
                 said <- hook world "spawn" (spawned "researcher")
 
                 run <- runOf world
-                contextOf said
-                    `shouldBe` Just
-                        ( Text.unlines
-                            [ "run " <> run <> ": recorded event 6 gather/research.spawned -> gather"
-                            , "  researchers: 3 of 5 left"
-                            , "  next: spawn more, or end your turn until they hand back"
-                            ]
-                        )
+                (contextOf first, contextOf said)
+                    `shouldBe` ( Just
+                                    ( Text.unlines
+                                        [ "run " <> run <> ": recorded event 4 gather/research.spawned -> gather"
+                                        , "  researchers: 4 of 5 left"
+                                        , "  next: for each more, `state record gather.research`, then spawn it in a message of its own; or end your turn until they hand back"
+                                        ]
+                                    )
+                               , Just
+                                    ( Text.unlines
+                                        [ "run " <> run <> ": recorded event 6 gather/research.spawned -> gather"
+                                        , "  researchers: 3 of 5 left"
+                                        , "  next: for each more, `state record gather.research`, then spawn it in a message of its own; or end your turn until they hand back"
+                                        ]
+                                    )
+                               )
 
             it "tells a spawn that spends the researchers' budget only to wait" $ \world -> do
                 _ <- drive world [Record ["fuel.set", "low"], Record ["gather.research"]]

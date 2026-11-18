@@ -30,6 +30,7 @@ module State.Run.Fan (
     leave,
     closed,
     unmerged,
+    merged,
     allParked,
     lookupTask,
     childTask,
@@ -201,22 +202,32 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
 {- | A parked task has no agent at work: parking settles even a lost child.
 Only a round's PR is kept, and only under that PR's own URL. A round makes
 the task a round on its PR, refused while a child or an agent works on it.
+A merged task stays merged: a later move, such as a stale review's, is
+ignored, never refused, so a log holding one still replays.
 -}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
-moved task state fan = do
-    found <- known task fan
-    case (state, found.shape) of
-        (Kept _, OwnPr) -> Left (NotARound task)
-        (Kept kept, RoundOn roundPr)
-            | kept == roundPr -> Right ()
-            | otherwise -> Left (NotItsRound task roundPr)
-        (Round _, _) -> idle
-        (Parked _ _, _) -> Right ()
-        (InCi _, _) -> Right ()
-        (InReview _, _) -> Right ()
-        (Merged _, _) -> Right ()
-    Right (rounded fan {moves = Map.insert task state fan.moves, atWork = working})
+moved task state fan = case Map.lookup task fan.moves of
+    Just (Merged _) -> Right fan
+    Just (Kept _) -> moving
+    Just (Parked _ _) -> moving
+    Just (Round _) -> moving
+    Just (InReview _) -> moving
+    Just (InCi _) -> moving
+    Nothing -> moving
   where
+    moving = do
+        found <- known task fan
+        case (state, found.shape) of
+            (Kept _, OwnPr) -> Left (NotARound task)
+            (Kept kept, RoundOn roundPr)
+                | kept == roundPr -> Right ()
+                | otherwise -> Left (NotItsRound task roundPr)
+            (Round _, _) -> idle
+            (Parked _ _, _) -> Right ()
+            (InCi _, _) -> Right ()
+            (InReview _, _) -> Right ()
+            (Merged _, _) -> Right ()
+        Right (rounded fan {moves = Map.insert task state fan.moves, atWork = working})
     idle = case (runningOn task fan, Set.member task fan.atWork) of
         (Just child, _) -> Left (StillRunning task child.child.run)
         (Nothing, True) -> Left (AtWork task)
@@ -402,7 +413,7 @@ spawnable asking fan =
     , task.id `notElem` map (.id) (busy fan)
     , task.id `notElem` map ((.task) . fst) (untriaged fan)
     , all ((`notElem` asking) . (.child.run)) (childrenOf fan task.id)
-    , all (built fan) task.deps
+    , all (merged fan) task.deps
     ]
   where
     inCi task = case Map.lookup task fan.moves of
@@ -418,8 +429,8 @@ spawnable asking fan =
 GitHub Actions' @needs@ waits for success. A dependency in review, kept or
 parked keeps its dependents waiting; 'settled' still lets the fan-out leave then.
 -}
-built :: Fan -> TaskId -> Bool
-built fan task = case Map.lookup task fan.moves of
+merged :: Fan -> TaskId -> Bool
+merged fan task = case Map.lookup task fan.moves of
     Just (Merged _) -> True
     Just (Kept _) -> False
     Just (Round _) -> False
