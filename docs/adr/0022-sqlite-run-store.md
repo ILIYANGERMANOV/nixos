@@ -17,6 +17,11 @@ implementation: PR #466.
 - **WAL mode, a 5s busy timeout, foreign keys on**, set on every
   connection. Readers never block the writer, and a second writer waits for
   the first instead of failing.
+- **`synchronous = FULL` in use; `OFF` only in the test suite.** Opening
+  the store takes a `Durability`. The E2E specs pass a hidden leading
+  `--store-durability unsynced` for their throwaway stores: each `state`
+  call's close checkpoints the WAL, ~4ms of fsyncs, which made the suite
+  ~30% slower than over the unsynced JSONL logs.
 - **Every write is `BEGIN IMMEDIATE`.** A read-decide-append takes the
   write lock before it reads, so two processes never give two events the
   same seq. The pure fold decides inside the lock, as it did over the file.

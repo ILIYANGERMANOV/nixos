@@ -51,7 +51,7 @@ spec = describe "Effects.Log" $ do
                 traverse (children store) [top, child, other] `shouldReturn` [[child], [], []]
 
         it "lists two children started in one second in the order they started, though their times' text sorts the other way" $
-            withSystemTempDirectory "state-store" $ \dir -> withStore (dir </> "kernel.db") $ \store -> do
+            withSystemTempDirectory "state-store" $ \dir -> withStore Full (dir </> "kernel.db") $ \store -> do
                 -- Written as 00:00:00Z and 00:00:00.1Z: '.' sorts before 'Z'.
                 let first = childOf top child
                     second = (childOf top other) {ts = addUTCTime 0.1 first.ts}
