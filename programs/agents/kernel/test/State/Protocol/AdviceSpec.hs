@@ -215,10 +215,10 @@ spec = describe "State.Protocol.Advice" $ do
         it "offers the problem's records without asking, and tells the agent to discuss free-form until the user says design" $ do
             let advice = advise steps architectGraph noFacts atProblem
             commandsOnly advice.action `shouldBe` offering ["state record problem.understood", "state record problem.more"]
-            advice.prompt `shouldSatisfy` \prompt -> all (`Text.isInfixOf` prompt) ["free-form: no picker", "Only when the user says design or enough", "state ask --kind Confirm \"the problem: confirmed, or adjusted?\"", "the user's own words"]
+            advice.prompt `shouldSatisfy` \prompt -> all (`Text.isInfixOf` prompt) ["free-form: no picker", "Only when the user says design or enough", "state ask --kind Confirm \"the problem: understood, or more?\"", "the user's own words"]
 
         it "drops the line on when to ask once the problem's Confirm was asked and answered" $ do
-            let (question, asked, _) = ownAsk atProblem Confirm (oneLine "the problem: confirmed, or adjusted?")
+            let (question, asked, _) = ownAsk atProblem Confirm (oneLine "the problem: understood, or more?")
                 answered = architectRun (researchedIn "exploring" <> enoughIn "exploring" <> asked <> [Answered question.qid "design" TheUser])
                 advice = advise steps architectGraph noFacts answered
             (commandsOnly advice.action, "Only when the user says" `Text.isInfixOf` advice.prompt)

@@ -47,7 +47,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
+import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), OutcomeName (..), eventText, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
@@ -333,7 +333,9 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         | otherwise = "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
     -- One line per action, so one action's task never reads as another's.
     choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (_, Edge {to = At next}) <- shownEdges g place, Just (AnyStep _ (SomeStep s)) <- [stepNamed next.name]]
-    confirmText what = what <> ": confirmed, or adjusted?"
+    -- The answers a Confirm offers are its step's outcomes, so the question names what is recorded.
+    confirmText :: (StepSet k) => Sing (s :: k) -> Text -> Text
+    confirmText s what = what <> ": " <> Text.intercalate ", or " [o | OutcomeName o <- outcomeNames (outcomes s)] <> "?"
     confirmAsked = Ask.Confirm `elem` state.askedHere
     told :: (StepSet k) => Sing (s :: k) -> Text
     told s = case special s of
@@ -346,7 +348,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
                 "\nDiscuss "
                     <> what
                     <> " with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm \""
-                    <> confirmText what
+                    <> confirmText s what
                     <> "\", and answer it with the user's own words. Then record."
         Step.AwaitsCi -> ""
         AwaitsMerge -> ""
@@ -367,7 +369,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         AsksConfirm cue what
             | confirmAsked -> Run records
             | otherwise -> case cue of
-                OnEntry -> Ask Ask.Confirm (confirmText what)
+                OnEntry -> Ask Ask.Confirm (confirmText s what)
                 -- The user's word, not the step's entry, asks the question: the records stay offered.
                 OnUserWord -> Run records
         Step.AwaitsCi -> AwaitOn Ci (maybe "the PR" urlText (prUrl facts state))

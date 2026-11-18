@@ -81,7 +81,7 @@ spec = describe "the state binary" $ do
                     , Record ["fuel.set", "low"]
                     , Record ["exploring.enough"]
                     , Record ["exploring/notes.done"]
-                    , AskUser "Confirm" ["the problem: confirmed, or adjusted?"]
+                    , AskUser "Confirm" ["the problem: understood, or more?"]
                     , Record ["problem.understood"]
                     , Record ["discussing.enough"]
                     , Record ["discussing/notes.done"]

@@ -56,7 +56,7 @@ RUN one option below
   fuel: low
   Problem rounds: 0 of 3 used, 3 left
 Problem: talk the problem through with the user: what hurts, for whom, and why now. No ticket yet. A fact gap is `problem.more`, back to research.
-Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm "the problem: confirmed, or adjusted?", and answer it with the user's own words. Then record.
+Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm "the problem: understood, or more?", and answer it with the user's own words. Then record.
 
 == discussing
 RUN one option below
@@ -184,7 +184,7 @@ RUN one option below
   fuel: balanced
   Problem rounds: 0 of 3 used, 3 left
 Problem: talk the problem through with the user: what hurts, for whom, and why now. No ticket yet. A fact gap is `problem.more`, back to research.
-Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm "the problem: confirmed, or adjusted?", and answer it with the user's own words. Then record.
+Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm "the problem: understood, or more?", and answer it with the user's own words. Then record.
 
 == discussing
 RUN one option below
@@ -312,7 +312,7 @@ RUN one option below
   fuel: max
   Problem rounds: 0 of 3 used, 3 left
 Problem: talk the problem through with the user: what hurts, for whom, and why now. No ticket yet. A fact gap is `problem.more`, back to research.
-Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm "the problem: confirmed, or adjusted?", and answer it with the user's own words. Then record.
+Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm "the problem: understood, or more?", and answer it with the user's own words. Then record.
 
 == discussing
 RUN one option below
