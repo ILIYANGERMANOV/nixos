@@ -17,7 +17,6 @@ module State.Step.Fuel (
 import Data.Aeson ((.:), (.=))
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable, eqT)
-import State.Category.Effect (Eff (..))
 import State.Category.Flow (Name, nameText)
 import State.Category.Fuel (PerFuel, SkipWhen, fuelName)
 import State.Category.Fuel qualified as Level
@@ -33,7 +32,7 @@ type data FuelStep = Fuel | Skip Ty
 type SkipOrRun a = '[ '("skip", a), '("run", a)]
 
 instance StepSet FuelStep where
-    type Raises s = '[AskE]
+    type Raises s = '[]
 
     type Sig Fuel = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig (Skip a) = '(a, 'Nothing, 'Sum (SkipOrRun a))

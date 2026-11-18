@@ -10,7 +10,6 @@ module State.Step.Review (
 ) where
 
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Effect (Eff (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -19,7 +18,7 @@ import State.Step.Artifact (Commit, Picks, Sha, commitData, commitOf, headData, 
 type data ReviewStep = Review | PickRows | Fix | ReReview
 
 instance StepSet ReviewStep where
-    type Raises s = '[AskE]
+    type Raises s = '[]
 
     type Sig Review = '( 'Diff, 'Just 'Diff, 'Findings)
     type Sig PickRows = '( 'Findings, 'Just 'Diff, 'Findings)

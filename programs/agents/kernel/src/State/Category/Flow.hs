@@ -43,7 +43,7 @@ import Data.Text qualified as Text
 import GHC.OverloadedLabels (IsLabel (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import GHC.TypeLits (KnownSymbol, Symbol)
-import State.Category.Effect (Eff, Effs, FromList, Handler, None, ToList, Union, Without)
+import State.Category.Effect (Eff (..), Effs, FromList, Handler, None, ToList, Union, Without)
 import State.Category.Fuel (PerFuel)
 import State.Category.Meter (AtCap, Limit, Meter)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..), handedBackOutcome, spawnedOutcome)
@@ -101,7 +101,7 @@ reduced once ("State.Category.Effect"'s 'Effs' says why).
 -}
 type EffectSet :: Shape -> Effs
 type family EffectSet s where
-    EffectSet (DoS s) = FromList (Raises s)
+    EffectSet (DoS s) = FromList (AskE ': Raises s)
     EffectSet IdS = None
     EffectSet IntoS = None
     EffectSet (f :>> g) = Union (EffectSet f) (EffectSet g)

@@ -13,7 +13,6 @@ module State.Step.Gather (
 ) where
 
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Effect (Eff (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -21,7 +20,7 @@ import State.Category.Ty (TyOf (..))
 type data GatherStep = Research | Interview | Discuss | Notes
 
 instance StepSet GatherStep where
-    type Raises s = '[AskE]
+    type Raises s = '[]
 
     type Sig Research = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Interview = '( 'Ctx, 'Nothing, 'Ctx)

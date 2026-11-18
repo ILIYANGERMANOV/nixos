@@ -14,7 +14,6 @@ module State.Flow.Triage (
 ) where
 
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Effect (Eff (..))
 import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -25,7 +24,7 @@ import State.Step.Ship (ShipStep (..), Sing (..))
 type data TriageStep = Triage
 
 instance StepSet TriageStep where
-    type Raises s = '[AskE]
+    type Raises s = '[]
 
     type Sig Triage = '( 'Diff, 'Nothing, 'Sum '[ '("small", 'Diff), '("big", 'Plan)])
 

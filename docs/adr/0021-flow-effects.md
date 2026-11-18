@@ -19,10 +19,10 @@ effects of the term. Design: #461 (slice S2); implementation: PR #470.
   (`DoS s`, `:>>`, `LoopS`, `CaseS`, ...). Named flows give theirs an alias
   (`EngineerS`, `ArchitectS`, ...).
 - **An effect is read off a step's type, not a node.** Each step layer
-  states `Raises s :: [Eff]` (`State/Category/Step.hs`): every step may put
-  a question (`'[AskE]`), a pick also picks (`'[PickE, AskE]`). `Effects s`
-  collects them from the shape: `DoS s` raises `Raises s`, every other
-  shape the union of its children's, a forked child's included. There is
+  states `Raises s :: [Eff]` (`State/Category/Step.hs`), its effects
+  beyond a question: most `'[]`, a pick `'[PickE]`. `Effects s` collects
+  them from the shape: `DoS s` raises `AskE` (every step may put a
+  question, stated once) and `Raises s`, every other shape the union of its children's, a forked child's included. There is
   no `Perform` constructor, so `choice = Do (Pick n) :> Case bs` stays and
   graphs, states tables, the catalog and the advice do not change.
 - **`Handle` takes one effect off.** `Handle :: Handler eff -> Flow s i e o

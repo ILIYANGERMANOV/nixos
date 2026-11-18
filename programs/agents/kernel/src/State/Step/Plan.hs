@@ -9,7 +9,6 @@ module State.Step.Plan (
 
 import Data.Aeson ((.:), (.=))
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Effect (Eff (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -17,7 +16,7 @@ import State.Category.Ty (TyOf (..))
 type data PlanStep = PlanS | SimplifyP | Confirm
 
 instance StepSet PlanStep where
-    type Raises s = '[AskE]
+    type Raises s = '[]
 
     type Sig PlanS = '( 'Ctx, 'Nothing, 'Plan)
     type Sig SimplifyP = '( 'Plan, 'Nothing, 'Plan)

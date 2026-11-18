@@ -22,7 +22,6 @@ import Data.Aeson ((.:))
 import Data.List (find)
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Effect (Eff (..))
 import State.Category.Flow (Name, nameText, namedState)
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
@@ -32,7 +31,7 @@ import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
 type data FanStep = Breakdown | Merge
 
 instance StepSet FanStep where
-    type Raises s = '[AskE]
+    type Raises s = '[]
 
     type Sig Breakdown = '( 'Plan, 'Nothing, 'List 'Ctx)
     type Sig Merge = '( 'List 'PR, 'Just 'PR, 'Ctx)

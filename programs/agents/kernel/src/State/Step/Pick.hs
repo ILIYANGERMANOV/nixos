@@ -40,7 +40,7 @@ type family Over a ss where
     Over a ('(l, b) ': ss) = (a ~ b, Over a ss)
 
 instance StepSet PickStep where
-    type Raises s = '[PickE, AskE]
+    type Raises s = '[PickE]
 
     type Sig (Pick a ss) = '(a, 'Nothing, 'Sum ss)
 

@@ -10,7 +10,6 @@ module State.Step.Ticket (
 ) where
 
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Effect (Eff (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -19,7 +18,7 @@ import State.Step.Artifact (Url, urlData, urlOf)
 type data TicketStep = Problem | ConfirmDesign
 
 instance StepSet TicketStep where
-    type Raises s = '[AskE]
+    type Raises s = '[]
 
     type Sig Problem = '( 'Ctx, 'Just 'Ctx, 'Ctx)
     type Sig ConfirmDesign = '( 'Ctx, 'Just 'Ticket, 'Ctx)

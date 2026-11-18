@@ -19,7 +19,7 @@ import State.Category.Ty (TyOf (..))
 type data AttendStep = Attend
 
 instance StepSet AttendStep where
-    type Raises s = '[FocusE, AskE]
+    type Raises s = '[FocusE]
 
     type Sig Attend = '( 'Ctx, 'Nothing, 'Ctx)
 
