@@ -121,7 +121,7 @@ pkgs.runCommand "claude-config-check"
         secret='"secret-guard",'
       fi
       [ "$(jq -c 'map_values(map(.name))' "$(cut -d' ' -f3 <<<"$commands")")" = \
-        '{"afterTool":["context-guard","state-asked","state-bind"],"agentStart":["state-begin-agent"],"beforeTool":["state-begin-skill","state-handback","state-route","state-spawn",'"$secret"'"read-guard","wait-guard"],"promptExpansion":["state-begin-prompt"],"sessionStart":["state-resume"]}' ] ||
+        '{"afterTool":["context-guard","state-asked","state-bind"],"agentStart":["state-begin-agent"],"agentStop":[],"beforeTool":["state-begin-skill","state-handback","state-route","state-spawn",'"$secret"'"read-guard","wait-guard"],"promptExpansion":["state-begin-prompt"],"sessionStart":["state-resume"]}' ] ||
         { echo "$1 settings: the hooks differ" >&2; exit 1; }
     }
     ${lib.concatStrings (

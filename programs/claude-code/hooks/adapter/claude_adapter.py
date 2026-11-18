@@ -29,6 +29,7 @@ from agent_hook import (
     Agent,
     AgentId,
     AgentStart,
+    AgentStop,
     Allow,
     BeforeTool,
     ContextSize,
@@ -85,7 +86,13 @@ def answer(manifest: Manifest, event: Event) -> JsonObject:
     match event:
         case BeforeTool():
             return verdict_to_claude(dispatch_verdict(hooks, event, run_verdict_hook))
-        case SessionStart() | AfterTool() | AgentStart() | PromptExpansion():
+        case (
+            SessionStart()
+            | AfterTool()
+            | AgentStart()
+            | PromptExpansion()
+            | AgentStop()
+        ):
             return note_to_claude(event, dispatch_note(hooks, event, run_note_hook))
 
 
@@ -173,9 +180,20 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
             return PromptExpansion(
                 SessionId(session), Path(cwd), parse_agent(payload), SkillName(skill)
             )
+        case {
+            "hook_event_name": "SubagentStop" | "Stop",
+            "session_id": str(session),
+            "cwd": str(cwd),
+        }:
+            return AgentStop(
+                SessionId(session),
+                Path(cwd),
+                parse_agent(payload),
+                running_agents(payload.get("background_tasks")),
+            )
         case _:
             raise ValueError(
-                "not a SessionStart, PreToolUse, PostToolUse, SubagentStart or UserPromptExpansion event"
+                "not a SessionStart, PreToolUse, PostToolUse, SubagentStart, UserPromptExpansion, SubagentStop or Stop event"
             )
 
 
@@ -199,6 +217,25 @@ def parse_agent(payload: JsonObject) -> Agent | None:
             raise ValueError(f"agent_id {agent_id!r} is not a string")
         case _:
             return None
+
+
+def running_agents(tasks: Json) -> tuple[AgentId, ...]:
+    """The subagents among a stop's `background_tasks` that still run; none
+    when Claude sends no list. A background shell is a task too, but no agent."""
+    match tasks:
+        case None:
+            return ()
+        case list():
+            return tuple(
+                AgentId(task_id)
+                for task in tasks
+                if isinstance(task, dict)
+                and task.get("type") == "subagent"
+                and task.get("status") == "running"
+                and isinstance(task_id := task.get("id"), str)
+            )
+        case _:
+            raise ValueError(f"background_tasks {tasks!r} is not a list")
 
 
 def vendor_free(tools: ToolNames, name: str) -> Tool:
@@ -387,6 +424,10 @@ def note_to_claude(event: Observed, note: Note) -> JsonObject:
             return specific("SubagentStart", note.context, {})
         case PromptExpansion():
             return specific("UserPromptExpansion", note.context, {})
+        # Any context or decision at SubagentStop or Stop keeps the agent
+        # going, so a stop is only ever let through.
+        case AgentStop():
+            return {}
 
 
 def specific(event: str, context: str | None, fields: JsonObject) -> JsonObject:

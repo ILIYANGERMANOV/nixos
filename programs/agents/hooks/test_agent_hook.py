@@ -13,6 +13,7 @@ from agent_hook import (
     Agent,
     AgentId,
     AgentStart,
+    AgentStop,
     Allow,
     BeforeTool,
     ContextSize,
@@ -61,6 +62,7 @@ SPAWN = BeforeTool(SESSION, CWD, None, Tool.DELEGATE, {"prompt": "brief"})
 RAN = AfterTool(SESSION, CWD, WORKER, Tool.SHELL, {"command": "ls"}, "a\nb\n")
 STARTED = AgentStart(SESSION, CWD, WORKER)
 TYPED = PromptExpansion(SESSION, CWD, None, SkillName("engineer"))
+STOPPED = AgentStop(SESSION, CWD, WORKER, (AgentId("a1"), AgentId("a2")))
 
 json_values = st.recursive(
     st.none() | st.booleans() | st.integers() | st.text(),
@@ -103,6 +105,9 @@ events: st.SearchStrategy[Event] = st.one_of(
     ),
     st.builds(AgentStart, sessions, paths, subagents),
     st.builds(PromptExpansion, sessions, paths, agents, st.text().map(SkillName)),
+    st.builds(
+        AgentStop, sessions, paths, agents, st.lists(st.text().map(AgentId)).map(tuple)
+    ),
 )
 contexts = st.none() | texts
 verdicts: st.SearchStrategy[Verdict] = st.one_of(
@@ -192,6 +197,20 @@ def test_an_emitted_event_parses_back_to_itself(event: Event) -> None:
             id="prompt expansion with no skill",
         ),
         pytest.param(
+            {"event": "agentStop", "session": "s", "cwd": "/", "agent": None},
+            id="agent stop with no running list",
+        ),
+        pytest.param(
+            {
+                "event": "agentStop",
+                "session": "s",
+                "cwd": "/",
+                "agent": None,
+                "running": [7],
+            },
+            id="running id not a string",
+        ),
+        pytest.param(
             {
                 "event": "beforeTool",
                 "session": "s",
@@ -260,6 +279,18 @@ def test_a_typed_skill_reads_as_the_wire_names_it() -> None:
     }
 
     assert parse_event(json.dumps(wire)) == TYPED
+
+
+def test_an_agent_stop_reads_as_the_wire_names_it() -> None:
+    wire = {
+        "event": "agentStop",
+        "session": "s1",
+        "cwd": "/work/repo",
+        "agent": {"id": "a1", "role": "implementer"},
+        "running": ["a1", "a2"],
+    }
+
+    assert parse_event(json.dumps(wire)) == STOPPED
 
 
 def test_a_subagent_its_agent_names_no_role_reads_as_one_with_no_role() -> None:
@@ -443,7 +474,7 @@ def test_only_hooks_naming_the_tool_run() -> None:
     assert result == Allow("spawn\n\nevery")
 
 
-@pytest.mark.parametrize("event", [START, STARTED, TYPED], ids=event_name)
+@pytest.mark.parametrize("event", [START, STARTED, TYPED, STOPPED], ids=event_name)
 def test_every_hook_runs_at_an_event_with_no_tool(event: Observed) -> None:
     result = dispatch_note(
         [hook("a"), hook("b")], event, lambda hook, _: Note(hook.name)

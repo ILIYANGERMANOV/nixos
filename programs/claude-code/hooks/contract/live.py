@@ -3,8 +3,9 @@ on, proved against the real model in auto mode.
 
 One `claude -p --model haiku` run in a throwaway repo, with the normal login,
 types `/probe-live`. That skill has the lead call a second skill, run a Bash
-command a hook denies, spawn a subagent that spawns its own, and spawn one in
-the background. A recording hook logs every event, hands each subagent a
+command a hook denies, spawn a subagent that spawns its own, spawn one in
+the background, and spawn another there that it stops with TaskStop. A
+recording hook logs every event, hands each subagent a
 marker as additionalContext and denies the tagged command. Pure checks over
 the hook payloads and the transcripts they name then prove each event fired
 with the fields our adapter parses, and that the marker and the deny reason
@@ -26,6 +27,8 @@ from model import Json, Payload
 
 CHILD = "probe-child"
 GRANDCHILD = "probe-grandchild"
+# A background child the lead stops with TaskStop before it can hand back.
+STOPPED = "probe-stopped"
 COMMAND_SKILL = "probe-live"
 CALLED_SKILL = "probe-skill"
 SKILL_ARGS = "PROBE-SKILL-ARGS"
@@ -45,6 +48,8 @@ TIMEOUT_SECONDS = 600
 ADAPTER_FIELDS: dict[str, tuple[str, ...]] = {
     "SessionStart": ("hook_event_name", "session_id", "cwd", "source"),
     "SubagentStart": ("hook_event_name", "session_id", "cwd"),
+    "SubagentStop": ("hook_event_name", "session_id", "cwd"),
+    "Stop": ("hook_event_name", "session_id", "cwd"),
     "UserPromptExpansion": ("hook_event_name", "session_id", "cwd", "command_name"),
     "PreToolUse": (
         "hook_event_name",
@@ -67,7 +72,7 @@ ADAPTER_FIELDS: dict[str, tuple[str, ...]] = {
 }
 SUBAGENT_FIELDS = ("agent_id", "agent_type")
 # The lead's events carry no agent_type.
-DEPTHS = {CHILD: 1, GRANDCHILD: 2}
+DEPTHS = {CHILD: 1, GRANDCHILD: 2, STOPPED: 1}
 
 # The lead's script. It names no marker and no deny reason: only a hook puts
 # those where the model can see them. Each spawn states run_in_background:
@@ -90,6 +95,11 @@ Do these steps in order, one tool call each, then reply `probe done`.
    prompt "Hand back the word done.". Wait for its hand-back before the next step.
 5. Run the Bash command `mkdir -p {CD_DIR} && cd {CD_DIR}`.
 6. Run the Bash command `echo {CD_TAG}`.
+7. Spawn an Agent with subagent_type `{STOPPED}`, run_in_background true, and the
+   prompt "Run the Bash command `sleep 300`, then hand back the word done.".
+   Do not wait for it.
+8. Call the TaskStop tool on the agent you spawned in step 7, by the agent id
+   its launch result names.
 """
 CALLED_SKILL_BODY = f"""\
 ---
@@ -110,6 +120,11 @@ AGENTS = {
     },
     GRANDCHILD: {
         "description": "The live hook probe's depth-2 subagent",
+        "prompt": SUBAGENT_PROMPT,
+        "tools": ["Bash", "SubagentHandback"],
+    },
+    STOPPED: {
+        "description": "The live hook probe's subagent its lead stops",
         "prompt": SUBAGENT_PROMPT,
         "tools": ["Bash", "SubagentHandback"],
     },
@@ -192,6 +207,7 @@ def recording_settings(hook: list[str]) -> Json:
                 "PostToolUse",
                 "SubagentStart",
                 "SubagentStop",
+                "Stop",
             ),
             every,
         )
@@ -285,6 +301,12 @@ def checks(events: list[Payload], transcripts: dict[str, str]) -> list[Check]:
             ),
         )
 
+    def stopped_child() -> str | Missing:
+        return then(
+            spawned(indexed, None, STOPPED, background=True),
+            lambda spawn: spawn.agent_id,
+        )
+
     return [
         verdict(
             "UserPromptExpansion for the typed skill", 0, lambda: expansion(indexed)
@@ -332,6 +354,23 @@ def checks(events: list[Payload], transcripts: dict[str, str]) -> list[Check]:
             "payload cwd follows a cd in the main session",
             0,
             lambda: followed_cd(indexed),
+        ),
+        verdict(
+            "TaskStop of a background child: its PostToolUse names it by task_id",
+            1,
+            lambda: then(
+                stopped_child(), lambda agent_id: task_stop(indexed, agent_id)
+            ),
+        ),
+        verdict(
+            "a child stopped by TaskStop gets no SubagentStop",
+            1,
+            lambda: then(stopped_child(), lambda agent_id: no_stop(indexed, agent_id)),
+        ),
+        verdict(
+            "Stop fires for the lead, with no agent_id and its background_tasks",
+            0,
+            lambda: lead_stop(indexed),
         ),
         *(
             verdict(
@@ -589,6 +628,50 @@ def followed_cd(events: Indexed) -> Passed | Missing:
             return Passed(f"cwd {cwd}")
         case Found(event=call):
             return Missing(f"cwd {call.get('cwd')} after `cd {CD_DIR}`")
+
+
+def task_stop(events: Indexed, agent_id: str) -> Passed | Missing:
+    """The lead's TaskStop names the agent it stops by `task_id`, which the
+    kernel reads from the stopAgent call's input."""
+    return then(
+        first(
+            events,
+            f"the lead's PostToolUse TaskStop with task_id {agent_id}",
+            lambda event: (
+                tool_event(event, "PostToolUse", "TaskStop")
+                and "agent_id" not in event
+                and field(event, "tool_input", "task_id") == agent_id
+            ),
+        ),
+        lambda _: Passed(f"task_id {agent_id}"),
+    )
+
+
+def no_stop(events: Indexed, agent_id: str) -> Passed | Missing:
+    """Claude Code 2.1.314 fires no SubagentStop for a background agent its
+    lead stops, so TaskStop's PostToolUse is the one sign it ended. Should a
+    newer client fire one, the stop hook runs twice, which it allows: this
+    fails so the docs learn of it."""
+    match first(events, f"SubagentStop {agent_id}", stopped(agent_id)):
+        case Missing():
+            return Passed(f"no SubagentStop for {agent_id}")
+        case Found(index):
+            return Missing(f"SubagentStop for {agent_id} at {index}")
+
+
+def lead_stop(events: Indexed) -> Passed | Missing:
+    return then(
+        first(
+            events,
+            "a Stop with no agent_id and a background_tasks list",
+            lambda event: (
+                event.get("hook_event_name") == "Stop"
+                and "agent_id" not in event
+                and isinstance(event.get("background_tasks"), list)
+            ),
+        ),
+        lambda found: Passed(f"at {found.index}"),
+    )
 
 
 def sent(transcript: str) -> list[str]:
