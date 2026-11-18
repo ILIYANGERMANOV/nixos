@@ -56,7 +56,7 @@ import State.Cli.View (beginText, brief, briefSection, pendingLines, showRun, ta
 import State.Cli.View qualified as View
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
-import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, sessionDir, slotOf, slottedAgents, staleNote, stashFile, storeRoot)
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, ledFile, rebound, renderBinding, resolve, sessionDir, slotOf, slottedAgents, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), areaNames, parseHandback, refusalText, typeDirectHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), End (..), Gate (..), HookName (..), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
@@ -270,7 +270,7 @@ wantAnswer steps name input call want slot bound = case delivery want (keyOf cal
 -- | A bind: the caller to the run its init printed, or a worker it spawned to the caller's run.
 bindAnswer :: (Shell es) => Steps -> HookName -> Call -> Bind -> Maybe Slot -> Maybe Binding -> Eff es Text
 bindAnswer steps name call bind slot bound = case bind of
-    BindSelf binding -> telling name (Just binding.run) ("" <$ traverse_ ((`writeBinding` binding) . bindingFile) slot)
+    BindSelf binding -> telling name (Just binding.run) ("" <$ traverse_ (bindSelf binding) slot)
     BindChild child role -> do
         -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
         spawner <- boundOrHere call bound
@@ -287,6 +287,12 @@ bindAnswer steps name call bind slot bound = case bind of
             (Just (_, Removed), _) -> pure ""
             (Nothing, _) -> pure ""
             (_, Nothing) -> pure ""
+
+-- | The agent bound to the run its own init printed, and marked its lead ('ledFile').
+bindSelf :: (WrFileSystem :> es) => Binding -> Slot -> Eff es ()
+bindSelf binding slot = do
+    writeBinding (bindingFile slot) binding
+    writeWhole (ledFile slot) (runIdText binding.run <> "\n")
 
 -- | The caller's binding, else the run of the worktree a lead runs in: the lead may be unbound.
 boundOrHere :: (Shell es) => Call -> Maybe Binding -> Eff es (Maybe Binding)
@@ -320,18 +326,18 @@ sessionAgents :: (Environment :> es, RoFileSystem :> es) => SessionId -> Eff es 
 sessionAgents session = maybe (pure []) (fmap slottedAgents . FileSystem.listDirectory . sessionDir) =<< slotFor session Main
 
 {- | An agent ended with no hand-back, logged once: 'AgentEnded' in the child
-run its binding names, when a parent the test takes started it, then the
+run it leads ('ledRun'), when a parent the test takes started it, then the
 agent's return in that parent, when it has the agent at work. An agent
-leading no child run, a plain worker, records nothing: a return would fake
-its hand-back. Nor does a child run whose @state next@ hands back now: one
+leading no child run, a plain worker or one in a child run, records nothing:
+a return would fake its hand-back. Nor does a child run whose @state next@ hands back now: one
 over, asking up or awaiting made its hand-back, or makes it once resumed.
 -}
 agentEnded :: (Shell es) => Steps -> SessionId -> (RunId -> Bool) -> AgentId -> Eff es Text
 agentEnded steps session under agent =
-    slotFor session (AgentKey agent) >>= maybe (pure Nothing) (readBinding . bindingFile) >>= \case
+    slotFor session (AgentKey agent) >>= maybe (pure Nothing) ledRun >>= \case
         Nothing -> pure ""
-        Just binding ->
-            onRunLog end binding.run >>= \case
+        Just run ->
+            onRunLog end run >>= \case
                 NoRun -> pure ""
                 Ran (Left failure) -> pure (failureText "stop" failure)
                 Ran (Right Nothing) -> pure ""
@@ -341,16 +347,28 @@ agentEnded steps session under agent =
     noted = Right . (`Plan` (\_ _ -> mempty))
     end stamp run = case run.state.start.principal of
         ByRole parent _ _
-            | under parent.run && not (handsBackNow steps run) ->
+            | under parent.run && not (handsBackNow steps stamp run) ->
                 fmap (Just (parent.run, (Role.role run.state.start.flow).name) <$) (record (sessioned stamp) run [Hook (digestOf [runIdText run.state.run, agent.agentIdText, "agent_ended"])] (noted [AgentEnded agent]))
         ByRole {} -> ([], Right Nothing)
         ByUser _ -> ([], Right Nothing)
         ByCaller _ -> ([], Right Nothing)
     returning role stamp run = record (sessioned stamp) run [Hook (digestOf [runIdText run.state.run, agent.agentIdText, "agent_returned"])] (noted (maybeToList (Fold.returnOf run.state role (Just agent))))
 
+{- | The run the slot's agent leads: the one it is bound to, when its own init
+bound it there. A worker bound to its spawner's run, or a session from before
+the marker, leads none.
+-}
+ledRun :: (RoFileSystem :> es) => Slot -> Eff es (Maybe RunId)
+ledRun slot = do
+    bound <- readBinding (bindingFile slot)
+    led <- (>>= parseRunId . Text.strip) <$> FileSystem.readText (ledFile slot)
+    pure (Monad.mfilter (`elem` led) ((.run) <$> bound))
+
 -- | Whether the run's @state next@ hands it back now, read with no GitHub facts: what it delivers ('handsBack').
-handsBackNow :: Steps -> Loaded -> Bool
-handsBackNow steps run = handsBack (deliver run.state.start (Advice.heldBy run.state.start run.state.workers (advise steps run.g (Facts Nothing Nothing []) run.state)).action)
+handsBackNow :: Steps -> Stamp -> Loaded -> Bool
+handsBackNow steps stamp run = handsBack (deliver settled.state.start advice.action)
+  where
+    (_, settled, _, advice) = settledAdvice steps (Facts Nothing Nothing []) stamp run
 
 {- | The worker's spawn, appended to its spawner's log under that run's lock
 by an id hashed from the run and the worker, so a bind seen twice appends it
@@ -814,8 +832,7 @@ under it, where the run is and each option, one per line.
 adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Output)
 adviceOf steps facts told stamp run = (map (.envelope) new, advice.action, out)
   where
-    (new, settled, unsynced) = settle run
-    advice = Advice.heldBy settled.state.start settled.state.workers (advise steps settled.g facts settled.state)
+    (new, settled, unsynced, advice) = settledAdvice steps facts stamp run
     out =
         recorded new
             <> delivered settled.state (deliver settled.state.start advice.action)
@@ -825,6 +842,15 @@ adviceOf steps facts told stamp run = (map (.envelope) new, advice.action, out)
                     <> Text.concat ["  " <> line <> "\n" | line <- explained settled.state.start advice <> told <> unsynced <> advice.facts <> skippable settled.state]
                     <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
                 )
+
+{- | The run once what GitHub and its Fuel already decide is recorded ('due'):
+the lines written, the run, what was due but refused (told, not stored), and
+the advice there.
+-}
+settledAdvice :: Steps -> Facts -> Stamp -> Loaded -> ([Written], Loaded, [Text], Advice)
+settledAdvice steps facts stamp run = (new, settled, unsynced, Advice.heldBy settled.state.start settled.state.workers (advise steps settled.g facts settled.state))
+  where
+    (new, settled, unsynced) = settle run
     settle current = case due facts current.state of
         Nothing -> ([], current, [])
         Just event -> case commit stamp current [(Cli, event)] of

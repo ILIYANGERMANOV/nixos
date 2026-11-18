@@ -7,6 +7,7 @@ is at, so each hook first reads the agent's binding to its run:
 <root>/<session>/<agent id>                 a subagent
 <root>/<session>/handback-<agent id>.json   a hand-back seen before its agent was bound
 <root>/<session>/lead-<main|agent id>       the lead skill an agent began (@engineer@)
+<root>/<session>/led-<main|agent id>        the run an agent's own @state init@ bound it to
 @
 
 The root is @$XDG_STATE_HOME/state/bindings@. A binding's text is the @run@
@@ -28,6 +29,7 @@ module State.Protocol.Binding (
     bindingFile,
     stashFile,
     leadFile,
+    ledFile,
     sessionDir,
     slottedAgents,
     Worktree (..),
@@ -123,11 +125,19 @@ stashFile slot = slot.dir </> (stashPrefix <> slot.name <> ".json")
 leadFile :: Slot -> FilePath
 leadFile slot = slot.dir </> (leadPrefix <> slot.name)
 
+{- | Marks a key the lead of a run: holds the run id its own @state init@ bound
+it to. A worker shares its spawner's binding, so only this tells the lead of
+a child run from a worker in it. Never removed.
+-}
+ledFile :: Slot -> FilePath
+ledFile slot = slot.dir </> (ledPrefix <> slot.name)
+
 -- | The session's own agent's slot, and the prefixes of the files beside a slot.
-mainName, stashPrefix, leadPrefix :: FilePath
+mainName, stashPrefix, leadPrefix, ledPrefix :: FilePath
 mainName = "main"
 stashPrefix = "handback-"
 leadPrefix = "lead-"
+ledPrefix = "led-"
 
 -- | The directory of a slot's session, whose names 'slottedAgents' reads.
 sessionDir :: Slot -> FilePath
@@ -135,7 +145,7 @@ sessionDir slot = slot.dir
 
 -- | The subagents with a slot, among the names in their session's directory: neither @main@ nor a file beside a slot.
 slottedAgents :: [FilePath] -> [AgentId]
-slottedAgents names = [AgentId (Text.pack name) | name <- names, name /= mainName, not (any (`isPrefixOf` name) [stashPrefix, leadPrefix])]
+slottedAgents names = [AgentId (Text.pack name) | name <- names, name /= mainName, not (any (`isPrefixOf` name) [stashPrefix, leadPrefix, ledPrefix])]
 
 -- | Whether a binding's worktree still stands: one is removed once its PR merged.
 data Worktree = Standing | Removed

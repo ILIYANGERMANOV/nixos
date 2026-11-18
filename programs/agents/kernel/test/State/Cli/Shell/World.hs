@@ -47,6 +47,7 @@ module State.Cli.Shell.World (
     editCall,
     spawnResult,
     spawnResultOf,
+    spawnResultBy,
     initRan,
     agentStop,
     leadStop,
@@ -360,9 +361,16 @@ spawnResult role = spawnResultOf role "a1"
 
 -- | The lead's spawn of a subagent of this role and id, done.
 spawnResultOf :: Text -> Text -> LBS.ByteString
-spawnResultOf role agent =
+spawnResultOf = spawnResultFrom Null
+
+-- | A subagent of this role and id spawning one of that role and id, done.
+spawnResultBy :: Text -> Text -> Text -> Text -> LBS.ByteString
+spawnResultBy spawnerRole spawner = spawnResultFrom (object ["id" .= spawner, "role" .= spawnerRole])
+
+spawnResultFrom :: Value -> Text -> Text -> LBS.ByteString
+spawnResultFrom spawner role agent =
     hookEvent
-        Null
+        spawner
         [ "event" .= String "afterTool"
         , "tool" .= String "delegate"
         , "input" .= object ["subagent_type" .= role]

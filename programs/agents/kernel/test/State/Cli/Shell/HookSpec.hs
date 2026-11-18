@@ -511,10 +511,29 @@ spec = describe "state-hook over the doubles" $ do
                 _ <- hook world "stop" (agentStop "engineer" "e1" ["e1"])
                 atWorktree world "/work"
 
-
                 listed <- succeeded =<< state world ["tasks"]
                 listed `shouldSatisfy` any (Text.isPrefixOf ("child " <> child <> " engineer stopped, no hand-back at "))
                 listed `shouldContain` ["  RESUME " <> child <> " stopped, no hand-back: a fresh engineer from its notes /child"]
+
+            it "records nothing in a child run at the stop of a worker its lead spawned" $ \world -> do
+                _ <- engineerAtWork world
+                _ <- succeeded =<< hook world "bind" (spawnResultBy "engineer" "e1" "implementer" "w1")
+                before' <- loggedEventsIn world "/child"
+
+                said <- hook world "stop" (agentStop "implementer" "w1" ["e1"])
+
+                (said.code, said.out) `shouldBe` (0, [])
+                loggedEventsIn world "/child" `shouldReturn` before'
+
+            it "records nothing in a child run at the lead's stop for a worker there that runs no more" $ \world -> do
+                _ <- engineerAtWork world
+                _ <- succeeded =<< hook world "bind" (spawnResultBy "engineer" "e1" "implementer" "w1")
+                before' <- loggedEventsIn world "/child"
+                atWorktree world "/work"
+
+                _ <- hook world "stop" (leadStop ["e1"])
+
+                loggedEventsIn world "/child" `shouldReturn` before'
 
             it "records the agent its spawner's stop call names ended" $ \world -> do
                 _ <- engineerAtWork world
