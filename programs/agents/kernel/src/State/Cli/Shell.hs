@@ -328,9 +328,10 @@ sessionAgents session = maybe (pure []) (fmap slottedAgents . FileSystem.listDir
 {- | An agent ended with no hand-back, logged once: 'AgentEnded' in the child
 run it leads ('ledRun'), when a parent the test takes started it, then the
 agent's return in that parent, when it has the agent at work. An agent
-leading no child run, a plain worker or one in a child run, records nothing:
-a return would fake its hand-back. Nor does a child run whose @state next@ hands back now: one
-over, asking up or awaiting made its hand-back, or makes it once resumed.
+leading no child run, a plain worker or one in a child run, records
+nothing: a return would fake its hand-back. Nor does a child run whose
+@state next@ hands back now: one over, asking up or awaiting made its
+hand-back, or makes it once resumed.
 -}
 agentEnded :: (Shell es) => Steps -> SessionId -> (RunId -> Bool) -> AgentId -> Eff es Text
 agentEnded steps session under agent =
