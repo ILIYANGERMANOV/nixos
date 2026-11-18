@@ -146,20 +146,20 @@ gateSpec = describe "the gate of an agent bound to no run" $ do
 readOnlySpec :: Spec
 readOnlySpec = describe "the architect's read-only run" $ do
     let notes = "/tmp/notes"
-        codeWrites = [Edits (Just "/wt/src/a.hs"), Writes (Just "/wt/README.md"), Writes (Just (notes <> "/../x")), Edits (Just (notes <> "/./../notes2/n.md")), Writes Nothing] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
+        codeWrites = [Edits (Just "/wt/src/a.hs"), Writes (Just "/wt/README.md"), Writes (Just (notes <> "/../x")), Edits (Just (notes <> "/./../notes2/n.md")), Writes Nothing, Edits (Just (notes <> "/worktrees/T1/src/a.hs")), Writes (Just (notes <> "/sub/n.md"))] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
         ticketWrites = map RunsShell ["gh issue create --repo o/r --title t --body b", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\nbody\nEOF", "gh issue comment 1 --repo o/r --body b"]
         notesWrites = [Writes (Just (notes <> "/notes.md")), Edits (Just (notes <> "/notes.md")), Writes (Just (notes <> "/./r/../notes.md"))]
         readCalls = [Spawns] <> map RunsShell ["gh issue view 1", "git status", "state next"]
         -- Each run where the architect's flow runs: its own states, and the chief's discussion and architect request.
         architectAt = [(ArchitectFlow, "architect"), (ArchitectFlow, "architect/ticket"), (ArchitectFlow, "design/confirm_design"), (ChiefFlow, "discussion/discussing"), (ChiefFlow, "architect/architect")]
         deniedAt (flow, at) = readOnly notes (flowAt flow (StateName at))
-    it "denies an edit or write outside the notes dir, a commit, a push and a PR opened or merged at every state, naming the ticket as the write" $
+    it "denies an edit or write outside the notes dir or below it, a commit, a push and a PR opened or merged at every state, naming the ticket as the write" $
         [deniedAt place call | place <- architectAt, call <- codeWrites] `shouldSatisfy` all (maybe False ("write or edit the ticket at any point" `Text.isInfixOf`))
 
     it "lets the ticket be written, edited or commented on, a researcher spawn and reads go on, at every state" $
         [deniedAt place call | place <- architectAt, call <- ticketWrites <> readCalls] `shouldSatisfy` all (== Nothing)
 
-    it "lets Edit and Write change the notes inside the notes dir, at every state" $
+    it "lets Edit and Write change the files directly in the notes dir, at every state" $
         [deniedAt place call | place <- architectAt, call <- notesWrites] `shouldSatisfy` all (== Nothing)
 
     it "never_denies_the_engineer_or_the_10x" . hedgehog $ do

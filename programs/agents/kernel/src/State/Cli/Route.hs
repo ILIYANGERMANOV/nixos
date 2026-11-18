@@ -167,7 +167,7 @@ gate lead call = case lead of
 
 {- | Why a call is denied where this flow runs, in a run whose notes dir is
 given: the architect's design goes into its notes and its ticket, so it
-edits and writes files only inside the notes dir, and commits, pushes and
+edits and writes only files directly in the notes dir, none below it, and commits, pushes and
 opens or merges a PR nowhere. It writes, edits or comments on the ticket
 (@gh issue create@, @edit@, @comment@) at any state, as its researchers
 spawn and its shell reads. Other flows write, the chief where no scope runs
@@ -181,7 +181,7 @@ readOnly notes flow call = guard (writesNoCode flow) *> (denial <$> codeWrite)
         Edits file -> outsideNotes file
         Writes file -> outsideNotes file
         RunsShell _ -> writeOf call
-    outsideNotes file = guard (not (any (inside notes) file)) *> writeOf call
+    outsideNotes file = guard (not (any (directlyIn notes) file)) *> writeOf call
     denial act =
         failureText
             "architect"
@@ -192,15 +192,16 @@ readOnly notes flow call = guard (writesNoCode flow) *> (denial <$> codeWrite)
                 , fix = "keep the design in the discussion and in " <> Text.pack (notes </> "notes.md") <> ", which Edit and Write may change; write or edit the ticket at any point: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
                 }
 
-{- | Whether an absolute path lies below a directory, read lexically: @.@ and
-@..@ resolved, so @<dir>/../x@ is outside. Symlinks are not followed: a
-route reads no disk before every edit, and a link in the notes dir is the
-run's own.
+{- | Whether an absolute path is a file directly in a directory, read
+lexically: @.@ and @..@ resolved, so @<dir>/../x@ is outside. Nothing
+deeper counts: a worktree may sit below the notes dir, and its code is not
+the notes. Symlinks are not followed: a route reads no disk before every
+edit, and a link in the notes dir is the run's own.
 -}
-inside :: FilePath -> FilePath -> Bool
-inside dir path = case stripPrefix (lexical dir) (lexical path) of
-    Just (_ : _) -> True
-    Just [] -> False
+directlyIn :: FilePath -> FilePath -> Bool
+directlyIn dir path = case stripPrefix (lexical dir) (lexical path) of
+    Just [_] -> True
+    Just _ -> False
     Nothing -> False
   where
     lexical = reverse . foldl' step [] . splitDirectories

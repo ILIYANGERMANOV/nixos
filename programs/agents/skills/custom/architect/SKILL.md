@@ -62,8 +62,8 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   `state record <step>.spawned` or `state handback <role>`.
 - **Read-only.** No repo edits, commits, pushes, PRs, builds or test runs;
   the hooks deny commit, push, `gh pr create/merge`, and Edit and Write
-  outside the notes dir. Edit and Write are allowed only inside `<notes>`,
-  for `notes.md`. Cheap read-only probes are fine. A bigger experiment goes
+  outside the notes dir. Edit and Write are allowed only on files directly
+  in `<notes>`, for `notes.md`, never in a directory below it. Cheap read-only probes are fine. A bigger experiment goes
   to a `researcher`, outputs under `/tmp`, never running code from a PR or
   branch by anyone else. The one outside write is the ticket: `gh issue
   create`, `edit` and `comment` are allowed at any state.
