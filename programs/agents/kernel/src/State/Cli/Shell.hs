@@ -481,6 +481,7 @@ unreadByHook name v = case name of
     BindHook -> ""
     RouteHook -> ""
     BeginHook -> ""
+    StopHook -> ""
   where
     byHand =
         "state hook "
