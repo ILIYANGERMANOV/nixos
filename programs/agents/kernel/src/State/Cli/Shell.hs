@@ -210,7 +210,7 @@ readOnlyAt run gate =
   where
     startedFlow line = either (const Nothing) (fmap (.flow) . Fold.runStart . (.event)) (decodeLine line)
     denialAt =
-        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) (askedAt loaded.state) gate))) run <&> \case
+        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) run <&> \case
             Ran (Right denial) -> denial
             Ran (Left _) -> Nothing
             NoRun -> Nothing

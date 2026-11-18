@@ -12,7 +12,7 @@ reader leaves be (a subshell, a substitution, a heredoc, an open quote, a
 
 An agent bound to no run is gated instead (#378): a lead's write waits for
 its run ('gate'), so its record starts before its work does. One bound to a
-run where the architect flow runs writes nothing ('readOnly').
+run where the architect flow runs writes no code ('readOnly').
 -}
 module State.Cli.Route (
     StateCall (..),
@@ -26,22 +26,18 @@ module State.Cli.Route (
     writesNoCode,
 ) where
 
-import Control.Applicative ((<|>))
 import Control.Monad (guard)
 import Data.Char (isDigit, isSpace)
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Flow (unqualify)
-import State.Category.Step (StateName, StepSet (stepName), stateNameText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (ShowRun), architectInitFix, chiefInitFix, failureText, initFix, parseCommand, tenXInitFix)
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (FlowName (..), leads)
 import State.Run.Event (AgentRole, runIdText)
 import State.Step.Artifact (shellPath)
-import State.Step.Ticket (Sing (ConfirmDesign))
 import State.Table (Steps)
 import System.FilePath ((</>))
 
@@ -169,38 +165,29 @@ gate lead call = case lead of
                 , fix
                 }
 
-{- | Why a call is denied where this flow runs, at this state: the
-architect's design goes into its ticket, so it edits, writes, commits,
-pushes and opens or merges a PR nowhere, and writes the ticket
-(@gh issue create@ or @edit@) only at @confirm_design@. Its researchers
-spawn, and its shell reads, anywhere. Other flows write, the chief where no
-scope runs the architect's.
+{- | Why a call is denied where this flow runs: the architect's design goes
+into its notes and its ticket, so it edits, writes, commits, pushes and
+opens or merges a PR nowhere. It writes, edits or comments on the ticket
+(@gh issue create@, @edit@, @comment@) at any state, as its researchers
+spawn and its shell reads. Other flows write, the chief where no scope runs
+the architect's.
 -}
-readOnly :: FlowName -> StateName -> Gate -> Maybe Text
-readOnly flow at call = guard (writesNoCode flow) *> (denial "the architect flow changes no code" <$> codeWrite <|> denial "the ticket is written at confirm_design" <$> earlyTicket)
+readOnly :: FlowName -> Gate -> Maybe Text
+readOnly flow call = guard (writesNoCode flow) *> (denial <$> codeWrite)
   where
     codeWrite = case call of
         Spawns -> Nothing
         Edits -> writeOf call
         Writes -> writeOf call
         RunsShell _ -> writeOf call
-    earlyTicket = case (call, snd (unqualify (stateNameText at)) == stateNameText (stepName ConfirmDesign)) of
-        (RunsShell command, False) -> listToMaybe ["`" <> segment.written <> "`" | segment <- fromMaybe [] (segments command), writesTicket segment.tokens]
-        (RunsShell _, True) -> Nothing
-        (Spawns, _) -> Nothing
-        (Edits, _) -> Nothing
-        (Writes, _) -> Nothing
-    writesTicket = \case
-        "gh" : "issue" : sub : _ -> sub `elem` ["create", "edit"]
-        _ -> False
-    denial because act =
+    denial act =
         failureText
             "architect"
             Failure
                 { exit = BadInput
-                , what = because <> ", so " <> act <> " is denied"
-                , why = "an architect run's one write is its ticket, written once the user confirms the design"
-                , fix = "keep the design in the discussion; only at confirm_design, once the user confirms, write the ticket, once: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
+                , what = "the architect flow changes no code, so " <> act <> " is denied"
+                , why = "an architect run's writes are its notes and its ticket"
+                , fix = "keep the design in the discussion and the notes; write or edit the ticket at any point: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
                 }
 
 -- | Whether a flow changes no code, so 'readOnly' denies its writes.
