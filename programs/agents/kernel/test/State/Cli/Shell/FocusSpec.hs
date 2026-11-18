@@ -1,5 +1,5 @@
 {- | @state focus@ and @state tasks@ over the doubles, the clock fixed: a
-chief's request switch, its cards and the 5-minute resume advice.
+chief's request switch, its cards and the resume advice (5-minute cache, 15s buffer).
 -}
 module State.Cli.Shell.FocusSpec (spec) where
 
@@ -27,13 +27,13 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                                [ "notes /notes"
                                , "r2 in focus at fuel"
                                , "r1 paused 4m at architect/fuel: researching the store"
-                               , "  resume agent a7: paused under 5 minutes, its cache is warm (SendMessage)"
+                               , "  resume agent a7: paused under 4m45s, its cache is warm (SendMessage)"
                                ]
                            ,
                                [ "notes /notes"
                                , "r2 in focus at fuel"
                                , "r1 paused 6m at architect/fuel: researching the store"
-                               , "  fresh agent from card: paused 5 minutes or more, its cache is cold"
+                               , "  fresh agent from card: paused 4m45s or more, its cache is cold"
                                ]
                            )
 
@@ -50,7 +50,7 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
             back
                 `shouldBe` [ "recorded 6 focused -> architect/fuel"
                            , "r1 paused 4m at architect/fuel: researching the store"
-                           , "  resume agent a7: paused under 5 minutes, its cache is warm (SendMessage)"
+                           , "  resume agent a7: paused under 4m45s, its cache is warm (SendMessage)"
                            ]
             after `shouldBe` before'
 

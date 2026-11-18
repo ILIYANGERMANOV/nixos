@@ -29,7 +29,7 @@ import State.Protocol.Advice (Facts (..), factLines)
 import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
 import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, replyText, rulingLine)
-import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), advice, cacheLife)
+import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), advice, resumeWindow)
 import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText, taskNoText)
 import State.Run.Fan (Fan (..), lookupTask, tries)
@@ -105,7 +105,11 @@ adviceLine = \case
     ResumeAgent agent -> "resume agent " <> agent.agentIdText <> ": paused under " <> life <> ", its cache is warm (SendMessage)"
     FreshFromCard -> "fresh agent from card: paused " <> life <> " or more, its cache is cold"
   where
-    life = tshow (round (cacheLife / 60) :: Integer) <> " minutes"
+    life = minutesSeconds (round resumeWindow)
+
+-- | Whole seconds as @4m45s@.
+minutesSeconds :: Integer -> Text
+minutesSeconds total = let (m, s) = total `divMod` 60 in tshow m <> "m" <> tshow s <> "s"
 
 pendingLines :: RunState -> [Text]
 pendingLines state = map line state.pending

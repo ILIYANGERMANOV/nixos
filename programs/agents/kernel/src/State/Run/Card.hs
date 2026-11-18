@@ -11,6 +11,8 @@ module State.Run.Card (
     advice,
     resumeAdvice,
     cacheLife,
+    safetyBuffer,
+    resumeWindow,
 ) where
 
 import Control.Applicative ((<|>))
@@ -74,18 +76,28 @@ advice now card = case card.standing of
     InFocus -> Nothing
     Paused at _ -> resumeAdvice at now <$> card.agent
 
-{- | A worker paused under 'cacheLife' is resumed, its prompt cache still
+{- | A worker paused under 'resumeWindow' is resumed, its prompt cache still
 warm; one paused longer starts afresh from the card, as resuming it would
 reread its whole context uncached.
 -}
 resumeAdvice :: UTCTime -> UTCTime -> AgentId -> ResumeAdvice
 resumeAdvice pausedAt now agent
-    | diffUTCTime now pausedAt < cacheLife = ResumeAgent agent
+    | diffUTCTime now pausedAt < resumeWindow = ResumeAgent agent
     | otherwise = FreshFromCard
+
+-- | How long a paused worker is still resumed: the cache's life less the 'safetyBuffer'.
+resumeWindow :: NominalDiffTime
+resumeWindow = cacheLife - safetyBuffer
 
 -- | The prompt cache's lifetime: 5 minutes (https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching).
 cacheLife :: NominalDiffTime
 cacheLife = 300
+
+{- | The user's margin under 'cacheLife': the resume message itself takes
+time to reach the worker, so a pause near the edge counts as cold.
+-}
+safetyBuffer :: NominalDiffTime
+safetyBuffer = 15
 
 -- | What a request's lines hold: the questions asked in it, its last worker, and when it last waited.
 data Span = Span {asked :: [QId], lastWorker :: Maybe AgentId, pausedAt :: Maybe UTCTime}

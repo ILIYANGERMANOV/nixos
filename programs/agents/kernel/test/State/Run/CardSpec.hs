@@ -9,7 +9,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (..))
 import State.Run.Ask (Above (..), Kind (Design, Pick), Proposal (..), QId (..), Question (..))
-import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), cards, resumeAdvice)
+import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), cacheLife, cards, resumeAdvice, safetyBuffer)
 import State.Run.Event
 import State.Run.EventGen (fuelSet, logOf, oneLine, run)
 import State.Run.Fold (trace)
@@ -20,15 +20,23 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = do
     describe "resumeAdvice" $ do
-        it "resumes_the_worker_of_a_request_paused_under_five_minutes" . hedgehog $ do
+        it "resumes_the_worker_of_a_request_paused_under_the_cache_life_less_the_safety_buffer" . hedgehog $ do
             pausedAt <- forAll genTime
-            paused <- forAll (genSeconds 0 299.999)
+            paused <- forAll (genSeconds 0 (window - 0.001))
             resumeAdvice pausedAt (addUTCTime paused pausedAt) agent === ResumeAgent agent
 
-        it "starts_a_fresh_agent_from_the_card_of_a_request_paused_five_minutes_or_more" . hedgehog $ do
+        it "starts_a_fresh_agent_from_the_card_of_a_request_paused_the_cache_life_less_the_safety_buffer_or_more" . hedgehog $ do
             pausedAt <- forAll genTime
-            paused <- forAll (genSeconds 300 86400)
+            paused <- forAll (genSeconds window 86400)
             resumeAdvice pausedAt (addUTCTime paused pausedAt) agent === FreshFromCard
+
+        it "draws_the_line_at_exactly_the_cache_life_less_the_safety_buffer" . hedgehog $ do
+            pausedAt <- forAll genTime
+            let at seconds = resumeAdvice pausedAt (addUTCTime seconds pausedAt) agent
+            (at (window - 0.001), at window) === (ResumeAgent agent, FreshFromCard)
+
+        it "keeps a 15 second safety buffer under the 5 minute cache life" $
+            (cacheLife, safetyBuffer) `shouldBe` (300, 15)
 
     describe "cards" $
         it "gives the request in focus and each waiting one its node, its own decisions and open questions, and its last worker" $ do
@@ -53,6 +61,7 @@ spec = do
                     ]
   where
     agent = AgentId "a7"
+    window = cacheLife - safetyBuffer
 
 genTime :: Gen UTCTime
 genTime = (\day -> UTCTime (addDays day (fromGregorian 2026 1 1)) 0) <$> Gen.integral (Range.linear 0 3650)
