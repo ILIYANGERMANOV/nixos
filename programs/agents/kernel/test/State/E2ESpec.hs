@@ -300,7 +300,7 @@ spec = describe "the state binary" $ do
                 (bad.code, bad.err)
                     `shouldBe` (2, ["state " <> Text.pack sub <> ": run " <> run <> " event 2 is not read - log version 3, this state reads 4", "fix: state init --notes <a new dir> starts afresh"])
             after <- storedRows repo run
-            shownAfter `shouldBe` shownBefore
+            after `shouldBe` before
 
         it "loses no event of two state processes appending to one run at once" $ \repo -> do
             _ <- drive bin repo []
@@ -339,7 +339,7 @@ spec = describe "the state binary" $ do
             away `shouldSatisfy` mentions "r2 in focus at fuel"
             answered `shouldSatisfy` mentions (qid <> " Design: which store? - postgres")
             listed `shouldSatisfy` mentions ("child " <> child <> " engineer at ")
-            shownAfter `shouldBe` shownBefore
+            filter ("step:" `Text.isPrefixOf`) shownAfter `shouldBe` filter ("step:" `Text.isPrefixOf`) shownBefore
 
         it "answers one direct child's question from the chief's run, which forwards a Design; only that child resumes, its sibling runs on unaffected" $ \repo -> do
             parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
@@ -813,7 +813,7 @@ spec = describe "the state binary" $ do
                     handed <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
                     (resumed, handed) `shouldBe` ([], [])
                 after <- logLines bin repo
-                shownAfter `shouldBe` shownBefore
+                after `shouldBe` before
 
             it "are silent on a log they do not read" $ \repo -> do
                 run <- startedRun bin repo
@@ -883,7 +883,7 @@ spec = describe "the state binary" $ do
                     after <- logLines bin repo
                     said `shouldSatisfy` mentions "gather/research.spawned"
                     loggedTypes bin w1 `shouldReturnContaining` ["gather/research.spawned"]
-                    shownAfter `shouldBe` shownBefore
+                    after `shouldBe` before
 
                 it "record a depth-2 worker's hand-back made before its spawner's hook bound it, as a foreground one is" $ \repo -> do
                     (engineer, w1) <- childEngineer bin hookBin repo

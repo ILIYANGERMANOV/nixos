@@ -65,9 +65,9 @@ import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (ParentRun), Link (..), OneLine, Parent (..), Principal (..), Proposal (..), QId, Question (..), kindName, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
+import State.Run.Card qualified as Card
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, encodeLine, eventType, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Card qualified as Card
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), TaskId, TaskNo, parseRunId, roleText, runIdText, taskNoText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
@@ -496,6 +496,8 @@ the advice from the two logged times, so a replay prints the same.
 focusPlan :: Loaded -> Maybe TaskNo -> Maybe OneLine -> Either Failure Plan
 focusPlan run target summary = do
     Bifunctor.first refusal (Fold.focusable run.state)
+    -- The request in focus waits on nothing: turning to it is no turn.
+    for_ target (\task -> if task == run.state.focus then Left (refusal (Fold.NotSuspended task)) else Right ())
     waits <- case (Fold.untouched run.g run.state, summary) of
         (True, _) -> Right []
         (False, Just line) -> Right [Suspended run.state.focus line]

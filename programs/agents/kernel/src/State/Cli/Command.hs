@@ -303,11 +303,11 @@ commandInfo steps scope =
                     <$> textArgument (choices reasonText)
                     <*> sentence "<why>"
             , sub "pending" "List the questions awaiting an answer" (pure (Right (OnRun Pending)))
-            , sub "focus" "Switch the chief's request: to a waiting one, else a new one" $
+            , sub "focus" "Turn to a waiting request, else a new one" $
                 (\task summary -> Focus <$> traverse (named "request" parseTaskNo) task <*> traverse oneLine summary)
                     <$> optional (textArgument "<request>")
                     <*> optional (textOption "summary" "<line>" "where the request in focus stands, once it recorded work")
-            , sub "tasks" "Print a card per request and child run, and how to resume each" (pure (Right Tasks))
+            , sub "tasks" "Print each request's card and resume advice" (pure (Right Tasks))
             , sub "help" "Print this help" (pure (Right Help))
             ]
     footer =

@@ -7,9 +7,9 @@ lock is the single-threaded run itself.
 module Doubles.Log (Runs (..), runLogInMemory, rowsOf) where
 
 import Control.Monad ((<=<))
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.List (sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Effectful (Eff, (:>))

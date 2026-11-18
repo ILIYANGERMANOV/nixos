@@ -175,10 +175,10 @@ test-suite state-test
     State.Protocol.HookSpec
     State.RoleSpec
     State.Run.AskSpec
+    State.Run.CardSpec
     State.Run.CodecSpec
     State.Run.EventGen
     State.Run.EventSpec
-    State.Run.CardSpec
     State.Run.FanSpec
     State.Run.FoldSpec
     State.Run.RunGen

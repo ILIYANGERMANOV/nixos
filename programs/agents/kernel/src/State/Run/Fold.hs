@@ -70,9 +70,9 @@ module State.Run.Fold (
 
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
-import Data.Functor ((<&>))
 import Data.Bifunctor qualified as Bifunctor
 import Data.Foldable (for_)
+import Data.Functor ((<&>))
 import Data.List (find, genericLength, isSuffixOf, partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -472,9 +472,10 @@ handle handler g state = case handler of
         Forwards qid to -> forwarded state qid to
         Answers qid reply by -> answered state qid reply by
         Parks qid why -> parked state qid why
-    FocusHere -> \answering -> focusable state >> case answering of
-        Suspends task summary -> suspends g state task summary
-        Focuses task -> focuses g state task
+    FocusHere -> \answering ->
+        focusable state >> case answering of
+            Suspends task summary -> suspends g state task summary
+            Focuses task -> focuses g state task
 
 {- | A pick moves along its label's edge, unless the budget of the step it
 enters is used up: the advice offers only the actions a budget leaves, so

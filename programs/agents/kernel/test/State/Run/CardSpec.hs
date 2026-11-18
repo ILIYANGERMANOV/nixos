@@ -7,13 +7,13 @@ import Data.Time (NominalDiffTime, UTCTime (..), addDays, addUTCTime, fromGregor
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Run.Ask (Above (..), Kind (Design), Principal (..), Proposal (..), QId (..), Question (..), Reply (..))
+import State.Category.Fuel (Fuel (..))
+import State.Run.Ask (Above (..), Kind (Design, Pick), Proposal (..), QId (..), Question (..))
 import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), cards, resumeAdvice)
 import State.Run.Event
 import State.Run.EventGen (fuelSet, logOf, oneLine, run)
 import State.Run.Fold (trace)
 import State.Run.RunGen (chiefGraph)
-import State.Step.Fuel (Fuel (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -32,15 +32,15 @@ spec = do
 
     describe "cards" $
         it "gives the request in focus and each waiting one its node, its own decisions and open questions, and its last worker" $ do
-            let asked n = Asking (Question (QId run n) Design (oneLine "which store?")) (StateName "fuel") Itself
+            let asked n kind = Asking (Question (QId run n) kind (oneLine "which store?")) (StateName "fuel") Itself
                 logged =
                     logOf
                         ( Started (Start ChiefFlow "notes" (ByUser OwnPr) Set.empty)
-                            :| [ Asked (asked 1)
+                            :| [ Asked (asked 1 Design)
                                , Forwarded (QId run 1) TheUser
                                , WorkerSpawned (AgentRole "researcher") agent
                                , Suspended (TaskNo 1) (oneLine "asked which store")
-                               , Asked (asked 2)
+                               , Asked (asked 2 Pick)
                                , RuledOn (QId run 2) (Proposal (oneLine "sqlite") (oneLine "one user") (oneLine "none") Nothing)
                                , fuelSet Balanced
                                ]

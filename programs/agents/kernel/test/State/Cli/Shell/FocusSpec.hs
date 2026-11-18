@@ -23,16 +23,18 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
             atSix <- succeeded =<< state world ["tasks"]
 
             (atFour, atSix)
-                `shouldBe` ( [ "notes /notes"
-                             , "r2 in focus at fuel"
-                             , "r1 paused 4m at architect/gather: researching the store"
-                             , "  resume agent a7: paused under 5 minutes, its cache is warm (SendMessage)"
-                             ]
-                           , [ "notes /notes"
-                             , "r2 in focus at fuel"
-                             , "r1 paused 6m at architect/gather: researching the store"
-                             , "  fresh agent from card: paused 5 minutes or more, its cache is cold"
-                             ]
+                `shouldBe` (
+                               [ "notes /notes"
+                               , "r2 in focus at fuel"
+                               , "r1 paused 4m at architect/fuel: researching the store"
+                               , "  resume agent a7: paused under 5 minutes, its cache is warm (SendMessage)"
+                               ]
+                           ,
+                               [ "notes /notes"
+                               , "r2 in focus at fuel"
+                               , "r1 paused 6m at architect/fuel: researching the store"
+                               , "  fresh agent from card: paused 5 minutes or more, its cache is cold"
+                               ]
                            )
 
     describe "state focus" $ do
@@ -46,7 +48,8 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
             after <- succeeded =<< state world ["show"]
 
             back
-                `shouldBe` [ "r1 paused 4m at architect/gather: researching the store"
+                `shouldBe` [ "recorded 6 focused -> architect/fuel"
+                           , "r1 paused 4m at architect/fuel: researching the store"
                            , "  resume agent a7: paused under 5 minutes, its cache is warm (SendMessage)"
                            ]
             after `shouldBe` before'
@@ -58,7 +61,7 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
 
             tasks <- succeeded =<< state world ["tasks"]
 
-            tasks `shouldBe` ["notes /notes", "r1 in focus at architect/gather"]
+            tasks `shouldBe` ["notes /notes", "r1 in focus at architect/fuel"]
 
         it "refuses a turn to a request that is not waiting, naming state tasks" $ \world -> do
             researching world

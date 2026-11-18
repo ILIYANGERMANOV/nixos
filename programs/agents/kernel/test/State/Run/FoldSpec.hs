@@ -1017,8 +1017,9 @@ atName state = case state.at of
     Out -> Nothing
     Graph.Exit -> Nothing
 
--- | A run of this flow under this principal, with no ops.
--- | Where a run stands, less the line numbers it holds, which a log with more lines shifts.
+{- | A run of this flow under this principal, with no ops.
+| Where a run stands, less the line numbers it holds, which a log with more lines shifts.
+-}
 landing :: RunState -> (Node, Map.Map Name (NonEmpty Round), Map.Map Metered Natural, Maybe Fuel, [Pending], [Ask.Kind], TaskNo, Map.Map TaskNo Suspension, Maybe OnTarget, Maybe Stop)
 landing s = (s.at, s.rounds, s.meters, s.fuel, s.pending, s.askedHere, s.focus, s.suspended, s.onTarget, s.stopped)
 
