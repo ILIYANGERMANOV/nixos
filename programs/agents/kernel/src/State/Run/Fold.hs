@@ -22,6 +22,8 @@ module State.Run.Fold (
     Waits (..),
     Refusal (..),
     Append (..),
+    Answering (..),
+    handle,
     replay,
     unvoided,
     runStart,
@@ -59,6 +61,7 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
+import Data.Foldable (for_)
 import Data.List (find, genericLength, isSuffixOf, partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -69,13 +72,13 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
+import State.Category.Effect (Eff (..), Handler (..))
 import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText, scopeNames)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, outOf, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (Closes), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (awaitDone, forkPasses, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
-import State.Flow.Drawn (isPick)
 import State.Flow.Library (simplifyPlan)
 import State.FlowName (FlowName (..))
 import State.Role qualified as Role
@@ -89,6 +92,7 @@ import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
 import State.Step.Fuel (FuelStep, Outcome (..), Sing (Fuel, Skip))
+import State.Step.Pick (PickStep)
 import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
@@ -370,6 +374,54 @@ runStart = \case
     WorkerReturned _ _ -> Nothing
     Voided _ _ -> Nothing
 
+{- | The logged event that answers an effect ('Eff'), its handler's input. A
+run's live command and its replay append the same event, so one handler
+serves both: live makes the event, then appends it ('appendTo').
+-}
+data Answering (eff :: Eff) where
+    -- | The branch the agent picked: the pick step's outcome, in its scopes.
+    Picked :: ScopePath -> SomeOutcome PickStep -> Answering PickE
+    -- | A question put to this run, one of its own or one handed up.
+    Asks :: Asking -> Answering AskE
+    Retags :: QId -> Answering AskE
+    RulesOn :: QId -> Proposal -> Answering AskE
+    Forwards :: QId -> Above -> Answering AskE
+    -- | The answer that came down, and who gave it.
+    Answers :: QId -> Text -> Above -> Answering AskE
+    -- | Focus, granted. No event logs it yet (#461 S4 does).
+    Focused :: Answering FocusE
+
+{- | The handler's run once the event answers its effect, or why the event
+does not: pure, so a replay of the log gives the run its live commands gave.
+-}
+handle :: Handler eff -> OpenGraph -> RunState -> Answering eff -> Either Refusal RunState
+handle handler g state = case handler of
+    AgentPicks -> \(Picked scope some) -> pick g state scope some
+    UserAsks -> \case
+        Asks asking -> fromChild asking.from <$> asked g state asking
+        Retags qid -> retagged state qid
+        RulesOn qid proposal -> ruledOn state qid proposal
+        Forwards qid to -> forwarded state qid to
+        Answers qid text by -> answered state qid text by
+    FocusHere -> \Focused -> Right state
+
+{- | A pick moves along its label's edge, unless the budget of the step it
+enters is used up: the advice offers only the actions a budget leaves, so
+a pick never strands the run at a step it may not spend.
+-}
+pick :: OpenGraph -> RunState -> ScopePath -> SomeOutcome PickStep -> Either Refusal RunState
+pick g state scope some = do
+    let outcome = AnyOutcome PickLayer some
+    for_ (edgeHere g state (tookEvent scope outcome)) $ \(_, edge) -> maybe (Right ()) Left (usedUpAt g state edge)
+    walked g state scope outcome
+
+-- | A question asked from a stopped child is its stop, triaged; from a worker, its oldest hand-back.
+fromChild :: Asker -> RunState -> RunState
+fromChild from after = case from of
+    ChildRun child -> after {fans = maybe id (Map.adjust (Fan.triaged child)) (fanAt after.at) after.fans}
+    Itself -> after
+    Subagent role -> after {untriaged = triagedBy role after.untriaged}
+
 -- | A refusal is logged whatever the run's state; anything else needs a run going. @n@ is the event's seq.
 applyEvent :: OpenGraph -> RunState -> Natural -> Event -> Either Refusal RunState
 applyEvent g state n = \case
@@ -378,14 +430,15 @@ applyEvent g state n = \case
     Targeted target -> going (targeted state target)
     Extended _ -> going (extended g state)
     Gapped gap -> going (Right state {gaps = state.gaps <> [gap]})
+    Took scope (AnyOutcome PickLayer some) -> going (handle AgentPicks g state (Picked scope some))
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
-    Asked asking -> going (fromChild asking.from <$> asked g state asking)
-    RetaggedSecurity qid -> going (retagged state qid)
-    RuledOn qid proposal -> going (ruledOn state qid proposal)
-    Forwarded qid to -> going (forwarded state qid to)
-    Answered qid answer by -> going (answered state qid answer by)
+    Asked asking -> going (handle UserAsks g state (Asks asking))
+    RetaggedSecurity qid -> going (handle UserAsks g state (Retags qid))
+    RuledOn qid proposal -> going (handle UserAsks g state (RulesOn qid proposal))
+    Forwarded qid to -> going (handle UserAsks g state (Forwards qid to))
+    Answered qid text by -> going (handle UserAsks g state (Answers qid text by))
     Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
     Spawned child -> going (atAwait g state >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))
@@ -402,12 +455,6 @@ applyEvent g state n = \case
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
-    -- A question asked from a stopped child is its stop, triaged.
-    fromChild from after = case from of
-        ChildRun child -> after {fans = maybe id (Map.adjust (Fan.triaged child)) (fanAt after.at) after.fans}
-        Itself -> after
-        -- A question asked from a worker triages its oldest hand-back.
-        Subagent role -> after {untriaged = triagedBy role after.untriaged}
     afterMove task = \case
         Event.Round _ -> reopened g
         InCi _ -> Right
@@ -499,7 +546,6 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     let effect = effects scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
-    maybe (Right ()) Left (pickedUsedUp g state from edge)
     case (edge.to == At from, awaitedOpen g state from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
@@ -510,21 +556,16 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     -- A stay is no move: the questions asked here still are.
     Right state {at = edge.to, fuel = effect.level <|> state.fuel, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
 
-{- | A pick into a step whose budget is used up: refused, as the advice
-offers only the actions a budget leaves, so a pick never strands the run
-at a step it may not spend.
--}
-pickedUsedUp :: OpenGraph -> RunState -> Place -> Edge Node -> Maybe Refusal
-pickedUsedUp g state from edge = case edge.to of
-    At next
-        | isPick from.name ->
-            listToMaybe
-                [ OutOfBudget budget.cap most
-                | (metered, budget@Budget {allows = Just most}) <- Map.toList (budgets g state)
-                , metered.place == next
-                , budget.spent >= most
-                ]
-    At _ -> Nothing
+-- | The refusal of an edge into a step whose budget is used up.
+usedUpAt :: OpenGraph -> RunState -> Edge Node -> Maybe Refusal
+usedUpAt g state edge = case edge.to of
+    At next ->
+        listToMaybe
+            [ OutOfBudget budget.cap most
+            | (metered, budget@Budget {allows = Just most}) <- Map.toList (budgets g state)
+            , metered.place == next
+            , budget.spent >= most
+            ]
     Out -> Nothing
     Exit -> Nothing
 
