@@ -14,8 +14,6 @@ module State.Role (
     RoleDef (..),
     SomeFlow (..),
     flowOut,
-    rooted,
-    Root,
     Rung (..),
     AgentRole (..),
     role,
@@ -29,8 +27,8 @@ module State.Role (
 
 import Data.List (find)
 import Data.Maybe (mapMaybe)
-import State.Category.Effect (Eff (..), Handler (..), Unhandled)
-import State.Category.Flow (AgentRole (..), Effects, Flow (..), Name (..), Shape (..), roleText, scopeNames, unqualify)
+import State.Category.Effect (Handler (..), Unhandled)
+import State.Category.Flow (AgentRole (..), Effects, Flow (..), Name (..), roleText, scopeNames, unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (KnownTy (..), NotSum, TyOf (..), TyVal)
@@ -53,26 +51,22 @@ nowhere and handles every effect its steps raise, else it does not compile.
 data SomeFlow where
     SomeFlow :: (KnownTy o, NotSum o, Unhandled (Effects s) ~ '[]) => Flow s 'Ctx 'Nothing o -> SomeFlow
 
-{- | A named flow as a run's root: its questions, open in every named flow
-so they bubble out of nested ones, are answered by the run's principal.
-Handled here once, as the flow is registered.
--}
-rooted :: Flow s i e o -> Flow (Root s) i e o
-rooted = Handle PrincipalAnswers
-
-type Root :: Shape -> Shape
-type Root s = HandleS AskE s
-
 -- | What the flow ends in.
 flowOut :: SomeFlow -> TyVal
 flowOut (SomeFlow (_ :: Flow s 'Ctx 'Nothing o)) = tyVal @o
 
+{- | A named flow's handler, @Handle AgentPicks@, removes only its picks: its
+questions stay open, so a flow nested in another (a forked engineer, a
+chief's branch) raises them to the enclosing flow. They bubble up to the
+run's root, where the principal answers them: handled here once, as the
+flow is registered.
+-}
 role :: FlowName -> RoleDef
 role flowName = case flowName of
-    EngineerFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (rooted engineer)) Lead
-    TenXFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (rooted tenX)) Orchestrator
-    ArchitectFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (rooted architect)) Lead
-    ChiefFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (rooted chief)) Lead
+    EngineerFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (Handle PrincipalAnswers engineer)) Lead
+    TenXFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (Handle PrincipalAnswers tenX)) Orchestrator
+    ArchitectFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (Handle PrincipalAnswers architect)) Lead
+    ChiefFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (Handle PrincipalAnswers chief)) Lead
 
 roles :: [RoleDef]
 roles = map role [minBound .. maxBound]

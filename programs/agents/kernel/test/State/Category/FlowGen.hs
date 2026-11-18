@@ -39,7 +39,7 @@ import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName)
 import State.Category.Ty (KnownTy, NotSum, TyOf (..))
-import State.Flow.Library (ChoiceS, choice, gather, opt, par)
+import State.Flow.Library (ChoiceS, choice, gather, parallel, skippable)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (BuildStep (..), Sing (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), outcomeEvent)
@@ -91,7 +91,7 @@ genFlow = do
     AnyFlow plan <- genEndo planKit
     Gen.choice
         [ (\(AnyFlow diff) (AnyFlow pr) -> AnyFlow (ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr)) <$> genEndo diffKit <*> genEndo prKit
-        , pure (AnyFlow (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> par (Group "engineers" (AgentRole "engineer")) engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers)))))
+        , pure (AnyFlow (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> parallel (Group "engineers" (AgentRole "engineer")) engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers)))))
         ]
   where
     engineer = Do PlanS :> Do Implement :> Do Describe
@@ -137,7 +137,7 @@ genEndo kit =
         Gen.recursive
             Gen.choice
             [inFresh (Gen.element kit.endo)]
-            ( [ inFresh ((\name skips (AnyFlow f) -> AnyFlow (opt name skips f)) <$> genName <*> genSkips <*> genEndo kit)
+            ( [ inFresh ((\name skips (AnyFlow f) -> AnyFlow (skippable name skips f)) <$> genName <*> genSkips <*> genEndo kit)
               , series <$> genEndo kit <*> genEndo kit
               , scope <$> genName <*> genEndo kit
               , inFresh ((\name (AnyFlow f) (AnyFlow g) -> AnyFlow (choice name (#small :-> f :& #big :-> g :& End))) <$> genName <*> genEndo kit <*> genEndo kit)

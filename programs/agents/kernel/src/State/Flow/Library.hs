@@ -7,16 +7,12 @@ module State.Flow.Library (
     ChoiceS,
     choiceLoop,
     ChoiceLoopS,
-    handled,
-    Handled,
-    opt,
-    OptS,
-    gathering,
-    exploring,
-    discussing,
+    skippable,
+    SkippableS,
+    upTo,
     researchers,
-    par,
-    ParS,
+    parallel,
+    ParallelS,
     agree,
     AgreeS,
     gather,
@@ -29,15 +25,13 @@ module State.Flow.Library (
     ProposeS,
     build,
     BuildS,
-    review,
     fixReReview,
-    reviewed,
-    ReviewedS,
+    review,
+    ReviewS,
     describe,
     DescribeS,
     ship,
     ShipS,
-    simplifyPlan,
     blocks,
     Blocks,
     BlocksS,
@@ -49,7 +43,7 @@ import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import Data.Typeable (Typeable)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
-import State.Category.Effect (Eff (..), Handler (..))
+import Numeric.Natural (Natural)
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Label (..), Name (..), Shape (..))
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
@@ -73,17 +67,6 @@ choice name branches = Do (Pick name) :> Case branches
 type ChoiceS :: Ty -> [(Symbol, Ty)] -> [Shape] -> Shape
 type ChoiceS a ss bs = DoS (Pick a ss) :>> CaseS bs
 
-{- | A named flow's handler: the agent picks, in its run. Its questions stay
-open, so a flow nested in another (a forked engineer, a chief's branch)
-raises them to the enclosing flow: they bubble up to the root, which
-'State.Role.rooted' handles once.
--}
-handled :: Flow f i e o -> Flow (Handled f) i e o
-handled = Handle AgentPicks
-
-type Handled :: Shape -> Shape
-type Handled f = HandleS PickE f
-
 {- | The agent's choice, round after round, of one of the actions, or
 @enough@, which runs its own flow and leaves: Elgot's iteration of a
 'choice'. Each action goes back to the pick; a capped step in the actions
@@ -105,22 +88,26 @@ type ChoiceLoopS a ss enough bs = LoopS (ChoiceS a ('("enough", a) ': ss) ((enou
 block, or @run@. The kernel decides the pick where the level may skip.
 Law: at a level that never skips, the block alone.
 -}
-opt :: (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Flow f a 'Nothing a -> Flow (OptS a f) a 'Nothing a
-opt name skips block = Do (Skip name skips) :> Case (#skip :-> Id :& #run :-> block :& End)
+skippable :: (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Flow f a 'Nothing a -> Flow (SkippableS a f) a 'Nothing a
+skippable name skips block = Do (Skip name skips) :> Case (#skip :-> Id :& #run :-> block :& End)
 
-type OptS :: Ty -> Shape -> Shape
-type OptS a f = DoS (Skip a) :>> CaseS '[IdS, f]
+type SkippableS :: Ty -> Shape -> Shape
+type SkippableS a f = DoS (Skip a) :>> CaseS '[IdS, f]
 
 {- | The flow once per item, each as a child run of the group, all at
 once, then their results in the items' order: #351's @traverse@. Its
-laws, @par g Id@ handing the items back and @par@ of a series a series of
-@par@s, are a run's: the parent's graph draws no state of the child.
+laws, @parallel g Id@ handing the items back and @parallel@ of a series a
+series of @parallel@s, are a run's: the parent's graph draws no state of the child.
 -}
-par :: (KnownTy a, KnownTy b, NotSum a, NotSum b) => Group b -> Flow f a 'Nothing b -> Flow (ParS f) ('List a) 'Nothing ('List b)
-par group child = Each (Fork group child) :> Await group
+parallel :: (KnownTy a, KnownTy b, NotSum a, NotSum b) => Group b -> Flow f a 'Nothing b -> Flow (ParallelS f) ('List a) 'Nothing ('List b)
+parallel group child = Each (Fork group child) :> Await group
 
-type ParS :: Shape -> Shape
-type ParS f = EachS (ForkS f) :>> AwaitS
+type ParallelS :: Shape -> Shape
+type ParallelS f = EachS (ForkS f) :>> AwaitS
+
+-- | A step capped alike at every level: @n@ spends, then the cap's way on.
+upTo :: Natural -> AtCap -> CapTarget c i e o -> Flow (CappedS c) i e o
+upTo n = Capped (always (UpTo n))
 
 {- | Gather and propose until a plan is confirmed: both flows open with it.
 Three adjusted plans are the cap, then a stop: a plan that never settles
@@ -138,46 +125,40 @@ their notes. Its meters are the researchers and the questions; at either cap
 the user is asked whether to go on, and @extend@ grants both again.
 -}
 gather :: Flow GatherS 'Ctx 'Nothing 'Ctx
-gather =
-    choiceLoop
-        gathering
-        (merged gathering)
-        (#research :-> researchersOf gathering :& #interview :-> Capped questions Extend (Step Interview) :& End)
+gather = researchLoop "gather" (#interview :-> Capped questions Extend (Step Interview) :& End)
 
-type GatherS = ChoiceLoopS 'Ctx '[ '("research", 'Ctx), '("interview", 'Ctx)] MergedS '[ResearchersS, CappedS (DoS Interview)]
+type GatherS = ResearchLoopS '[ '("interview", 'Ctx)] '[CappedS (DoS Interview)]
 
--- | Researchers alone, until the agent has enough: the facts before a ticket opens.
+{- | Researchers alone, until the agent has enough: the facts before a ticket
+opens. Named apart from its action, @research@, as a pick's state is its name.
+-}
 research :: Flow ResearchS 'Ctx 'Nothing 'Ctx
-research = choiceLoop exploring (merged exploring) (#research :-> researchersOf exploring :& End)
+research = researchLoop "exploring" End
 
-type ResearchS = ChoiceLoopS 'Ctx '[ '("research", 'Ctx)] MergedS '[ResearchersS]
+type ResearchS = ResearchLoopS '[] '[]
 
 {- | The design discussion: spawn a researcher on a fact gap, or ask the user
 design questions, each explained before it is asked; @extend@ grants both
 budgets again at the user's yes.
 -}
 discuss :: Flow DiscussS 'Ctx 'Nothing 'Ctx
-discuss =
-    choiceLoop
-        discussing
-        (merged discussing)
-        (#research :-> researchersOf discussing :& #discuss :-> Capped questions Extend (Step Discuss) :& End)
+discuss = researchLoop "discussing" (#discuss :-> Capped questions Extend (Step Discuss) :& End)
 
-type DiscussS = ChoiceLoopS 'Ctx '[ '("research", 'Ctx), '("discuss", 'Ctx)] MergedS '[ResearchersS, CappedS (DoS Discuss)]
+type DiscussS = ResearchLoopS '[ '("discuss", 'Ctx)] '[CappedS (DoS Discuss)]
 
--- | The engineer's and the 10x's gather: research and interview, as the agent picks.
-gathering :: Name
-gathering = "gather"
-
-{- | The architect's research before its ticket opens. Named apart from its
-action, @research@, as a pick's state is its name.
+{- | A 'choiceLoop' named @name@ whose first action, @research@, spawns
+researchers and whose @enough@ merges their notes, both in its scope, then
+the other actions. The name is the pick's state and the researchers' scope.
 -}
-exploring :: Name
-exploring = "exploring"
+researchLoop ::
+    (Summands ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss), Over 'Ctx ss, PickLabels ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss) ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss), Typeable ss) =>
+    Name ->
+    Branches bs ss 'Nothing 'Ctx ->
+    Flow (ResearchLoopS ss bs) 'Ctx 'Nothing 'Ctx
+researchLoop name actions = choiceLoop name (merged name) (#research :-> researchersOf name :& actions)
 
--- | The architect's design discussion: research and design questions, as the agent picks.
-discussing :: Name
-discussing = "discussing"
+type ResearchLoopS :: [(Symbol, Ty)] -> [Shape] -> Shape
+type ResearchLoopS ss bs = ChoiceLoopS 'Ctx ('("research", 'Ctx) ': ss) MergedS (ResearchersS ': bs)
 
 {- | A researcher per open fact group, one at Low: each spawn starts a child
 of the group. In the choice's scope, as one flow may hold two choices that research.
@@ -203,36 +184,37 @@ researchers = Group "researchers" (AgentRole "researcher")
 questions :: PerFuel Limit
 questions = UpTo <$> PerFuel 15 30 50
 
--- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm is asked at every level.
+{- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm
+is asked at every level. Besides its Fuel, a plan settled without the user
+skips @simplify_plan@ ('State.Run.Fold.planSettled'): the skip is named
+after its step, which the run matches it by.
+-}
 propose :: Flow ProposeS 'Ctx ('Just 'Plan) 'Ctx
 propose =
     Do PlanS
-        :> opt simplifyPlan skippableAtLow (Do SimplifyP)
-        :> Capped (always (UpTo 3)) Stop (Step Confirm)
+        :> skippable "simplify_plan" skippableAtLow (Do SimplifyP)
+        :> upTo 3 Stop (Step Confirm)
 
-type ProposeS = DoS PlanS :>> OptS 'Plan (DoS SimplifyP) :>> CappedS (DoS Confirm)
+type ProposeS = DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS Confirm)
 
 {- | @draft@ opens the draft PR before the first commit. Balanced skips the
 refactor at or below 100 changed lines, Low on a trivial task.
 -}
 build :: Flow BuildS 'Plan 'Nothing 'Diff
-build = Do Draft :> Do Implement :> opt "refactor" (PerFuel Skippable (AtOrBelow 100) Never) (Do Refactor)
+build = Do Draft :> Do Implement :> skippable "refactor" (PerFuel Skippable (AtOrBelow 100) Never) (Do Refactor)
 
-type BuildS = DoS Draft :>> DoS Implement :>> OptS 'Diff (DoS Refactor)
+type BuildS = DoS Draft :>> DoS Implement :>> SkippableS 'Diff (DoS Refactor)
 
-{- | The reviewed flow, one 'Diff' in and one out, so another flow can glue it
+{- | The review flow, one 'Diff' in and one out, so another flow can glue it
 in: whoever does supplies the requirements the diff must meet. A clean
-review or re-review, or a final pick, takes the exit: 'Catch' joins it with
-the fixed diff.
+review exits early; one with rows hands on its findings. A clean review or
+re-review, or a final pick, takes the exit: 'Catch' joins it with the fixed
+diff.
 -}
-reviewed :: Flow ReviewedS 'Diff 'Nothing 'Diff
-reviewed = Catch (review :> fixReReview)
+review :: Flow ReviewS 'Diff 'Nothing 'Diff
+review = Catch (Do Review :> fixReReview)
 
-type ReviewedS = CatchS (DoS Review :>> FixReReviewS)
-
--- | A clean review exits early; one with rows hands on its findings.
-review :: Flow (DoS Review) 'Diff ('Just 'Diff) 'Findings
-review = Do Review
+type ReviewS = CatchS (DoS Review :>> FixReReviewS)
 
 {- | Pick, fix and re-review the fix until a pick is final or a re-review
 clean. Each @pick.loop@ spends a re-review, #351's @n(m)@: once none is
@@ -253,15 +235,9 @@ type DescribeS = DoS Describe :>> DoS SimplifyPR
 is, by its task's shape, and records the url it keeps.
 -}
 ship :: Flow ShipS 'PR 'Nothing 'PR
-ship = Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Stop (Step FixPR)) :> Do Ready :> Case (#done :-> Id :& #skipped :-> Id :& End)
+ship = Loop "ci" (Do AwaitCi :> upTo 5 Stop (Step FixPR)) :> Do Ready :> Case (#done :-> Id :& #skipped :-> Id :& End)
 
 type ShipS = LoopS (DoS AwaitCi :>> CappedS (DoS FixPR)) :>> DoS Ready :>> CaseS '[IdS, IdS]
-
-{- | The optional @simplify_plan@: besides its Fuel, a plan settled
-without the user skips it ('State.Run.Fold.planSettled').
--}
-simplifyPlan :: Name
-simplifyPlan = "simplify_plan"
 
 {- | Each block a request may run alone, as a branch of a 'choice': a block
 that starts past 'Ctx' opens its input first, from the issue, branch or PR
@@ -275,7 +251,7 @@ blocks =
         :& branch @"agreeing" agree
         :& branch @"proposing" (Loop "proposals" propose)
         :& branch @"building" (Do OpenPlan :> build)
-        :& branch @"reviewing" (Do OpenBranch :> reviewed)
+        :& branch @"reviewing" (Do OpenBranch :> review)
         :& branch @"describing" (Do OpenBranch :> describe)
         :& branch @"shipping" (Do OpenPr :> ship)
         :& End
@@ -287,7 +263,7 @@ type BlocksS =
      , BranchS AgreeS
      , BranchS (LoopS ProposeS)
      , BranchS (DoS OpenPlan :>> BuildS)
-     , BranchS (DoS OpenBranch :>> ReviewedS)
+     , BranchS (DoS OpenBranch :>> ReviewS)
      , BranchS (DoS OpenBranch :>> DescribeS)
      , BranchS (DoS OpenPr :>> ShipS)
      ]

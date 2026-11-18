@@ -7,20 +7,20 @@ to three rounds before the user is asked whether to go on.
 -}
 module State.Flow.Architect (architect, ArchitectS) where
 
+import State.Category.Effect (Eff (PickE), Handler (AgentPicks))
 import State.Category.Flow (CapTarget (..), Flow (..), Shape (..))
-import State.Category.Fuel (always)
-import State.Category.Meter (AtCap (..), Limit (..))
+import State.Category.Meter (AtCap (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Library (DiscussS, Handled, ResearchS, discuss, handled, research)
+import State.Flow.Library (DiscussS, ResearchS, discuss, research, upTo)
 import State.Step.Fuel (FuelStep (Fuel), Sing (Fuel))
 import State.Step.Ticket (Sing (..), TicketStep (..))
 
-architect :: Flow (Handled ArchitectS) 'Ctx 'Nothing 'Ticket
+architect :: Flow (HandleS PickE ArchitectS) 'Ctx 'Nothing 'Ticket
 architect =
-    handled $
+    Handle AgentPicks $
         Do Fuel
-            :> Loop "understanding" (research :> Capped (always (UpTo 3)) Extend (Step Problem))
-            :> Loop "design" (discuss :> Capped (always (UpTo 3)) Extend (Step ConfirmDesign))
+            :> Loop "understanding" (research :> upTo 3 Extend (Step Problem))
+            :> Loop "design" (discuss :> upTo 3 Extend (Step ConfirmDesign))
 
 type ArchitectS =
     DoS Fuel

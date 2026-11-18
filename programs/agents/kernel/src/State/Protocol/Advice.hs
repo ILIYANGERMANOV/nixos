@@ -51,7 +51,6 @@ import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, Som
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
-import State.Flow.Library (simplifyPlan)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (RoleDef (..))
@@ -70,7 +69,7 @@ import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (fanNamed)
 import State.Step.Fuel (Sing (Fuel))
-import State.Step.Plan (Outcome (..), Sing (Confirm))
+import State.Step.Plan (Outcome (..), Sing (Confirm, SimplifyP))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
@@ -213,7 +212,7 @@ due facts state = case (state.stopped, state.at) of
     -- The Fuel decides a skip, or the facts at a level that skips by changed lines; a trivial task's is the agent's.
     skipped place = case skipHere place.name of
         Just skip
-            | skip.block == simplifyPlan && planSettled state -> [skip.skips]
+            | namedState skip.block == stepName SimplifyP && planSettled state -> [skip.skips]
             | otherwise -> case atFuel (fuelOf state) skip.when of
                 Never -> [skip.runs]
                 Skippable -> []

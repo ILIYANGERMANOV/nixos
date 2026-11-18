@@ -6,14 +6,14 @@ question asked inside it climbs from that flow's rung.
 -}
 module State.Flow.Chief (chief, ChiefS, discussion) where
 
-import State.Category.Effect (Eff (FocusE), Handler (FocusHere))
+import State.Category.Effect (Eff (FocusE, PickE), Handler (AgentPicks, FocusHere))
 import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Label (..), Name (..), Shape (..))
 import State.Category.Fuel (PerFuel (..))
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))
 import State.Flow.Architect (ArchitectS, architect)
 import State.Flow.Engineer (EngineerS, engineer)
-import State.Flow.Library (Blocks, BlocksS, BranchS, ChoiceS, DiscussS, Handled, blocks, branch, choice, discuss, handled)
+import State.Flow.Library (Blocks, BlocksS, BranchS, ChoiceS, DiscussS, blocks, branch, choice, discuss)
 import State.Flow.TenX (TenXS, tenX)
 import State.Step.Fuel (FuelStep (Fuel), Sing (Fuel))
 import State.Step.Request (RequestStep (..), Sing (..))
@@ -24,8 +24,8 @@ flow's label is its flow's name ('State.FlowName.flowText'). A request's
 steps raise 'FocusE', the user's attention: its handler suspends the
 request in focus at any state and turns to another ("State.Run.Fold").
 -}
-chief :: Flow (Handled (HandleS FocusE ChiefS)) 'Ctx 'Nothing 'Result
-chief = handled . Handle FocusHere $ Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend (Step Next))
+chief :: Flow (HandleS PickE (HandleS FocusE ChiefS)) 'Ctx 'Nothing 'Result
+chief = Handle AgentPicks . Handle FocusHere $ Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend (Step Next))
   where
     requests =
         branch @"architect" architect
@@ -50,9 +50,9 @@ type Requests =
 
 -- | The routes' flows, in 'Requests'' order: a whole flow handles its own effects.
 type RequestsS =
-    '[ BranchS (Handled ArchitectS)
-     , BranchS (Handled EngineerS)
-     , BranchS (Handled TenXS)
+    '[ BranchS (HandleS PickE ArchitectS)
+     , BranchS (HandleS PickE EngineerS)
+     , BranchS (HandleS PickE TenXS)
      , ChoiceS 'Ctx Blocks BlocksS
      , BranchS DiscussS
      , DoS Direct :>> IntoS

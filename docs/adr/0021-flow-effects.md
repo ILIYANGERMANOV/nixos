@@ -28,7 +28,7 @@ effects of the term. Design: #461 (slice S2); implementation: PR #470.
 - **`Handle` takes one effect off.** `Handle :: Handler eff -> Flow s i e o
   -> Flow (HandleS eff s) i e o`, with `Handler` a closed GADT naming who
   answers: `AgentPicks`, `PrincipalAnswers`, `FocusHere`. It is drawn as
-  its body. A named flow is `handled (...)`, `Handle AgentPicks`: its Ask
+  its body. A named flow is `Handle AgentPicks (...)`: its Ask
   stays open (see S3 below).
 - **A whole flow handles every effect.** `SomeFlow` demands
   `Unhandled (Effects s) ~ '[]`; a flow that leaves one does not compile
@@ -47,11 +47,11 @@ effects of the term. Design: #461 (slice S2); implementation: PR #470.
 #461 slice S3 (PR #474) makes a nested flow's question the enclosing
 flow's, as an unhandled operation goes to the enclosing handler:
 
-- **Ask is handled once, at the root.** `handled` takes Pick only, so
+- **Ask is handled once, at the root.** `Handle AgentPicks` takes Pick only, so
   every named flow's `Effects` keep `AskE`, and a flow nested in another
   (a 10x's forked engineer, a chief's branch) raises its questions to it.
-  The role registry (`State.Role`) is the one root: `rooted =
-  Handle PrincipalAnswers`, under which `Unhandled (Effects s) ~ '[]`
+  The role registry (`State.Role`) is the one root: each
+  flow sits under `Handle PrincipalAnswers`, under which `Unhandled (Effects s) ~ '[]`
   holds.
 - **The handler is the principal, decided at runtime.** The same term
   roots a user's run and a linked child's, so the term cannot say who
@@ -96,7 +96,7 @@ flow's, as an unhandled operation goes to the enclosing handler:
 | live appends reach the run the log replays | `FoldSpec` |
 | replaying a prefix then the rest is replaying the whole | `FoldSpec` |
 | a perturbed event is refused (a pick off its choice, an answer to no question) | `FoldSpec` |
-| `Effects` of each registered flow, and of a handled `par`, is the stated list; each root's is `'[]` | `RoleSpec` (`:~:`) |
+| `Effects` of each registered flow, and of a handled `parallel`, is the stated list; each root's is `'[]` | `RoleSpec` (`:~:`) |
 | ruling one direct child's question changes no other child's log | `MainSpec` |
 | a whole flow with an unhandled Pick, Ask or Focus does not compile | `FlowSpec` |
 | turning away from a request and back lands where the log without the turn does | `FoldSpec` |

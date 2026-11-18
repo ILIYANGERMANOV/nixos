@@ -16,7 +16,7 @@ import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum, TyOf (..))
-import State.Flow.Library (choiceLoop, par)
+import State.Flow.Library (choiceLoop, parallel)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (BuildStep (..), Sing (..))
 import State.Step.Fan (Sing (..))
@@ -93,12 +93,12 @@ spec = describe "State.Category.Graph" $ do
             graph (Fork engineerGroup (Do Refactor :> Do Describe) :> Do Triage :> Case (#small :-> Do Describe :> Flow.Exit :& #big :-> Do Implement :> Await engineerGroup :> Capped (always (UpTo 9)) Stop (Step (Merge "engineers")) :& End))
                 `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "spawn_engineers")) "engineers")
 
-        -- par's fork, then its await: each its own state.
+        -- parallel's fork, then its await: each its own state.
         let forked = map (EventName (StateName "spawn_engineers") . OutcomeName)
             awaited = map (EventName (StateName "engineers") . OutcomeName)
 
-        it "walks par as a spawn per item, the items done, a hand-back per child, then on" $
-            (`endOf` (forked ["spawned", "spawned", "each_done"] <> awaited ["handed_back", "handed_back", "done"])) <$> graph (par engineerGroup engineerChild)
+        it "walks parallel as a spawn per item, the items done, a hand-back per child, then on" $
+            (`endOf` (forked ["spawned", "spawned", "each_done"] <> awaited ["handed_back", "handed_back", "done"])) <$> graph (parallel engineerGroup engineerChild)
                 `shouldBe` Right (Just Out)
 
         it "draws a fork of one step as that step's state, its spawn the step's own outcome" $

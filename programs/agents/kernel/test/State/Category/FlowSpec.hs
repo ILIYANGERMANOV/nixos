@@ -23,10 +23,10 @@ import State.Flow.Architect (architect)
 import State.Flow.Attend (Sing (..))
 import State.Flow.Chief (chief)
 import State.Flow.Engineer (engineer)
-import State.Flow.Library (gather, handled, opt)
+import State.Flow.Library (gather, skippable)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
-import State.Role (SomeFlow (..), flowOut, rooted)
+import State.Role (SomeFlow (..), flowOut)
 import State.Step.Artifact (Commit (..), Sha (..))
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..), engineers)
@@ -47,12 +47,12 @@ spec = describe "State.Category.Flow" $ do
         it "an optional step that changes the type" $
             rejected
                 "Couldn't match type: State.Category.Ty.Diff with: State.Category.Ty.Plan"
-                (opt "refactor" (always Never) (Do Implement))
+                (skippable "refactor" (always Never) (Do Implement))
 
         it "an optional step with an exit" $
             rejected
                 "Couldn't match type: Just State.Category.Ty.Plan with: Nothing"
-                (opt "simplify_plan" (always Never) (Do Confirm))
+                (skippable "simplify_plan" (always Never) (Do Confirm))
 
         it "a loop whose body never exits" $
             rejected
@@ -109,7 +109,7 @@ spec = describe "State.Category.Flow" $ do
         it "an optional block over a sum: its skip would be one edge for two summands" $
             rejectedShown
                 "A sum State.Category.Ty.Sum"
-                (graph (Do Triage :> opt "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
+                (graph (Do Triage :> skippable "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
 
     {- 'Unhandled' names the effects left, in 'Eff''s order. 'Eff' is not
     imported, so GHC prints its constructors qualified.
@@ -118,7 +118,7 @@ spec = describe "State.Category.Flow" $ do
         it "a pick no handler takes" $
             rejectedShown
                 "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
-                (flowOut (SomeFlow (rooted gather)))
+                (flowOut (SomeFlow (Handle PrincipalAnswers gather)))
 
         it "a question no handler takes" $
             rejectedShown
@@ -128,16 +128,16 @@ spec = describe "State.Category.Flow" $ do
         it "a wait for focus no handler takes" $
             rejectedShown
                 "A whole flow leaves effects unhandled: '[State.Category.Effect.FocusE]"
-                (flowOut (SomeFlow (rooted (handled (Do Attend)))))
+                (flowOut (SomeFlow (Handle PrincipalAnswers (Handle AgentPicks (Do Attend)))))
 
         it "each registered flow, its pick handler removed" $ do
             let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
-            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled engineer))))
-            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled tenX))))
-            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled architect))))
-            rejectedShown fragment (flowOut (SomeFlow (rooted (unhandled chief))))
+            rejectedShown fragment (flowOut (SomeFlow (Handle PrincipalAnswers (unhandled engineer))))
+            rejectedShown fragment (flowOut (SomeFlow (Handle PrincipalAnswers (unhandled tenX))))
+            rejectedShown fragment (flowOut (SomeFlow (Handle PrincipalAnswers (unhandled architect))))
+            rejectedShown fragment (flowOut (SomeFlow (Handle PrincipalAnswers (unhandled chief))))
 
-        it "each registered flow, not rooted: its questions bubble out" $ do
+        it "each registered flow, its principal's handler removed: its questions bubble out" $ do
             let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.AskE]"
             rejectedShown fragment (flowOut (SomeFlow engineer))
             rejectedShown fragment (flowOut (SomeFlow tenX))

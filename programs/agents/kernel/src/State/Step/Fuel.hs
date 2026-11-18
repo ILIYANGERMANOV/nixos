@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeData #-}
 
 {- | The steps that read the run's Fuel: 'Fuel' sets it, and 'Skip' picks
-whether an optional block runs at it ('State.Flow.Library.opt'). The kernel
+whether an optional block runs at it ('State.Flow.Library.skippable'). The kernel
 decides a skip from the Fuel when the level may skip, as its 'PerFuel'
 'SkipWhen' says, so a skip is a pick no agent makes by guessing.
 -}

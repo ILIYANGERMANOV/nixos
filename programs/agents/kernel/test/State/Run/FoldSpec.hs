@@ -1025,14 +1025,14 @@ fan-out, with its own tasks and children.
 scopedFans :: OpenGraph
 scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Scope "b" fanned))
   where
-    fanned = Do (Breakdown engineers) :> Library.par (Group engineers (AgentRole "engineer")) engineer :> Do (Merge engineers)
+    fanned = Do (Breakdown engineers) :> Library.parallel (Group engineers (AgentRole "engineer")) engineer :> Do (Merge engineers)
 
 {- | A flow with two fan-outs, the second a scoped copy that runs on the
 first's PRs. No step goes from a PR back to a plan, so the second has no
 breakdown of its own.
 -}
 twoFans :: OpenGraph
-twoFans = either (error . show) id (graph (Do (Breakdown engineers) :> Library.par (Group engineers (AgentRole "engineer")) engineer :> Scope "second" (Library.par (Group engineers (AgentRole "engineer")) (Do SimplifyPR)) :> Do (Merge engineers)))
+twoFans = either (error . show) id (graph (Do (Breakdown engineers) :> Library.parallel (Group engineers (AgentRole "engineer")) engineer :> Scope "second" (Library.parallel (Group engineers (AgentRole "engineer")) (Do SimplifyPR)) :> Do (Merge engineers)))
 
 -- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName

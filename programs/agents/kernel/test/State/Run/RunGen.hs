@@ -63,7 +63,7 @@ import State.Flow.Architect (architect)
 import State.Flow.Chief (chief)
 import State.Flow.Drawn (drawnOutcomes)
 import State.Flow.Engineer (engineer)
-import State.Flow.Library (reviewed)
+import State.Flow.Library (review)
 import State.Flow.TenX (tenX)
 import State.Run.Ask (Above (..), Kind (Confirm), QId (..), Question (..))
 import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
@@ -89,7 +89,7 @@ g = either (error . show) id (graph engineer)
 
 -- | A review, then the same review again inside the @security@ scope.
 securityGraph :: OpenGraph
-securityGraph = either (error . show) id (graph (reviewed :> Scope "security" reviewed))
+securityGraph = either (error . show) id (graph (review :> Scope "security" review))
 
 -- | The @security@ scope.
 securityScope :: ScopePath

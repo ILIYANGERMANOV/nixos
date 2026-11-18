@@ -182,7 +182,7 @@ data Flow (s :: Shape) (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     Fork :: (KnownTy a, KnownTy b, NotSum a) => Group b -> Flow f a 'Nothing b -> Flow (ForkS f) a 'Nothing a
     {- | Wait for every child of the group to hand back: their results, in
     the order they were forked. One state, the group's: @handed_back@ stays,
-    @done@ goes on. Law: @par g f = Each (Fork g f) :> Await g@ is
+    @done@ goes on. Law: @parallel g f = Each (Fork g f) :> Await g@ is
     @traverse f@ on the list.
     -}
     Await :: (KnownTy a, KnownTy b, NotSum a) => Group b -> Flow AwaitS a 'Nothing ('List b)

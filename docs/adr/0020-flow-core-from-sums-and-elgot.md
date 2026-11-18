@@ -46,8 +46,8 @@ meters, `Capped`, `Loop` without rounds, the review loop, scoped names.
   |---|---|
   | `choice name bs` | `Do (Pick name) :> Case bs` |
   | `choiceLoop name enough actions` | `Loop name (choice name (enough :> Exit, actions...))` |
-  | `opt name skips f` | `Do (Skip name skips) :> Case (skip: Id, run: f)` |
-  | `par g f` | `Each (Fork g f) :> Await g` |
+  | `skippable name skips f` | `Do (Skip name skips) :> Case (skip: Id, run: f)` |
+  | `parallel g f` | `Each (Fork g f) :> Await g` |
 
 - **A pick and its action are two steps, two events.** The agent records
   the pick, `gather.research`, then the action's own event,
@@ -57,17 +57,18 @@ meters, `Capped`, `Loop` without rounds, the review loop, scoped names.
   (`interview.asked`), each its own state. `enough` is `Await` of the
   group, which goes on by itself once every researcher handed back, then
   `Notes` (`notes.done`) merges their hand-backs, then `Exit`. The
-  architect's `exploring` and `discussing` are the same shape.
+  architect's `exploring` and `discussing` are the same shape: each is a
+  `researchLoop name actions`, its name written once.
 - **Hub rules are steps.** Every role's flow opens with `Do Fuel`: the
   level is the event `fuel.set <level>`, given by the caller or asked once.
   A target is named only at a Fuel state. The chief's request is `Do Fuel`
   then `choice "route"`; its block route is `choice "block"`. The fold has
   no rule keyed by a state's name.
-- **Optional blocks are `opt`.** A `skip_<block>` state, its events
+- **Optional blocks are `skippable`.** A `skip_<block>` state, its events
   `skip_<block>.skip` and `skip_<block>.run`. The run's Fuel says when a
   level takes `skip`; render reads the skippable blocks from the `Skip`
   steps.
-- **The 10x's engineers are `par`.** `spawn_engineers` is the fork and
+- **The 10x's engineers are `parallel`.** `spawn_engineers` is the fork and
   passes at once; each engineer is spawned at `engineers`, the await, once
   its task's dependencies merged. The await goes on to `merge` by itself on
   the event that settles the last task; `merge` gets the PRs in fork order.
@@ -91,7 +92,7 @@ noted. They replace 0019's `case beta, eta`, `Choice` and `Route` rows.
 | Catch | `Catch (f :> g) = f :> Catch g` for `f` with no exit; `Catch` distributes over a case; `Catch Exit = Id` |
 | Elgot fixpoint | `Loop n f = Catch (f :> Loop n f)`; a `choiceLoop` walks as its choice unrolled once |
 | choiceLoop | the Kleene star of a sum: the order of the actions changes nothing a run walks |
-| par identity, composition | `par g Id`, `par g f` and `par g (f :> h)` draw one parent graph; `Merge` gets the results in fork order (`AdviceSpec`) |
+| parallel identity, composition | `parallel g Id`, `parallel g f` and `parallel g (f :> h)` draw one parent graph; `Merge` gets the results in fork order (`AdviceSpec`) |
 
 Type rules are should-not-typecheck cases in `FlowSpec` (a missing or
 mislabelled `Case` branch, an uncaught `Exit`, capping a step with no

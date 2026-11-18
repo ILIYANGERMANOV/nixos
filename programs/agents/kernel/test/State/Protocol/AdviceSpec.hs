@@ -350,11 +350,11 @@ spec = describe "State.Protocol.Advice" $ do
             let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
                 `shouldBe` [AwaitMerge ((TaskId "t1", Just prUrl) :| []), offering ["state record merge.done <url>", "state record merge.next_round"]]
-        {- par's identity law as a run sees it: @par g f@ is @traverse f@,
+        {- parallel's identity law as a run sees it: @parallel g f@ is @traverse f@,
         so its results come back in the items' order, whatever order the
         children hand back in.
         -}
-        it "par_identity_gives_the_merge_the_prs_in_fork_order_whatever_order_the_engineers_hand_back_in" . hedgehog $ do
+        it "parallel_identity_gives_the_merge_the_prs_in_fork_order_whatever_order_the_engineers_hand_back_in" . hedgehog $ do
             n <- forAll (Gen.int (Range.linear 1 4))
             let indices = map (Text.pack . show) [1 .. n]
                 task i = "t" <> i

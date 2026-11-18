@@ -13,7 +13,7 @@ import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), P
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName (..))
 import State.Category.Ty (TyOf (..), TyVal)
-import State.Flow.Library (opt)
+import State.Flow.Library (skippable)
 import State.Step.Build (Sing (..))
 import State.Step.Review (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldNotBe)
@@ -34,7 +34,7 @@ spec = describe "State.Category.Path" $ do
         ends path === Just (Ctx, PR)
 
     it "takes a skip to where running the skipped step goes" $ do
-        let built = graph (opt "refactor" (always Skippable) (Do Refactor) :> Do Review)
+        let built = graph (skippable "refactor" (always Skippable) (Do Refactor) :> Do Review)
             from state event = do
                 g <- either (const Nothing) Just built
                 at <- find ((== StateName state) . (.name)) (places g)

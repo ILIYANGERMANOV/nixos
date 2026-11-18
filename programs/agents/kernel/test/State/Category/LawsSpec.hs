@@ -27,7 +27,7 @@ import State.Category.Meter (AtCap (..), Limit (..), limitAtMost, meterName)
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Sing, StateName (..), StepSet, stateNameText)
 import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Engineer (engineer)
-import State.Flow.Library (choice, choiceLoop, par)
+import State.Flow.Library (choice, choiceLoop, parallel)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..), TriageStep (..))
 import State.Step.Build (BuildStep (..), Sing (..))
@@ -109,16 +109,16 @@ spec = describe "laws" $ do
 
     {- What a parent's graph says of @traverse@: each child is a run of its
     own, so the parent draws the same states whatever the child, a series of
-    steps or none: identity, @par g Id@, and composition, @par g (f :> h)@,
-    draw as @par g f@. The results' values never reach the kernel, so
-    @par g (f :> h) = par g f :> par g' h@ holds of the children's runs, not
+    steps or none: identity, @parallel g Id@, and composition, @parallel g (f :> h)@,
+    draw as @parallel g f@. The results' values never reach the kernel, so
+    @parallel g (f :> h) = parallel g f :> parallel g' h@ holds of the children's runs, not
     of a graph; their order, the items', is the run's
     ("State.Protocol.AdviceSpec", par_identity).
     -}
-    describe "par, traverse over child runs" $
+    describe "parallel, traverse over child runs" $
         it "par_identity_and_composition_draw_one_parent_graph" . hedgehog $ do
             (AnyFlow f, AnyFlow g) <- forAll ((,) <$> genEndo diffKit <*> genEndo diffKit)
-            (drawn (par engineers (f :> g)), drawn (par engineers f)) === (drawn (par engineers Id), drawn (par engineers Id))
+            (drawn (parallel engineers (f :> g)), drawn (parallel engineers f)) === (drawn (parallel engineers Id), drawn (parallel engineers Id))
 
     describe "Handle" $
         it "a_handler_draws_as_the_flow_it_handles" . hedgehog $ do
@@ -167,7 +167,7 @@ genPolishActions = Gen.filter (\(AnyFlow f, AnyFlow g) -> isRight (graph (choice
 triaged :: Flow f 'Diff 'Nothing 'PR -> Flow g 'Diff 'Nothing 'PR -> Flow (DoS Triage :>> CaseS '[f, DoS Implement :>> g]) 'Diff 'Nothing 'PR
 triaged f g = Do Triage :> Case (#small :-> f :& #big :-> Do Implement :> g :& End)
 
--- | The group 'par' forks its children into, in the laws.
+-- | The group 'parallel' forks its children into, in the laws.
 engineers :: Group 'Diff
 engineers = Group "engineers" (AgentRole "engineer")
 
