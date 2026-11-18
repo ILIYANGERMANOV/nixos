@@ -13,8 +13,8 @@ module State.Step.Request (
 import Data.Aeson ((.:), (.=))
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Effect (Eff (..))
+import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Branch (..), Url, branchText, urlData, urlOf)

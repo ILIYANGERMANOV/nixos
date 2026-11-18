@@ -13,6 +13,7 @@ module State.Category.FlowGen (
     genWalkTo,
     genScopePath,
     series,
+    builds,
     pathTo,
     skipsKept,
     composes,
@@ -22,6 +23,7 @@ module State.Category.FlowGen (
     threeWayPick,
 ) where
 
+import Data.Either (isRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
@@ -58,6 +60,10 @@ deriving stock instance Show (AnyFlow i e o)
 -- | The series of two terms of any structure.
 series :: AnyFlow a e1 b -> AnyFlow b e2 c -> AnyFlow a (Join e1 e2) c
 series (AnyFlow f) (AnyFlow g) = AnyFlow (f :> g)
+
+-- | The term's graph builds: no clash refuses it.
+builds :: (NotSum i, NotSum o) => AnyFlow i e o -> Bool
+builds (AnyFlow f) = isRight (graph f)
 
 {- | The steps of one type that a generated flow chains, with and without an
 exit. Each exiting one caps a step, so a loop over it is bounded.

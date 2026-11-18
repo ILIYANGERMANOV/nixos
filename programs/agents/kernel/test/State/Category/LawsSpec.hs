@@ -19,7 +19,7 @@ import Hedgehog.Gen qualified as Gen
 import State.Category.Effect (Handler (..))
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Name (..), Shape (..), branchesWith, nameText, qualify, qualifyText, scoped, unqualify)
 import State.Category.Flow qualified as Flow
-import State.Category.FlowGen (AnyFlow (..), Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn, series)
+import State.Category.FlowGen (AnyFlow (..), Kit (..), builds, diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn, series)
 import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
 import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, outOf, placeName, places)
 import State.Category.Graph qualified as Graph
@@ -178,10 +178,6 @@ fixCapped = Capped (always (UpTo 5)) Stop (Step FixPR)
 -- | The graph with each state's path its rank, or the clash that refuses the term.
 drawn :: (NotSum i, NotSum o) => Flow s i e o -> Either Clash OpenGraph
 drawn = fmap redrawn . graph
-
--- | The term's graph builds: no clash refuses it.
-builds :: (NotSum i, NotSum o) => AnyFlow i e o -> Bool
-builds (AnyFlow f) = isRight (graph f)
 
 {- | Two branches whose case builds. A clash inside either branch, or a loop
 id both use, refuses the whole term: 'Clash' has its own cases.

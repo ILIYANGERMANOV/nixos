@@ -10,8 +10,8 @@ module State.Step.Ticket (
 ) where
 
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Effect (Eff (..))
+import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Url, urlData, urlOf)

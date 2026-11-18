@@ -18,7 +18,7 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Effect (Handler (FocusHere))
 import State.Category.Flow (Flow (..), Group (..), scopePath, unqualify)
-import State.Category.FlowGen (AnyFlow (..), composes, genFlow, genWalk, threeWay, threeWayGraph, threeWayPick)
+import State.Category.FlowGen (AnyFlow (..), builds, composes, genFlow, genWalk, threeWay, threeWayGraph, threeWayPick)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Graph qualified as Graph
@@ -211,7 +211,7 @@ spec = describe "State.Run.Fold" $ do
         inScope flow state event === event
 
     it "every_accepted_log_of_a_scoped_flow_is_a_path" . hedgehog $ do
-        AnyFlow f <- forAll (Gen.filter (\(AnyFlow f) -> isRight (graph f)) genFlow)
+        AnyFlow f <- forAll (Gen.filter builds genFlow)
         flow <- evalEither (graph f)
         events <- forAll (genAcceptedOn (concatMap flowOutcomes (termSteps f)) flow)
         cover 10 "a step's outcome inside a scope" (or [scope /= mempty | Took scope _ <- events])

@@ -17,10 +17,10 @@ module State.Step.Fuel (
 import Data.Aeson ((.:), (.=))
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable, eqT)
+import State.Category.Effect (Eff (..))
 import State.Category.Flow (Name, nameText)
 import State.Category.Fuel (PerFuel, SkipWhen, fuelName)
 import State.Category.Fuel qualified as Level
-import State.Category.Effect (Eff (..))
 import State.Category.Step
 import State.Category.Ty (KnownTy, NotSum, Ty, TyOf (..))
 

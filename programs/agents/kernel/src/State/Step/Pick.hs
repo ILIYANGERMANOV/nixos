@@ -22,8 +22,8 @@ import Data.Kind (Constraint)
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable, eqT)
 import GHC.TypeLits (KnownSymbol, Symbol)
-import State.Category.Flow (Name, namedState)
 import State.Category.Effect (Eff (..))
+import State.Category.Flow (Name, namedState)
 import State.Category.Step
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..))
 
