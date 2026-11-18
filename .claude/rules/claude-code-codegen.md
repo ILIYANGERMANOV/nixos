@@ -19,6 +19,12 @@ The backend contract: `.claude/rules/agents-backend.md`. Installing:
   `base web-ui local`, `claude-all` `base web-ui pm local`, `claude-factory`
   `base factory`. The attr key
   is the binary name, so a flavor's name is written once.
+- `kategory/` - `claude-kategory`, the flake package: the factory profile in
+  `~/.claude-kategory` for anyone with Nix. It reuses `mkTarget` and
+  `load.sh`, copies the files with every `~/.claude` path rewritten
+  (`relocate.sh`, which fails the build on a form it misses), and passes the
+  harness settings as `--settings`, so `settings.json` and `.claude.json` stay
+  the user's.
 - `codegen/` - pure, Claude's format: `settings.nix` (base settings,
   `withSecretFileGuard`), `profile.nix` (a folded profile as a flavor's files),
   `role.nix` (a role as `agents/<name>.md`), `mcp.nix` (`toWire`, no
