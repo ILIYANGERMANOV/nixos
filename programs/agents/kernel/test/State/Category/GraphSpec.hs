@@ -9,14 +9,13 @@ import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Shape (..), branchesWith, qualifyEvent, scopePath)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (AnyFlow (..), ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
-import State.Category.Fuel (always)
 import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, outOf, places)
 import State.Category.Graph qualified as Graph
-import State.Category.Meter (AtCap (..), Limit (..))
+import State.Category.Meter (AtCap (..))
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum, TyOf (..))
-import State.Flow.Library (choiceLoop, par)
+import State.Flow.Library (choiceLoop, parallel, upTo)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (BuildStep (..), Sing (..))
 import State.Step.Fan (Sing (..))
@@ -81,7 +80,7 @@ spec = describe "State.Category.Graph" $ do
             `shouldBe` Left (Unbounded "outer")
 
     it "refuses a Refuse cap on a step whose every outcome stays in its loop: past the cap nothing is left to record" $
-        graph (Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Refuse (Step FixPR)))
+        graph (Loop "ci" (Do AwaitCi :> upTo 5 Refuse (Step FixPR)))
             `shouldBe` Left (RefuseWithoutWayOut (Place [1] mempty (StateName "fix_pr")))
 
     describe "a fork and its await" $ do
@@ -90,15 +89,15 @@ spec = describe "State.Category.Graph" $ do
                 `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "spawn_engineers")) "engineers")
 
         it "refuses a fork whose way out by an exit passes no await" $
-            graph (Fork engineerGroup (Do Refactor :> Do Describe) :> Do Triage :> Case (#small :-> Do Describe :> Flow.Exit :& #big :-> Do Implement :> Await engineerGroup :> Capped (always (UpTo 9)) Stop (Step (Merge "engineers")) :& End))
+            graph (Fork engineerGroup (Do Refactor :> Do Describe) :> Do Triage :> Case (#small :-> Do Describe :> Flow.Exit :& #big :-> Do Implement :> Await engineerGroup :> upTo 9 Stop (Step (Merge "engineers")) :& End))
                 `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "spawn_engineers")) "engineers")
 
-        -- par's fork, then its await: each its own state.
+        -- parallel's fork, then its await: each its own state.
         let forked = map (EventName (StateName "spawn_engineers") . OutcomeName)
             awaited = map (EventName (StateName "engineers") . OutcomeName)
 
-        it "walks par as a spawn per item, the items done, a hand-back per child, then on" $
-            (`endOf` (forked ["spawned", "spawned", "each_done"] <> awaited ["handed_back", "handed_back", "done"])) <$> graph (par engineerGroup engineerChild)
+        it "walks parallel as a spawn per item, the items done, a hand-back per child, then on" $
+            (`endOf` (forked ["spawned", "spawned", "each_done"] <> awaited ["handed_back", "handed_back", "done"])) <$> graph (parallel engineerGroup engineerChild)
                 `shouldBe` Right (Just Out)
 
         it "draws a fork of one step as that step's state, its spawn the step's own outcome" $
@@ -128,7 +127,7 @@ outOfStart g = [(event, edge.to) | (event, edge) <- outOf g.inPort g.edges]
 
 -- | The gather's questions, capped as an action of its choice.
 questions :: Flow (CappedS (DoS Interview)) 'Ctx 'Nothing 'Ctx
-questions = Capped (always (UpTo 3)) Extend (Step Interview)
+questions = upTo 3 Extend (Step Interview)
 
 -- | The graphs of two terms and of their series, over terms that build: 'Clash' has its own cases.
 seqGraphs :: (NotSum a, NotSum b, NotSum c) => Gen (AnyFlow a e1 b) -> Gen (AnyFlow b e2 c) -> PropertyT IO (OpenGraph, OpenGraph, OpenGraph)
@@ -172,7 +171,7 @@ engineerGroup = Group "engineers" (AgentRole "engineer")
 
 -- | Researchers forked one at a time, three at most: a fork of one step.
 researchers :: Flow (CappedS (ForkS (DoS Research))) 'Ctx 'Nothing 'Ctx
-researchers = Capped (always (UpTo 3)) Extend (ForkOf researcherGroup Research)
+researchers = upTo 3 Extend (ForkOf researcherGroup Research)
 
 researcherGroup :: Group 'Ctx
 researcherGroup = Group "researchers" (AgentRole "researcher")
@@ -182,4 +181,4 @@ engineerChild = Do PlanS :> Do Implement :> Do Describe
 
 -- | A fix of a red CI, capped as the ship flow caps it.
 fixCapped :: Flow (CappedS (DoS FixPR)) 'PR 'Nothing 'PR
-fixCapped = Capped (always (UpTo 5)) Stop (Step FixPR)
+fixCapped = upTo 5 Stop (Step FixPR)

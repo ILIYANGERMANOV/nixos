@@ -40,7 +40,7 @@ everyState steps flowGraph run =
     Text.unlines
         [ "== " <> stateNameText (placeName place) <> "\n" <> printed moved (advise steps flowGraph noFacts moved)
         | place <- Set.toList (places flowGraph)
-        , -- A par's fork state passes at once: no run rests there.
+        , -- A parallel's fork state passes at once: no run rests there.
         isNothing (forkPasses flowGraph place)
         , let moved = run {at = At place}
         ]

@@ -72,7 +72,7 @@ Fuel never buys less work.
 monotone :: (a -> a -> Bool) -> PerFuel a -> Bool
 monotone atMost values = atMost values.low values.balanced && atMost values.balanced values.max
 
-{- | When a level lets an 'State.Flow.Library.opt' block be skipped. 'AtOrBelow'
+{- | When a level lets an 'State.Flow.Library.skippable' block be skipped. 'AtOrBelow'
 counts the branch's changed lines, and the kernel records that skip itself.
 'Skippable' is the agent's call: it records the skip when the task is
 trivial, and runs the step otherwise.

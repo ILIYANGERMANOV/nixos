@@ -44,6 +44,7 @@ module State.Run.Fold (
     shape,
     onRound,
     planSettled,
+    settledSkips,
     Stuck (..),
     stuck,
     stuckExits,
@@ -91,7 +92,6 @@ import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), Grou
 import State.Category.Meter (AtCap (..), Owed (Closes), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (awaitDone, forkPasses, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
-import State.Flow.Library (simplifyPlan)
 import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Reply (..), Ruling, deliver, flattened, oneLineText, principalPlan, principalShape)
@@ -105,6 +105,7 @@ import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
 import State.Step.Fuel (FuelStep, Outcome (..), Sing (Fuel, Skip))
 import State.Step.Pick (PickStep)
+import State.Step.Plan (Sing (SimplifyP))
 import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Request qualified as Request
 import State.Step.Review (Outcome (..), ReviewStep)
@@ -605,7 +606,7 @@ took g state scope outcome@(AnyOutcome _ some)
 
 {- | A group's 'State.Category.Flow.Await' goes on by itself once every
 child handed back (an AND-join): no one records its @done@, as the
-run's ledger already holds the fact. A par's fork state goes on at once
+run's ledger already holds the fact. A parallel's fork state goes on at once
 ('forkPasses'). At any other state, the run stays.
 -}
 joined :: OpenGraph -> RunState -> RunState
@@ -810,7 +811,7 @@ at every Fuel, which leaves the PR as it is, by the task's shape.
 skipped :: RunState -> ScopePath -> Skipping -> Either Refusal ()
 skipped state scope = \case
     ByLevel name when
-        | atFuel (fuelOf state) when /= Never || (name == simplifyPlan && planSettled state) -> Right ()
+        | atFuel (fuelOf state) when /= Never || settledSkips state name -> Right ()
         | otherwise -> refused (nameText name)
     ByShape
         | onRound (shape state) -> Right ()
@@ -839,6 +840,10 @@ the request applies feedback to a target and no Design or Scope question opened.
 -}
 planSettled :: RunState -> Bool
 planSettled state = principalPlan state.start.principal == ParentDecided || maybe False (not . (.designAsked)) state.onTarget
+
+-- | Whether a settled plan skips the block: @simplify_plan@'s, at any Fuel.
+settledSkips :: RunState -> Name -> Bool
+settledSkips state block = namedState block == stepName SimplifyP && planSettled state
 
 {- | A task added, or a round asked, at a fan-out's merge reopens the fan-out, where it is
 spawned as any task is; the fan-out is left again once every task is settled.
@@ -871,7 +876,7 @@ fanIn fans fan = Map.findWithDefault emptyFan fan fans
 currentFan :: RunState -> Fan
 currentFan state = maybe emptyFan (fanIn state.fans) (fanAt state.at)
 
-{- | A child of a 'State.Flow.Library.par' is spawned while the run waits
+{- | A child of a 'State.Flow.Library.parallel' is spawned while the run waits
 for its group, at its 'State.Category.Flow.Await': the 10x spawns an
 engineer once its task's dependencies merged.
 -}

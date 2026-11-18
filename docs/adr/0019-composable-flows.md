@@ -38,8 +38,8 @@ decisions, the `Choice` and `Route` laws, the `Par` ledger and the rejected
 
   `alternateLoop`, `choiceLoop` and `spawn` are functions, not constructors.
 - **A flow library.** `State/Flow/Library.hs` holds `agree`, `gather`,
-  `propose`, `build`, `reviewed`, `describe` and `ship`. Engineer is
-  `agree :> build :> reviewed :> describe :> ship`; 10x reuses `agree`.
+  `propose`, `build`, `review`, `describe` and `ship`. Engineer is
+  `agree :> build :> review :> describe :> ship`; 10x reuses `agree`.
 - **Budgets are step meters.** A step's `Meter` instance names its budget
   and says which outcome spends one. `Capped` gives the limit per Fuel as a
   `PerFuel Limit` and what happens at the cap: `Refuse` (take another
@@ -58,7 +58,7 @@ decisions, the `Choice` and `Route` laws, the `Par` ledger and the rejected
   say it, and ask the user once, `state ask --kind Pick`, only when the
   request is ambiguous. The hub is no loop: a route picked again sits in a
   `Loop`. Its picks decode by the fixed `routes` list beside `choices`.
-- **The review is a loop with a final pick.** `reviewed = Catch (review :>
+- **The review is a loop with a final pick.** `review = Catch (Do Review :>
   fixReReview)`, with `fixReReview = Loop "fix" (Capped Re-reviews Refuse
   Pick :> Do Fix :> Do ReReview)`. `pick.loop` spends a re-review;
   `pick.final` and a clean review go on to describe, the final fixer.

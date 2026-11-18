@@ -28,7 +28,7 @@ awaitDone g place = case Map.lookup place g.groupStates of
     Just (Forking _) -> Nothing
     Nothing -> Nothing
 
-{- | The edge a 'State.Category.Flow.par''s fork state goes on by at once:
+{- | The edge a 'State.Flow.Library.parallel''s fork state goes on by at once:
 its 'State.Category.Flow.Each' forks one child per item, each started
 later from the group's 'State.Category.Flow.Await' (the 10x spawns an
 engineer once its task's dependencies merged), so no event records the
@@ -40,14 +40,14 @@ forkPasses g place = case Map.lookup place g.groupStates of
     Just (Awaiting _) -> Nothing
     Nothing -> Nothing
 
--- | The edge a state goes on by with no event recording it: an await's done, a par's fork's.
+-- | The edge a state goes on by with no event recording it: an await's done, a parallel's fork's.
 unrecorded :: OpenGraph -> Place -> Maybe (Edge Node)
 unrecorded g place = awaitDone g place <|> forkPasses g place
 
 {- | The functor @ty@ on the path the events walk from the in port: each
 outcome to its edge of @Cap@, a child's hand-back at an await to the
 identity, which a path of @Cap@ leaves out. An event past an await or a
-par's fork walks its 'unrecorded' edge first. 'Nothing' when an event is not an edge where the path
+parallel's fork walks its 'unrecorded' edge first. 'Nothing' when an event is not an edge where the path
 has got to.
 -}
 ty :: OpenGraph -> [EventName] -> Maybe [OutcomeEdge]

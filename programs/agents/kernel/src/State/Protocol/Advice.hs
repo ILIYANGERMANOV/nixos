@@ -51,7 +51,6 @@ import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, Som
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
-import State.Flow.Library (simplifyPlan)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (RoleDef (..))
@@ -63,7 +62,7 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), 
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp)
+import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, settledSkips, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -213,7 +212,7 @@ due facts state = case (state.stopped, state.at) of
     -- The Fuel decides a skip, or the facts at a level that skips by changed lines; a trivial task's is the agent's.
     skipped place = case skipHere place.name of
         Just skip
-            | skip.block == simplifyPlan && planSettled state -> [skip.skips]
+            | settledSkips state skip.block -> [skip.skips]
             | otherwise -> case atFuel (fuelOf state) skip.when of
                 Never -> [skip.runs]
                 Skippable -> []
