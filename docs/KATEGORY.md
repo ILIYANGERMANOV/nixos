@@ -59,5 +59,5 @@ Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
 
 - **Yours, kept across launches:** login, `settings.json` (`/model`,
   `/config`), plugins and MCP servers (`/mcp`, `claude-kategory mcp add ...`).
-- **Rewritten on every launch:** the harness skills, roles and `CLAUDE.md`,
-  and its hooks and guards.
+- **Set by Nix on every launch:** the harness skills, roles and `CLAUDE.md`
+  (rewritten on disk), and its hooks and guards (passed from the Nix store).
