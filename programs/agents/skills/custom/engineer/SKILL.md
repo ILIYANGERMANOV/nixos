@@ -138,6 +138,10 @@ research and the final fixer.
 
 ## State hooks
 
+**Hooks are best effort.** A hook prints `recorded <n> <event> -> <state>`
+after a spawn or a hand-back. No `recorded` line means it missed: record
+it yourself, `state record <step>.spawned` or `state handback <role>`.
+
 Where hooks reach your session, they record a worker's hand-back and add
 context. Under a parent, your `state` records your own hand-back in the
 parent's run. When `state next` still advises the `SPAWN` of a worker that has
@@ -265,8 +269,7 @@ and CI runs.
 - On green and simplified, `gh pr ready <n>`, then, in a run with no parent,
   notify, pasting the body's `## What & Why` and optional next
   steps: `/qa <PR>` in a fresh session for a UI or
-  runtime change, `/final-review --requirements <path> <PR>`,
-  `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when others
-  commented. Only the user runs them.
+  runtime change, `/chief feedback for <PR>: ...` for a review or
+  feedback, and `/address-pr-feedback <PR>` when others commented. Only the user runs them.
 - A round leaves its PR as is: `state` records `ready.skipped <url>`;
   never `gh pr ready`.

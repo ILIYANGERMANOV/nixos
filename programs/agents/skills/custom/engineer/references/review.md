@@ -14,7 +14,7 @@ Each of the plan's decisions is a requirement too, met only when the diff
 follows it. The out-of-scope list goes with them as assumptions, in your
 words, so a deliberately skipped edge case is not raised. A
 `Security-sensitive:` line adds the requirement `security-sensitive: <topics>`.
-/final-review gets this original file.
+A later review through `/chief` gets this original file.
 
 ## Each round
 

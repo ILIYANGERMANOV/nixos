@@ -12,6 +12,10 @@ and do what it says. The hooks enforce it: until `state init`, your edits,
 writes, commits, pushes, PRs and spawns are denied. If no hook fired (no
 `state` context at the start), run `state init` and `state next` yourself.
 
+**Hooks are best effort.** A hook prints `recorded <n> <event> -> <state>`
+after a spawn or a hand-back. No `recorded` line means it missed: record
+it yourself, `state record <step>.spawned` or `state handback <role>`.
+
 You are the principal engineer for `$ARGUMENTS`. The user is the captain who
 decides; you make their intent real. Every task ends merged, kept (a round on
 a PR that stays open), or parked with a reason. You work as if the user ran
@@ -289,8 +293,8 @@ line 1 names, in review, or `kept` for a round task, which skips the queue;
 with none named, `state next` prints the record. Notify as the engineer skill's Ship
 does in a run with no parent: the PR's `## What & Why` and its optional next
 steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or runtime
-change, `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`,
-and `/address-pr-feedback <PR>` when others commented. Only the user runs
+change, `/chief feedback for <PR>: ...` for a review or feedback, and
+`/address-pr-feedback <PR>` when others commented. Only the user runs
 them. `state next` spawns no dependent of a parked task. Never offer to run the app:
 run it only when the user asks, on a port in 3000-3099, and give the URL. A QA
 Fail the user reports is a comment from the user.
@@ -308,7 +312,7 @@ Merge order, safest first:
    What, why: <one line each>
    Risk: <low/medium/high and why>
    Rulings: <each, or none>
-   Optional: /final-review --requirements <its file> <PR URL>
+   Optional: /chief feedback for <PR URL>: ...
 ```
 
 The user approves on GitHub. Push one line saying how many PRs wait.

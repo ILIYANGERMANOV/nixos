@@ -312,7 +312,7 @@ the branch name (`engineer/SKILL.md` Rules).
 | `research-<topic>.md` | researcher | engineer, implementers | the task |
 | `plan.md` | engineer, step 3 | every brief, by path | rewritten on re-plan |
 | `proposal-simplify.md` | proposal researcher | engineer, step 3 | per plan |
-| `requirements.md` | engineer, step 7 | every review, `/final-review` | rewritten on re-plan |
+| `requirements.md` | engineer, step 7 | every review, a later review through `/chief` | rewritten on re-plan |
 | `requirements-fixes.md` | engineer, from round 2 | `--fixes` reviews | fresh copy on re-plan |
 | `report.md` | engineer, after each step | a fresh context on resume | the task |
 | `/tmp/ctx/...` | ctx | reviewers, fixers, refactorer, R0 | never pruned |
@@ -392,8 +392,8 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
   once per head (`docs/adr/0013-deterministic-programs-over-instructions.md`).
 - **A progress file in every mode**, so a fresh context resumes from it and
   `git log` (https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
-- **Hand-over is ready on green CI.** `/qa`, `/final-review`,
-  `/give-feedback` and `/address-pr-feedback` are optional next steps in the
+- **Hand-over is ready on green CI.** `/qa`, feedback
+  through `/chief` and `/address-pr-feedback` are optional next steps in the
   ready notice; no QA gate. `/10x-engineer` matches it.
 - **Commits are kept.** A new plan adds commits on top; a revert only when the
   user asks.
