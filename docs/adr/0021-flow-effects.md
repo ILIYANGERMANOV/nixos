@@ -13,7 +13,7 @@ effects of the term. Design: #461 (slice S2); implementation: PR #470.
   flow to go on: `type data Eff = PickE | AskE | FocusE` in
   `State/Category/Effect.hs`. Pick: the agent picks a branch. Ask: a
   question goes to the user. Focus: the run waits for the user's
-  attention (no flow raises it yet; #461 S4 places it).
+  attention (the chief's requests raise it; see S4 below).
 - **The type index holds the structure.** `Flow s i e o` carries a
   `Shape` `s`, a `type data` with one constructor per `Flow` constructor
   (`DoS s`, `:>>`, `LoopS`, `CaseS`, ...). Named flows give theirs an alias
@@ -65,6 +65,28 @@ flow's, as an unhandled operation goes to the enclosing handler:
   parent's log as `Asked (ChildRun child)`; the parent rules or forwards
   it, and the answer goes down to that child only.
 
+## S4: the Focus handler
+
+#461 slice S4 gives `FocusE` its handler, `FocusHere`, on the chief:
+
+- **A zipper of saved positions.** A chief request is a task (`r1`,
+  `r2`, ...). `RunState` holds the one in focus and a map of the waiting
+  ones, each saved as its position (`at`, `rounds`): a defunctionalised
+  continuation (Reynolds 1972), a label plus live locals, as Kotlin does.
+- **Two events, one command.** `Suspended TaskNo OneLine` (where it stands)
+  and `Focused TaskNo`, from `state focus [rK] --summary <line>`: the
+  focus waits and the target, or a new request at `fuel`, takes it. A
+  request with nothing recorded is dropped, not suspended. Its forwarded
+  questions are parked (S3's `QuestionParked`) and stay answerable.
+- **Cards are derived.** `Card.cards` reads each request's card off the
+  traced log (node, decisions, open questions, last worker, paused-at);
+  nothing is stored for them.
+- **Advice from logged times.** `resumeAdvice` is pure over the pause and
+  now: `resume agent <id>` under `cacheLife - safetyBuffer` (300s - 15s,
+  the user's buffer), else `fresh agent from card`. `state focus rK` takes
+  both times from the log's `ts`, so a replay advises the same; `state
+  tasks` takes now from the clock.
+
 ## Laws
 
 | Law | Where |
@@ -76,6 +98,8 @@ flow's, as an unhandled operation goes to the enclosing handler:
 | `Effects` of each registered flow, and of a handled `par`, is the stated list; each root's is `'[]` | `RoleSpec` (`:~:`) |
 | ruling one direct child's question changes no other child's log | `MainSpec` |
 | a whole flow with an unhandled Pick, Ask or Focus does not compile | `FlowSpec` |
+| turning away from a request and back lands where the log without the turn does | `FoldSpec` |
+| resume advice turns at exactly `cacheLife - safetyBuffer`, on any seed | `CardSpec` |
 
 ## Consequences
 
