@@ -53,7 +53,7 @@ import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), SomeStep (..), Special (AsksConfirm), StepSet (special), confirmText, eventText, handedBackOutcome, stateNameText)
 import State.Flow.Drawn (fuelTakes)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
-import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
+import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, spawnChildOption, usageOf)
 import State.Role (RoleDef (..), defaultFlow)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), ChildTask (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), Reply (..), Route (..), kindName, parseOneLine, parseQId, qidText, replyWords)
@@ -560,10 +560,12 @@ atText = \case
 {- | An event the grammar lacks, at a run: refused with the events the run's
 Fuel takes where it is, an @extend@ too where a budget here grants one. A
 hand-back is listed even with no child open: the name is what the reader lacks.
+At a fork of child runs nothing is recorded: the fix is the child's brief.
 -}
 unknownEvent :: OpenGraph -> RunState -> Text -> Failure
-unknownEvent g state name =
-    Failure BadInput ("no event " <> name) ("at " <> atText state.at <> " the run takes " <> listed (map fst events)) (closest name events)
+unknownEvent g state name = case Fold.forkingAt g state of
+    Just _ -> Failure BadInput ("no event " <> name) ("at " <> atText state.at <> ", run " <> spawnChildOption.command <> ", then " <> spawnChildOption.means) spawnChildOption.command
+    Nothing -> Failure BadInput ("no event " <> name) ("at " <> atText state.at <> " the run takes " <> listed (map fst events)) (closest name events)
   where
     events = edgeEvents <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of

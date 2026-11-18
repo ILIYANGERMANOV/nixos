@@ -155,6 +155,24 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                 `shouldBe` (["next.done -> out"], ["DONE", "  at the end: the flow is done"], ["r1 paused 0m at architect/fuel: still researching"])
 
     describe "a request handed on whole" $ do
+        it "at the fork, says to spawn the child with its brief and record nothing, and so does a refused record" $ \world -> do
+            _ <- delegating world
+
+            next <- succeeded =<< state world ["next"]
+            refusal <- state world ["record", "spawn_delegates.spawned"]
+
+            (take 1 next, any ("record nothing - the child's state init --parent moves this run on" `Text.isInfixOf`) next, refusal.code, drop 1 refusal.err)
+                `shouldBe` (["RUN state brief engineer"], True, 2, ["fix: state brief engineer"])
+
+        it "briefs an engineer child to record its Fuel line at fuel, and a 10x child that it runs at Balanced" $ \world -> do
+            _ <- delegating world
+
+            engineer <- succeeded =<< state world ["brief", "engineer"]
+            tenX <- succeeded =<< state world ["brief", "10x"]
+
+            (take 1 (drop 3 engineer), take 1 (drop 3 tenX))
+                `shouldBe` (["Your run starts at fuel: record the Fuel line there, state record fuel.set <level>."], ["Your run starts past fuel, at Balanced: record no fuel.set."])
+
         it "moves the chief on to its next request at the child's init, listing the child with its last event" $ \world -> do
             chief <- delegating world
             later world 120

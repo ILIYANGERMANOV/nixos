@@ -42,7 +42,32 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   | `blocks` | no skill: pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
   | `discussion` | no skill: below |
   | `other` | no skill: do it yourself (`direct`) |
-  | `delegate` | a background engineer or 10x subagent takes the whole request: fill in the brief `state brief engineer` (or `state brief 10x`) prints, then spawn it with that brief. Its `state init --parent <run>` moves this run on to `next`: take the next request at once. The run ends only once each such child finished or stopped; `state tasks` lists each with its last event. Its `AWAIT ci` hand-back names the command you run (`Parent runs: cd <its worktree> && state record await_ci.green`), as does an answer to its question that could not reach its run |
+  | `delegate` | a background engineer or 10x subagent takes the whole request, as **Delegate** says. Its `state init --parent <run>` moves this run on to `next`: take the next request at once |
+
+- **Delegate.** At `spawn_delegates` record nothing: fill in the brief
+  `state brief engineer` (or `state brief 10x`) prints, then spawn the child
+  in the background with it, its prompt naming its worktree.
+  - `Base:` the branch its PR merges into, `main` unless the request names one.
+  - `Branch:` a new branch named after the change; an engineer's worktree is
+    `git worktree add -b <branch> <path> origin/<base>`.
+  - `<dir>`: an engineer's notes, `/tmp/engineer-<owner>-<repo>-<branch slug>/`;
+    a 10x's run dir, `~/.10x/<yyyy-mm-dd>-<slug>/` after `git init -q`, also its worktree.
+  - Fuel: the brief's line under `Branch:` tells the child. An engineer
+    starts at `fuel` and records the `Fuel:` line itself; a 10x runs at Balanced.
+  - The run ends only once each child finished or stopped; `state tasks`
+    lists each with its last event.
+  - **CI.** Its `AWAIT ci` hand-back prints `Parent runs:` lines. Run the one
+    CI matches as printed, from your worktree (`cd <its worktree> && state
+    record await_ci.green`, or `await_ci.red <check>...`), then `cd` back.
+    Then resume the child: SendMessage it, or past about 5 idle minutes a
+    fresh agent of its role with its spawn prompt, saying "CI finished on
+    `<PR>`, recorded in your run in `<its worktree>`. Run `state next`."
+    Green, it finishes `ready`; red, it runs its CI fix.
+  - **Answers.** An answer that could not reach its run: your `state answer`
+    (or `state rule`) prints `child <id>: <why>` and its `fix: cd <its
+    worktree> && ...`. Run that as printed, from your worktree, `cd` back,
+    then resume the child as for CI, saying "Answer to `<qid>`: `<a>`, in
+    your run already. Run `state next`."
 
 - **Focus.** One request is in focus, the others wait. At any state, one
   step switches: `state focus --summary "<where this one stands>"` opens

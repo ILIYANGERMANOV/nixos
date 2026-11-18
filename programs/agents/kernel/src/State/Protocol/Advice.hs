@@ -54,7 +54,7 @@ import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
-import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
+import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption, spawnChildOption)
 import State.Role (FlowName (..), RoleDef (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), Route, kindName, oneLineText, otherNote, qidText, questionLine, replyText, replyWords)
@@ -64,7 +64,7 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), 
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, settledSkips, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp)
+import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, childFork, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, settledSkips, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -319,7 +319,9 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s) <> told s)
-            Nothing -> plain (Run (one ("state record the " <> stateNameText (placeName place) <> " state's outcome") "goes on"))
+            Nothing -> plain . Run $ case childFork g place of
+                Just _ -> spawnChildOption :| []
+                Nothing -> one ("state record the " <> stateNameText (placeName place) <> " state's outcome") "goes on"
     usedUpAt place = mfilter usedUp (listToMaybe [budget | (_, budget) <- budgetsAt place])
     budgetsAt place = [(metered.step, budget) | (metered, budget) <- shownBudgets g state, metered.place == place]
     {- At a choice's pick: the user says whether to go on at a used-up

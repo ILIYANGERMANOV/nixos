@@ -24,7 +24,7 @@ import State.Category.Fuel (fuelLabel)
 import State.Category.Graph (Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName (..), SomeStep (..), StateName, eventText, handedBackOutcome, spawnedOutcome, stateNameText, stepName)
 import State.Cli.Render qualified as Render
-import State.FlowName (namedFlowText)
+import State.FlowName (fixedFuel, namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
@@ -156,8 +156,10 @@ brief steps g state agent task = case (leads agent, task, fanAt state.at) of
     (Nothing, _, _) -> Right (stepBrief steps g state.at agent)
 
 {- | A brief for a child that takes no task, to fill in: the fields a task
-would give it, the request in the user's words, the plan it carries out
-and when it is done, then the line that starts its run under this one.
+would give it, where its run starts as to Fuel, the request in the user's
+words, the plan it carries out and when it is done, then the line that
+starts its run under this one. Unlike a task's child, nothing records its
+Fuel line for it.
 -}
 untaskedBrief :: RunState -> FlowName -> Text
 untaskedBrief state flow =
@@ -165,6 +167,9 @@ untaskedBrief state flow =
         [ "Fuel: <low|balanced|max>"
         , "Base: <branch>"
         , "Branch: <branch>"
+        , case fixedFuel flow of
+            Nothing -> "Your run starts at fuel: record the Fuel line there, state record fuel.set <level>."
+            Just fuel -> "Your run starts past fuel, at " <> fuelLabel fuel <> ": record no fuel.set."
         , ""
         , "## The user's words"
         , "<the request, verbatim>"

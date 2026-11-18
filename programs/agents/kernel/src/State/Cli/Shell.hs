@@ -56,6 +56,7 @@ import State.Cli.Route qualified as Route
 import State.Cli.View (beginText, brief, briefSection, pendingLines, showRun, taskBrief)
 import State.Cli.View qualified as View
 import State.Flow.Legacy (legacyGraph)
+import State.FlowName (fixedFuel)
 import State.Protocol.Advice (Action (AwaitAnswer, AwaitOn, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, ledFile, rebound, renderBinding, resolve, sessionDir, slotOf, slottedAgents, staleNote, stashFile, storeRoot)
@@ -266,8 +267,13 @@ targetAt :: (Git :> es, Log :> es, RoFileSystem :> es) => FilePath -> Eff es (Ma
 targetAt dir = toplevelAt dir >>= traverse (\top -> Target top <$> FileSystem.inDirectory top (fmap parentOf pointedRun))
   where
     parentOf = \case
-        Just (Right started) | Just Start {principal = ByRole parent _ _} <- Fold.runStart started.event -> Just parent.run
-        _ -> Nothing
+        Nothing -> Nothing
+        Just (Left _) -> Nothing
+        Just (Right started) -> Fold.runStart started.event >>= principalParent . (.principal)
+    principalParent = \case
+        ByRole parent _ _ -> Just parent.run
+        ByUser _ -> Nothing
+        ByCaller _ -> Nothing
 
 -- | What a want says at the run its caller is bound to ("State.Protocol.Binding"), or where it waits ('delivery').
 wantAnswer :: (Shell es) => Steps -> HookName -> BS.ByteString -> Call -> Want -> Maybe Slot -> Maybe Binding -> Eff es Text
@@ -1397,17 +1403,6 @@ startOf args = case args.origin of
   where
     atFixedFuel principal = let flow = fromMaybe defaultFlow args.flow in Begin principal flow (fixedFuel flow)
 
-{- | The Fuel a flow runs at whoever starts it: the 10x picks each task's
-Fuel and runs at Balanced itself, so its user is asked none. The chief has
-none: each request, the first too, records its own at its Fuel step.
--}
-fixedFuel :: FlowName -> Maybe Fuel
-fixedFuel = \case
-    TenXFlow -> Just Balanced
-    ChiefFlow -> Nothing
-    EngineerFlow -> Nothing
-    ArchitectFlow -> Nothing
-
 -- | The parent run must have started.
 parentStarts :: (Log :> es) => Parent -> Eff es (Either Failure ())
 parentStarts parent =
@@ -1424,15 +1419,19 @@ default) and settles its own Fuel; a direct child its plan too, as a user's
 run does.
 -}
 childStart :: Parent -> Maybe FlowName -> OpenGraph -> RunState -> Either Failure Begin
-childStart parent named g state = case (parent.link, Fold.forkingAt g state, Fold.fanAt state.at) of
-    (InFan (Tasked taskId), _, _) -> do
+childStart parent named g state = case parent.link of
+    InFan (Tasked taskId) -> do
         task <- childTask parent.run taskId state
         flow <- childFlow named task
         Right (Begin (ByRole parent task.shape task.plan) flow (Just task.fuel))
-    (_, Just _, _) -> untasked (InFan Untasked) ParentDecided
-    (_, Nothing, Just _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at a fan-out: a child takes one of its tasks" initLineFix)
-    (_, Nothing, Nothing) -> untasked Direct ChildConfirms
+    InFan Untasked -> taskless
+    Direct -> taskless
   where
+    -- A child naming no task: the parent's position decides its link.
+    taskless = case (Fold.forkingAt g state, Fold.fanAt state.at) of
+        (Just _, _) -> untasked (InFan Untasked) ParentDecided
+        (Nothing, Just _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at a fan-out: a child takes one of its tasks" initLineFix)
+        (Nothing, Nothing) -> untasked Direct ChildConfirms
     untasked link plan = let flow = fromMaybe defaultFlow named in Right (Begin (ByRole (Parent parent.run link) OwnPr plan) flow (fixedFuel flow))
 
 -- | The parent's task the child runs: the parent must be at a fan-out whose breakdown names it.
