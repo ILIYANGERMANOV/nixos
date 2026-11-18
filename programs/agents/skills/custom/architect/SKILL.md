@@ -33,8 +33,10 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   A `fix:` line names the command that works now: run it.
 - **The problem first, free-form.** At `problem`, talk the problem through
   with the user in plain messages: no ticket, no picker, no `state ask`. The
-  user says when it is understood ("design", "enough"); only then ask the one
-  Confirm `state next` names and answer it with the user's own words.
+  user says when it is understood ("design", "enough"). That message is the
+  answer: `state ask` the Confirm `state next` names, then at once `state
+  answer <qid> "<the user's words>"`, with no `AskUserQuestion`. Understood
+  goes on to the design; more researches again.
 - **Explain, then ask.** In the design, one question at a time. Each Discuss
   question comes after an Explain message in the same turn: the context, then
   pseudo-code, a diagram or a table.

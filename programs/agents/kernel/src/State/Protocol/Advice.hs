@@ -347,9 +347,9 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
             | otherwise ->
                 "\nDiscuss "
                     <> what
-                    <> " with the user free-form: no picker, no question asked yet. Only when the user says design or enough, ask once: state ask --kind Confirm \""
+                    <> " with the user free-form: no picker, no question asked yet. Only when the user says design or enough, that message is the answer: state ask --kind Confirm \""
                     <> confirmText s what
-                    <> "\", and answer it with the user's own words. Then record."
+                    <> "\", then state answer <qid> \"<the user's own words>\" at once, with no AskUserQuestion. Then record."
         Step.AwaitsCi -> ""
         AwaitsMerge -> ""
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
