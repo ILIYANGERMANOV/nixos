@@ -60,3 +60,30 @@ cat $HOME/.claude-kategory/agents/y.md' ]
 
   [ "$(cat "$out/skills/a/SKILL.md")" = plain ]
 }
+
+@test "a Python home join naming .claude fails" {
+  echo 'root = os.path.join(os.environ["HOME"], ".claude", "projects")' >"$tree/skills/a/scripts/analyze.py"
+
+  run relocate
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'still name ~/.claude'* ]]
+}
+
+@test "a link that leads nowhere fails" {
+  ln -s "$WORK/missing" "$tree/skills/a/scripts/run.sh"
+
+  run relocate
+
+  [ "$status" -ne 0 ]
+}
+
+@test "a search that cannot run fails instead of passing" {
+  echo plain >"$tree/skills/a/SKILL.md"
+  stub grep 'exit 2'
+
+  run relocate
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *'relocate: could not search'* ]]
+}

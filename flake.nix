@@ -176,11 +176,13 @@
             src = self;
           };
         }
-        # claude-kategory builds: its relocated files name no ~/.claude path
-        # (kategory/relocate.sh) and its wrapper passes shellcheck. Where
-        # `llm-agents` has a Claude Code.
+        # claude-kategory builds and guards both logins: see
+        # kategory/check.nix. Where `llm-agents` has a Claude Code.
         // pkgs.lib.optionalAttrs (self.packages.${pkgs.stdenv.hostPlatform.system} ? claude-kategory) {
-          kategory = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-kategory;
+          kategory = import ./programs/claude-code/kategory/check.nix {
+            inherit pkgs;
+            inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) claude-kategory;
+          };
         }
         # That a .kt file gets kotlin_lsp running the binary programs/kotlin
         # packages, ktlint as its formatter, and that <leader>tt runs

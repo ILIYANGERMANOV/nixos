@@ -37,19 +37,29 @@ let
     "enabledPlugins"
   ];
 
+  # Each rule naming the ~/.claude config dir, kept and repeated for this
+  # one: the user's own ~/.claude login stays as guarded as the one here.
+  denyHere = lib.map (lib.replaceStrings [ "~/.claude/" ] [ "~/${configDir}/" ]) (
+    lib.filter (lib.hasInfix "~/.claude/") deny
+  );
+
   target = mkTarget {
     inherit name profile;
-    settings = lib.recursiveUpdate (removeAttrs settings userKeys) { permissions = { inherit deny; }; };
+    settings = lib.recursiveUpdate (removeAttrs settings userKeys) {
+      permissions.deny = deny ++ denyHere;
+    };
   };
 
   # The files in the layout of codegen/home.nix, folded so one path with two
   # sources is an eval error, then relocated: every link resolved and every
-  # ~/.claude path in their text pointed at ~/.claude-kategory.
+  # ~/.claude path in their text pointed at ~/.claude-kategory. Not the
+  # settings, whose deny rules name both dirs on purpose and go in as
+  # `--settings` from the store.
   files = pkgs.runCommand "${name}-home" { } ''
     bash ${./relocate.sh} ${
       pkgs.linkFarm "${name}-links" (
         foldTargets (
-          [ (home.lead target.settingsFile target.instructions) ]
+          [ { ${home.instructions} = target.instructions; } ]
           ++ home.skills target.skillFarm profile.skills
           ++ home.roles roleSources
         )
@@ -59,6 +69,8 @@ let
 in
 shellCheck.writeShellApplication {
   inherit name;
+  # For the check that both credential deny rules reach `--settings`.
+  passthru.settingsFile = target.settingsFile;
   runtimeInputs = [ pkgs.coreutils ];
   text = lib.concatLines [
     (lib.toShellVars {
@@ -68,7 +80,7 @@ shellCheck.writeShellApplication {
       skills_dir = "${files}/${home.skillsDir}";
       agents_dir = "${files}/${home.agentsDir}";
       instructions_file = "${files}/${home.instructions}";
-      settings_file = "${files}/${home.settings}";
+      settings_file = target.settingsFile;
       runtime_path = lib.makeBinPath (
         target.runtime
         ++ [
