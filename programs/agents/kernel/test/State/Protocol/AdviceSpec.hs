@@ -19,7 +19,6 @@ import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
 import State.Role (Rung (Lead))
 import State.Run.Ask (Above (..), Kind (..), OneLine, Proposal (..), QId (..), Question (..), Refusal (MustAnswer), Route (..))
-import State.Run.Codec (urlText)
 import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genStart, genText, logOf, oneLine, run, runId, start, started)
@@ -214,10 +213,10 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts (architectRun []) `shouldBe` offering ["state record architect.discuss", "state record architect.enough", "state record architect.research", "state record architect.ticket"]
 
         it "ends with no ticket on enough, naming its notes file" $
-            next noFacts (architectRun (enoughIn "architect")) `shouldBe` Done [architectNotes]
+            next noFacts (architectRun (enoughIn "architect")) `shouldBe` Done (ArchitectEnd architectNotes Nothing)
 
         it "ends naming its notes file and the ticket's url it wrote" $
-            next noFacts (architectRun (ticketWritten <> enoughIn "architect")) `shouldBe` Done [architectNotes, urlText ticketUrl]
+            next noFacts (architectRun (ticketWritten <> enoughIn "architect")) `shouldBe` Done (ArchitectEnd architectNotes (Just ticketUrl))
 
         it "tells the discussion to send its Explain message before each question, in the same turn" $
             (advise steps architectGraph noFacts (architectRun [Took mempty (pickOf "architect" "discuss")])).prompt
@@ -251,7 +250,7 @@ spec = describe "State.Protocol.Advice" $ do
             legacyNext (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
 
         it "ends, as the architect, naming its notes file and the confirmed design's ticket url" $
-            legacyNext (architectRun (problemUnderstood <> designConfirmed)) `shouldBe` Done [architectNotes, urlText ticketUrl]
+            legacyNext (architectRun (problemUnderstood <> designConfirmed)) `shouldBe` Done (ArchitectEnd architectNotes (Just ticketUrl))
 
     it "names a subagent's role with its article" $
         map (Text.isPrefixOf "at implement: a step an implementer subagent runs") (take 1 (explainedAt (runAt (knobs Balanced <> take 10 happyPath))))
@@ -463,7 +462,7 @@ spec = describe "State.Protocol.Advice" $ do
             map (`deliverPrompt` ready) [start {interface = Set.singleton Notify}, child]
                 `shouldBe` [ready.prompt <> " Then notify.", ready.prompt]
         it "ends as DONE for the user, READY for a parent run" $
-            map (`deliver` Done ["https://pr/1"]) [start, child]
+            map (`deliver` Done (OutputEnd (Just (Url "https://pr/1")))) [start, child]
                 `shouldBe` ["DONE https://pr/1", "HANDBACK READY https://pr/1"]
 
         it "stops for the user, or hands the stop back to a parent run" $
@@ -472,7 +471,7 @@ spec = describe "State.Protocol.Advice" $ do
 
     describe "heldBy" $ do
         let fixer = [Worker (AgentRole "fixer") (AgentId "a1") 7]
-            finished = Advice (Done ["https://pr/1"]) [] "at the end: the flow is done" [commandOption "state record x" ""] ["fuel: balanced"] "" False
+            finished = Advice (Done (OutputEnd (Just (Url "https://pr/1")))) [] "at the end: the flow is done" [commandOption "state record x" ""] ["fuel: balanced"] "" False
         it "holds a hand-back to a parent while a worker is at work, naming it in house format" $
             heldBy child fixer finished
                 `shouldBe` finished
@@ -578,7 +577,7 @@ architectOn :: OpenGraph -> [Event] -> RunState
 architectOn under events = either (error . show) id (replay under (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
 
 -- | The notes file an architect run of 'start' names at its end.
-architectNotes :: Text
+architectNotes :: FilePath
 architectNotes = "notes/notes.md"
 
 -- | Whether the commands a 'Run' offers hold.

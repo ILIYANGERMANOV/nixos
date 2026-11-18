@@ -13,6 +13,7 @@ module State.Protocol.Advice (
     pullRequestOf,
     Advice (..),
     Action (..),
+    End (..),
     explained,
     due,
     skippable,
@@ -176,8 +177,16 @@ data Action
     | -- | One option to take, or several to choose from.
       Run (NonEmpty Option)
     | Stopped Stop
-    | -- | What the run names at its end: a url, or an architect's notes and its ticket.
-      Done [Text]
+    | -- | What the run names at its end.
+      Done End
+    deriving stock (Eq, Show)
+
+-- | What a run names at its end, by its flow: 'endRefs' renders it.
+data End
+    = -- | An architect's notes file, then its ticket's url if it wrote one.
+      ArchitectEnd FilePath (Maybe Url)
+    | -- | The url of what the run's flow ends in, when the run keeps one.
+      OutputEnd (Maybe Url)
     deriving stock (Eq, Show)
 
 {- | The one outcome the shell records before advising, when the facts or the
@@ -292,7 +301,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (Nothing, []) -> case state.untriaged of
             (role, line) : _ -> plain (TriageHandback role line)
             [] -> going
-    output = endRefs facts state
+    output = endOf facts state
     fanHere = case state.at of
         At place -> ScopedFan place.scope <$> fanNamed place.name
         Out -> Nothing
@@ -575,14 +584,20 @@ fixed name its skill writes, then its ticket's url if it wrote one: by the
 run's flow, not its output, so a legacy architect run ends alike. Any other
 run names its flow's output url.
 -}
-endRefs :: Facts -> RunState -> [Text]
-endRefs facts state = case state.start.flow of
-    ArchitectFlow -> Text.pack (state.start.notes </> "notes.md") : maybeToList (urlText <$> state.ticket)
-    EngineerFlow -> outputRef
-    TenXFlow -> outputRef
-    ChiefFlow -> outputRef
+endOf :: Facts -> RunState -> End
+endOf facts state = case state.start.flow of
+    ArchitectFlow -> ArchitectEnd (state.start.notes </> "notes.md") state.ticket
+    EngineerFlow -> output
+    TenXFlow -> output
+    ChiefFlow -> output
   where
-    outputRef = maybeToList (urlText <$> outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state)
+    output = OutputEnd (outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state)
+
+-- | The words an 'End' names, in order.
+endRefs :: End -> [Text]
+endRefs = \case
+    ArchitectEnd notes ticket -> Text.pack notes : maybeToList (urlText <$> ticket)
+    OutputEnd url -> maybeToList (urlText <$> url)
 
 {- | The url of what the run's flow ends in, when the run keeps one: a PR's,
 a ticket's, or a request's, the url recorded last. No step records a url for
@@ -731,9 +746,9 @@ deliver start = \case
     Run (option :| []) -> "RUN " <> option.command
     Run (_ :| _ : _) -> "RUN one option below"
     Stopped stop -> above ("STOP " <> reasonText stop.reason <> " " <> stop.why) (stopLine stop)
-    Done refs -> above ("DONE" <> named) (tokenWordText ReadyWord <> named)
+    Done end -> above ("DONE" <> named) (tokenWordText ReadyWord <> named)
       where
-        named = foldMap (" " <>) refs
+        named = foldMap (" " <>) (endRefs end)
   where
     above = upTo (Ask.deliver start.principal)
     has op = Set.member op start.interface
