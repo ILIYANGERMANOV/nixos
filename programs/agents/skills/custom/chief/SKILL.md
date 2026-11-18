@@ -36,7 +36,7 @@ request -> fuel -> route -> branch, inline -> next -> request | done
 
   | Branch | You |
   |---|---|
-  | `architect`, `engineer` | load that skill with the Skill tool and follow it from what `state next` prints, skipping its `state init`; an `architect` request adds its own section to this run's `<notes>/notes.md` and, when it ends, names that section and the ticket's URL, if any |
+  | `architect`, `engineer` | load that skill with the Skill tool and follow it from what `state next` prints, skipping its `state init`; an `architect` request adds its own section to this run's `<notes>/notes.md` (Edit and Write work in the notes dir). It ends at `next` with no `DONE` naming the notes, so your own message names that section and the ticket's URL, if any |
   | `10x` | load `10x-engineer`; skip Intake's directory, `git init` and `state init`: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
   | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | at `fuel`, before its `fuel.set`, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` takes the target's PR as the run's; for `engineer` it confirms the plan itself unless you ask a Design or Scope question; `architect`'s `ticket` edits the target ticket |
   | `blocks` | no skill: pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
@@ -55,16 +55,18 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   advice: `resume agent <id>`, paused under 4m45s (the 5-minute cache less
   a 15s buffer): SendMessage that agent; `fresh agent from card`: spawn a
   fresh agent briefed from the card.
-- **Discussion.** The repo stays read-only: no edits, commits, pushes or
-  PRs; the hooks deny them. Issues are open: when the user asks, it may
-  `gh issue create`, `edit` or `comment`. Explain and show: findings,
+- **Discussion.** The repo stays read-only: no repo edits, commits, pushes
+  or PRs; the hooks deny them. Edit and Write work only in the notes dir.
+  Issue writes only when the user asks: `gh issue create`, or `gh issue
+  edit` or `comment` on the issue they name. Explain and show: findings,
   diagrams, pseudo-code, tables; then ask the next question, your
   recommendation first, at `discuss`, through `state ask --kind
   <Design|Scope>` (no Discuss kind; then `discuss.asked`). The user's reply
-  is always `state answer`, never `state rule`. Record `discussing.enough`
-  when the user moves on: it waits for every open researcher, then `notes`
-  merges their hand-backs. A design ticket the user asks for goes through
-  `architect`: record `enough` and route the next request there.
+  is always `state answer`, never `state rule`. Record `state record
+  discussing.enough` when the user moves on: it waits for every open
+  researcher, then `notes` merges their hand-backs. A design ticket still
+  routes to `architect`: record `state record discussing.enough`, then
+  route the next request there.
 - **Reviewing block.** Before it, write `requirements.md` in the notes
   dir: the request's requirements, one per line, for the review to judge.
   Pick rows as the review rules of `/engineer` say (load it with the Skill
