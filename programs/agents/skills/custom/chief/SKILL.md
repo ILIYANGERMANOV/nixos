@@ -33,16 +33,30 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   request's, `state record fuel.set <level>`, Balanced unless the request
   says otherwise; then the branch, `state record route.<branch>`. A whole
   flow's own `fuel` state (`engineer/fuel`) takes the same level again.
-- **Branches.**
+- **Branches.** Each runs inline in this run: never its skill's own
+  `state init`; go on with `state next`.
 
   | Branch | You |
   |---|---|
-  | `architect`, `engineer`, `10x` | load that skill with the Skill tool (`architect`, `engineer`, `10x-engineer`) and follow it; its `state init` line prints the current step of this run. For `10x`, skip Intake's directory, `git init` and `state init`, which start a separate run: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
+  | `architect`, `engineer` | load that skill with the Skill tool and follow it from what `state next` prints, skipping its `state init` |
+  | `10x` | load `10x-engineer`; skip Intake's directory, `git init` and `state init`: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
   | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | at `fuel`, before its `fuel.set`, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` takes the target's PR as the run's; for `engineer` it confirms the plan itself unless you ask a Design or Scope question; `architect` writes its confirmed design into the target ticket |
-  | `blocks` | pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
-  | `discussion` | below |
-  | `other` | do it yourself (`direct`) |
+  | `blocks` | no skill: pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
+  | `discussion` | no skill: below |
+  | `other` | no skill: do it yourself (`direct`) |
 
+- **Focus.** One request is in focus, the others wait. At any state, one
+  step switches: `state focus --summary "<where this one stands>"` opens
+  a new request at `fuel`; `state focus rK --summary ...` resumes waiting
+  `rK` at its node. `--summary` is needed once the request recorded work;
+  one at `next` is finished: the turn records `next.request`, no card.
+  A side request while a branch waits on an Ask is the same step: the ask
+  is parked, still in `state pending`, answer it any time. `state tasks`
+  prints a card per request (node, decisions, open questions, last agent)
+  and a line per child run; `state focus rK` prints `rK`'s card. A card's
+  advice: `resume agent <id>`, paused under 4m45s (the 5-minute cache less
+  a 15s buffer): SendMessage that agent; `fresh agent from card`: spawn a
+  fresh agent briefed from the card.
 - **Discussion.** Read-only: no edits, commits, pushes or PRs; the hooks deny
   them. Explain and show: findings, diagrams, pseudo-code, tables; then ask
   the next question, your recommendation first, at `discuss`, through
@@ -78,7 +92,8 @@ request -> fuel -> route -> branch, inline -> next -> request | done
 
 ## States
 
-Each step is a state; `state next` names the one you are in.
+Each step is a state; `state next` names the one you are in. `state focus`
+is no arrow: it leaves a request at its state and turns to another.
 
 | State | Run by | Arrows out |
 |---|---|---|
@@ -186,6 +201,6 @@ Each step is a state; `state next` names the one you are in.
 `/chief resume`: the notes dir is the newest `/tmp/chief-*` unless the user
 names one. From the worktree the run started in (inside the notes dir it
 fails: not a git work tree), `state init --notes <notes dir>`: it resumes
-the run. Then check you are current, as above, and `state show`. Stopped inside `architect`, `engineer` or `10x`:
+the run. Then check you are current, as above, and `state show` and `state tasks`. Stopped inside `architect`, `engineer` or `10x`:
 load that branch's skill again with the Skill tool. Carry on with
 `state next`.

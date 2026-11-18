@@ -85,12 +85,15 @@ import State.Run.Event (
     Stop (..),
     StopReason (..),
     TaskId (..),
+    TaskNo,
     TaskState (..),
     Url (..),
     Waiting (..),
     eventId,
     parseRunId,
+    parseTaskNo,
     runIdText,
+    taskNoText,
     tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
@@ -206,6 +209,8 @@ eventType = \case
     WorkerHandedBack _ _ -> "worker_handed_back"
     WorkerSpawned _ _ -> "worker_spawned"
     WorkerReturned _ _ -> "worker_returned"
+    Suspended _ _ -> "suspended"
+    Focused _ -> "focused"
     Voided _ _ -> "voided"
 
 eventData :: Event -> Series
@@ -254,6 +259,8 @@ eventData = \case
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
     WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
     WorkerReturned (AgentRole role) agent -> "role" .= role <> "agent" .= fmap (.agentIdText) agent
+    Suspended task summary -> "request" .= taskNoText task <> "summary" .= oneLineText summary
+    Focused task -> "request" .= taskNoText task
     Voided n why -> "seq" .= n <> "why" .= why
   where
     qidData qid = "qid" .= qidText qid
@@ -285,6 +292,8 @@ eventOf kind obj = case kind of
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
     "worker_returned" -> WorkerReturned . AgentRole <$> obj .: "role" <*> (fmap AgentId <$> obj .: "agent")
+    "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
+    "focused" -> Focused <$> requestOf obj
     "voided" -> Voided <$> obj .: "seq" <*> obj .: "why"
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
@@ -301,6 +310,9 @@ outcomeParsers = Map.fromList (map (first eventText) (outcomeDecoders <> drawnDe
 
 childOf :: Object -> Parser RunId
 childOf obj = obj .: "child" >>= runIdOf
+
+requestOf :: Object -> Parser TaskNo
+requestOf obj = obj .: "request" >>= \raw -> maybe (fail (show raw <> " is no request, r<n>")) pure (parseTaskNo raw)
 
 taskOf :: Object -> Parser TaskId
 taskOf obj = TaskId <$> obj .: "task"

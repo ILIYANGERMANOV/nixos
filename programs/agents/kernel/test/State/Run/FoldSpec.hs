@@ -14,11 +14,10 @@ import Hedgehog (Gen, PropertyT, annotate, annotateShow, assert, cover, discard,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Effect (Handler (FocusHere))
-import State.Category.Flow (Flow (..), Group (..), scopePath, unqualify)
+import State.Category.Flow (Flow (..), Group (..), Name, scopePath, unqualify)
 import State.Category.FlowGen (AnyFlow (..), builds, composes, genFlow, genWalk, threeWay, threeWayGraph, threeWayPick)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (someMeterName)
 import State.Category.Path (ty, unrecorded)
@@ -33,7 +32,7 @@ import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (Merge)
 import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genReading, genReply, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold hiding (Answer (..))
+import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
 import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, within)
 import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
@@ -382,10 +381,45 @@ spec = describe "State.Run.Fold" $ do
                 Left (AfterStop _) -> state.stopped /== Nothing
                 refused -> annotateShow refused >> failure
 
-        it "granting_focus_leaves_the_run_where_it_is" . hedgehog $ do
-            (flow, logged) <- forAll genEffectLog
-            state <- evalEither (replay flow (logOf logged))
-            handle FocusHere flow state Focused === Right state
+    describe "a request switch" $ do
+        it "turning_away_from_a_request_and_back_lands_where_the_log_without_the_turn_does" . hedgehog $ do
+            events <- forAll (genAcceptedOn [] chiefGraph)
+            split <- forAll (Gen.int (Range.linear 0 (length events)))
+            summary <- forAll genOneLine
+            let (prefix, rest) = splitAt split events
+            before <- evalEither (chief prefix)
+            if over before then discard else success
+            cover 10 "turned away mid-request" (stage chiefGraph before == Fold.Underway)
+            cover 5 "more of the request after the turn" (not (null rest))
+            (landing <$> chief (prefix <> [Suspended before.focus summary, Focused before.focus] <> rest)) === (landing <$> chief (prefix <> rest))
+
+        it "a_turn_away_opens_a_new_request_at_the_start_and_parks_the_waiting_requests_forwarded_question" $ do
+            let asking = Asking (Question (QId run 1) Design (oneLine "which store?")) (StateName "fuel") Itself
+            away <- either (fail . show) pure (chief [fuelSet Balanced, Asked asking, Forwarded (QId run 1) TheUser, Suspended (TaskNo 1) (oneLine "asked the store")])
+            (away.focus, away.at, Map.keys away.suspended, (.waits) <$> away.pending)
+                `shouldBe` (TaskNo 2, At chiefGraph.inPort, [TaskNo 1], [ForLater (oneLine "suspended r1")])
+
+        it "refuses a turn to a request that is not waiting" $
+            chief [Focused (TaskNo 1)] `shouldBe` Left (NotSuspended (TaskNo 1))
+
+        it "refuses a turn away from a request that recorded work without suspending it" $
+            chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Focused (TaskNo 1)] `shouldBe` Left (FocusRecorded (TaskNo 2))
+
+        it "drops a finished request, at next, on the turn back to a waiting one" $ do
+            back <- either (fail . show) pure (chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Took mempty (pickOf "route" "other"), stepTook (DirectDone "done"), Focused (TaskNo 1)])
+            (back.focus, nodeName back.at, Map.keys back.suspended) `shouldBe` (TaskNo 1, StateName "route", [])
+
+        it "keeps the requests finished while one waited on the turn back to it" $ do
+            back <- either (fail . show) pure (chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Took mempty (pickOf "route" "other"), stepTook (DirectDone "done"), stepTook NextRequest, Focused (TaskNo 1)])
+            Map.elems (Map.filterWithKey (\metered _ -> metered.step == StateName "next") back.meters) `shouldBe` [1]
+
+        it "shows no url of a later request on the turn back to a waiting one" $ do
+            let engineered = Took mempty (pickOf "route" "engineer") : within "engineer" (fuelSet Balanced : happyPath)
+            back <- either (fail . show) pure (chief ([fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max] <> engineered <> [Focused (TaskNo 1)]))
+            back.latest `shouldBe` Nothing
+
+        it "refuses a request switch in a run of a flow that does not switch requests" $
+            replay g (logOf (started :| [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x")])) `shouldBe` Left NoFocus
 
     describe "a void" $ do
         it "a_void_replays_as_the_line_never_logged" . hedgehog $ do
@@ -766,7 +800,6 @@ chiefRequests = describe "the chief's requests" $ do
         map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed `andThen` researched, designed `andThen` shipped, shipped `andThen` designed]
             `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just pr), Right (Just "next", Just ticketUrl)]
   where
-    chief events = replay chiefGraph (logOf (Started (startOf ChiefFlow (ByUser OwnPr)) :| events))
     -- A request: its Fuel, then its pick.
     request branch = [fuelSet Balanced, pick branch]
     pick branch = Took mempty (pickOf "route" branch)
@@ -995,9 +1028,17 @@ atName state = case state.at of
     Out -> Nothing
     Graph.Exit -> Nothing
 
+-- | Where a run stands, less the line numbers it holds, which a log with more lines shifts.
+landing :: RunState -> (Node, Map.Map Name (NonEmpty Round), Map.Map Metered Natural, Maybe Fuel, [Pending], [Ask.Kind], TaskNo, Map.Map TaskNo Suspension, Maybe OnTarget, Maybe Stop)
+landing s = (s.at, s.rounds, s.meters, s.fuel, s.pending, s.askedHere, s.focus, s.suspended, s.onTarget, s.stopped)
+
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
 startOf flow principal = Start flow "notes" principal Set.empty
+
+-- | The chief run a user started, replayed over these lines.
+chief :: [Event] -> Either Fold.Refusal RunState
+chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
 
 {- | Up to 60 tries at an ask event on a run of the engineer or the 10x flow,
 one per rung that rules, under the user or a parent, keeping those the fold

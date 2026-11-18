@@ -106,6 +106,8 @@ genEvent =
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
         , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
         , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
+        , Suspended <$> genTaskNo <*> genOneLine
+        , Focused <$> genTaskNo
         , Voided <$> Gen.integral (Range.linear 0 100000) <*> genText
         ]
 
@@ -133,6 +135,9 @@ genTaskState =
         ]
 
 -- | Few ids, so tasks, children and moves name the same ones often.
+genTaskNo :: Gen TaskNo
+genTaskNo = TaskNo <$> Gen.integral (Range.linear 1 50)
+
 genTaskId :: Gen TaskId
 genTaskId = TaskId <$> Gen.element ["t1", "t2", "t3", "t4", "t5"]
 

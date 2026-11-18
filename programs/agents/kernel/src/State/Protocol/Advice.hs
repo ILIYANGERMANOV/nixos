@@ -63,7 +63,7 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), 
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, targetsAt, usedUp)
+import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -235,10 +235,11 @@ skippable state = case (state.stopped, state.at) of
     level = fuelOf state
 
 {- | The pending questions the run waits on, oldest first: all but those it
-parked for a worker or a child, which wait apart while the run goes on.
+parked for a worker or a child, and a waiting request's own, which wait
+apart while the run goes on.
 -}
 waitedOn :: RunState -> [Pending]
-waitedOn state = filter waits state.pending
+waitedOn state = filter (\pending -> waits pending && pending.asking.question.qid `notElem` suspendedAsks state) state.pending
   where
     waits pending = case (pending.waits, pending.asking.from) of
         (ForTriage, _) -> True

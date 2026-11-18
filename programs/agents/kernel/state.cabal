@@ -69,6 +69,7 @@ library
     State.Protocol.Record
     State.Role
     State.Run.Ask
+    State.Run.Card
     State.Run.Codec
     State.Run.Event
     State.Run.Fan
@@ -153,6 +154,7 @@ test-suite state-test
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec
     State.Cli.RouteSpec
+    State.Cli.Shell.FocusSpec
     State.Cli.Shell.HookSpec
     State.Cli.Shell.MainSpec
     State.Cli.Shell.World
@@ -173,6 +175,7 @@ test-suite state-test
     State.Protocol.HookSpec
     State.RoleSpec
     State.Run.AskSpec
+    State.Run.CardSpec
     State.Run.CodecSpec
     State.Run.EventGen
     State.Run.EventSpec

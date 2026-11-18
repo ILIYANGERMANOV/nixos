@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeData #-}
 
-{- | A step that raises 'FocusE', for the tests only: no flow raises it yet,
-so a test that a whole flow must handle it needs a step of its own. Like
+{- | A step that raises 'FocusE', for the tests only: a test that a whole
+flow must handle it needs a step no handled flow holds. Like
 "State.Flow.Triage", it is in no catalog, no @steps.nix@ row and no wire format.
 -}
 module State.Flow.Attend (

@@ -65,7 +65,7 @@ spec = describe "state over the doubles" $ do
                                , []
                                ,
                                    [ "state init: --notes /other - the worktree holds unfinished run " <> run <> " in /notes"
-                                   , "fix: state init --notes /notes resumes it, or state stop <reason> <why> ends it"
+                                   , "fix: state next goes on with it, a branch inline in it, or state stop <reason> <why> ends it"
                                    ]
                                )
                 take 1 shown `shouldBe` ["run: " <> run <> " (engineer)"]
@@ -112,7 +112,7 @@ spec = describe "state over the doubles" $ do
                     refused <- state fresh (["init", "--notes", "/other"] <> flag)
 
                     (refused.code, refused.out, refused.err)
-                        `shouldBe` (2, [], ["state init: --notes /other - the worktree holds unfinished run " <> run <> " in /notes", "fix: state init --notes /notes resumes it, or state stop <reason> <why> ends it"])
+                        `shouldBe` (2, [], ["state init: --notes /other - the worktree holds unfinished run " <> run <> " in /notes", "fix: state next goes on with it, a branch inline in it, or state stop <reason> <why> ends it"])
 
             it "starts a run in another notes dir once the worktree's run stopped" $ \world -> do
                 _ <- startedRun world

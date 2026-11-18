@@ -57,6 +57,8 @@ stateCalls steps cwd command = [StateCall at sub written | (Just at, sub, parsed
         Next -> True
         HandbackOf _ _ -> True
         Move _ -> True
+        Focus _ _ -> True
+        Tasks -> True
         -- It names its run and writes nothing, whatever directory it runs in.
         Dump _ -> False
         -- It opens with the run's id, so it reads another run's state safely (#432).

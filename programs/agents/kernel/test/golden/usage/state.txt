@@ -24,6 +24,8 @@ Available commands:
   answer                   Record the answer to a question, or park it
   stop                     Stop the run, with a reason and why
   pending                  List the questions awaiting an answer
+  focus                    Turn to a waiting request, else a new one
+  tasks                    Print each request's card and resume advice
   help                     Print this help
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck

@@ -14,6 +14,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight, partitionEithers)
 import Data.Foldable (for_, toList, traverse_)
 import Data.Functor (($>), (<&>))
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, maybeToList)
@@ -51,6 +52,7 @@ import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
 import State.Cli.Route qualified as Route
 import State.Cli.View (beginText, brief, briefSection, pendingLines, showRun, taskBrief)
+import State.Cli.View qualified as View
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
@@ -63,9 +65,10 @@ import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (ParentRun), Link (..), OneLine, Parent (..), Principal (..), Proposal (..), QId, Question (..), kindName, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
+import State.Run.Card qualified as Card
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, encodeLine, eventType, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), TaskId, parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), TaskId, TaskNo, parseRunId, roleText, runIdText, stepTook, taskNoText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Append (..), Pending (asking, waits), RunState (..), Waits (..), askedAt, nextQId, replay)
@@ -75,6 +78,7 @@ import State.Show (tshow)
 import State.Step.Artifact (PlanCall (ChildConfirms), Shape (..), shellPathText, shellWord)
 import State.Step.Catalog (outcome, termSkips)
 import State.Step.Fuel (Outcome (LevelSet))
+import State.Step.Request (Outcome (NextRequest))
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
@@ -444,6 +448,8 @@ execute steps = \case
                 True -> execute steps Next
                 False -> initRun gd args
     Move target -> inWorktree (`moveRun` target)
+    Focus target summary -> fmap (.text) . orNoRun <$> onRun (\stamp run -> record stamp run (repeat Cli) (focusPlan run target summary))
+    Tasks -> tasks
     Dump run -> dump run
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
@@ -482,6 +488,53 @@ execute steps = \case
         Park _ _ -> Nothing
         StopRun _ -> Nothing
         Pending -> Nothing
+
+{- | @state focus [rK] --summary <line>@: the chief's request in focus
+waits, unless it recorded nothing, which is dropped, or it is finished, at
+@next@, which takes the next request; the waiting request named takes the
+focus, else a new one. A turn back prints its card, and
+the advice from the two logged times, so a replay prints the same.
+-}
+focusPlan :: Loaded -> Maybe TaskNo -> Maybe OneLine -> Either Failure Plan
+focusPlan run target summary = do
+    Bifunctor.first refusal (Fold.focusable run.state)
+    -- The request in focus waits on nothing: turning to it is no turn.
+    for_ target (\task -> if task == run.state.focus then Left (refusal (Fold.NotSuspended task)) else Right ())
+    waits <- case (Fold.stage run.g run.state, summary) of
+        (Fold.Untouched, _) -> Right []
+        (Fold.Finished, _) -> Right [stepTook NextRequest]
+        (Fold.Underway, Just line) -> Right [Suspended run.state.focus line]
+        (Fold.Underway, Nothing) -> Left (refusal (Fold.FocusRecorded run.state.focus))
+    before <- cardsOf run
+    Right $ Plan (waits <> map Focused (toList target)) $ \after written ->
+        let card = target >>= \task -> find ((== task) . (.task)) before
+            focusedAt = (.envelope.ts) <$> listToMaybe (reverse written)
+         in printed . (recordedLines written <>) . Text.unlines . fromMaybe [focusLine after] $ View.cardLines <$> focusedAt <*> card
+  where
+    refusal = explain run.g (Fold.fuelOf run.state) run.state.at
+    focusLine after = taskNoText after.focus <> " in focus at " <> stateNameText (askedAt after)
+
+{- | @state tasks@: the card of each request of the worktree's run, by the
+clock, then a line per child run in the store. A child run's agent is not
+linked to its run, so it gets no resume advice.
+-}
+tasks :: (Shell es) => Eff es (Either Failure Text)
+tasks = do
+    at <- Clock.now
+    onRun (\_ run -> ([], (run.state,) <$> cardsOf run)) >>= \case
+        NoRun -> pure (Left noRun)
+        Ran (Left failure) -> pure (Left failure)
+        Ran (Right (state, requests)) -> do
+            children <- Log.children state.run
+            lines' <- traverse childLine children
+            pure (Right (Text.unlines (("notes " <> Text.pack state.start.notes) : concatMap (View.cardLines at) requests <> lines')))
+  where
+    childLine child = either (\failure -> "child " <> runIdText child <> ": " <> failure.why) id <$> onLog (\_ run -> ([], Right (childText run.state))) child
+    childText state = "child " <> runIdText state.run <> " " <> Codec.flowText state.start.flow <> (if Fold.over state then " over at " else " at ") <> stateNameText (askedAt state)
+
+-- | The cards of the run's requests, or why its log does not replay.
+cardsOf :: Loaded -> Either Failure [Card.Card]
+cardsOf run = Bifunctor.first (explain run.g (Fold.fuelOf run.state) run.state.at) (Card.cards <$> Fold.trace run.g run.logged)
 
 {- | @state dump <run>@: the run's events, one envelope per line in seq
 order, read under its lock. A run whose events do not read is named, as
@@ -1080,7 +1133,7 @@ heldHere gd notes =
                         BadInput
                         ("--notes " <> Text.pack notes)
                         ("the worktree holds unfinished run " <> runIdText state.run <> " in " <> Text.pack state.start.notes)
-                        ("state init --notes " <> Text.pack state.start.notes <> " resumes it, or state stop <reason> <why> ends it")
+                        "state next goes on with it, a branch inline in it, or state stop <reason> <why> ends it"
                     )
             (False, Ended _) -> Right Nothing
 

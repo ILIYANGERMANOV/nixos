@@ -7,6 +7,7 @@ module Effects.Log (
     exists,
     firstLine,
     locked,
+    children,
     runLogIO,
 ) where
 
@@ -26,6 +27,7 @@ data Log :: Effect where
     Exists :: RunId -> Log m Bool
     FirstLine :: RunId -> Log m (Maybe Text)
     Locked :: RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Log m a
+    Children :: RunId -> Log m [RunId]
 
 type instance DispatchOf Log = Dynamic
 
@@ -45,6 +47,10 @@ throw.
 locked :: (Log :> es) => RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Eff es a
 locked run = send . Locked run
 
+-- | The runs started as children of this one, oldest first.
+children :: (Log :> es) => RunId -> Eff es [RunId]
+children = send . Children
+
 {- | The log in the run store the environment names ('runStore'), opened for
 each operation. A store error, such as a lock still held after the wait, or
 no store at all, throws an 'IOException': an outage the shell tells.
@@ -63,3 +69,4 @@ onStore op store = case op of
     Exists run -> Store.exists store run
     FirstLine run -> Store.firstEvent store run
     Locked run decide -> Store.locked store run decide
+    Children run -> Store.children store run

@@ -60,7 +60,7 @@ import State.Run.Ask (Above (..), Basis (..), Kind, Link (..), OneLine, Parent (
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, reasonText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), Task, TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), Task, TaskId (..), TaskNo, TaskState (Kept), parseRunId, parseTaskNo, roleText, runIdText, taskNoText)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
@@ -83,6 +83,12 @@ data Command
       Move FilePath
     | -- | A run's events as stored, one envelope per line, in seq order.
       Dump RunId
+    | {- | The chief's request in focus waits, saying where it stands when it
+      recorded work; this waiting request takes the focus, else a new one.
+      -}
+      Focus (Maybe TaskNo) (Maybe OneLine)
+    | -- | A card per request of the chief's run, and per child run.
+      Tasks
     | OnRun RunCommand
 
 -- | A command on the worktree's run, read and written under the log's lock.
@@ -297,6 +303,11 @@ commandInfo steps scope =
                     <$> textArgument (choices reasonText)
                     <*> sentence "<why>"
             , sub "pending" "List the questions awaiting an answer" (pure (Right (OnRun Pending)))
+            , sub "focus" "Turn to a waiting request, else a new one" $
+                (\task summary -> Focus <$> traverse (named "request" parseTaskNo) task <*> traverse oneLine summary)
+                    <$> optional (textArgument "<request>")
+                    <*> optional (textOption "summary" "<line>" "where the request in focus stands, once it recorded work")
+            , sub "tasks" "Print each request's card and resume advice" (pure (Right Tasks))
             , sub "help" "Print this help" (pure (Right Help))
             ]
     footer =
@@ -514,6 +525,10 @@ explain g fuel at = \case
         Fan.TaskExists task -> refused ("task " <> Codec.taskIdText task) "the fan-out has a task of that id already" "state show"
     NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText at <> ", no fan-out's state") "state show"
     NotVoidable n -> refused ("seq " <> tshow n) "no line the run replays has it: none does, it is voided, or it is a void" "state void <the seq of an event state dump prints> <why>"
+    NoFocus -> refused "the request switch" "only a chief run going on switches requests" "state next"
+    NotInFocus task -> refused ("the suspension of " <> taskNoText task) "it is not the request in focus" "state tasks"
+    NotSuspended task -> refused ("the focus on " <> taskNoText task) "it is not a waiting request" "state tasks"
+    FocusRecorded task -> refused ("the turn away from " <> taskNoText task) "it recorded work: it is suspended first" "state focus [<request>] --summary <where it stands>"
     VoidBreaks n refusal ->
         let broken = explain g fuel at refusal
          in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"
