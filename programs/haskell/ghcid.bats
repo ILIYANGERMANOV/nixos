@@ -77,13 +77,13 @@ exec "$@"'
 }
 
 @test "on the factory the daemon runs in a capped scope under ghci.slice" {
-  stub systemctl '[ "$*" = "--user show -p LoadState --value ghci.slice" ] && echo loaded'
+  stub systemctl '[ "$*" = "--user show -p FragmentPath --value ghci.slice" ] && echo /etc/systemd/user/ghci.slice'
   launch_daemon
   [[ "$(<"$BATS_TEST_TMPDIR/systemd-run.args")" == "--user --scope --collect --quiet --unit=ghcid-escaped${PWD//\//-} --slice=ghci.slice -p MemoryMax=16G -p MemorySwapMax=0 nix develop $root#kernel "* ]]
 }
 
-@test "without ghci.slice the daemon starts as a plain process" {
-  stub systemctl 'echo not-found'
+@test "without a ghci.slice unit file the daemon starts as a plain process" {
+  stub systemctl 'echo'
   launch_daemon
   [ ! -e "$BATS_TEST_TMPDIR/systemd-run.args" ]
   [[ "$(<"$BATS_TEST_TMPDIR/nix.args")" == "develop $root#kernel "* ]]

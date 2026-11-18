@@ -196,7 +196,7 @@ start_daemon() {
   local file hook
   hook=$(test_hook)
   # shellcheck disable=SC2310 # a predicate
-  if ghci_slice_loaded; then
+  if ghci_slice_defined; then
     scope=(systemd-run --user --scope --collect --quiet
       --unit="ghcid-$(systemd-escape --path "$PWD")" --slice=ghci.slice
       -p MemoryMax=16G -p MemorySwapMax=0)
@@ -219,12 +219,13 @@ start_daemon() {
 # left in the claude-rc@ unit, oomd kills that whole unit, every session with
 # it. The scope is named after the package directory, so a worktree's escaped
 # path prefixes its scopes' names: `factory-ctl kill ghcid` stops them by that.
-# Elsewhere (macOS, a laptop) the daemon starts as a plain process.
-ghci_slice_loaded() {
+# Elsewhere (macOS, a laptop) the daemon starts as a plain process. Defined
+# means a unit file: systemd reports any slice name `loaded`, file or not.
+ghci_slice_defined() {
   command -v systemctl >/dev/null || return 1
-  local load_state
-  load_state=$(systemctl --user show -p LoadState --value ghci.slice 2>/dev/null) || return 1
-  [ "$load_state" = loaded ]
+  local unit_file
+  unit_file=$(systemctl --user show -p FragmentPath --value ghci.slice 2>/dev/null) || return 1
+  [ -n "$unit_file" ]
 }
 
 # Returns 0 once the verdict describes what is on disk, 2 once the daemon is
