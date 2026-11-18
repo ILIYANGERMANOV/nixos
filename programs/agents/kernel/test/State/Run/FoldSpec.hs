@@ -120,6 +120,15 @@ spec = describe "State.Run.Fold" $ do
             let left = map fst <$> atWork (map (spawn fixer) ids <> [WorkerReturned fixer (Just (AgentId agent)) | agent <- back])
             fmap (filter (`elem` map AgentId back)) left === Right []
 
+    describe "a child run's agent" $ do
+        let endedAfter events = (.agentEnded) <$> replay g (logOf (Started (startOf EngineerFlow (ByUser OwnPr)) :| events))
+        it "holds the agent that ended with no hand-back" $
+            endedAfter [fuelSet Balanced, AgentEnded (AgentId "e1")] `shouldBe` Right (Just (AgentId "e1"))
+        it "forgets it once a step moves the run again, as a fresh agent resumed it" $
+            endedAfter [AgentEnded (AgentId "e1"), fuelSet Balanced] `shouldBe` Right Nothing
+        it "holds none on a log that never ended an agent, as one written before agents ended" $
+            endedAfter [fuelSet Balanced, WorkerSpawned (AgentRole "implementer") (AgentId "a1")] `shouldBe` Right Nothing
+
     describe "two fan-outs in one flow" $ do
         let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
             t1 = TaskId "t1"

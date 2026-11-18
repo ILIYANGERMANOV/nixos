@@ -18,3 +18,4 @@ Available commands:
   bind                     After a shell or delegate: binds the agent to its run
   route                    Denies a state call off its run, a write before init
   begin                    At a spawn or a lead skill: how its work begins
+  stop                     At an agent's stop: records a child run's agent ended

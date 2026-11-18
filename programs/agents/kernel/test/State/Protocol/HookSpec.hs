@@ -1,6 +1,6 @@
 module State.Protocol.HookSpec (spec) where
 
-import Data.Aeson (Object, Value (..), eitherDecode, eitherDecodeFileStrict, encode, object, (.=))
+import Data.Aeson (Object, Value (..), eitherDecode, eitherDecodeFileStrict, encode, object, toJSON, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as LBS
@@ -42,6 +42,15 @@ spec = describe "the hooks" $ do
         it "reads a typed prompt's expansion, by the skill it names" $
             parseHookEvent (promptExpansion "10x-engineer") `shouldBe` Right (PromptExpansion (Call (SessionId "s") "/w" Nothing) "10x-engineer")
 
+        it "reads an agent's stop, with the agents still running" $
+            map parseHookEvent [agentStop fixer ["a1", "b2"], agentStop Null []]
+                `shouldBe` [ Right (AgentStop (Call (SessionId "s") "/w" (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "fixer"))))) [AgentId "a1", AgentId "b2"])
+                           , Right (AgentStop (Call (SessionId "s") "/w" Nothing) [])
+                           ]
+
+        it "refuses an agent's stop that lists no agents running" $
+            parseHookEvent (encodeObject (common Null <> KeyMap.fromList [("event", "agentStop")])) `shouldSatisfy` isLeft
+
         it "refuses a prompt expansion that names no skill" $
             parseHookEvent (encodeObject (common Null <> KeyMap.fromList [("event", "promptExpansion")])) `shouldSatisfy` isLeft
 
@@ -57,7 +66,7 @@ spec = describe "the hooks" $ do
             parseHookEvent (encodeObject (KeyMap.delete "output" (afterToolFields "ask"))) `shouldSatisfy` isLeft
 
         it "names the events, tools and sources of vocabulary.json, in its order" $ do
-            map (\name -> eventOf <$> parseHookEvent (event name)) (vocabulary Map.! "events") `shouldBe` map Right ["sessionStart", "beforeTool", "afterTool", "agentStart", "promptExpansion"]
+            map (\name -> eventOf <$> parseHookEvent (event name)) (vocabulary Map.! "events") `shouldBe` map Right ["sessionStart", "beforeTool", "afterTool", "agentStart", "promptExpansion", "agentStop"]
             map (\name -> toolOf <$> parseHookEvent (beforeTool name Null (object []))) (vocabulary Map.! "tools") `shouldBe` map (Right . Just) [minBound .. maxBound]
             map (\name -> sourceOf <$> parseHookEvent (sessionStart name)) (vocabulary Map.! "sources") `shouldBe` map (Right . Just) [minBound .. maxBound]
 
@@ -81,6 +90,18 @@ spec = describe "the hooks" $ do
             | agent <- [reviewLead, Agent (Just (AgentId "a2")) (Just (AgentRole "reviewer")), Agent (Just (AgentId "a3")) (Just (AgentRole "engineer"))]
             ]
                 `shouldBe` [Right (Just (Asks (HandedBack "READY" reviewLead (AgentRole "review-lead")))), Right Nothing, Right Nothing]
+
+        it "ends the stopping agent with the agents still running, the lead by its own key" $
+            [ wants steps StopHook (AgentStop (Call (SessionId "s") "/w" (Just reviewLead)) [AgentId "a2"])
+            , wants steps StopHook (AgentStop (Call (SessionId "s") "/w" Nothing) [])
+            ]
+                `shouldBe` [Right (Just (Ends (Stops (AgentKey (AgentId "a2")) [AgentId "a2"]))), Right (Just (Ends (Stops Main [])))]
+
+        it "ends the agent a stop call names, and nothing at another tool" $
+            [ wants steps StopHook (AfterTool (Call (SessionId "s") "/w" Nothing) tool (KeyMap.fromList [("task_id", String "c1")]) (object []))
+            | tool <- [StopAgent, Shell]
+            ]
+                `shouldBe` [Right (Just (Ends (StopsAgent (AgentId "c1")))), Right Nothing]
 
         it "refuses a hook at an event it is not declared on" $
             wants steps SpawnHook (SessionStart (Call (SessionId "s") "/w" Nothing) Startup) `shouldBe` Left "state-hook spawn does not run at sessionStart"
@@ -275,7 +296,12 @@ event = \case
     "beforeTool" -> beforeTool "shell" Null (object [])
     "agentStart" -> agentStart "implementer"
     "promptExpansion" -> promptExpansion "engineer"
+    "agentStop" -> agentStop fixer ["a1"]
     _ -> encodeObject (afterToolFields "shell")
+
+-- | This agent stopping, these agents running.
+agentStop :: Value -> [Text] -> LBS.ByteString
+agentStop agent running = encodeObject (common agent <> KeyMap.fromList [("event", "agentStop"), ("running", toJSON running)])
 
 -- | A subagent of this role starting.
 agentStart :: Text -> LBS.ByteString
@@ -303,6 +329,7 @@ eventOf = \case
     AfterTool {} -> "afterTool"
     AgentStart _ -> "agentStart"
     PromptExpansion _ _ -> "promptExpansion"
+    AgentStop _ _ -> "agentStop"
 
 toolOf :: HookEvent -> Maybe Tool
 toolOf = \case
@@ -311,6 +338,7 @@ toolOf = \case
     SessionStart _ _ -> Nothing
     AgentStart _ -> Nothing
     PromptExpansion _ _ -> Nothing
+    AgentStop _ _ -> Nothing
 
 sourceOf :: HookEvent -> Maybe StartSource
 sourceOf = \case
@@ -319,6 +347,7 @@ sourceOf = \case
     AfterTool {} -> Nothing
     AgentStart _ -> Nothing
     PromptExpansion _ _ -> Nothing
+    AgentStop _ _ -> Nothing
 
 -- | @vocabulary.json@: each list of names.
 type Vocabulary = Map Text [Text]

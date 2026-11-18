@@ -56,10 +56,10 @@ import State.Cli.View (beginText, brief, briefSection, pendingLines, showRun, ta
 import State.Cli.View qualified as View
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
-import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, sessionDir, slotOf, slottedAgents, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), areaNames, parseHandback, refusalText, typeDirectHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (..), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), End (..), Gate (..), HookName (..), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..), SomeFlow (..))
@@ -192,6 +192,7 @@ jobReply steps name input call job = case job of
                 pure (maybe Quiet Deny (Route.gate (leadOf ((.role) =<< call.agent) began) gate))
     Asks want -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (wantAnswer steps name input call want slot bound)
     Binds bind -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (bindAnswer steps name call bind slot bound)
+    Ends end -> replyOf job <$> agentsEnded steps call end
 
 {- | Why the bound run denies the call where it is: by the flow running
 there. Read under the log's lock, appending nothing; no git is read, as a
@@ -272,9 +273,7 @@ bindAnswer steps name call bind slot bound = case bind of
     BindSelf binding -> telling name (Just binding.run) ("" <$ traverse_ ((`writeBinding` binding) . bindingFile) slot)
     BindChild child role -> do
         -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
-        spawner <- case bound of
-            Just binding -> pure (Just binding)
-            Nothing -> Monad.join <$> traverse runHere (resolve (keyOf call.agent) Nothing call.cwd)
+        spawner <- boundOrHere call bound
         worktree <- traverse standing spawner
         childSlot <- slotFor call.session (AgentKey child)
         case (worktree, childSlot) of
@@ -288,6 +287,70 @@ bindAnswer steps name call bind slot bound = case bind of
             (Just (_, Removed), _) -> pure ""
             (Nothing, _) -> pure ""
             (_, Nothing) -> pure ""
+
+-- | The caller's binding, else the run of the worktree a lead runs in: the lead may be unbound.
+boundOrHere :: (Shell es) => Call -> Maybe Binding -> Eff es (Maybe Binding)
+boundOrHere call = \case
+    Just binding -> pure (Just binding)
+    Nothing -> Monad.join <$> traverse runHere (resolve (keyOf call.agent) Nothing call.cwd)
+
+{- | What an agent's stop ends: the stopped agent's child run ('agentEnded'),
+and the stopper's children not running on. A stopper waits on its foreground
+children, so a child of its run absent from the agents running ended unseen,
+as a lead's stop of its child tells nothing at the child. Each is told only
+when its log refuses or does not read.
+-}
+agentsEnded :: (Shell es) => Steps -> Call -> End -> Eff es Text
+agentsEnded steps call = \case
+    StopsAgent agent -> agentEnded steps call.session (const True) agent
+    Stops key running -> do
+        own <- case key of
+            AgentKey agent -> agentEnded steps call.session (const True) agent
+            Main -> pure ""
+        stopper <- boundOrHere call . snd =<< callerBinding call
+        unseen <- case stopper of
+            Nothing -> pure []
+            Just binding -> do
+                agents <- sessionAgents call.session
+                traverse (agentEnded steps call.session (== binding.run)) [agent | agent <- agents, agent `notElem` running, AgentKey agent /= key]
+        pure (own <> Text.concat unseen)
+
+-- | The subagents with a slot in the session's bindings.
+sessionAgents :: (Environment :> es, RoFileSystem :> es) => SessionId -> Eff es [AgentId]
+sessionAgents session = maybe (pure []) (fmap slottedAgents . FileSystem.listDirectory . sessionDir) =<< slotFor session Main
+
+{- | An agent ended with no hand-back, logged once: 'AgentEnded' in the child
+run its binding names, when a parent the test takes started it, then the
+agent's return in that parent, when it has the agent at work. An agent
+leading no child run, a plain worker, records nothing: a return would fake
+its hand-back. Nor does a child run whose @state next@ hands back now: one
+over, asking up or awaiting made its hand-back, or makes it once resumed.
+-}
+agentEnded :: (Shell es) => Steps -> SessionId -> (RunId -> Bool) -> AgentId -> Eff es Text
+agentEnded steps session under agent =
+    slotFor session (AgentKey agent) >>= maybe (pure Nothing) (readBinding . bindingFile) >>= \case
+        Nothing -> pure ""
+        Just binding ->
+            onRunLog end binding.run >>= \case
+                NoRun -> pure ""
+                Ran (Left failure) -> pure (failureText "stop" failure)
+                Ran (Right Nothing) -> pure ""
+                Ran (Right (Just (parent, role))) -> either (failureText "stop") (const "") <$> onLog (returning role) parent
+  where
+    sessioned stamp = Stamp stamp.ts stamp.head (Just session)
+    noted = Right . (`Plan` (\_ _ -> mempty))
+    end stamp run = case run.state.start.principal of
+        ByRole parent _ _
+            | under parent.run && not (handsBackNow steps run) ->
+                fmap (Just (parent.run, (Role.role run.state.start.flow).name) <$) (record (sessioned stamp) run [Hook (digestOf [runIdText run.state.run, agent.agentIdText, "agent_ended"])] (noted [AgentEnded agent]))
+        ByRole {} -> ([], Right Nothing)
+        ByUser _ -> ([], Right Nothing)
+        ByCaller _ -> ([], Right Nothing)
+    returning role stamp run = record (sessioned stamp) run [Hook (digestOf [runIdText run.state.run, agent.agentIdText, "agent_returned"])] (noted (maybeToList (Fold.returnOf run.state role (Just agent))))
+
+-- | Whether the run's @state next@ hands it back now, read with no GitHub facts: what it delivers ('handsBack').
+handsBackNow :: Steps -> Loaded -> Bool
+handsBackNow steps run = handsBack (deliver run.state.start (Advice.heldBy run.state.start run.state.workers (advise steps run.g (Facts Nothing Nothing []) run.state)).action)
 
 {- | The worker's spawn, appended to its spawner's log under that run's lock
 by an id hashed from the run and the worker, so a bind seen twice appends it
@@ -557,8 +620,9 @@ focusPlan run target summary = do
     focusLine after = taskNoText after.focus <> " in focus at " <> stateNameText (askedAt after)
 
 {- | @state tasks@: the card of each request of the worktree's run, by the
-clock, then a line per child run in the store. A child run's agent is not
-linked to its run, so it gets no resume advice.
+clock, then a line per child run in the store. Only a child whose agent
+ended with no hand-back gets resume advice: the store links no other's agent
+to its run.
 -}
 tasks :: (Shell es) => Eff es (Either Failure Text)
 tasks = do
@@ -568,11 +632,17 @@ tasks = do
         Ran (Left failure) -> pure (Left failure)
         Ran (Right (state, requests)) -> do
             children <- Log.children state.run
-            lines' <- traverse childLine children
+            lines' <- traverse (childLine state.start) children
             pure (Right (Text.unlines (("notes " <> Text.pack state.start.notes) : concatMap (View.cardLines at) requests <> lines')))
   where
-    childLine child = either (\failure -> "child " <> runIdText child <> ": " <> failure.why) id <$> onLog (\_ run -> ([], Right (childText run.state))) child
-    childText state = "child " <> runIdText state.run <> " " <> Codec.flowText state.start.flow <> (if Fold.over state then " over at " else " at ") <> stateNameText (askedAt state)
+    childLine start child = either (\failure -> "child " <> runIdText child <> ": " <> failure.why) id <$> onLog (\_ run -> ([], Right (childText start run.state))) child
+    childText start child =
+        let at = stateNameText (askedAt child)
+            line = "child " <> runIdText child.run <> " " <> Codec.flowText child.start.flow
+         in case (Fold.over child, child.agentEnded) of
+                (True, _) -> line <> " over at " <> at
+                (False, Nothing) -> line <> " at " <> at
+                (False, Just _) -> line <> " stopped, no hand-back at " <> at <> "\n  " <> deliver start (Advice.resumeFresh child.run "stopped, no hand-back" (Role.role child.start.flow).name ("from its notes " <> Text.pack child.start.notes))
 
 -- | The cards of the run's requests, or why its log does not replay.
 cardsOf :: Loaded -> Either Failure [Card.Card]

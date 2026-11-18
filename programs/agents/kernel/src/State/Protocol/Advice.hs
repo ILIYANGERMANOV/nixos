@@ -21,6 +21,7 @@ module State.Protocol.Advice (
     deliver,
     deliverMore,
     handsBack,
+    resumeFresh,
     deliverPrompt,
     ownAsk,
     factLines,
@@ -531,9 +532,13 @@ atOnce at ended state =
     here = fanIn state.fans at
     waiting = Fan.waiting here
     -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
-    lost = [(c.child.task, Resume c.child.run ("lost at a restart: a fresh " <> roleText (taskRole task) <> " with its spawn prompt")) | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c], Just task <- [Fan.lookupTask here c.child.task]]
+    lost = [(c.child.task, resumeFresh c.child.run "lost at a restart" (taskRole task) "with its spawn prompt") | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c], Just task <- [Fan.lookupTask here c.child.task]]
     taskRole task = (Role.role task.flow).name
     retryable task = if Fan.retryLeft here task then Just task else Nothing
+
+-- | A child run whose agent is gone, resumed by a fresh agent of its role: why it is gone, and what the agent starts from.
+resumeFresh :: RunId -> Text -> AgentRole -> Text -> Action
+resumeFresh child gone role from = Resume child (gone <> ": a fresh " <> roleText role <> " " <> from)
 
 {- | At a fan-out's merge: record a finished task's PR, await the unmerged,
 then record the merge. With every task parked nothing merged, so the run

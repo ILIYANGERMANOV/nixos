@@ -151,6 +151,10 @@ data RunState = RunState
     {- ^ The agents spawned that have yet to return, oldest first: the run
     hands back after them. The agent children of the run's 'ledger'.
     -}
+    , agentEnded :: Maybe AgentId
+    {- ^ The agent leading this child run that stopped with no hand-back: a
+    fresh one resumes the run from its notes. None once a step moves it again.
+    -}
     , published :: Maybe Url
     {- ^ The PR @ready@ recorded last: the url of a run that skipped its draft
     by override, as a retry does, when GitHub is not read.
@@ -404,6 +408,7 @@ begin g envelope = case runStart envelope.event of
                 , published = Nothing
                 , untriaged = []
                 , workers = []
+                , agentEnded = Nothing
                 , fans = Map.empty
                 , ticket = Nothing
                 , latest = Nothing
@@ -441,6 +446,7 @@ runStart = \case
     WorkerHandedBack _ _ -> Nothing
     WorkerSpawned _ _ -> Nothing
     WorkerReturned _ _ -> Nothing
+    AgentEnded _ -> Nothing
     Suspended _ _ -> Nothing
     Focused _ -> Nothing
     Voided _ _ -> Nothing
@@ -509,8 +515,9 @@ applyEvent g state n = \case
     Targeted target -> going (targeted state target)
     Extended _ -> going (extended g state)
     Gapped gap -> going (Right state {gaps = state.gaps <> [(n, gap)]})
-    Took scope (AnyOutcome PickLayer some) -> going (handle AgentPicks g state (Picked scope some))
-    Took scope outcome -> going (took g state scope outcome)
+    -- A step moved: an agent works the run again.
+    Took scope (AnyOutcome PickLayer some) -> going (working <$> handle AgentPicks g state (Picked scope some))
+    Took scope outcome -> going (working <$> took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
     Asked asking -> going (handle PrincipalAnswers g state (Asks asking))
@@ -533,11 +540,13 @@ applyEvent g state n = \case
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
     WorkerSpawned role agent -> going (Right state {workers = state.workers <> [Worker role agent n]})
     WorkerReturned role agent -> going (Right state {workers = returned role agent state.workers})
+    AgentEnded agent -> going (Right state {agentEnded = Just agent})
     Suspended task summary -> going (handle FocusHere g state (Suspends task summary))
     Focused task -> going (handle FocusHere g state (Focuses task))
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
+    working after = after {agentEnded = Nothing}
     afterMove task = \case
         Event.Round _ -> reopened g
         InCi _ -> Right

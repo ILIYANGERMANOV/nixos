@@ -28,12 +28,15 @@ module State.Protocol.Binding (
     bindingFile,
     stashFile,
     leadFile,
+    sessionDir,
+    slottedAgents,
     Worktree (..),
     resolve,
     staleNote,
     rebound,
 ) where
 
+import Data.List (isPrefixOf)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -104,7 +107,7 @@ slotOf :: FilePath -> SessionId -> Key -> Maybe Slot
 slotOf root (SessionId session) key = Slot . (root </>) <$> component session <*> component keyName
   where
     keyName = case key of
-        Main -> "main"
+        Main -> Text.pack mainName
         AgentKey agent -> agent.agentIdText
     component text
         | Text.null text || text `elem` [".", ".."] || Text.elem '/' text || Text.elem '\0' text = Nothing
@@ -114,11 +117,25 @@ bindingFile :: Slot -> FilePath
 bindingFile slot = slot.dir </> slot.name
 
 stashFile :: Slot -> FilePath
-stashFile slot = slot.dir </> ("handback-" <> slot.name <> ".json")
+stashFile slot = slot.dir </> (stashPrefix <> slot.name <> ".json")
 
 -- | Marks a key a lead: holds the lead skill its agent began, so its writes wait for its run. Never removed.
 leadFile :: Slot -> FilePath
-leadFile slot = slot.dir </> ("lead-" <> slot.name)
+leadFile slot = slot.dir </> (leadPrefix <> slot.name)
+
+-- | The session's own agent's slot, and the prefixes of the files beside a slot.
+mainName, stashPrefix, leadPrefix :: FilePath
+mainName = "main"
+stashPrefix = "handback-"
+leadPrefix = "lead-"
+
+-- | The directory of a slot's session, whose names 'slottedAgents' reads.
+sessionDir :: Slot -> FilePath
+sessionDir slot = slot.dir
+
+-- | The subagents with a slot, among the names in their session's directory: neither @main@ nor a file beside a slot.
+slottedAgents :: [FilePath] -> [AgentId]
+slottedAgents names = [AgentId (Text.pack name) | name <- names, name /= mainName, not (any (`isPrefixOf` name) [stashPrefix, leadPrefix])]
 
 -- | Whether a binding's worktree still stands: one is removed once its PR merged.
 data Worktree = Standing | Removed

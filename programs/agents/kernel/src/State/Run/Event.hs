@@ -5,7 +5,8 @@ step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A qu
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
 'Resumed', 'Restarted') and its tasks ('TaskAdded', 'TaskMoved', 'Held',
 'ActedOn') as stay events. A lead logs the workers it has at work
-('WorkerSpawned', 'WorkerReturned'), which it hands back after. A line
+('WorkerSpawned', 'WorkerReturned'), which it hands back after; a child
+run, the agent leading it that ended with no hand-back ('AgentEnded'). A line
 logged in error is 'Voided', never edited out: replay drops both lines.
 -}
 module State.Run.Event (
@@ -183,6 +184,10 @@ data Event
       it is at work no more.
       -}
       WorkerReturned AgentRole (Maybe AgentId)
+    | {- | The agent leading this child run stopped before it handed back: a
+      user's stop, its spawner's, a crash (written by the stop hook).
+      -}
+      AgentEnded AgentId
     | {- | The chief's request in focus waits, at its node, and where it stands
       in the lead's words: the run opens a new request at its start.
       -}

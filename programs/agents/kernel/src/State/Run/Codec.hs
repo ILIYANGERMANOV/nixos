@@ -209,6 +209,7 @@ eventType = \case
     WorkerHandedBack _ _ -> "worker_handed_back"
     WorkerSpawned _ _ -> "worker_spawned"
     WorkerReturned _ _ -> "worker_returned"
+    AgentEnded _ -> "agent_ended"
     Suspended _ _ -> "suspended"
     Focused _ -> "focused"
     Voided _ _ -> "voided"
@@ -259,6 +260,7 @@ eventData = \case
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
     WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
     WorkerReturned (AgentRole role) agent -> "role" .= role <> "agent" .= fmap (.agentIdText) agent
+    AgentEnded agent -> "agent" .= agent.agentIdText
     Suspended task summary -> "request" .= taskNoText task <> "summary" .= oneLineText summary
     Focused task -> "request" .= taskNoText task
     Voided n why -> "seq" .= n <> "why" .= why
@@ -292,6 +294,7 @@ eventOf kind obj = case kind of
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
     "worker_returned" -> WorkerReturned . AgentRole <$> obj .: "role" <*> (fmap AgentId <$> obj .: "agent")
+    "agent_ended" -> AgentEnded . AgentId <$> obj .: "agent"
     "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
     "focused" -> Focused <$> requestOf obj
     "voided" -> Voided <$> obj .: "seq" <*> obj .: "why"
