@@ -27,7 +27,8 @@ module State.Role (
 
 import Data.List (find)
 import Data.Maybe (mapMaybe)
-import State.Category.Flow (AgentRole (..), Flow, Name (..), roleText, scopeNames, unqualify)
+import State.Category.Effect (Unhandled)
+import State.Category.Flow (AgentRole (..), Effects, Flow, Name (..), roleText, scopeNames, unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (KnownTy (..), NotSum, TyOf (..), TyVal)
@@ -44,13 +45,15 @@ data Rung = Worker | Lead | Orchestrator | User
 -- | A role that leads a flow: its wire name, its flow, and its rung.
 data RoleDef = RoleDef {name :: AgentRole, flow :: SomeFlow, rung :: Rung}
 
--- | A whole flow, whatever it ends in: a PR, a plan, a ticket.
+{- | A whole flow, whatever it ends in: a PR, a plan, a ticket. It exits
+nowhere and handles every effect its steps raise, else it does not compile.
+-}
 data SomeFlow where
-    SomeFlow :: (KnownTy o, NotSum o) => Flow 'Ctx 'Nothing o -> SomeFlow
+    SomeFlow :: (KnownTy o, NotSum o, Unhandled (Effects s) ~ '[]) => Flow s 'Ctx 'Nothing o -> SomeFlow
 
 -- | What the flow ends in.
 flowOut :: SomeFlow -> TyVal
-flowOut (SomeFlow (_ :: Flow 'Ctx 'Nothing o)) = tyVal @o
+flowOut (SomeFlow (_ :: Flow s 'Ctx 'Nothing o)) = tyVal @o
 
 role :: FlowName -> RoleDef
 role flowName = case flowName of

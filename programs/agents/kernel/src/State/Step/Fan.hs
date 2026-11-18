@@ -7,7 +7,7 @@ end the round for the next. Each names its fan-out, so a run's fan-outs keep
 their own tasks and children.
 -}
 module State.Step.Fan (
-    FanStep,
+    FanStep (..),
     Sing (..),
     Outcome (..),
     engineers,
@@ -24,6 +24,7 @@ import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Flow (Name, nameText, namedState)
 import State.Category.Meter (Meter (..), Spend (..))
+import State.Category.Effect (Eff (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
@@ -31,6 +32,8 @@ import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
 type data FanStep = Breakdown | Merge
 
 instance StepSet FanStep where
+    type Raises s = '[AskE]
+
     type Sig Breakdown = '( 'Plan, 'Nothing, 'List 'Ctx)
     type Sig Merge = '( 'List 'PR, 'Just 'PR, 'Ctx)
 

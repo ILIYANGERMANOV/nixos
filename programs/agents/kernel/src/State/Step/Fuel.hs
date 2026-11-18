@@ -6,7 +6,7 @@ decides a skip from the Fuel when the level may skip, as its 'PerFuel'
 'SkipWhen' says, so a skip is a pick no agent makes by guessing.
 -}
 module State.Step.Fuel (
-    FuelStep,
+    FuelStep (..),
     -- Named, not @(..)@: a data family's @(..)@ would export every layer's constructors in scope here.
     Sing (Fuel, Skip),
     Outcome (LevelSet, Skipping, Running),
@@ -20,6 +20,7 @@ import Data.Typeable (Typeable, eqT)
 import State.Category.Flow (Name, nameText)
 import State.Category.Fuel (PerFuel, SkipWhen, fuelName)
 import State.Category.Fuel qualified as Level
+import State.Category.Effect (Eff (..))
 import State.Category.Step
 import State.Category.Ty (KnownTy, NotSum, Ty, TyOf (..))
 
@@ -32,6 +33,8 @@ type data FuelStep = Fuel | Skip Ty
 type SkipOrRun a = '[ '("skip", a), '("run", a)]
 
 instance StepSet FuelStep where
+    type Raises s = '[AskE]
+
     type Sig Fuel = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig (Skip a) = '(a, 'Nothing, 'Sum (SkipOrRun a))
 

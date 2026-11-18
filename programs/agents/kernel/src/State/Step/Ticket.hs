@@ -5,13 +5,14 @@ progress, write the design into it, confirm it with the user, finalize it.
 The lead runs each, in the issue tracker, and changes no code.
 -}
 module State.Step.Ticket (
-    TicketStep,
+    TicketStep (..),
     Sing (..),
     Outcome (..),
 ) where
 
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
+import State.Category.Effect (Eff (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Url, urlData, urlOf)
@@ -19,6 +20,8 @@ import State.Step.Artifact (Url, urlData, urlOf)
 type data TicketStep = OpenTicket | UpdateTicket | ConfirmDesign | FinalizeTicket
 
 instance StepSet TicketStep where
+    type Raises s = '[AskE]
+
     type Sig OpenTicket = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig UpdateTicket = '( 'Ctx, 'Nothing, 'Ticket)
     type Sig ConfirmDesign = '( 'Ticket, 'Just 'Ticket, 'Ctx)

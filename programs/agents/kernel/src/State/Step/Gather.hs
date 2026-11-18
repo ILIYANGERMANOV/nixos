@@ -7,19 +7,22 @@ design questions. The researchers' notes merge into the context once every
 one handed back.
 -}
 module State.Step.Gather (
-    GatherStep,
+    GatherStep (..),
     Sing (..),
     Outcome (..),
 ) where
 
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
+import State.Category.Effect (Eff (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 
 type data GatherStep = Research | Interview | Discuss | Notes
 
 instance StepSet GatherStep where
+    type Raises s = '[AskE]
+
     type Sig Research = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Interview = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Discuss = '( 'Ctx, 'Nothing, 'Ctx)

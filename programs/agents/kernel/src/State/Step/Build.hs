@@ -2,12 +2,13 @@
 
 -- | The steps that build the plan into a diff: open the draft PR, implement, refactor.
 module State.Step.Build (
-    BuildStep,
+    BuildStep (..),
     Sing (..),
     Outcome (..),
 ) where
 
 import Data.Type.Equality ((:~:) (..))
+import State.Category.Effect (Eff (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Commit, DraftPr, Sha, commitData, commitOf, draftData, draftOf, headData, headOf)
@@ -15,6 +16,8 @@ import State.Step.Artifact (Commit, DraftPr, Sha, commitData, commitOf, draftDat
 type data BuildStep = Draft | Implement | Refactor
 
 instance StepSet BuildStep where
+    type Raises s = '[AskE]
+
     type Sig Draft = '( 'Plan, 'Nothing, 'Plan)
     type Sig Implement = '( 'Plan, 'Nothing, 'Diff)
     type Sig Refactor = '( 'Diff, 'Nothing, 'Diff)

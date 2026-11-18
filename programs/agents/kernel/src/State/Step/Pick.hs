@@ -9,7 +9,7 @@ going on with the input unchanged. The pick only decides; the branch it
 names does the work, as steps of their own.
 -}
 module State.Step.Pick (
-    PickStep,
+    PickStep (..),
     -- Named, not @(..)@: a data family's @(..)@ would export every layer's constructors in scope here.
     Sing (Pick),
     Outcome (Picked),
@@ -23,6 +23,7 @@ import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable, eqT)
 import GHC.TypeLits (KnownSymbol, Symbol)
 import State.Category.Flow (Name, namedState)
+import State.Category.Effect (Eff (..))
 import State.Category.Step
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..))
 
@@ -39,6 +40,8 @@ type family Over a ss where
     Over a ('(l, b) ': ss) = (a ~ b, Over a ss)
 
 instance StepSet PickStep where
+    type Raises s = '[PickE, AskE]
+
     type Sig (Pick a ss) = '(a, 'Nothing, 'Sum ss)
 
     data Sing s where

@@ -26,7 +26,7 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
-import State.Category.Flow (CapTarget (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Id, Into, Loop, Scope, (:>)), Name, branchesWith)
+import State.Category.Flow (CapTarget (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Handle, Id, Into, Loop, Scope, (:>)), Name, branchesWith)
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..), outOf)
@@ -165,7 +165,7 @@ allSteps = concatMap stepsOf layers
 labels, so no layer lists them. In the term's order; a fork's child is
 its own run, of its own flow.
 -}
-termSteps :: Flow i e o -> [AnyStep]
+termSteps :: Flow s i e o -> [AnyStep]
 termSteps = \case
     Do s -> drawnStep s
     Capped _ _ (Step s) -> drawnStep s
@@ -182,9 +182,10 @@ termSteps = \case
     Await _ -> []
     Catch body -> termSteps body
     Scope _ body -> termSteps body
+    Handle _ body -> termSteps body
 
 -- | Each optional block of a term, by its name, with the levels that skip it: in the term's order.
-termSkips :: Flow i e o -> [(Name, PerFuel SkipWhen)]
+termSkips :: Flow s i e o -> [(Name, PerFuel SkipWhen)]
 termSkips flow = [(name, when) | AnyStep FuelLayer (SomeStep (Skip name when)) <- termSteps flow]
 
 -- | The step, when it is a pick or a skip: a layer that lists its steps has it in 'allSteps'.

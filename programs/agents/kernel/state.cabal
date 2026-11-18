@@ -41,6 +41,7 @@ library
     Effects.Log
     Effects.Random
     Effects.Store
+    State.Category.Effect
     State.Category.Flow
     State.Category.Fuel
     State.Category.Graph
