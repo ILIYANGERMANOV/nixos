@@ -4,9 +4,10 @@ A hook is a program. It reads one event as JSON on stdin and prints one result
 as JSON on stdout, or nothing, which allows:
 
     stdin:  {event, tool, input, output, cwd, session, agent: {id, role} | null, source,
-             history, context, skill}
+             history, context, skill, running}
     stdout: beforeTool: {decision: allow | deny, reason, context, updatedInput}
             sessionStart, afterTool, agentStart, promptExpansion: {context}
+            agentStop: dropped
 
 `agent` is null for the lead; a subagent's `id` is null when its agent gives
 none, and its `role` null when its agent names none. `tool` is `other` for a tool the vocabulary has no name for, which
@@ -21,14 +22,19 @@ the agent has done so far, so a hook needs no state of its own:
              ran a tool (null when there is none); null when unknown
 
 `agentStart` is a subagent starting, its `agent` never null; `promptExpansion`
-is a typed `/skill` expanding into the prompt, `skill` its name. Neither has a
-tool, so neither has `tool`, `input` or `output`.
+is a typed `/skill` expanding into the prompt, `skill` its name. `agentStop`
+is an agent stopping, handed back or not, the lead too (`agent` null);
+`running` is the ids of the session's background agents still running, which
+at a subagent's own stop may still list it. None of the three has a tool, so
+none has `tool`, `input` or `output`.
 
 A sessionStart, afterTool, agentStart or promptExpansion hook only adds
 context: the session or subagent has started and the tool has run, so there
 is nothing left to deny or rewrite, and a typed skill is the person's own
 request, which no hook refuses. Each kind of event has its own result type,
-so a deny there cannot even be built.
+so a deny there cannot even be built. An agentStop hook runs for its effect
+alone: the agent has stopped, so the backend hands no context on and what the
+hook prints is dropped.
 
 An agent's backend translates its own hook format to an `Event`, hands it to
 `dispatch_verdict` or `dispatch_note` with the hooks declared for that event,
@@ -66,6 +72,7 @@ class EventName(StrEnum):
     AFTER_TOOL = "afterTool"
     AGENT_START = "agentStart"
     PROMPT_EXPANSION = "promptExpansion"
+    AGENT_STOP = "agentStop"
 
 
 class Tool(StrEnum):
@@ -78,6 +85,7 @@ class Tool(StrEnum):
     ASK = "ask"
     WEB = "web"
     SKILL = "skill"
+    STOP_AGENT = "stopAgent"
     OTHER = "other"
 
 
@@ -156,10 +164,23 @@ class PromptExpansion:
     skill: SkillName
 
 
-type Event = SessionStart | BeforeTool | AfterTool | AgentStart | PromptExpansion
+@dataclass(frozen=True, slots=True)
+class AgentStop:
+    """An agent stops, the lead when `agent` is None. `running` is the
+    session's background agents still running, maybe the stopping one."""
 
-# The events a hook can only add context to.
-type Observed = SessionStart | AfterTool | AgentStart | PromptExpansion
+    session: SessionId
+    cwd: Path
+    agent: Agent | None
+    running: tuple[AgentId, ...]
+
+
+type Event = (
+    SessionStart | BeforeTool | AfterTool | AgentStart | PromptExpansion | AgentStop
+)
+
+# The events a hook cannot deny: it adds context, or at agentStop nothing.
+type Observed = SessionStart | AfterTool | AgentStart | PromptExpansion | AgentStop
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,7 +298,7 @@ def joined(first: str | None, second: str | None) -> str | None:
 
 def matches(hook: Hook, event: Event) -> bool:
     match event:
-        case SessionStart() | AgentStart() | PromptExpansion():
+        case SessionStart() | AgentStart() | PromptExpansion() | AgentStop():
             return True
         case BeforeTool(tool=tool) | AfterTool(tool=tool):
             match hook.tools:
@@ -349,6 +370,8 @@ def event_name(event: Event) -> EventName:
             return EventName.AGENT_START
         case PromptExpansion():
             return EventName.PROMPT_EXPANSION
+        case AgentStop():
+            return EventName.AGENT_STOP
 
 
 def parse_manifest(text: str) -> Manifest:
@@ -447,9 +470,22 @@ def parse_event(text: str) -> Event:
             return PromptExpansion(
                 SessionId(session), Path(cwd), parse_agent(agent), SkillName(skill)
             )
+        case {
+            "event": "agentStop",
+            "session": str(session),
+            "cwd": str(cwd),
+            "agent": agent,
+            "running": list() as running,
+        }:
+            return AgentStop(
+                SessionId(session),
+                Path(cwd),
+                parse_agent(agent),
+                tuple(AgentId(as_str(agent_id)) for agent_id in running),
+            )
         case _:
             raise ValueError(
-                "not a sessionStart, beforeTool, afterTool, agentStart or promptExpansion event"
+                "not a sessionStart, beforeTool, afterTool, agentStart, promptExpansion or agentStop event"
             )
 
 
@@ -494,6 +530,8 @@ def emit_event(event: Event) -> str:
             return json.dumps(common)
         case PromptExpansion(skill=skill):
             return json.dumps(common | {"skill": skill})
+        case AgentStop(running=running):
+            return json.dumps(common | {"running": list(running)})
         case SessionStart(source=source):
             return json.dumps(common | {"source": source.value})
         case BeforeTool(tool=tool, input=tool_input, history=history):

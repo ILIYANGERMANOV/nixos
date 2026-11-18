@@ -136,7 +136,9 @@ rewritten input reaches the next hook. A hook fails open and tells. A backend
 fills `history` and `context` from what the agent did, so a hook keeps no state
 and reads no vendor file. Besides the tool events, `agentStart` (a subagent
 starts) and `promptExpansion` (a typed `/skill`) only add context, and name no
-tools. The state hooks are `kernel/hooks.nix`, run by the Haskell
+tools; `agentStop` (any agent stops, the lead too) names none either, and its
+hooks run for their effect alone: what they print is dropped. The tool
+`stopAgent` is one agent stopping another. The state hooks are `kernel/hooks.nix`, run by the Haskell
 `state-hook`: each finds its run through the agent's binding, at any depth,
 and `route`, their one denying hook, refuses a `state` call aimed at another
 run and a lead's write before its `state init`.

@@ -15,6 +15,7 @@ from agent_hook import (
     Agent,
     AgentId,
     AgentStart,
+    AgentStop,
     Allow,
     BeforeTool,
     ContextSize,
@@ -103,8 +104,22 @@ HANDBACK: JsonObject = {
 }
 RECORDED_STARTS = recorded_all("SubagentStart")
 RECORDED_EXPANSIONS = recorded_all("UserPromptExpansion")
+RECORDED_STOPS = recorded_all("SubagentStop")
+RECORDED_LEAD_STOPS = recorded_all("Stop")
 SUBAGENT_START = recorded("SubagentStart")
 TYPED_SKILL = recorded("UserPromptExpansion")
+# The lead's stop, as Claude Code's hooks docs show it: no agent_id, and the
+# session's background tasks, a shell and a finished agent among them.
+LEAD_STOP: JsonObject = {
+    **COMMON,
+    "hook_event_name": "Stop",
+    "stop_hook_active": False,
+    "background_tasks": [
+        {"id": "b1", "type": "subagent", "status": "running", "agent_type": "fixer"},
+        {"id": "b2", "type": "subagent", "status": "completed"},
+        {"id": "s1", "type": "shell", "status": "running"},
+    ],
+}
 RAN: JsonObject = {
     **COMMON,
     **WORKER,
@@ -335,8 +350,71 @@ def test_a_recorded_typed_skill_is_its_command_name(payload: JsonObject) -> None
     )
 
 
+@pytest.mark.parametrize("payload", RECORDED_STOPS)
+def test_a_recorded_subagent_stop_is_that_subagent_stopping(
+    payload: JsonObject,
+) -> None:
+    event = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
+
+    assert isinstance(event, AgentStop)
+    assert event.agent == Agent(
+        AgentId(cast("str", payload["agent_id"])),
+        Role(cast("str", payload["agent_type"])),
+    )
+
+
+def test_a_background_agent_still_runs_at_its_own_recorded_stop() -> None:
+    launch = next(
+        payload
+        for payload in recorded_all("PostToolUse")
+        if payload["tool_name"] == "Agent"
+        and (spawn := cast("JsonObject", payload["tool_input"]))["subagent_type"]
+        == "probe-child"
+        and spawn.get("run_in_background") is True
+    )
+    child = cast("dict[str, str]", launch["tool_response"])["agentId"]
+    stop = next(payload for payload in RECORDED_STOPS if payload["agent_id"] == child)
+
+    event = parse_claude(stop, TOOLS, NO_TRANSCRIPT)
+
+    assert isinstance(event, AgentStop)
+    assert event.running == (AgentId(child),)
+
+
+@pytest.mark.parametrize("payload", RECORDED_LEAD_STOPS)
+def test_a_recorded_stop_is_the_lead_stopping(payload: JsonObject) -> None:
+    event = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
+
+    assert isinstance(event, AgentStop)
+    assert event.agent is None
+
+
+def test_the_leads_stop_has_no_agent_and_its_running_background_agents() -> None:
+    assert parse_claude(LEAD_STOP, TOOLS, NO_TRANSCRIPT) == AgentStop(
+        SessionId("abc123"), Path("/work/repo"), None, (AgentId("b1"),)
+    )
+
+
+def test_a_stop_with_no_background_tasks_has_none_running() -> None:
+    payload = {k: v for k, v in LEAD_STOP.items() if k != "background_tasks"}
+
+    assert parse_claude(payload, TOOLS, NO_TRANSCRIPT) == AgentStop(
+        SessionId("abc123"), Path("/work/repo"), None, ()
+    )
+
+
 @pytest.mark.parametrize(
-    "payload", [*RECORDED_STARTS, *RECORDED_EXPANSIONS, SESSION_START, SPAWN, RAN]
+    "payload",
+    [
+        *RECORDED_STARTS,
+        *RECORDED_EXPANSIONS,
+        *RECORDED_STOPS,
+        *RECORDED_LEAD_STOPS,
+        SESSION_START,
+        SPAWN,
+        RAN,
+        LEAD_STOP,
+    ],
 )
 def test_an_event_the_adapter_reads_reaches_a_hook_unchanged(
     payload: JsonObject,
@@ -459,9 +537,14 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
     [
         pytest.param(SESSION_START | {"source": "clear"}, "clear", id="unknown source"),
         pytest.param(
-            COMMON | {"hook_event_name": "Stop"},
+            COMMON | {"hook_event_name": "Notification"},
             "not a SessionStart",
             id="unknown event",
+        ),
+        pytest.param(
+            LEAD_STOP | {"background_tasks": "b1"},
+            "background_tasks 'b1' is not a list",
+            id="background tasks not a list",
         ),
         pytest.param(
             SPAWN | {"agent_id": "a1", "agent_type": 7},
@@ -545,6 +628,18 @@ TYPED_SKILL_EVENT = parse_claude(TYPED_SKILL, TOOLS, NO_TRANSCRIPT)
             id="context beside a typed skill",
         ),
         pytest.param(SUBAGENT_START_EVENT, Note(), {}, id="nothing at a start"),
+        pytest.param(
+            parse_claude(RECORDED_STOPS[0], TOOLS, NO_TRANSCRIPT),
+            Note("go on"),
+            {},
+            id="no context at a subagent's stop",
+        ),
+        pytest.param(
+            parse_claude(LEAD_STOP, TOOLS, NO_TRANSCRIPT),
+            Note("go on"),
+            {},
+            id="no context at the lead's stop",
+        ),
     ],
 )
 def test_a_note_becomes_claudes_output(
@@ -697,7 +792,7 @@ def test_the_built_adapter_knows_every_tool_the_table_deploys(
 def test_the_built_adapter_refuses_what_it_cannot_read_and_lets_claude_go_on(
     tmp_path: Path,
 ) -> None:
-    done = adapter(tmp_path, {}, COMMON | {"hook_event_name": "Stop"})
+    done = adapter(tmp_path, {}, COMMON | {"hook_event_name": "Notification"})
 
     assert done.returncode == 1
     assert done.stderr.startswith("agent-hook-claude: not a SessionStart")
@@ -775,6 +870,33 @@ def test_the_built_adapter_hands_a_typed_skills_hook_its_name(
     done = adapter(tmp_path, {"promptExpansion": [echo("skill")]}, TYPED_SKILL)
 
     assert echoed(done) == TYPED_SKILL["command_name"]
+
+
+def test_the_built_adapter_runs_an_agent_stops_hook_and_lets_the_agent_stop(
+    tmp_path: Path,
+) -> None:
+    seen = tmp_path / "seen.json"
+    record = (
+        "import sys; open(sys.argv[1], 'w').write(sys.stdin.read());"
+        ' print(\'{"context": "go on"}\')'
+    )
+    hook: JsonObject = {
+        "name": "ended",
+        "tools": None,
+        "command": [sys.executable, "-c", record, str(seen)],
+    }
+
+    done = adapter(tmp_path, {"agentStop": [hook]}, LEAD_STOP)
+
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == {}
+    assert json.loads(seen.read_text()) == {
+        "event": "agentStop",
+        "session": "abc123",
+        "cwd": "/work/repo",
+        "agent": None,
+        "running": ["b1"],
+    }
 
 
 @pytest.mark.parametrize(

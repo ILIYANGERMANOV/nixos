@@ -47,6 +47,11 @@ module State.Cli.Shell.World (
     editCall,
     spawnResult,
     spawnResultOf,
+    spawnResultBy,
+    initRan,
+    agentStop,
+    leadStop,
+    stopCall,
     Act (..),
     drive,
     driveOut,
@@ -356,13 +361,55 @@ spawnResult role = spawnResultOf role "a1"
 
 -- | The lead's spawn of a subagent of this role and id, done.
 spawnResultOf :: Text -> Text -> LBS.ByteString
-spawnResultOf role agent =
+spawnResultOf = spawnResultFrom Null
+
+-- | A subagent of this role and id spawning one of that role and id, done.
+spawnResultBy :: Text -> Text -> Text -> Text -> LBS.ByteString
+spawnResultBy spawnerRole spawner = spawnResultFrom (object ["id" .= spawner, "role" .= spawnerRole])
+
+spawnResultFrom :: Value -> Text -> Text -> LBS.ByteString
+spawnResultFrom spawner role agent =
     hookEvent
-        Null
+        spawner
         [ "event" .= String "afterTool"
         , "tool" .= String "delegate"
         , "input" .= object ["subagent_type" .= role]
         , "output" .= object ["status" .= String "completed", "agentId" .= String agent, "agentType" .= role]
+        , "context" .= Null
+        ]
+
+-- | A subagent of this role and id ran @state init@, which printed this.
+initRan :: Text -> Text -> Text -> LBS.ByteString
+initRan role agent stdout =
+    hookEvent
+        (object ["id" .= agent, "role" .= role])
+        [ "event" .= String "afterTool"
+        , "tool" .= String "shell"
+        , "input" .= object ["command" .= String "state init"]
+        , "output" .= object ["stdout" .= stdout, "stderr" .= String ""]
+        , "context" .= Null
+        ]
+
+-- | A subagent of this role and id stops, these agents running in the session.
+agentStop :: Text -> Text -> [Text] -> LBS.ByteString
+agentStop role agent = stopOf (object ["id" .= agent, "role" .= role])
+
+-- | The lead stops, these agents running in the session.
+leadStop :: [Text] -> LBS.ByteString
+leadStop = stopOf Null
+
+stopOf :: Value -> [Text] -> LBS.ByteString
+stopOf agent running = hookEvent agent ["event" .= String "agentStop", "running" .= running]
+
+-- | The lead's call stopping the agent of this id, done.
+stopCall :: Text -> LBS.ByteString
+stopCall agent =
+    hookEvent
+        Null
+        [ "event" .= String "afterTool"
+        , "tool" .= String "stopAgent"
+        , "input" .= object ["task_id" .= agent]
+        , "output" .= object ["message" .= String "stopped"]
         , "context" .= Null
         ]
 

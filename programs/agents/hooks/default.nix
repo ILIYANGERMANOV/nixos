@@ -171,6 +171,11 @@ let
         (declare "a" (spawn // { on = "agentStart"; }))
       ]
     )) "hooks: an agentStart hook naming tools did not throw";
+    assert lib.assertMsg (throws (
+      eval { } [
+        (declare "a" (spawn // { on = "agentStop"; }))
+      ]
+    )) "hooks: an agentStop hook naming tools did not throw";
     assert lib.assertMsg (
       names guarded.beforeTool == [
         "secret-guard"

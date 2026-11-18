@@ -106,6 +106,7 @@ genEvent =
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
         , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
         , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
+        , AgentEnded . AgentId <$> genText
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo
         , Voided <$> Gen.integral (Range.linear 0 100000) <*> genText

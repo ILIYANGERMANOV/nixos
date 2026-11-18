@@ -7,7 +7,7 @@ module State.Cli.Shell.HookSpec (spec) where
 import Data.Aeson (Value (..), decodeStrictText)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Foldable (for_)
-import Data.IORef (modifyIORef')
+import Data.IORef (IORef, modifyIORef')
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -15,7 +15,7 @@ import Doubles.FileSystem (Disk (..))
 import State.Cli.Shell.World
 import State.Protocol.Advice (Readiness (..))
 import State.Run.Event (Branch (..))
-import Test.Hspec (Spec, before, describe, it, shouldBe, shouldReturn, shouldSatisfy)
+import Test.Hspec (Spec, before, describe, it, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
 
 spec :: Spec
 spec = describe "state-hook over the doubles" $ do
@@ -496,6 +496,95 @@ spec = describe "state-hook over the doubles" $ do
 
                 contextOf said `shouldSatisfy` maybe False (("state answer " <> qid <> " <answer>") `Text.isInfixOf`)
 
+        describe "stop" $ do
+            it "records a child run's agent ended with no hand-back once, at its stop and its spawner's stop call, saying nothing" $ \world -> do
+                _ <- engineerAtWork world
+
+                stopped <- hook world "stop" (agentStop "engineer" "e1" ["e1"])
+                called <- hook world "stop" (stopCall "e1")
+
+                (stopped.code, stopped.out, called.code, called.out) `shouldBe` (0, [], 0, [])
+                filter (== "agent_ended") <$> loggedEventsIn world "/child" `shouldReturn` ["agent_ended"]
+
+            it "lists a child whose agent stopped with no hand-back, with its resume step" $ \world -> do
+                child <- engineerAtWork world
+                _ <- hook world "stop" (agentStop "engineer" "e1" ["e1"])
+                atWorktree world "/work"
+
+                listed <- succeeded =<< state world ["tasks"]
+                listed `shouldSatisfy` any (Text.isPrefixOf ("child " <> child <> " engineer stopped, no hand-back at "))
+                listed `shouldContain` ["  RESUME " <> child <> " stopped, no hand-back: a fresh engineer from its notes /child"]
+
+            it "records nothing in a child run at the stop of a worker its lead spawned" $ \world -> do
+                _ <- engineerAtWork world
+                _ <- succeeded =<< hook world "bind" (spawnResultBy "engineer" "e1" "implementer" "w1")
+                before' <- loggedEventsIn world "/child"
+
+                said <- hook world "stop" (agentStop "implementer" "w1" ["e1"])
+
+                (said.code, said.out) `shouldBe` (0, [])
+                loggedEventsIn world "/child" `shouldReturn` before'
+
+            it "records nothing in a child run at the lead's stop for a worker there that runs no more" $ \world -> do
+                _ <- engineerAtWork world
+                _ <- succeeded =<< hook world "bind" (spawnResultBy "engineer" "e1" "implementer" "w1")
+                before' <- loggedEventsIn world "/child"
+                atWorktree world "/work"
+
+                _ <- hook world "stop" (leadStop ["e1"])
+
+                loggedEventsIn world "/child" `shouldReturn` before'
+
+            it "records the agent its spawner's stop call names ended" $ \world -> do
+                _ <- engineerAtWork world
+
+                _ <- hook world "stop" (stopCall "e1")
+
+                filter (== "agent_ended") <$> loggedEventsIn world "/child" `shouldReturn` ["agent_ended"]
+
+            it "lists a child at work as before, with no resume step" $ \world -> do
+                child <- engineerAtWork world
+                atWorktree world "/work"
+
+                listed <- succeeded =<< state world ["tasks"]
+
+                listed `shouldSatisfy` any (Text.isPrefixOf ("child " <> child <> " engineer at "))
+                listed `shouldSatisfy` not . any (Text.isInfixOf "RESUME")
+
+            it "records nothing for a child run that handed back, by a question up or by its stop" $ \world -> do
+                _ <- engineerAtWork world
+                _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                asked <- loggedEventsIn world "/child"
+                _ <- hook world "stop" (agentStop "engineer" "e1" [])
+                afterAsked <- loggedEventsIn world "/child"
+                _ <- succeeded =<< state world ["stop", "failed", "no", "access"]
+                over <- loggedEventsIn world "/child"
+                _ <- hook world "stop" (agentStop "engineer" "e1" [])
+
+                afterAsked `shouldBe` asked
+                loggedEventsIn world "/child" `shouldReturn` over
+
+            it "records nothing for a plain worker's stop" $ \world -> do
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
+                _ <- hook world "bind" (spawnResult "implementer")
+                before' <- logRows world
+
+                said <- hook world "stop" (agentStop "implementer" "a1" [])
+
+                (said.code, said.out) `shouldBe` (0, [])
+                logRows world `shouldReturn` before'
+
+            it "records the lead's child ended at the lead's stop once it runs no more" $ \world -> do
+                _ <- engineerAtWork world
+                atWorktree world "/work"
+
+                _ <- hook world "stop" (leadStop ["e1"])
+                running <- filter (== "agent_ended") <$> loggedEventsIn world "/child"
+                stopped <- hook world "stop" (leadStop [])
+
+                (running, stopped.code, stopped.out) `shouldBe` ([], 0, [])
+                filter (== "agent_ended") <$> loggedEventsIn world "/child" `shouldReturn` ["agent_ended"]
+
         describe "usage" $ do
             it "exits 2 on stdin that is no hook event" $ \world -> do
                 said <- hook world "resume" "not json"
@@ -548,3 +637,13 @@ bindings = "/home/.local/state/state/bindings/s1"
 -- | At Balanced, the gather's research picked: a researcher's spawn is recorded here.
 researching :: [Act]
 researching = [Record ["fuel.set", "balanced"], Record ["gather.research"]]
+
+{- | A 10x at its fan-out, and its engineer @e1@ on task t1, bound by its
+init's hook to the child run in @/child@, where later calls run; the child's id.
+-}
+engineerAtWork :: IORef World -> IO Text
+engineerAtWork world = do
+    parent <- tenXAtFanOut world
+    child <- childRun world parent "/child" "t1"
+    _ <- succeeded =<< hook world "bind" (initRan "engineer" "e1" ("started " <> child <> "\nrun " <> child <> " /child " <> Text.pack childWorktree <> "\n"))
+    pure child

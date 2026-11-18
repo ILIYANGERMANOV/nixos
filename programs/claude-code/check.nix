@@ -87,6 +87,7 @@ let
     afterTool = [ ];
     agentStart = [ ];
     promptExpansion = [ ];
+    agentStop = [ ];
   };
   # When: the flavor runs them.
   hooked = hookSettings.withHooks adapter profileHooks flavorSettings;
@@ -188,6 +189,30 @@ let
       };
     }
     {
+      name = "an agent stopping adds one entry with no matcher to both a subagent's stop and the lead's";
+      actual =
+        (hookSettings.withHooks adapter {
+          agentStop = [ (declared "ended" null) ];
+        } flavorSettings).hooks;
+      expected = flavorSettings.hooks // {
+        SubagentStop = [ { hooks = [ adapter ]; } ];
+        Stop = [ { hooks = [ adapter ]; } ];
+      };
+    }
+    {
+      name = "a hook on stopping an agent matches Claude's TaskStop";
+      actual =
+        (hookSettings.withHooks adapter {
+          afterTool = [ (declared "ended" [ "stopAgent" ]) ];
+        } { }).hooks.PostToolUse;
+      expected = [
+        {
+          matcher = "TaskStop";
+          hooks = [ adapter ];
+        }
+      ];
+    }
+    {
       name = "a hook on the skill tool matches Claude's Skill";
       actual =
         (hookSettings.withHooks adapter {
@@ -213,6 +238,7 @@ let
         afterTool = [ ];
         agentStart = [ ];
         promptExpansion = [ ];
+        agentStop = [ ];
       } flavorSettings;
       expected = flavorSettings;
     }
