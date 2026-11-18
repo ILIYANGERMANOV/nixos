@@ -9,12 +9,16 @@ flow to go on. A step raises them ('State.Category.Step.Raises'), a flow's
 module State.Category.Effect (
     Eff (..),
     Handler (..),
+    Effs,
+    None,
+    FromList,
+    ToList,
     Union,
     Without,
     Unhandled,
 ) where
 
-import Data.Type.Bool (If, type (||))
+import Data.Type.Bool (type (||))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 
 {- | @PickE@: a branch is picked, by the agent. @AskE@: a question is put,
@@ -35,33 +39,50 @@ data Handler (eff :: Eff) where
 
 deriving stock instance Show (Handler eff)
 
-{- | Every effect, in the order an effect list is kept: 'Union' keeps it,
-so two flows raising the same effects have the same list.
+{- | A set of effects, one flag per 'Eff' in its order: raised or not.
+Flags, not a list, so a union is three @||@s on reduced flags: a union
+over lists, by @If@ and @Elem@, made GHC's coercions grow with the whole
+flow's 'State.Category.Flow.Shape' and run out of memory on a whole flow.
 -}
-type Every :: [Eff]
-type Every = '[PickE, AskE, FocusE]
+type data Effs = Flags Bool Bool Bool
 
--- | The effects of either list, in 'Every''s order, each once.
-type Union :: [Eff] -> [Eff] -> [Eff]
-type Union xs ys = Keep Every xs ys
+-- | No effect.
+type None :: Effs
+type None = Flags 'False 'False 'False
 
-type Keep :: [Eff] -> [Eff] -> [Eff] -> [Eff]
-type family Keep every xs ys where
-    Keep '[] xs ys = '[]
-    Keep (x ': every) xs ys = If (Elem x xs || Elem x ys) (x ': Keep every xs ys) (Keep every xs ys)
+-- | The set of a list's effects.
+type FromList :: [Eff] -> Effs
+type family FromList es where
+    FromList '[] = None
+    FromList (e ': es) = Union (One e) (FromList es)
 
-type Elem :: Eff -> [Eff] -> Bool
-type family Elem x xs where
-    Elem x '[] = 'False
-    Elem x (x ': xs) = 'True
-    Elem x (y ': xs) = Elem x xs
+type One :: Eff -> Effs
+type family One e where
+    One PickE = Flags 'True 'False 'False
+    One AskE = Flags 'False 'True 'False
+    One FocusE = Flags 'False 'False 'True
 
--- | The list without the effect.
-type Without :: Eff -> [Eff] -> [Eff]
-type family Without x xs where
-    Without x '[] = '[]
-    Without x (x ': xs) = Without x xs
-    Without x (y ': xs) = y ': Without x xs
+-- | The effects in the set, in 'Eff''s order, each once.
+type ToList :: Effs -> [Eff]
+type family ToList s where
+    ToList (Flags p a f) = Flag p PickE (Flag a AskE (Flag f FocusE '[]))
+
+type Flag :: Bool -> Eff -> [Eff] -> [Eff]
+type family Flag b e es where
+    Flag 'True e es = e ': es
+    Flag 'False e es = es
+
+-- | The effects of either set.
+type Union :: Effs -> Effs -> Effs
+type family Union s t where
+    Union (Flags p a f) (Flags p' a' f') = Flags (p || p') (a || a') (f || f')
+
+-- | The set without the effect.
+type Without :: Eff -> Effs -> Effs
+type family Without e s where
+    Without PickE (Flags p a f) = Flags 'False a f
+    Without AskE (Flags p a f) = Flags p 'False f
+    Without FocusE (Flags p a f) = Flags p a 'False
 
 {- | The empty list, or a refusal naming the effects left: a whole flow
 demands @Unhandled (Effects s) ~ '[]@. An equality, so the refusal is also

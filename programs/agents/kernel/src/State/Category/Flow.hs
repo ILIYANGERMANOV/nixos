@@ -43,7 +43,7 @@ import Data.Text qualified as Text
 import GHC.OverloadedLabels (IsLabel (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import GHC.TypeLits (KnownSymbol, Symbol)
-import State.Category.Effect (Eff, Handler, Union, Without)
+import State.Category.Effect (Eff, Effs, FromList, Handler, None, ToList, Union, Without)
 import State.Category.Fuel (PerFuel)
 import State.Category.Meter (AtCap, Limit, Meter)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..), handedBackOutcome, spawnedOutcome)
@@ -89,31 +89,37 @@ type data Shape where
 
 infixr 5 :>>
 
-{- | The effects a flow raises and does not handle, in
-'State.Category.Effect.Union''s order: its steps' ('Raises'), a forked
-child's included, less each one a 'Handle' around them takes.
+{- | The effects a flow raises and does not handle, in 'Eff''s order: its
+steps' ('Raises'), a forked child's included, less each one a 'Handle'
+around them takes.
 -}
 type Effects :: Shape -> [Eff]
-type family Effects s where
-    Effects (DoS s) = Union (Raises s) '[]
-    Effects IdS = '[]
-    Effects IntoS = '[]
-    Effects (f :>> g) = Union (Effects f) (Effects g)
-    Effects (CappedS c) = Effects c
-    Effects (LoopS f) = Effects f
-    Effects (CaseS bs) = BranchEffects bs
-    Effects ExitS = '[]
-    Effects (EachS f) = Effects f
-    Effects (ForkS f) = Effects f
-    Effects AwaitS = '[]
-    Effects (CatchS f) = Effects f
-    Effects (ScopeS f) = Effects f
-    Effects (HandleS eff f) = Without eff (Effects f)
+type Effects s = ToList (EffectSet s)
 
-type BranchEffects :: [Shape] -> [Eff]
+{- | 'Effects' as a set: one equation per constructor, each child's set
+reduced once ("State.Category.Effect"'s 'Effs' says why).
+-}
+type EffectSet :: Shape -> Effs
+type family EffectSet s where
+    EffectSet (DoS s) = FromList (Raises s)
+    EffectSet IdS = None
+    EffectSet IntoS = None
+    EffectSet (f :>> g) = Union (EffectSet f) (EffectSet g)
+    EffectSet (CappedS c) = EffectSet c
+    EffectSet (LoopS f) = EffectSet f
+    EffectSet (CaseS bs) = BranchEffects bs
+    EffectSet ExitS = None
+    EffectSet (EachS f) = EffectSet f
+    EffectSet (ForkS f) = EffectSet f
+    EffectSet AwaitS = None
+    EffectSet (CatchS f) = EffectSet f
+    EffectSet (ScopeS f) = EffectSet f
+    EffectSet (HandleS eff f) = Without eff (EffectSet f)
+
+type BranchEffects :: [Shape] -> Effs
 type family BranchEffects bs where
-    BranchEffects '[] = '[]
-    BranchEffects (b ': bs) = Union (Effects b) (BranchEffects bs)
+    BranchEffects '[] = None
+    BranchEffects (b ': bs) = Union (EffectSet b) (BranchEffects bs)
 
 {- | @s@: the structure ('Shape'). @i@: in. @e@: the exit, if any. @o@:
 continue. Each constructor's
