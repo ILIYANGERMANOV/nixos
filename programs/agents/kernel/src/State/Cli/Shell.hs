@@ -613,7 +613,7 @@ planOf steps worktreeHead file g state = \case
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
     Answer raw reply by ->
         answeredQid state raw >>= \qid ->
-            Right (Plan (answerEvents state qid reply by) (\after _ -> printed ("answered " <> qidText qid <> "\n" <> otherNote reply) <> writtenDown state after qid))
+            answerEvents state qid reply by <&> \events -> Plan events (\after _ -> printed ("answered " <> qidText qid <> "\n" <> otherNote reply) <> writtenDown state after qid)
     Park raw why -> open raw >>= \qid -> Right (Plan (forwardedFirst state qid <> [QuestionParked qid why]) (\after _ -> printed ("parked " <> qidText qid <> "\n") <> writtenDown state after qid))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> printed (showRun steps g state)))
@@ -639,8 +639,23 @@ planOf steps worktreeHead file g state = \case
     notSent kind refusal = Failure BadInput ("--to user on a " <> kindName kind <> " question") (explain g (Fold.fuelOf state) state.at (Fold.NotAllowed refusal)).why ("state ask --kind " <> kindName kind <> " <question>, without --to: the run answers it")
 
 -- | The events of an answer: forwarded first if still in triage, so one command takes it from triage to closed.
-answerEvents :: RunState -> QId -> Ask.Reply -> Maybe Above -> [Event]
-answerEvents state qid reply by = forwardedFirst state qid <> [Answered qid reply (fromMaybe (Ask.deliver state.start.principal) by)]
+answerEvents :: RunState -> QId -> Ask.Reply -> Maybe Above -> Either Failure [Event]
+answerEvents state qid reply by =
+    answeredBy state.start.principal qid by <&> \above -> forwardedFirst state qid <> [Answered qid reply above]
+
+{- | Who an answer is from: whoever @--by@ names, else whoever relays it to
+the run's agent, the user or the caller. A parent run writes its answer down
+itself, so the agent of a run under one gives none: it would close here a
+question the parent still holds open.
+-}
+answeredBy :: Principal -> QId -> Maybe Above -> Either Failure Above
+answeredBy principal qid = \case
+    Just above -> Right above
+    Nothing -> case Ask.deliver principal of
+        Ask.TheUser -> Right Ask.TheUser
+        Ask.TheCaller -> Right Ask.TheCaller
+        ParentRun parent ->
+            Left (Failure BadInput ("the answer to " <> qidText qid) ("the parent run " <> runIdText parent <> " answers it") "hand it back as state next prints; the parent's answer comes down to this run")
 
 {- | A question still in triage is forwarded first, to whoever answers it,
 before this run answers or parks it. A row that must answer it itself

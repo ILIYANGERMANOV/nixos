@@ -796,7 +796,12 @@ explained start advice = advice.at : listed "options:" (runOptions advice.action
   where
     -- No parent log records the caller's answer, so the resumed run records it itself.
     callerAnswers = ["resumed with the answer: state answer " <> qidText question.qid <> " <answer>" | AwaitAnswer question <- [advice.action], TheCaller <- [Ask.deliver start.principal]] <> onHold
-    onHold = concat [["parked: " <> questionLine question, "it stays open until its answer: state answer " <> qidText question.qid <> " <answer>"] | OnHold question _ <- [advice.action]]
+    onHold = concat [["parked: " <> questionLine question, "it stays open until " <> answerOf question] | OnHold question _ <- [advice.action]]
+    -- A parent run writes its answer down; the user's or the caller's, the run's agent records.
+    answerOf question = case Ask.deliver start.principal of
+        ParentRun parent -> "the parent run " <> runIdText parent <> " answers it"
+        TheUser -> "its answer: state answer " <> qidText question.qid <> " <answer>"
+        TheCaller -> "its answer: state answer " <> qidText question.qid <> " <answer>"
     listed _ [] = []
     listed heading options = heading : ["  " <> option.command <> " - " <> optionMeans start option | option <- options]
 

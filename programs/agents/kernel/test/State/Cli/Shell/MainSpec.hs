@@ -713,6 +713,19 @@ spec = describe "state over the doubles" $ do
                 again `shouldSatisfy` (not . any ("parent: " `Text.isPrefixOf`))
                 loggedEvents world `shouldReturn` once
 
+            it "refuses a child's own answer to the question its parent answers, telling it to hand the question back" $ \world -> do
+                parent <- tenXAtFanOut world
+                child <- childRun world parent "/child" "t1"
+                let qid = child <> ":1"
+                _ <- succeeded =<< state world ["ask", "--kind", "Scope", "which", "scope?"]
+                before' <- loggedEvents world
+
+                own <- state world ["answer", qid, "yes"]
+
+                (own.code, own.err)
+                    `shouldBe` (2, ["state answer: the answer to " <> qid <> " - the parent run " <> parent <> " answers it", "fix: hand it back as state next prints; the parent's answer comes down to this run"])
+                loggedEvents world `shouldReturn` before'
+
             for_ [(ChildConfirms, ["plan.done -> skip_simplify_plan", "skip_simplify_plan.run -> simplify_plan"]), (ParentDecided, ["plan.done -> skip_simplify_plan", "skip_simplify_plan.skip -> confirm", "confirm.confirmed -> draft"])] $ \(plan, transcript) ->
                 it ("passes a child's plan per its task's plan call, asking its parent nothing: " <> show plan) $ \world -> do
                     parent <- tenXAtFanOutOf world [(plainTask "t1" []) {plan}]
@@ -865,6 +878,20 @@ spec = describe "state over the doubles" $ do
                     take 1 grandNext `shouldBe` ["PARKED " <> qid <> " after the release"]
                     take 1 grandAnswered `shouldSatisfy` (not . any ("PARKED" `Text.isPrefixOf`))
                     answersIn world `shouldReturn` [1, 1, 1]
+
+                it "tells a child its parked question stays open until the parent's answer comes down" $ \world -> do
+                    (_, mid, grand) <- directLevels world
+                    let qid = grand <> ":1"
+                    _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                    atWorktree world midWorktree
+                    _ <- succeeded =<< state world ["forward", qid]
+                    atWorktree world "/work"
+                    _ <- succeeded =<< state world ["answer", qid, "--park", "after", "the", "release"]
+                    atWorktree world grandWorktree
+
+                    grandNext <- succeeded =<< state world ["next"]
+
+                    grandNext `shouldContain` ["  it stays open until the parent run " <> mid <> " answers it"]
 
                 it "ruling_answering_or_parking_one_child_question_changes_no_other_child_log" $ \_ -> hedgehog $ do
                     children <- forAll (Gen.int (Range.linear 2 4))
