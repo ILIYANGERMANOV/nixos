@@ -62,14 +62,14 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), 
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp)
+import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, settledSkips, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (fanNamed)
 import State.Step.Fuel (Sing (Fuel))
-import State.Step.Plan (Outcome (..), Sing (Confirm, SimplifyP))
+import State.Step.Plan (Outcome (..), Sing (Confirm))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
@@ -212,7 +212,7 @@ due facts state = case (state.stopped, state.at) of
     -- The Fuel decides a skip, or the facts at a level that skips by changed lines; a trivial task's is the agent's.
     skipped place = case skipHere place.name of
         Just skip
-            | namedState skip.block == stepName SimplifyP && planSettled state -> [skip.skips]
+            | settledSkips state skip.block -> [skip.skips]
             | otherwise -> case atFuel (fuelOf state) skip.when of
                 Never -> [skip.runs]
                 Skippable -> []

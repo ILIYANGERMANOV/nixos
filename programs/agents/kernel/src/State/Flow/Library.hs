@@ -47,6 +47,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Label (..), Name (..), Shape (..))
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
+import State.Category.Step (StepSet (Sing, stepName), stateNameText)
 import State.Category.Ty (KnownTy, NotSum, Summands, Ty, TyOf (..))
 import State.Step.Build (BuildStep (..), Sing (..))
 import State.Step.Fuel (FuelStep (Skip), Sing (Skip))
@@ -186,13 +187,13 @@ questions = UpTo <$> PerFuel 15 30 50
 
 {- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm
 is asked at every level. Besides its Fuel, a plan settled without the user
-skips @simplify_plan@ ('State.Run.Fold.planSettled'): the skip is named
-after its step, which the run matches it by.
+skips @simplify_plan@ ('State.Run.Fold.settledSkips'): the run matches
+the skip by its step's name.
 -}
 propose :: Flow ProposeS 'Ctx ('Just 'Plan) 'Ctx
 propose =
     Do PlanS
-        :> skippable "simplify_plan" skippableAtLow (Do SimplifyP)
+        :> skippable (nameOf SimplifyP) skippableAtLow (Do SimplifyP)
         :> upTo 3 Stop (Step Confirm)
 
 type ProposeS = DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS Confirm)
@@ -201,7 +202,7 @@ type ProposeS = DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS 
 refactor at or below 100 changed lines, Low on a trivial task.
 -}
 build :: Flow BuildS 'Plan 'Nothing 'Diff
-build = Do Draft :> Do Implement :> skippable "refactor" (PerFuel Skippable (AtOrBelow 100) Never) (Do Refactor)
+build = Do Draft :> Do Implement :> skippable (nameOf Refactor) (PerFuel Skippable (AtOrBelow 100) Never) (Do Refactor)
 
 type BuildS = DoS Draft :>> DoS Implement :>> SkippableS 'Diff (DoS Refactor)
 
@@ -286,6 +287,10 @@ branch flow = Label :-> Scope (Name (Text.pack (symbolVal (Proxy @l)))) flow :> 
 
 type BranchS :: Shape -> Shape
 type BranchS f = ScopeS f :>> IntoS
+
+-- | A step's wire name as a flow name: a skip named after its block's one step.
+nameOf :: (StepSet k) => Sing (s :: k) -> Name
+nameOf = Name . stateNameText . stepName
 
 -- | Low may skip the step of a trivial task; Balanced and Max run it.
 skippableAtLow :: PerFuel SkipWhen

@@ -44,6 +44,7 @@ module State.Run.Fold (
     shape,
     onRound,
     planSettled,
+    settledSkips,
     Stuck (..),
     stuck,
     stuckExits,
@@ -810,7 +811,7 @@ at every Fuel, which leaves the PR as it is, by the task's shape.
 skipped :: RunState -> ScopePath -> Skipping -> Either Refusal ()
 skipped state scope = \case
     ByLevel name when
-        | atFuel (fuelOf state) when /= Never || (namedState name == stepName SimplifyP && planSettled state) -> Right ()
+        | atFuel (fuelOf state) when /= Never || settledSkips state name -> Right ()
         | otherwise -> refused (nameText name)
     ByShape
         | onRound (shape state) -> Right ()
@@ -839,6 +840,10 @@ the request applies feedback to a target and no Design or Scope question opened.
 -}
 planSettled :: RunState -> Bool
 planSettled state = principalPlan state.start.principal == ParentDecided || maybe False (not . (.designAsked)) state.onTarget
+
+-- | Whether a settled plan skips the block: @simplify_plan@'s, at any Fuel.
+settledSkips :: RunState -> Name -> Bool
+settledSkips state block = namedState block == stepName SimplifyP && planSettled state
 
 {- | A task added, or a round asked, at a fan-out's merge reopens the fan-out, where it is
 spawned as any task is; the fan-out is left again once every task is settled.
