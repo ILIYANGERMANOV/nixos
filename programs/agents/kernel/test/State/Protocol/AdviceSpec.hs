@@ -16,7 +16,8 @@ import State.Category.Fuel (Fuel (..))
 import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
-import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
+import State.Role (Rung (Lead))
+import State.Run.Ask (Above (..), Kind (..), OneLine, Proposal (..), QId (..), Question (..), Refusal (MustAnswer), Route (..))
 import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genStart, genText, logOf, oneLine, run, runId, start, started)
@@ -90,7 +91,7 @@ spec = describe "State.Protocol.Advice" $ do
             designAsked = Asked (Asking (Question (QId run 1) Design (oneLine "which store?")) (StateName "engineer/gather") Itself)
             -- A whole flow's events in its scope, past its root's Fuel.
             inScope scope events = within scope (fuelSet Balanced : events)
-            pickAsked = [Asked (Asking (Question (QId run 1) Pick (oneLine "which branch?")) (StateName "route") Itself), Forwarded (QId run 1) TheUser, Answered (QId run 1) "engineer" TheUser]
+            pickAsked = [Asked (Asking (Question (QId run 1) Pick (oneLine "which branch?")) (StateName "route") Itself), Forwarded (QId run 1) TheUser, Answered (QId run 1) (Chose "engineer") TheUser]
         it "sets each request's Fuel first, its target named before it" $
             (\advice -> (commandsOnly advice.action, advice.at)) (atChief [])
                 `shouldBe` (offering ["state record fuel.set <low|balanced|max>"], "at fuel: a step you run - do the task below, run the option that fits its result, then state next")
@@ -156,14 +157,14 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts (runAt (knobs Balanced <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30 used, none left: go on?"
 
         it "asks the user whether to go on at the questions' end, after a Stuck question before it" $ do
-            let stuckFirst = [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
+            let stuckFirst = [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid (Chose "yes") TheUser]
             next noFacts (runAt (knobs Balanced <> stuckFirst <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30 used, none left: go on?"
 
         it "asks the user whether to go on once the researchers are used up" $
             next noFacts (runAt (knobs Low <> researched)) `shouldBe` Ask Stuck "Researchers: 1 of 1 used, none left: go on?"
 
         it "extends on the user's yes, or ends the gather" $ do
-            let onStuck = knobs Balanced <> questions 30 <> [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
+            let onStuck = knobs Balanced <> questions 30 <> [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid (Chose "yes") TheUser]
             next noFacts (runAt onStuck) `shouldBe` offering ["state record gather.enough", "state record gather.research", "state record extend <why>"]
             next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` choosing
 
@@ -187,7 +188,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "offers pick.final beside the fixer at a stuck fix once Stuck was asked" $ do
             let stuckAt asked = atPick Balanced (looped <> [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty))] <> asked)
                 finalLeads = filter ("pick.final" `Text.isInfixOf`) . explainedAt . stuckAt
-            map finalLeads [[], [Asked (Asking goOn (StateName "fix") Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "stop" TheUser]]
+            map finalLeads [[], [Asked (Asking goOn (StateName "fix") Itself), Forwarded goOn.qid TheUser, Answered goOn.qid (Chose "stop") TheUser]]
                 `shouldBe` [[], ["  state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe"]]
 
     describe "confirm" $ do
@@ -197,8 +198,8 @@ spec = describe "State.Protocol.Advice" $ do
                 _ -> False
 
         it "asks Confirm once, then advises its outcome" $ do
-            let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
-                answered = runAt (knobs Balanced <> take 8 happyPath <> asked <> [Answered question.qid "confirmed" TheUser])
+            let (question, asked, _) = byRow atConfirm Confirm (oneLine "the plan holds?")
+                answered = runAt (knobs Balanced <> take 8 happyPath <> asked <> [Answered question.qid (Chose "confirmed") TheUser])
             next noFacts answered `shouldBe` offering ["state record confirm.confirmed", "state record confirm.adjusted"]
 
     describe "the architect" $ do
@@ -208,7 +209,7 @@ spec = describe "State.Protocol.Advice" $ do
             atDesignConfirm = problemUnderstood <> designDiscussed
             atCap = problemUnderstood <> concat (replicate 3 (designDiscussed <> [stepTook ConfirmDesignAdjusted])) <> designDiscussed
             designGoOn = Question (QId run 100) Stuck (oneLine "go on?")
-            wentOn = [Asked (Asking designGoOn (StateName "design/confirm_design") Itself), Forwarded designGoOn.qid TheUser, Answered designGoOn.qid "yes" TheUser]
+            wentOn = [Asked (Asking designGoOn (StateName "design/confirm_design") Itself), Forwarded designGoOn.qid TheUser, Answered designGoOn.qid (Chose "yes") TheUser]
         it "asks the architect's Fuel first, as the engineer's" $
             next noFacts (architectFrom []) `shouldBe` next noFacts (runAt [])
 
@@ -218,8 +219,8 @@ spec = describe "State.Protocol.Advice" $ do
             advice.prompt `shouldSatisfy` \prompt -> all (`Text.isInfixOf` prompt) ["free-form: no picker", "Only when the user says design or enough", "state ask --kind Confirm \"the problem: understood, or more?\"", "the user's own words"]
 
         it "drops the line on when to ask once the problem's Confirm was asked and answered" $ do
-            let (question, asked, _) = ownAsk atProblem Confirm (oneLine "the problem: understood, or more?")
-                answered = architectRun (researchedIn "exploring" <> enoughIn "exploring" <> asked <> [Answered question.qid "design" TheUser])
+            let (question, asked, _) = byRow atProblem Confirm (oneLine "the problem: understood, or more?")
+                answered = architectRun (researchedIn "exploring" <> enoughIn "exploring" <> asked <> [Answered question.qid (Chose "design") TheUser])
                 advice = advise steps architectGraph noFacts answered
             (commandsOnly advice.action, "Only when the user says" `Text.isInfixOf` advice.prompt)
                 `shouldBe` (offering ["state record problem.understood", "state record problem.more"], False)
@@ -343,7 +344,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "waits on the user's answer to a stopped child's question before a retry" $ do
             let stuckOn = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
                 forwarded = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended (Stop Blocked "no access")), Asked (Asking stuckOn (StateName "engineers") (ChildRun (runId "c1"))), Forwarded stuckOn.qid TheUser]
-            map (next noFacts . tenXAt (t1 :| [])) [forwarded, forwarded <> [Answered stuckOn.qid "retry" TheUser]]
+            map (next noFacts . tenXAt (t1 :| [])) [forwarded, forwarded <> [Answered stuckOn.qid (Chose "retry") TheUser]]
                 `shouldBe` [AwaitAnswer stuckOn, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
         it "waits on the merge loop at merge, and ends only once every task is merged or parked" $ do
             let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl)]
@@ -380,7 +381,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "resumes a child with the ruling on its question" $
             next noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])) `shouldBe` Resume (runId "c1") "with the answer to c1:1: confirmed"
         it "resumes a child with the answer that came down for its question" $
-            next noFacts (tenXAt (t1 :| []) (fromChild <> [Forwarded asks.qid TheUser, Answered asks.qid "postgres" TheUser]))
+            next noFacts (tenXAt (t1 :| []) (fromChild <> [Forwarded asks.qid TheUser, Answered asks.qid (Chose "postgres") TheUser]))
                 `shouldBe` Resume (runId "c1") "with the answer to c1:1: postgres"
         it "waits on the CI or merge a child handed back" $
             [next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Awaits on (oneLine "https://pr/1"))]) | on <- [Ci, Merge]]
@@ -477,27 +478,36 @@ spec = describe "State.Protocol.Advice" $ do
 
     describe "ownAsk" $ do
         it "forwards a Design question to the user" $
-            ownAsk atImplement Design (oneLine "which store?") `shouldBe` askedUp "ASK user" TheUser
+            byRow atImplement Design (oneLine "which store?") `shouldBe` askedUp "ASK user" TheUser
 
         it "hands a Design question back to a parent run" $
-            ownAsk (runUnder child (knobs Balanced <> take 10 happyPath)) Design (oneLine "which store?")
+            byRow (runUnder child (knobs Balanced <> take 10 happyPath)) Design (oneLine "which store?")
                 `shouldBe` askedUp "HANDBACK NEEDS_DECISION Design r7f2:1: which store?" (ParentRun parent)
 
         it "forwards the Confirm to whoever started the run, at every Fuel" $
             [ line
             | fuel <- [minBound .. maxBound]
             , from <- [start, child]
-            , let (_, _, line) = ownAsk (runUnder from (knobs fuel <> take 8 happyPath)) Confirm (oneLine "the plan holds?")
+            , let (_, _, line) = byRow (runUnder from (knobs fuel <> take 8 happyPath)) Confirm (oneLine "the plan holds?")
             ]
                 `shouldBe` concat (replicate 3 ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"])
 
         it "answers a Design question itself inside a 10x scope, where the unscoped run forwards it" $
-            [line | state <- [atImplement, inTenXScope], let (_, _, line) = ownAsk state Design (oneLine "which store?")]
+            [line | state <- [atImplement, inTenXScope], let (_, _, line) = byRow state Design (oneLine "which store?")]
                 `shouldBe` ["ASK user", "ANSWER yourself"]
 
         it "leaves a Pick question to the run itself" $
-            ownAsk atImplement Pick (oneLine "which rows?")
+            byRow atImplement Pick (oneLine "which rows?")
                 `shouldBe` (Question (QId run 1) Pick (oneLine "which rows?"), [Asked (Asking (Question (QId run 1) Pick (oneLine "which rows?")) implement Itself)], "ANSWER yourself")
+
+        it "sends a question its row answers to the user at once, asked and forwarded: up to a parent from a child" $
+            [ownAsk state ToUser Pick (oneLine "which rows?") | state <- [atImplement, runUnder child (knobs Balanced <> take 10 happyPath)]]
+                `shouldBe` [ Right (askedPick "ASK user" TheUser)
+                           , Right (askedPick "HANDBACK NEEDS_DECISION Pick r7f2:1: which rows?" (ParentRun parent))
+                           ]
+
+        it "refuses to send the user a question the run's row must answer itself" $
+            ownAsk atImplement ToUser Fact (oneLine "which file?") `shouldBe` Left (MustAnswer Lead Fact)
   where
     noFacts = Facts Nothing Nothing []
     withPr = noFacts {pr = Just (PullRequest draftPr IsDraft)}
@@ -522,7 +532,7 @@ spec = describe "State.Protocol.Advice" $ do
     researched = spawnedIn "gather" <> [WorkerSpawned (AgentRole "researcher") (AgentId "r1")]
     pickResearch = Took mempty (pickOf "gather" "research")
     -- Each put to the user at the interview and answered, then back at the gather's pick.
-    questions n = Took mempty (pickOf "gather" "interview") : concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) (StateName "interview") Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]] <> [stepTook InterviewAsked]
+    questions n = Took mempty (pickOf "gather" "interview") : concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) (StateName "interview") Itself), Forwarded (QId run i) TheUser, Answered (QId run i) (Chose "yes") TheUser] | i <- [1 .. n]] <> [stepTook InterviewAsked]
     goOn = Question (QId run 100) Stuck (oneLine "go on?")
     -- What @state next@ explains at the gather's pick.
     gatherPick =
@@ -539,6 +549,12 @@ spec = describe "State.Protocol.Advice" $ do
     atPick fuel rest = runAt (knobs fuel <> take 13 happyPath <> [stepTook (ReviewRows sha)] <> rest)
     -- A Design question the run's own row forwards: asked, then forwarded at once.
     askedUp line above = (which, [Asked (Asking which implement Itself), Forwarded which.qid above], line)
+    -- A Pick question the run's own row answers, sent to the user at once.
+    askedPick line above = let rows = Question (QId run 1) Pick (oneLine "which rows?") in (rows, [Asked (Asking rows implement Itself), Forwarded rows.qid above], line)
+
+-- | The run's own question as its row sends it, which no row refuses.
+byRow :: RunState -> Kind -> OneLine -> (Question, [Event], Text)
+byRow state kind text = either (error . show) id (ownAsk state ByRow kind text)
 
 knobs :: Fuel -> [Event]
 knobs fuel = [fuelSet fuel]

@@ -61,14 +61,14 @@ import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (ParentRun), Link (..), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, qidText)
+import State.Run.Ask (Above (ParentRun), Link (..), OneLine, Parent (..), Principal (..), Proposal (..), QId, Question (..), kindName, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, encodeLine, eventType, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), TaskId, parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
+import State.Run.Fold (Append (..), Pending (asking, waits), RunState (..), Waits (..), askedAt, nextQId, replay)
 import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
@@ -473,11 +473,13 @@ execute steps = \case
         ShowRun -> Nothing
         Override _ _ -> Nothing
         Void _ _ -> Nothing
-        AskQuestion {} -> Nothing
+        AskOwn {} -> Nothing
+        AskFrom {} -> Nothing
         RuleOn {} -> Nothing
         Retry _ _ -> Nothing
         Forward _ _ -> Nothing
         Answer {} -> Nothing
+        Park _ _ -> Nothing
         StopRun _ -> Nothing
         Pending -> Nothing
 
@@ -524,11 +526,11 @@ planOf steps worktreeHead file g state = \case
     Record recording -> (\event -> Plan [event] (const recorded)) <$> recordedEvent g state worktreeHead file recording
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
-    AskQuestion kind Itself text ->
-        notOpenYet state Itself text >> do
-            let (question, events, line) = ownAsk state kind text
-            Right (Plan events (\after _ -> asked question <> delivered after line))
-    AskQuestion kind from text ->
+    AskOwn kind how text -> do
+        notOpenYet state Itself text
+        (question, events, line) <- Bifunctor.first (notSent kind) (ownAsk state how kind text)
+        Right (Plan events (\after _ -> asked question <> delivered after line))
+    AskFrom kind from text ->
         notOpenYet state from text >> do
             let question = Question (nextQId state) kind text
             Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
@@ -544,7 +546,10 @@ planOf steps worktreeHead file g state = \case
     Forward raw raise ->
         open raw >>= \qid -> Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
-    Answer raw answer by -> answeredQid state raw >>= \qid -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\after _ -> printed ("answered " <> qidText qid <> "\n") <> writtenDown state after qid))
+    Answer raw reply by ->
+        answeredQid state raw >>= \qid ->
+            Right (Plan (answerEvents state qid reply by) (\after _ -> printed ("answered " <> qidText qid <> "\n" <> otherNote reply) <> writtenDown state after qid))
+    Park raw why -> open raw >>= \qid -> Right (Plan [QuestionParked qid why] (\after _ -> printed ("parked " <> qidText qid <> "\n") <> writtenDown state after qid))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> printed (showRun steps g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
@@ -563,6 +568,24 @@ planOf steps worktreeHead file g state = \case
     raised raise qid = case raise of
         AsAsked -> []
         ToSecurity -> [RetaggedSecurity qid]
+    otherNote = \case
+        Ask.Chose _ -> ""
+        Ask.Other _ -> Ask.replyNote <> "\n"
+    notSent kind refusal = Failure BadInput ("--to user on a " <> kindName kind <> " question") (explain g (Fold.fuelOf state) state.at (Fold.NotAllowed refusal)).why ("state ask --kind " <> kindName kind <> " <question>, without --to: the run answers it")
+
+{- | The events of an answer: a question still in triage is forwarded first,
+to whoever answers it, so one command takes it from triage to closed. A
+row that must answer it itself refuses the forward ('Ask.pass').
+-}
+answerEvents :: RunState -> QId -> Ask.Reply -> Maybe Above -> [Event]
+answerEvents state qid reply by = forwardFirst <> [Answered qid reply (fromMaybe up by)]
+  where
+    up = Ask.deliver state.start.principal
+    forwardFirst = case [p.waits | p <- state.pending, p.asking.question.qid == qid] of
+        ForTriage : _ -> [Forwarded qid up]
+        ForAnswer : _ -> []
+        ForLater _ : _ -> []
+        [] -> []
 
 {- | The event @state record@ appends: the one its recording names, placed in
 the scope the run is in.
@@ -774,7 +797,26 @@ directPlan state child message = do
 {- | An answer on its way down: the run that holds it, the child that asked
 it of that run, the question and its answer.
 -}
-data Down = Down {above :: RunId, child :: Below, qid :: QId, answer :: Text}
+data Down = Down {above :: RunId, child :: Below, qid :: QId, sent :: Sent}
+
+-- | What goes down: the answer, or why the question is parked.
+data Sent = Replied Ask.Reply | ParkedFor OneLine
+
+-- | The event that writes it in the child's log, and the command that writes it there by hand.
+sentEvent :: Down -> (Event, Text)
+sentEvent down = case down.sent of
+    Replied reply ->
+        ( Answered down.qid reply (ParentRun down.above)
+        , "state answer " <> qidText down.qid <> otherFlag reply <> shellWord (replyWords reply) <> " --by " <> runIdText down.above
+        )
+    ParkedFor why -> (QuestionParked down.qid why, "state answer " <> qidText down.qid <> " --park " <> shellWord (oneLineText why))
+  where
+    otherFlag = \case
+        Ask.Chose _ -> " "
+        Ask.Other _ -> " --other "
+    replyWords = \case
+        Ask.Chose answer -> answer
+        Ask.Other answer -> answer
 
 -- | The child a question came up from: one of the fan-out's, or a direct child.
 data Below = FanChild Child | DirectChild RunId
@@ -784,15 +826,16 @@ belowRun = \case
     FanChild child -> child.run
     DirectChild run -> run
 
-{- | The answer the run holds to the question, for the child that asked it:
-the fan-out's child waiting on it, else the direct child it came up from. A
-fan-out's child that stopped, its stop asked here, is neither.
+{- | The answer the run holds to the question, or why it parked it, for the
+child that asked it: the fan-out's child waiting on it, else the direct
+child it came up from. A fan-out's child that stopped, its stop asked here,
+is neither.
 -}
 downOf :: RunState -> RunState -> QId -> Maybe Down
 downOf before after qid = do
     asker <- (FanChild . (.child) <$> Fan.askedBy fan qid) <|> listToMaybe [DirectChild run | open <- before.pending, open.asking.question.qid == qid, ChildRun run <- [open.asking.from], run `notElem` map (.child.run) fan.children]
-    answer <- lookup qid (Fold.given after)
-    Just (Down after.run asker qid answer)
+    sent <- (Replied <$> lookup qid (Fold.given after)) <|> (ParkedFor <$> Fold.parkedFor after qid)
+    Just (Down after.run asker qid sent)
   where
     fan = Fold.currentFan before
 
@@ -809,8 +852,13 @@ answeredDown down =
         Right (Left failure) -> pure (told (failure.what <> " - " <> failure.why))
         Left (e :: IOException) -> pure (told (tshow e))
   where
-    source = Hook (digestOf [runIdText down.above, qidText down.qid, runIdText (belowRun down.child)])
-    write stamp run = case commit stamp run [(source, Answered down.qid down.answer (ParentRun down.above))] of
+    (event, byHand) = sentEvent down
+    -- An answer keeps the ids it always had; a park's add its reason, so a later park or the answer is new.
+    source = Hook (digestOf ([runIdText down.above, qidText down.qid, runIdText (belowRun down.child)] <> parkKey))
+    parkKey = case down.sent of
+        Replied _ -> []
+        ParkedFor why -> ["parked", oneLineText why]
+    write stamp run = case commit stamp run [(source, event)] of
         Right (new, after) -> (map (.envelope) new, Right (run.state, after.state))
         -- The answering run tells the refusal; the child's log does not keep it.
         Left refusal -> ([], Left (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
@@ -819,12 +867,8 @@ answeredDown down =
             <> runIdText (belowRun down.child)
             <> ": "
             <> why
-            <> "\nfix: state answer "
-            <> qidText down.qid
-            <> " "
-            <> shellWord down.answer
-            <> " --by "
-            <> runIdText down.above
+            <> "\nfix: "
+            <> byHand
             <> ", in "
             <> worktreeOf down.child
             <> "\n"

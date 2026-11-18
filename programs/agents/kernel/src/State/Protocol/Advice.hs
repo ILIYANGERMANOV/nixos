@@ -47,7 +47,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), OutcomeName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
+import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), OutcomeName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Discusses, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
@@ -56,14 +56,14 @@ import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (A
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, oneLineText, qidText, questionLine)
+import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), Reply (..), Route, kindName, oneLineText, qidText, questionLine, replyNote, replyText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, targetsAt, usedUp)
+import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, targetsAt, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -154,6 +154,8 @@ data Action
       Triage Question
     | -- | A forwarded question, until its answer comes down.
       AwaitAnswer Question
+    | -- | The run's own question, parked above it, and why: the run waits until its answer.
+      OnHold Question OneLine
     | -- | CI on this PR, or what children handed up to wait on: their refs.
       AwaitOn Waiting Text
     | -- | A child to resume, and what with: the answer to its question, or its CI.
@@ -232,6 +234,19 @@ skippable state = case (state.stopped, state.at) of
   where
     level = fuelOf state
 
+{- | The pending questions the run waits on, oldest first: all but those it
+parked for a worker or a child, which wait apart while the run goes on.
+-}
+waitedOn :: RunState -> [Pending]
+waitedOn state = filter waits state.pending
+  where
+    waits pending = case (pending.waits, pending.asking.from) of
+        (ForTriage, _) -> True
+        (ForAnswer, _) -> True
+        (ForLater _, Itself) -> True
+        (ForLater _, Subagent _) -> False
+        (ForLater _, Event.ChildRun _) -> False
+
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
 advise steps g facts state = Advice action more (atLine steps state) leads (factLines g facts state) prompt notify
@@ -242,7 +257,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         (Nothing, Nothing) -> []
         (Just _, _) -> []
     -- Where the step's outcomes lead, for an action at a step that takes none of them itself.
-    leads = case (state.stopped, state.pending, state.at, action) of
+    leads = case (state.stopped, waitedOn state, state.at, action) of
         (Nothing, [], At place, Spawn _ Nothing) -> stepLeads place
         (Nothing, [], At place, Ask Ask.Confirm _) -> stepLeads place
         (Nothing, [], At place, AwaitOn _ _) -> stepLeads place
@@ -262,13 +277,14 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
     notify = case (state.at, Text.null prompt) of
         (At place, False) | Just (AnyStep _ (SomeStep s)) <- stepNamed place.name -> (row steps s).notifies
         _ -> False
-    (action, prompt) = case (state.stopped, state.pending) of
+    (action, prompt) = case (state.stopped, waitedOn state) of
         (Just stop, _) -> plain (Stopped stop)
         -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
         (Nothing, _ : _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
         (Nothing, oldest : _) -> plain $ case oldest.waits of
             ForTriage -> Triage oldest.asking.question
             ForAnswer -> AwaitAnswer oldest.asking.question
+            ForLater why -> OnHold oldest.asking.question why
         (Nothing, []) -> case state.untriaged of
             (role, line) : _ -> plain (TriageHandback role line)
             [] -> going
@@ -352,6 +368,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
                     <> "\", then state answer <qid> \"<the user's own words>\" at once, with no AskUserQuestion. Then record."
         Step.AwaitsCi -> ""
         AwaitsMerge -> ""
+        Discusses -> ""
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
     extendOrGo place budget
         | Ask.Stuck `notElem` state.askedHere = goOn budget
@@ -375,8 +392,14 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         Step.AwaitsCi -> AwaitOn Ci (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
         TellsResult -> Run records
+        -- A used-up budget asks no more: only its records are left.
+        Discusses -> case usedUpAt place of
+            Nothing -> Run (discussAsk NonEmpty.<| records)
+            Just _ -> Run records
       where
         records = maybe (recordOutcomes g place s) (someOptions . capRecords g place . (.cap.atCap)) (usedUpAt place)
+    -- A discussion's question is about the design, its scope or a fact: no kind of its own.
+    discussAsk = commandOption ("state ask --kind <" <> Text.intercalate "|" (map kindName [Ask.Design, Ask.Scope, Ask.Fact]) <> "> <question>") "one question to the user, explained first and answered before the next"
 
 {- | Options the graph guarantees: a state always has an edge out, and a
 used-up budget always a way on ('State.Category.Graph.RefuseWithoutWayOut').
@@ -494,7 +517,7 @@ atOnce at ended state =
         { unrecorded = [(c.child.task, Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in"))) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.lookupTask here c.child.task]]
         , triage = [(child.task, TriageStop child.run (retryable child.task) stop) | (child, stop) <- Fan.untriaged here]
         , record = recordsFinished here
-        , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> answer)) | (qid, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
+        , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> replyText answer)) | (qid, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
         , spawn = [(task.id, Spawn (taskRole task) (Just task.id)) | task <- Fan.spawnable (askingChildren state) here]
         }
   where
@@ -587,6 +610,8 @@ factLines g facts state =
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
         <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]
+        -- While the run is still where it asked, a reply that is none of the options says what it asks.
+        <> [qidText answer.about.qid <> " answered: " <> reply <> " - " <> replyNote | answer <- state.answers, Other reply <- [answer.given], answer.step == askedAt state]
   where
     readinessText = \case
         IsDraft -> " (draft)"
@@ -664,6 +689,7 @@ deliver start = \case
             <> " - "
             <> questionLine question
     AwaitAnswer question -> above ("ASK " <> questionLine question) (tokenLine (NeedsDecision (Asks question)))
+    OnHold question why -> "PARKED " <> qidText question.qid <> " " <> oneLineText why
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
     TriageStop child task stop -> "RUN " <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task <> askFrom (runIdText child) (stopLine stop)
@@ -722,19 +748,22 @@ deliverPrompt start advice
     | otherwise = advice.prompt
 
 {- | The run's own question: the events to record, oldest first, and the line
-saying where it goes. A question the run's row forwards is forwarded at once,
-before any answer can come down.
+saying where it goes. A question the run's row forwards, or one sent to the
+user at once, is forwarded at once, before any answer can come down; one sent
+to the user that the row answers itself is refused.
 -}
-ownAsk :: RunState -> Kind -> OneLine -> (Question, [Event], Text)
-ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itself) : forward, line)
+ownAsk :: RunState -> Route -> Kind -> OneLine -> Either Ask.Refusal (Question, [Event], Text)
+ownAsk state how kind text = sent <$> Ask.route how state.start.principal (Role.rungAt state.start.flow (askedAt state)) question
   where
     question = Question (nextQId state) kind text
-    (forward, line) = case Ask.ask state.start.principal (Role.rungAt state.start.flow (askedAt state)) kind of
-        AnswerSelf -> ([], "ANSWER yourself")
-        Up above ->
-            ( [Forwarded question.qid above]
-            , upTo above "ASK user" (tokenLine (NeedsDecision (Asks question)))
-            )
+    sent delivery = (question, Asked (Asking question (askedAt state) Itself) : forward, line)
+      where
+        (forward, line) = case delivery of
+            AnswerSelf -> ([], "ANSWER yourself")
+            Up above ->
+                ( [Forwarded question.qid above]
+                , upTo above "ASK user" (tokenLine (NeedsDecision (Asks question)))
+                )
 
 {- | Where the run is, in one plain line: the state, and what it means to
 an agent that knows nothing of the kernel.
@@ -767,7 +796,8 @@ explained :: Start -> Advice -> [Text]
 explained start advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads <> callerAnswers
   where
     -- No parent log records the caller's answer, so the resumed run records it itself.
-    callerAnswers = ["resumed with the answer: state answer " <> qidText question.qid <> " <answer>" | AwaitAnswer question <- [advice.action], TheCaller <- [Ask.deliver start.principal]]
+    callerAnswers = ["resumed with the answer: state answer " <> qidText question.qid <> " <answer>" | AwaitAnswer question <- [advice.action], TheCaller <- [Ask.deliver start.principal]] <> onHold
+    onHold = concat [["parked: " <> questionLine question, "it stays open until its answer: state answer " <> qidText question.qid <> " <answer>"] | OnHold question _ <- [advice.action]]
     listed _ [] = []
     listed heading options = heading : ["  " <> option.command <> " - " <> optionMeans start option | option <- options]
 
@@ -787,6 +817,7 @@ runOptions = \case
     Ask _ _ -> []
     Triage _ -> []
     AwaitAnswer _ -> []
+    OnHold _ _ -> []
     AwaitOn _ _ -> []
     Resume _ _ -> []
     TriageStop {} -> []

@@ -56,7 +56,7 @@ import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
 import State.Role (RoleDef (..), defaultFlow)
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Basis (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), kindName, parseOneLine, parseQId, qidText)
+import State.Run.Ask (Above (..), Basis (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), Reply (..), Route (..), kindName, parseOneLine, parseQId, qidText, replyText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, reasonText)
 import State.Run.Codec qualified as Codec
@@ -95,15 +95,19 @@ data RunCommand
     | Override StateName Text
     | -- | The line of this seq is void, and why.
       Void Natural Text
-    | -- | A question, the run's own or one a worker or child put to it.
-      AskQuestion Kind Asker OneLine
+    | -- | The run's own question, sent as its row says or to the user at once.
+      AskOwn Kind Route OneLine
+    | -- | A question a worker or a child run put to the run.
+      AskFrom Kind Asker OneLine
     | -- | A question's id as typed, checked against the run's open ones ('openQid').
       RuleOn Text Raise Proposal
     | Forward Text Raise
     | -- | A stopped child's task taken again: its stop triaged as Stuck and ruled a retry, and why.
       Retry TaskId OneLine
     | -- | The answer that came down; by the run's principal unless named.
-      Answer Text Text (Maybe Above)
+      Answer Text Reply (Maybe Above)
+    | -- | A pending question left open for a later answer, and why.
+      Park Text OneLine
     | StopRun Stop
     | Pending
 
@@ -127,6 +131,9 @@ data Origin = FromUser Shape | FromParent Parent | FromCaller Shape
 -- | A question kept at its kind, or raised to 'Ask.Security' first.
 data Raise = AsAsked | ToSecurity
     deriving stock (Eq, Show)
+
+-- | What @state answer@'s words are: an option chosen, a reply none covers, or why it is parked.
+data AnswerMode = AsChosen | AsOther | AsPark
 
 -- | What @state render@ prints: each a block the skills paste.
 data Block = States | FuelRows | Mermaid | Kinds | StopRule | PlanWrong | InitLine
@@ -255,9 +262,10 @@ commandInfo steps scope =
                     <$> optional (textArgument (choices blockName))
                     <*> optional flowOption
             , freeText "ask" "Ask a question: the run's, a worker's or a child's" $
-                (\kind from question -> OnRun <$> (AskQuestion <$> kindOf kind <*> maybe (Right Itself) (asker (agentRoles steps)) from <*> oneLine question))
+                askOf
                     <$> textOption "kind" (choices kindName) "the question's kind"
                     <*> optional (textOption "from" "<role|run>" "the worker or child run that asked it")
+                    <*> optional (textOption "to" "user" "the run's own question, sent up at once: asked of the user, or handed back by a child")
                     <*> sentence "<question>"
             , sub "rule" "Rule on a question: the answer, why and its cost" $
                 (\qid strays answer why cost basis raise -> OnRun <$> (RuleOn <$> oneWordEach qid strays <*> raising raise <*> (Proposal <$> oneLine answer <*> oneLine why <*> oneLine cost <*> traverse basisOf basis)))
@@ -275,9 +283,13 @@ commandInfo steps scope =
                     <*> textOption "why" "<w>" "why another try may succeed"
             , sub "forward" "Forward a question up, to the parent run or the user" $
                 (\qid raise -> OnRun . Forward qid <$> raising raise) <$> textArgument "<qid>" <*> optional raiseOption
-            , freeText "answer" "Record the answer to a forwarded question" $
-                (\qid answer by -> OnRun . Answer qid answer <$> traverse above by)
+            , freeText "answer" "Record the answer to a question, or park it" $
+                answerOf
                     <$> textArgument "<qid>"
+                    <*> ( Optparse.flag' AsOther (Optparse.long "other" <> Optparse.help "a reply none of the options covers, or a new request")
+                            <|> Optparse.flag' AsPark (Optparse.long "park" <> Optparse.help "leave the question open for a later answer: the words say why")
+                            <|> pure AsChosen
+                        )
                     <*> sentence "<answer>"
                     <*> optional (textOption "by" "user|<run>" "who answered, when not whoever started the run")
             , freeText "stop" "Stop the run, with a reason and why" $
@@ -312,6 +324,19 @@ commandInfo steps scope =
     above = \case
         "user" -> Right TheUser
         raw -> ParentRun <$> runId raw
+    askOf kind from to question = case (from, to) of
+        (Nothing, Nothing) -> own ByRow
+        (Nothing, Just "user") -> own ToUser
+        (Nothing, Just other) -> Left (usage ("--to " <> other) "a question is only sent to the user")
+        (Just _, Just _) -> Left (usage "--to with --from" "only the run's own question is sent up at once; a worker's or a child's is triaged here")
+        (Just raw, Nothing) -> OnRun <$> (AskFrom <$> kindOf kind <*> asker (agentRoles steps) raw <*> oneLine question)
+      where
+        own route = OnRun <$> (AskOwn <$> kindOf kind <*> pure route <*> oneLine question)
+    answerOf qid mode words' by = case (mode, by) of
+        (AsChosen, _) -> OnRun . Answer qid (Chose words') <$> traverse above by
+        (AsOther, _) -> OnRun . Answer qid (Other words') <$> traverse above by
+        (AsPark, Nothing) -> OnRun . Park qid <$> oneLine words'
+        (AsPark, Just _) -> Left (usage "--park with --by" "a park is the run's own: it names no one above")
     oneWordEach qid = \case
         [] -> Right qid
         _ : _ -> Left (Failure BadInput "--answer, --why and --cost" "each takes one word: quote a longer one" ("state rule " <> qid <> " --answer \"<a>\" --why \"<w>\" --cost \"<c>\""))
@@ -464,7 +489,8 @@ explain g fuel at = \case
     NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))
-    AnsweredOtherwise qid earlier -> refused ("another answer to " <> qidText qid) ("it was answered already: " <> earlier) "state show"
+    IsParked qid -> refused (qidText qid) "it is parked: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
+    AnsweredOtherwise qid earlier -> refused ("another answer to " <> qidText qid) ("it was answered already: " <> replyText earlier) "state show"
     NotAllowed refusal -> case refusal of
         Ask.MayNotRule _ kind -> refused ("a ruling on " <> kindName kind) ("this run forwards a " <> kindName kind <> " question") "state forward <qid>"
         Ask.MustAnswer _ kind -> refused ("a forward of " <> kindName kind) ("this run answers a " <> kindName kind <> " question itself") (triage "<qid>")

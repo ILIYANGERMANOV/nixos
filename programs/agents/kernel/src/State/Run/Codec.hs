@@ -74,6 +74,7 @@ import State.Run.Event (
     Op (..),
     Parent (..),
     Principal (..),
+    Reply (..),
     RunId,
     Said (..),
     SessionId (..),
@@ -192,6 +193,7 @@ eventType = \case
     RuledOn _ _ -> "ruled"
     Forwarded _ _ -> "forwarded"
     Answered {} -> "answered"
+    QuestionParked _ _ -> "parked"
     Spawning _ -> "spawning"
     Spawned _ -> "spawned"
     Resumed _ -> "resumed"
@@ -235,7 +237,8 @@ eventData = \case
             <> "cost" .= oneLineText proposal.cost
             <> pair "basis" (maybe null_ basisEncoding proposal.basis)
     Forwarded qid to -> qidData qid <> pair "to" (aboveEncoding to)
-    Answered qid answer by -> qidData qid <> "answer" .= answer <> pair "by" (aboveEncoding by)
+    Answered qid reply by -> qidData qid <> replyData reply <> pair "by" (aboveEncoding by)
+    QuestionParked qid why -> qidData qid <> "why" .= oneLineText why
     Spawned child ->
         "child" .= runIdText child.run
             <> "task" .= taskIdText child.task
@@ -268,7 +271,8 @@ eventOf kind obj = case kind of
     "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "kind" >>= security)
     "ruled" -> RuledOn <$> qidOf obj <*> (Proposal <$> oneLineAt "answer" obj <*> oneLineAt "why" obj <*> oneLineAt "cost" obj <*> (obj .: "basis" >>= traverse basisOf))
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
-    "answered" -> Answered <$> qidOf obj <*> obj .: "answer" <*> (obj .: "by" >>= aboveOf)
+    "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= aboveOf)
+    "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "why" obj
     "spawned" -> Spawned <$> (Child <$> childOf obj <*> taskOf obj <*> obj .: "worktree")
     "spawning" -> Spawning <$> taskOf obj
     "resumed" -> Resumed <$> childOf obj
@@ -489,6 +493,19 @@ aboveEncoding = \case
     TheUser -> text "user"
     ParentRun run -> pairs ("run" .= runIdText run)
     TheCaller -> text "caller"
+
+-- | @"reply": "chose"@ or @"other"@, beside the @answer@ text.
+replyData :: Reply -> Series
+replyData = \case
+    Chose answer -> "reply" .= ("chose" :: Text) <> "answer" .= answer
+    Other answer -> "reply" .= ("other" :: Text) <> "answer" .= answer
+
+replyOf :: Object -> Parser Reply
+replyOf obj =
+    obj .: "reply" >>= \case
+        "chose" -> Chose <$> obj .: "answer"
+        "other" -> Other <$> obj .: "answer"
+        other -> fail ("reply \"chose\" or \"other\", not " <> show (other :: Text))
 
 aboveOf :: Value -> Parser Above
 aboveOf = \case

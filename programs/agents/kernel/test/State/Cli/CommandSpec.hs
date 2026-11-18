@@ -16,8 +16,8 @@ import State.Category.Step (eventText)
 import State.Cli.Command (BriefPart (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
-import State.Run.Ask (Above (..), Kind (..), Link (..), Parent (..), Proposal (..), oneLineText)
-import State.Run.Event (AgentRole (..), Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), RunId, StateName (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
+import State.Run.Ask (Above (..), Kind (..), Link (..), Parent (..), Proposal (..), Reply (..), Route (..), oneLineText)
+import State.Run.Event (AgentRole (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), RunId, StateName (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
 import State.Run.EventGen (fuelSet, runId)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, happyPath, loadSteps, pickOf, runAt, securityScope, sha)
@@ -132,8 +132,19 @@ spec = describe "State.Cli.Command" $ do
     describe "other commands" $ do
         it "takes a question's words as one line, asked by the run itself" $
             case parse ["ask", "--kind", "Scope", "include", "docs?"] of
-                Right (OnRun (AskQuestion kind from question)) -> (kind, from, oneLineText question) `shouldBe` (Scope, Itself, "include docs?")
+                Right (OnRun (AskOwn kind how question)) -> (kind, how, oneLineText question) `shouldBe` (Scope, ByRow, "include docs?")
                 _ -> expectationFailure "not a question"
+
+        it "takes --to user as the run's own question sent up at once, and refuses it with --from" $
+            case (parse ["ask", "--kind", "Pick", "--to", "user", "which", "rows?"], parse ["ask", "--kind", "Pick", "--to", "user", "--from", "fixer", "q?"]) of
+                (Right (OnRun (AskOwn kind how question)), Left refused) -> (kind, how, oneLineText question, refused) `shouldBe` (Pick, ToUser, "which rows?", "--to with --from")
+                _ -> expectationFailure "not a question sent to the user and a refusal"
+
+        it "takes an answer as chosen, --other as a reply none of the options covers, and --park as why it waits" $
+            case (parse ["answer", "r1:1", "use", "Y"], parse ["answer", "r1:1", "--other", "add", "a", "CLI"], parse ["answer", "r1:1", "--park", "after", "the", "release"]) of
+                (Right (OnRun (Answer _ chosen Nothing)), Right (OnRun (Answer _ other Nothing)), Right (OnRun (Park qid why))) ->
+                    (chosen, other, qid, oneLineText why) `shouldBe` (Chose "use Y", Other "add a CLI", "r1:1", "after the release")
+                _ -> expectationFailure "not an answer, an other reply and a park"
 
         it "takes a stop's reason and the rest as why" $
             case parse ["stop", "blocked", "no", "access"] of
@@ -152,12 +163,12 @@ spec = describe "State.Cli.Command" $ do
 
         it "keeps free words that start with a dash, an option it takes aside" $
             case (parse ["stop", "blocked", "-x", "--force", "failed"], parse ["ask", "--kind", "Scope", "-v", "or", "--verbose?"], parse ["answer", "r1:1", "use", "-f", "--by", "user"]) of
-                (Right (OnRun (StopRun stop)), Right (OnRun (AskQuestion _ _ question)), Right (OnRun (Answer _ answer by))) ->
-                    (stop.why, oneLineText question, answer, by) `shouldBe` ("-x --force failed", "-v or --verbose?", "use -f", Just TheUser)
+                (Right (OnRun (StopRun stop)), Right (OnRun (AskOwn _ _ question)), Right (OnRun (Answer _ answer by))) ->
+                    (stop.why, oneLineText question, answer, by) `shouldBe` ("-x --force failed", "-v or --verbose?", Chose "use -f", Just TheUser)
                 _ -> expectationFailure "not a stop, a question and an answer"
 
         it "takes a question's kind in any case" $
-            [kind | kindName <- ["design", "DESIGN", "Design"], Right (OnRun (AskQuestion kind _ _)) <- [parse ["ask", "--kind", kindName, "q?"]]]
+            [kind | kindName <- ["design", "DESIGN", "Design"], Right (OnRun (AskOwn kind _ _)) <- [parse ["ask", "--kind", kindName, "q?"]]]
                 `shouldBe` [Design, Design, Design]
 
         it "refuses an unknown kind, listing the kinds" $

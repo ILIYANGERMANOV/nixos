@@ -46,6 +46,7 @@ module State.Run.Fold (
     nextQId,
     given,
     heldAnswer,
+    parkedFor,
     askingChildren,
     askedAt,
     over,
@@ -82,7 +83,7 @@ import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..),
 import State.Flow.Library (simplifyPlan)
 import State.FlowName (FlowName (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
+import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Reply (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
 import State.Run.Event (AgentId, AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Target (..), TaskId, TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, tookEvent)
 import State.Run.Event qualified as Event
@@ -193,8 +194,8 @@ ledger g state =
            , not (Fan.settled fan childRun.child.task)
            ]
 
--- | A forwarded question and the answer that came down for it.
-data Answer = Answer {about :: Question, given :: Text}
+-- | A forwarded question, the answer that came down for it, and the state the question was asked at.
+data Answer = Answer {about :: Question, given :: Reply, step :: StateName}
     deriving stock (Eq, Show)
 
 -- | A question asked and not yet ruled on, answered or ended by a stop.
@@ -206,6 +207,8 @@ data Waits
       ForTriage
     | -- | Forwarded, for the answer to come down.
       ForAnswer
+    | -- | Parked, and why: for an answer later, which alone closes it.
+      ForLater OneLine
     deriving stock (Eq, Show)
 
 -- | What went wrong in one round of a loop, which the stuck guard compares two of.
@@ -243,8 +246,10 @@ data Refusal
       AlreadyForwarded QId
     | -- | An answer to a question the run never forwarded.
       NotForwarded QId
+    | -- | Parked: only its answer is left.
+      IsParked QId
     | -- | Another answer to a question answered already with this one.
-      AnsweredOtherwise QId Text
+      AnsweredOtherwise QId Reply
     | -- | The run's row of 'State.Run.Ask.authority' does not allow it.
       NotAllowed Ask.Refusal
     | -- | A forward or answer naming another than whoever started the run.
@@ -360,6 +365,7 @@ runStart = \case
     RuledOn _ _ -> Nothing
     Forwarded _ _ -> Nothing
     Answered {} -> Nothing
+    QuestionParked _ _ -> Nothing
     Spawning _ -> Nothing
     Spawned _ -> Nothing
     Resumed _ -> Nothing
@@ -387,7 +393,9 @@ data Answering (eff :: Eff) where
     RulesOn :: QId -> Proposal -> Answering AskE
     Forwards :: QId -> Above -> Answering AskE
     -- | The answer that came down, and who gave it.
-    Answers :: QId -> Text -> Above -> Answering AskE
+    Answers :: QId -> Reply -> Above -> Answering AskE
+    -- | The question waits for a later answer, and why.
+    Parks :: QId -> OneLine -> Answering AskE
     -- | Focus, granted. No event logs it yet (#461 S4 does).
     Focused :: Answering FocusE
 
@@ -402,7 +410,8 @@ handle handler g state = case handler of
         Retags qid -> retagged state qid
         RulesOn qid proposal -> ruledOn state qid proposal
         Forwards qid to -> forwarded state qid to
-        Answers qid text by -> answered state qid text by
+        Answers qid reply by -> answered state qid reply by
+        Parks qid why -> parked state qid why
     FocusHere -> \Focused -> Right state
 
 {- | A pick moves along its label's edge, unless the budget of the step it
@@ -438,7 +447,8 @@ applyEvent g state n = \case
     RetaggedSecurity qid -> going (handle PrincipalAnswers g state (Retags qid))
     RuledOn qid proposal -> going (handle PrincipalAnswers g state (RulesOn qid proposal))
     Forwarded qid to -> going (handle PrincipalAnswers g state (Forwards qid to))
-    Answered qid text by -> going (handle PrincipalAnswers g state (Answers qid text by))
+    Answered qid reply by -> going (handle PrincipalAnswers g state (Answers qid reply by))
+    QuestionParked qid why -> going (handle PrincipalAnswers g state (Parks qid why))
     Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
     Spawned child -> going (atAwait g state >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))
@@ -929,19 +939,27 @@ forwarded state qid to = do
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
 -- | 'append' takes the answer the run holds again as no news; another is refused.
-answered :: RunState -> QId -> Text -> Above -> Either Refusal RunState
-answered state qid answer by = case heldAnswer state qid of
+answered :: RunState -> QId -> Reply -> Above -> Either Refusal RunState
+answered state qid reply by = case heldAnswer state qid of
     Just earlier -> Left (AnsweredOtherwise qid earlier)
-    Nothing -> firstAnswer state qid answer by
+    Nothing -> firstAnswer state qid reply by
 
-firstAnswer :: RunState -> QId -> Text -> Above -> Either Refusal RunState
-firstAnswer state qid answer by = do
+-- | A parked question was triaged before it was parked, by this run or the one that parked it.
+firstAnswer :: RunState -> QId -> Reply -> Above -> Either Refusal RunState
+firstAnswer state qid reply by = do
     pending <- pendingOf qid state.pending
     case pending.waits of
         ForTriage -> Left (NotForwarded qid)
         ForAnswer -> Right ()
+        ForLater _ -> Right ()
     fromAbove state.start.principal by
-    Right state {pending = close qid state.pending, answers = state.answers <> [Answer pending.asking.question answer]}
+    Right state {pending = close qid state.pending, answers = state.answers <> [Answer pending.asking.question reply pending.asking.step]}
+
+-- | A pending question parked, or parked again with another reason: it stays open.
+parked :: RunState -> QId -> OneLine -> Either Refusal RunState
+parked state qid why = do
+    _ <- pendingOf qid state.pending
+    Right state {pending = adjust qid (\pending -> pending {waits = ForLater why}) state.pending}
 
 -- | The question this run has yet to rule on or forward.
 forTriage :: QId -> [Pending] -> Either Refusal Asking
@@ -949,6 +967,7 @@ forTriage qid pending =
     pendingOf qid pending >>= \open -> case open.waits of
         ForTriage -> Right open.asking
         ForAnswer -> Left (AlreadyForwarded qid)
+        ForLater _ -> Left (IsParked qid)
 
 pendingOf :: QId -> [Pending] -> Either Refusal Pending
 pendingOf qid = maybe (Left (NotPending qid)) Right . find ((== qid) . pendingId)
@@ -963,12 +982,16 @@ pendingId :: Pending -> QId
 pendingId pending = pending.asking.question.qid
 
 -- | The answer from above the run holds to this question, if it was answered.
-heldAnswer :: RunState -> QId -> Maybe Text
+heldAnswer :: RunState -> QId -> Maybe Reply
 heldAnswer state qid = (.given) <$> find ((== qid) . (.about.qid)) state.answers
 
--- | Each question the run ruled on or had answered from above, with its answer.
-given :: RunState -> [(QId, Text)]
-given state = [(ruling.qid, oneLineText ruling.proposal.answer) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
+-- | Each question the run ruled on or had answered from above, with its answer: a ruling's is an option chosen.
+given :: RunState -> [(QId, Reply)]
+given state = [(ruling.qid, Chose (oneLineText ruling.proposal.answer)) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
+
+-- | Why the question is parked, if it is.
+parkedFor :: RunState -> QId -> Maybe OneLine
+parkedFor state qid = listToMaybe [why | pending <- state.pending, pendingId pending == qid, ForLater why <- [pending.waits]]
 
 {- | A parked task's children wait on no answer: the questions they asked
 leave the pending ones, as no child of it will read an answer.
@@ -1106,6 +1129,7 @@ stuckExits g state place = case innermost g place of
             Ordinary -> False
             AsksConfirm _ _ -> False
             TellsResult -> False
+            Discusses -> False
         Nothing -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses

@@ -25,7 +25,7 @@ import State.FlowName (namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
-import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
+import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, replyText, rulingLine)
 import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText)
 import State.Run.Fan (Fan (..), lookupTask, tries)
@@ -53,7 +53,7 @@ showRun steps g state =
             <> section "gaps:" state.gaps
             <> section "hooks:" (hookLines steps g)
   where
-    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> answered.given
+    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> replyText answered.given
     section title = \case
         [] -> []
         items -> title : map ("  " <>) items
@@ -96,6 +96,7 @@ pendingLines state = map line state.pending
     waiting = \case
         ForTriage -> "to triage"
         ForAnswer -> "forwarded"
+        ForLater why -> "parked (" <> oneLineText why <> ")"
     askerText = \case
         Itself -> "this run"
         Subagent (AgentRole role) -> role

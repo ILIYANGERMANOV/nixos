@@ -247,6 +247,8 @@ data Special
       AwaitsMerge
     | -- | Name the url the run recorded last, what the request ended in.
       TellsResult
+    | -- | Run it as its row says, its work the user's questions: offer @state ask@ beside its records.
+      Discusses
     deriving stock (Eq, Show)
 
 -- | When a step's Confirm question is asked.

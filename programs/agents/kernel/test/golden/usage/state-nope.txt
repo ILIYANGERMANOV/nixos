@@ -26,7 +26,7 @@ Available commands:
   rule                     Rule on a question: the answer, why and its cost
   retry                    Retry a stopped child's task, printing its brief
   forward                  Forward a question up, to the parent run or the user
-  answer                   Record the answer to a forwarded question
+  answer                   Record the answer to a question, or park it
   stop                     Stop the run, with a reason and why
   pending                  List the questions awaiting an answer
   help                     Print this help

@@ -52,6 +52,11 @@ module State.Run.Ask (
     Delivery (..),
     Above (..),
     ask,
+    Route (..),
+    route,
+    Reply (..),
+    replyText,
+    replyNote,
     deliver,
     questionLine,
     handback,
@@ -383,12 +388,41 @@ ask principal role kind = case authority role kind of
   where
     up = Up (deliver principal)
 
+-- | How a run's own question is sent: as its row says, or put to the user at once.
+data Route = ByRow | ToUser
+    deriving stock (Eq, Show)
+
+{- | Where a run's own question goes on this route. Put to the user, it goes
+up from a row that may pass it on ('pass'), and is refused where the row
+answers it itself: a 'Fact' below the user.
+-}
+route :: Route -> Principal -> Rung -> Question -> Either Refusal Delivery
+route how principal role question = case how of
+    ByRow -> Right (ask principal role question.kind)
+    ToUser -> Up (deliver principal) <$ pass role question.kind question
+
 -- | Where a forwarded question goes: up to whoever started the run.
 deliver :: Principal -> Above
 deliver = \case
     ByUser _ -> TheUser
     ByRole parent _ _ -> ParentRun parent.run
     ByCaller _ -> TheCaller
+
+{- | An answer from above: one of the options the question offered, or a
+reply that is none of them, which may be a new request.
+-}
+data Reply = Chose Text | Other Text
+    deriving stock (Eq, Show)
+
+-- | The reply's text, an 'Other' marked as none of the options.
+replyText :: Reply -> Text
+replyText = \case
+    Chose answer -> answer
+    Other reply -> reply <> " (" <> replyNote <> ")"
+
+-- | What an 'Other' reply asks of the run that reads it.
+replyNote :: Text
+replyNote = "none of the options: it may be a new request - re-plan for it, or take it up as one"
 
 -- | A question on one line, @<Kind> <qid>: <question>@, as a hand-back's @NEEDS_DECISION@ carries it (#360's wire format).
 questionLine :: Question -> Text

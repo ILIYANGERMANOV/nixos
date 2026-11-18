@@ -31,7 +31,7 @@ import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Decision (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (Merge)
-import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
+import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genReading, genReply, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
@@ -344,14 +344,30 @@ spec = describe "State.Run.Fold" $ do
 
         it "the_answer_that_came_down_is_the_answer_the_run_holds" . hedgehog $ do
             (state, logged) <- forAll genAskLog
-            let answers = [(qid, text) | Answered qid text _ <- NonEmpty.toList logged]
+            let answers = [(qid, reply) | Answered qid reply _ <- NonEmpty.toList logged]
             cover 5 "an answer" (not (null answers))
             map (heldAnswer state . fst) answers === map (Just . snd) answers
+
+        it "a_park_keeps_its_question_open_and_an_answer_then_closes_it_touching_no_other" . hedgehog $ do
+            (state, logged) <- forAll genAskLog
+            open <- if null state.pending then discard else forAll (Gen.element state.pending)
+            why <- forAll genOneLine
+            reply <- forAll genReply
+            let qid = open.asking.question.qid
+                others = filter ((/= qid) . (.asking.question.qid))
+                parkedLog = logged <> pure (QuestionParked qid why)
+            cover 10 "a forwarded question parked" (open.waits == ForAnswer)
+            parkedState <- evalEither (replay g (logOf parkedLog))
+            [p.waits | p <- parkedState.pending, p.asking.question.qid == qid] === [ForLater why]
+            others parkedState.pending === others state.pending
+            answeredState <- evalEither (replay g (logOf (parkedLog <> pure (Answered qid reply (deliver state.start.principal)))))
+            ([p | p <- answeredState.pending, p.asking.question.qid == qid], heldAnswer answeredState qid) === ([], Just reply)
+            others answeredState.pending === others state.pending
 
         it "an_answer_to_a_question_never_asked_is_refused" . hedgehog $ do
             (state, logged) <- forAll genAskLog
             let unasked = QId run 1000
-            case replay g (logOf (logged <> pure (Answered unasked "yes" TheUser))) of
+            case replay g (logOf (logged <> pure (Answered unasked (Chose "yes") TheUser))) of
                 Left (NotPending qid) -> qid === unasked
                 Left (AfterStop _) -> state.stopped /== Nothing
                 refused -> annotateShow refused >> failure
@@ -819,8 +835,25 @@ questions :: Spec
 questions = describe "questions" $ do
     it "keeps a question pending, oldest first, until it is ruled on or its answer comes down" $
         map (\pending -> (pending.asking.question.qid, pending.waits)) . (.pending)
-            <$> replay g (logOf (started :| fuelSet Balanced : [ask 3 Design, ask 1 Design, ask 2 Pick, ask 4 Design, RuledOn (q 2) proposal, Forwarded (q 1) TheUser, Forwarded (q 4) TheUser, Answered (q 4) "yes" TheUser]))
+            <$> replay g (logOf (started :| fuelSet Balanced : [ask 3 Design, ask 1 Design, ask 2 Pick, ask 4 Design, RuledOn (q 2) proposal, Forwarded (q 1) TheUser, Forwarded (q 4) TheUser, Answered (q 4) yes TheUser]))
             `shouldBe` Right [(q 3, ForTriage), (q 1, ForAnswer)]
+
+    it "keeps a parked question open, parked and why, until an answer closes it" $ do
+        let parkedQ = [ask 1 Design, Forwarded (q 1) TheUser, QuestionParked (q 1) (oneLine "after the release")]
+        map (\pending -> (pending.asking.question.qid, pending.waits)) . (.pending) <$> replay g (logOf (started :| fuelSet Balanced : parkedQ))
+            `shouldBe` Right [(q 1, ForLater (oneLine "after the release"))]
+        (.pending) <$> replay g (logOf (started :| fuelSet Balanced : parkedQ <> [Answered (q 1) yes TheUser]))
+            `shouldBe` Right []
+
+    it "refuses a ruling or a forward of a parked question: only its answer is left" $
+        map
+            (\closing -> replay g (logOf (started :| fuelSet Balanced : [ask 1 Pick, QuestionParked (q 1) (oneLine "later"), closing])))
+            [RuledOn (q 1) proposal, Forwarded (q 1) TheUser]
+            `shouldBe` replicate 2 (Left (IsParked (q 1)))
+
+    it "keeps an Other reply apart from a chosen one" $
+        map (\reply -> fmap (.given) . (.answers) <$> replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) reply TheUser]))) [yes, Other "a new request"]
+            `shouldBe` [Right [yes], Right [Other "a new request"]]
 
     it "keeps the run at its step while a question waits, the step named in the log (law Resume)" $
         ((.at) <$> replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser])), map (.asking.step) . (.pending) <$> replay g (logOf (started :| fuelSet Balanced : [ask 1 Design])))
@@ -852,7 +885,7 @@ questions = describe "questions" $ do
         replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) parent])) `shouldBe` Left (NotAbove parent)
 
     it "refuses an answer to a question the run never forwarded" $
-        replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Answered (q 1) "yes" TheUser])) `shouldBe` Left (NotForwarded (q 1))
+        replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Answered (q 1) yes TheUser])) `shouldBe` Left (NotForwarded (q 1))
 
     it "refuses a retag once the question is forwarded" $
         replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, RetaggedSecurity (q 1)])) `shouldBe` Left (AlreadyForwarded (q 1))
@@ -867,13 +900,13 @@ questions = describe "questions" $ do
         replay g (logOf (started :| fuelSet Balanced : [ask 1 Pick, RuledOn (q 1) proposal, ask 1 Pick])) `shouldBe` Left (AskedTwice (q 1))
 
     it "takes an answer it holds again as no news, and refuses another" $ do
-        let answered = [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser]
-        map (\more -> (.answers) <$> replay g (logOf (started :| fuelSet Balanced : answered <> more))) [[], [Answered (q 1) "yes" TheUser]]
-            `shouldBe` replicate 2 (Right [Fold.Answer (Question (q 1) Design (oneLine "a question")) "yes"])
-        replay g (logOf (started :| fuelSet Balanced : answered <> [Answered (q 1) "no" TheUser])) `shouldBe` Left (AnsweredOtherwise (q 1) "yes")
+        let answered = [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) yes TheUser]
+        map (\more -> (.answers) <$> replay g (logOf (started :| fuelSet Balanced : answered <> more))) [[], [Answered (q 1) yes TheUser]]
+            `shouldBe` replicate 2 (Right [Fold.Answer (Question (q 1) Design (oneLine "a question")) yes (StateName "implement")])
+        replay g (logOf (started :| fuelSet Balanced : answered <> [Answered (q 1) (Chose "no") TheUser])) `shouldBe` Left (AnsweredOtherwise (q 1) yes)
 
     it "refuses asking an answered question again" $
-        replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser, ask 1 Design]))
+        replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) yes TheUser, ask 1 Design]))
             `shouldBe` Left (AskedTwice (q 1))
 
     it "every_ruling_is_in_show_and_in_the_handback" . hedgehog $ do
@@ -914,9 +947,13 @@ questions = describe "questions" $ do
             for_ [(qid, answer, by) | Answered qid answer by <- events] $ \(qid, answer, by) -> do
                 again <- evalEither (replay g (runLog rung (events <> [Answered qid answer by])))
                 (again.answers, again.pending) === (state.answers, state.pending)
-                replay g (runLog rung (events <> [Answered qid (answer <> " or not") by])) === Left (AnsweredOtherwise qid answer)
+                replay g (runLog rung (events <> [Answered qid (orNot answer) by])) === Left (AnsweredOtherwise qid answer)
   where
     q = QId run
+    yes = Chose "yes"
+    orNot = \case
+        Chose answer -> Chose (answer <> " or not")
+        Other answer -> Other (answer <> " or not")
     ask n kind = Asked (Asking (Question (q n) kind (oneLine "a question")) (StateName "implement") Itself)
     askIn at kind = Asked (Asking (Question (q 1) kind (oneLine "a question")) (StateName at) Itself)
     proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
@@ -978,7 +1015,8 @@ genAskLog = do
                 , (10, same (RetaggedSecurity <$> known))
                 , (40, same (RuledOn <$> known <*> genProposal))
                 , (30, same (Forwarded <$> known <*> above))
-                , (20, same (Answered <$> known <*> genText <*> above))
+                , (20, same (Answered <$> known <*> genReply <*> above))
+                , (10, same (QuestionParked <$> known <*> genOneLine))
                 , (1, same (pure (Stopped halt)))
                 ]
         case append g state (line n event) of
@@ -991,7 +1029,7 @@ data Rung = Rung {run :: RunId, start :: Start}
     deriving stock (Show)
 
 -- | How a climb ended for the runs it passed.
-data End = Answer Text | Halt
+data End = Answer Reply | Halt
     deriving stock (Eq, Show)
 
 data Try = Rule Proposal | Pass
@@ -1020,7 +1058,7 @@ climb from question = \case
     [] -> do
         annotate "the user is never asked a Fact"
         question.kind /== Fact
-        pure ([], Answer "the user's answer")
+        pure ([], Answer (Chose "the user's answer"))
     rung : above -> do
         reading <- forAll genReading
         stops <- forAll (Gen.frequency [(9, pure False), (1, pure True)])
@@ -1041,7 +1079,7 @@ climb from question = \case
             (False, []) -> do
                 annotate "the run may neither rule nor forward"
                 failure
-            (False, Rule ruling : _) -> pure ([taken <> [event (Rule ruling)]], Answer (oneLineText ruling.answer))
+            (False, Rule ruling : _) -> pure ([taken <> [event (Rule ruling)]], Answer (Chose (oneLineText ruling.answer)))
             (False, Pass : _) -> do
                 (logs, end) <- climb (ChildRun rung.run) raised above
                 let closing = case end of
