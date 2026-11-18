@@ -62,10 +62,12 @@ analyzer reads the events, so a format change updates `analyze.py` too. The step
 to the kernel as JSON (`State/Table.hs`) and to the roles, whose capabilities
 and skills derive from it (`lib/derive.nix`). Why:
 `docs/adr/0018-category-model-haskell-state.md`,
-`docs/adr/0019-composable-flows.md` and
-`docs/adr/0020-flow-core-from-sums-and-elgot.md`.
+`docs/adr/0019-composable-flows.md`,
+`docs/adr/0020-flow-core-from-sums-and-elgot.md` and
+`docs/adr/0021-flow-effects.md`.
 
-A flow is a term of `Flow i e o` (`State/Category/Flow.hs`); a named flow
+A flow is a term of `Flow s i e o` (`State/Category/Flow.hs`), `s` its
+structure (`Shape`); a named flow
 composes the small flows of `State/Flow/Library.hs`. Its core words, each
 with a law in `LawsSpec`:
 
@@ -80,6 +82,8 @@ with a law in `LawsSpec`:
   wait for every child of `g`, their results in fork order. A path out of a
   `Fork` that skips its `Await` is refused. `Each f`: `f` once per item.
 - `Scope name f`: its states record `name/step.outcome`.
+- `Handle h f`: `h` answers one effect (Pick, Ask, Focus) that `f`'s steps
+  raise (their layer's `Raises`); a whole flow leaves none unhandled.
 
 The library builds the rest from them:
 
@@ -99,7 +103,7 @@ How to extend it; the compiler and `parseSteps` name what is missing:
   A step a lead records by hand also needs an entry in `recordables` in
   `State/Protocol/Record.hs` (the CLI parser). A step a Fuel may skip goes
   inside an `opt`.
-- **A layer:** its module under `State/Step/`, then in `State/Step/Catalog.hs`
+- **A layer:** its module under `State/Step/`, with its `Raises`, then in `State/Step/Catalog.hs`
   a `Layer` constructor, a `KnownLayer` instance and an entry in `layers`, then
   the arms the compiler asks for.
 - **A branch:** a step whose `Sig` out is a labelled sum, `'( 'PR,
