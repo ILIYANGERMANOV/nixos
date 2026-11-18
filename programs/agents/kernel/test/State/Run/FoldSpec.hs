@@ -191,7 +191,7 @@ spec = describe "State.Run.Fold" $ do
         (.at) <$> replay g (logOf (started :| fuelSet Balanced : happyPath)) `shouldBe` Right Out
 
     it "every_accepted_log_is_a_path" . hedgehog $ do
-        events <- (fuelSet Balanced :) <$> forAll genCandidate
+        events <- forAll genCandidate
         case replay g (logOf (started :| events)) of
             Left _ -> cover 10 "refused" True
             Right state -> do
@@ -410,18 +410,21 @@ outOf meter most = \case
 {- | Any Fuel, then a walk to the end, sometimes with an event from anywhere
 in the flow. The walk takes no skip its Fuel never makes, which the fold
 refuses: a walk's shortest way on is a skip, so most walks would be refused.
-An await's edges take no event, and each researcher hands back at once.
+The level is set first, in place of the walk's own Fuel step; an await's
+edges take no event, and each researcher hands back at once.
 -}
 genCandidate :: Gen [Event]
 genCandidate = do
     fuel <- Gen.enumBounded
-    walk <- filter (`Set.notMember` awaitNames) <$> genWalk g {edges = Map.filterWithKey (\(from, event) _ -> fuelTakes fuel from.name event) g.edges}
+    walk <- filter (`Set.notMember` unwalked) <$> genWalk g {edges = Map.filterWithKey (\(from, event) _ -> fuelTakes fuel from.name event) g.edges}
     noise <- Gen.element (Set.toList outcomeNames)
     at <- Gen.int (Range.linear 0 (length walk))
     names <- Gen.element [walk, take at walk <> [noise] <> drop at walk]
     events <- traverse took names
     pure (fuelSet fuel : concatMap handedBackAtOnce events)
   where
+    -- Every level's Fuel step takes one edge name: the level is the outcome's data.
+    unwalked = Set.insert (outcomeEvent (outcome (LevelSet Balanced))) awaitNames
     took name = let (scope, bare) = unqualify (stateNameText name.step) in Took scope <$> outcomeOf (EventName (StateName bare) name.outcome)
     awaitNames = Set.fromList [name | ((from, name), _) <- Map.toList g.edges, isJust (unrecorded g from)]
     handedBackAtOnce event = case event of
@@ -808,7 +811,8 @@ questions = describe "questions" $ do
         (state, events) <- forAll genAskLog
         let ruled = [(qid, ruling) | RuledOn qid ruling <- events]
             sent = Text.lines (handback "READY ref" state.run state.rulings)
-        cover 30 "a ruling" (not (null ruled))
+        -- About 37% of runs: a 100-test run misses 15% on about 1 seed in 3 million.
+        cover 15 "a ruling" (not (null ruled))
         map (\ruling -> (ruling.qid, ruling.proposal)) state.rulings === ruled
         for_ ruled $ \(qid, ruling) ->
             assert (any (\sentLine -> all (`Text.isInfixOf` sentLine) (qidText qid <> " " : map oneLineText [ruling.answer, ruling.why, ruling.cost])) sent)
@@ -819,7 +823,8 @@ questions = describe "questions" $ do
             kinds =
                 [pending.asking.question.kind | pending <- state.pending, Set.member pending.asking.question.qid security]
                     <> [ruling.kind | ruling <- state.rulings, Set.member ruling.qid security]
-        cover 5 "a Security question ruled" (any (\ruling -> Set.member ruling.qid security) state.rulings)
+        -- About 10% of runs: a 100-test run misses 1% on about 1 seed in 40,000.
+        cover 1 "a Security question ruled" (any (\ruling -> Set.member ruling.qid security) state.rulings)
         kinds === map (const Security) kinds
 
     it "every_ask_ends_answered_or_stopped" . hedgehog $ do
@@ -827,7 +832,8 @@ questions = describe "questions" $ do
         question <- forAll genQuestion
         rung0 <- evalMaybe (NonEmpty.nonEmpty rungs)
         (logs, end) <- climb asker (Question (QId (NonEmpty.head rung0).run 1) question.kind question.text) rungs
-        cover 10 "stopped" (end == Halt)
+        -- About 13% of runs: a 100-test run misses 1% on about 1 seed in a million.
+        cover 1 "stopped" (end == Halt)
         cover 10 "reached the user" (any (elem TheUser . forwardedTo) logs)
         cover 10 "ruled below the user" (any (\events -> not (null [qid | RuledOn qid _ <- events])) logs)
         for_ (zip rungs logs) $ \(rung, events) -> do
