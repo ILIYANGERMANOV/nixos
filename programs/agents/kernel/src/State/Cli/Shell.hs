@@ -185,8 +185,8 @@ jobReply steps name input call job = case job of
                                     (_, Standing) -> maybe Quiet Deny . route binding <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
                                     -- A removed worktree's run is done: no call strays from it.
                                     (_, Removed) -> pure Quiet
-                        Edits -> pure Quiet
-                        Writes -> pure Quiet
+                        Edits _ -> pure Quiet
+                        Writes _ -> pure Quiet
                         Spawns -> pure Quiet
             (Nothing, _) -> do
                 began <- maybe (pure Nothing) (fmap (leadSkill . Text.strip =<<) . FileSystem.readText . leadFile) slot
@@ -211,7 +211,7 @@ readOnlyAt run gate =
   where
     startedFlow line = either (const Nothing) (fmap (.flow) . Fold.runStart . (.event)) (decodeLine line)
     denialAt =
-        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) run <&> \case
+        onRunLog (\_ loaded -> ([], Right (Route.readOnly loaded.state.start.notes (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) run <&> \case
             Ran (Right denial) -> denial
             Ran (Left _) -> Nothing
             NoRun -> Nothing

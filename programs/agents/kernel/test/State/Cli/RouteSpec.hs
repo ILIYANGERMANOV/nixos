@@ -101,10 +101,10 @@ spec = describe "routing a shell command's state calls" $ do
 gateSpec :: Spec
 gateSpec = describe "the gate of an agent bound to no run" $ do
     let denied lead = map (gate lead)
-        writes = [Edits, Writes, Spawns] <> map RunsShell recordedCommands
+        writes = [Edits (Just "/w/a.hs"), Writes (Just "/w/b.md"), Spawns] <> map RunsShell recordedCommands
         initFix = "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>/\n"
     it "denies a typed /engineer's edit, naming the init that starts its run" $
-        gate engineer Edits
+        gate engineer (Edits (Just "/w/a.hs"))
             `shouldBe` Just
                 ( "state init: this lead has no run, so its edit waits - a lead's writes go in its run's record, which `state init` starts\n"
                     <> initFix
@@ -145,22 +145,27 @@ gateSpec = describe "the gate of an agent bound to no run" $ do
 
 readOnlySpec :: Spec
 readOnlySpec = describe "the architect's read-only run" $ do
-    let codeWrites = [Edits, Writes] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
+    let notes = "/tmp/notes"
+        codeWrites = [Edits (Just "/wt/src/a.hs"), Writes (Just "/wt/README.md"), Writes (Just (notes <> "/../x")), Edits (Just (notes <> "/./../notes2/n.md")), Writes Nothing] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
         ticketWrites = map RunsShell ["gh issue create --repo o/r --title t --body b", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\nbody\nEOF", "gh issue comment 1 --repo o/r --body b"]
+        notesWrites = [Writes (Just (notes <> "/notes.md")), Edits (Just (notes <> "/notes.md")), Writes (Just (notes <> "/./r/../notes.md"))]
         readCalls = [Spawns] <> map RunsShell ["gh issue view 1", "git status", "state next"]
         -- Each run where the architect's flow runs: its own states, and the chief's discussion and architect request.
         architectAt = [(ArchitectFlow, "architect"), (ArchitectFlow, "architect/ticket"), (ArchitectFlow, "design/confirm_design"), (ChiefFlow, "discussion/discussing"), (ChiefFlow, "architect/architect")]
-        deniedAt (flow, at) = readOnly (flowAt flow (StateName at))
-    it "denies an edit, a write, a commit, a push and a PR opened or merged at every state, naming the ticket as the write" $
+        deniedAt (flow, at) = readOnly notes (flowAt flow (StateName at))
+    it "denies an edit or write outside the notes dir, a commit, a push and a PR opened or merged at every state, naming the ticket as the write" $
         [deniedAt place call | place <- architectAt, call <- codeWrites] `shouldSatisfy` all (maybe False ("write or edit the ticket at any point" `Text.isInfixOf`))
 
     it "lets the ticket be written, edited or commented on, a researcher spawn and reads go on, at every state" $
         [deniedAt place call | place <- architectAt, call <- ticketWrites <> readCalls] `shouldSatisfy` all (== Nothing)
 
+    it "lets Edit and Write change the notes inside the notes dir, at every state" $
+        [deniedAt place call | place <- architectAt, call <- notesWrites] `shouldSatisfy` all (== Nothing)
+
     it "never_denies_the_engineer_or_the_10x" . hedgehog $ do
         flow <- forAll (Gen.element [EngineerFlow, TenXFlow])
-        call <- forAll (Gen.element (codeWrites <> ticketWrites <> readCalls))
-        readOnly flow call === Nothing
+        call <- forAll (Gen.element (codeWrites <> notesWrites <> ticketWrites <> readCalls))
+        readOnly notes flow call === Nothing
 
 -- | An absolute directory of plain path words, which a shell reads as written.
 genDir :: Gen FilePath

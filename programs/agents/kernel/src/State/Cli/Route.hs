@@ -28,7 +28,7 @@ module State.Cli.Route (
 
 import Control.Monad (guard)
 import Data.Char (isDigit, isSpace)
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, stripPrefix)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -39,7 +39,7 @@ import State.Role (FlowName (..), leads)
 import State.Run.Event (AgentRole, runIdText)
 import State.Step.Artifact (shellPath)
 import State.Table (Steps)
-import System.FilePath ((</>))
+import System.FilePath (splitDirectories, (</>))
 
 -- | A @state@ call that reads a run: the directory it runs in, its subcommand, and its text as written.
 data StateCall = StateCall {dir :: FilePath, sub :: Text, written :: Text}
@@ -165,30 +165,51 @@ gate lead call = case lead of
                 , fix
                 }
 
-{- | Why a call is denied where this flow runs: the architect's design goes
-into its notes and its ticket, so it edits, writes, commits, pushes and
+{- | Why a call is denied where this flow runs, in a run whose notes dir is
+given: the architect's design goes into its notes and its ticket, so it
+edits and writes files only inside the notes dir, and commits, pushes and
 opens or merges a PR nowhere. It writes, edits or comments on the ticket
 (@gh issue create@, @edit@, @comment@) at any state, as its researchers
 spawn and its shell reads. Other flows write, the chief where no scope runs
 the architect's.
 -}
-readOnly :: FlowName -> Gate -> Maybe Text
-readOnly flow call = guard (writesNoCode flow) *> (denial <$> codeWrite)
+readOnly :: FilePath -> FlowName -> Gate -> Maybe Text
+readOnly notes flow call = guard (writesNoCode flow) *> (denial <$> codeWrite)
   where
     codeWrite = case call of
         Spawns -> Nothing
-        Edits -> writeOf call
-        Writes -> writeOf call
+        Edits file -> outsideNotes file
+        Writes file -> outsideNotes file
         RunsShell _ -> writeOf call
+    outsideNotes file = guard (not (any (inside notes) file)) *> writeOf call
     denial act =
         failureText
             "architect"
             Failure
                 { exit = BadInput
                 , what = "the architect flow changes no code, so " <> act <> " is denied"
-                , why = "an architect run's writes are its notes and its ticket"
-                , fix = "keep the design in the discussion and the notes; write or edit the ticket at any point: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
+                , why = "an architect run writes only its notes, in " <> Text.pack notes <> ", and its ticket"
+                , fix = "keep the design in the discussion and in " <> Text.pack (notes </> "notes.md") <> ", which Edit and Write may change; write or edit the ticket at any point: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
                 }
+
+{- | Whether an absolute path lies below a directory, read lexically: @.@ and
+@..@ resolved, so @<dir>/../x@ is outside. Symlinks are not followed: a
+route reads no disk before every edit, and a link in the notes dir is the
+run's own.
+-}
+inside :: FilePath -> FilePath -> Bool
+inside dir path = case stripPrefix (lexical dir) (lexical path) of
+    Just (_ : _) -> True
+    Just [] -> False
+    Nothing -> False
+  where
+    lexical = reverse . foldl' step [] . splitDirectories
+    step parts part = case (part, parts) of
+        (".", _) -> parts
+        -- The root's parent is the root.
+        ("..", _ : up@(_ : _)) -> up
+        ("..", _) -> parts
+        _ -> part : parts
 
 -- | Whether a flow changes no code, so 'readOnly' denies its writes.
 writesNoCode :: FlowName -> Bool
@@ -201,8 +222,8 @@ writesNoCode = \case
 -- | A write a run must see, as a denial names it; 'Nothing' for any other call.
 writeOf :: Gate -> Maybe Text
 writeOf = \case
-    Edits -> Just "its edit"
-    Writes -> Just "its write"
+    Edits _ -> Just "its edit"
+    Writes _ -> Just "its write"
     Spawns -> Just "its spawn"
     RunsShell command -> listToMaybe ["`" <> segment.written <> "`" | segment <- fromMaybe [] (segments command), recorded segment.tokens]
 
