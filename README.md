@@ -24,7 +24,8 @@ Personal nix-darwin / NixOS configuration for macOS-first development. Primary m
 `claude-kategory` is Claude Code with the software factory's skills, roles,
 hooks and guards. It needs only Nix (macOS on Apple silicon, or Linux) and
 keeps everything in `~/.claude-kategory`: your own `~/.claude` and
-`~/.claude.json` are never touched.
+`~/.claude.json` are never touched. Read the disclaimer and install steps in
+[docs/KATEGORY.md](docs/KATEGORY.md) first.
 
 ```sh
 nix profile add github:ILIYANGERMANOV/nixos#claude-kategory   # install
