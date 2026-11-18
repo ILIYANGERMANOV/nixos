@@ -348,9 +348,10 @@ spec = describe "State.Run.Fold" $ do
             cover 5 "an answer" (not (null answers))
             map (heldAnswer state . fst) answers === map (Just . snd) answers
 
-        it "a_park_keeps_its_question_open_and_an_answer_then_closes_it_touching_no_other" . hedgehog $ do
+        it "a_park_keeps_its_forwarded_question_open_and_an_answer_then_closes_it_touching_no_other" . hedgehog $ do
             (state, logged) <- forAll genAskLog
-            open <- if null state.pending then discard else forAll (Gen.element state.pending)
+            let forwarded = [p | p <- state.pending, p.waits /= ForTriage]
+            open <- if null forwarded then discard else forAll (Gen.element forwarded)
             why <- forAll genOneLine
             reply <- forAll genReply
             let qid = open.asking.question.qid
@@ -363,6 +364,15 @@ spec = describe "State.Run.Fold" $ do
             answeredState <- evalEither (replay g (logOf (parkedLog <> pure (Answered qid reply (deliver state.start.principal)))))
             ([p | p <- answeredState.pending, p.asking.question.qid == qid], heldAnswer answeredState qid) === ([], Just reply)
             others answeredState.pending === others state.pending
+
+        it "a_question_in_triage_is_refused_a_park_as_it_is_an_answer" . hedgehog $ do
+            (state, logged) <- forAll genAskLog
+            let inTriage = [p.asking.question.qid | p <- state.pending, p.waits == ForTriage, isNothing state.stopped]
+            qid <- if null inTriage then discard else forAll (Gen.element inTriage)
+            why <- forAll genOneLine
+            case replay g (logOf (logged <> pure (QuestionParked qid why))) of
+                Left (NotForwarded refused) -> refused === qid
+                parkedInTriage -> annotateShow parkedInTriage >> failure
 
         it "an_answer_to_a_question_never_asked_is_refused" . hedgehog $ do
             (state, logged) <- forAll genAskLog
@@ -847,7 +857,7 @@ questions = describe "questions" $ do
 
     it "refuses a ruling or a forward of a parked question: only its answer is left" $
         map
-            (\closing -> replay g (logOf (started :| fuelSet Balanced : [ask 1 Pick, QuestionParked (q 1) (oneLine "later"), closing])))
+            (\closing -> replay g (logOf (started :| fuelSet Balanced : [ask 1 Design, Forwarded (q 1) TheUser, QuestionParked (q 1) (oneLine "later"), closing])))
             [RuledOn (q 1) proposal, Forwarded (q 1) TheUser]
             `shouldBe` replicate 2 (Left (IsParked (q 1)))
 

@@ -945,22 +945,29 @@ answered state qid reply by = case heldAnswer state qid of
     Just earlier -> Left (AnsweredOtherwise qid earlier)
     Nothing -> firstAnswer state qid reply by
 
--- | A parked question was triaged before it was parked, by this run or the one that parked it.
+-- | Only a forwarded question is answered from above: a parked one was forwarded before it was parked ('parked').
 firstAnswer :: RunState -> QId -> Reply -> Above -> Either Refusal RunState
 firstAnswer state qid reply by = do
-    pending <- pendingOf qid state.pending
-    case pending.waits of
-        ForTriage -> Left (NotForwarded qid)
-        ForAnswer -> Right ()
-        ForLater _ -> Right ()
+    asking <- forwardedAsking qid state.pending
     fromAbove state.start.principal by
-    Right state {pending = close qid state.pending, answers = state.answers <> [Answer pending.asking.question reply pending.asking.step]}
+    Right state {pending = close qid state.pending, answers = state.answers <> [Answer asking.question reply asking.step]}
 
--- | A pending question parked, or parked again with another reason: it stays open.
+{- | A forwarded question parked, or parked again with another reason: it
+stays open. One still in triage is refused like its answer, so a park never
+lets a kind the run must answer itself be answered from above ('Ask.pass').
+-}
 parked :: RunState -> QId -> OneLine -> Either Refusal RunState
 parked state qid why = do
-    _ <- pendingOf qid state.pending
+    _ <- forwardedAsking qid state.pending
     Right state {pending = adjust qid (\pending -> pending {waits = ForLater why}) state.pending}
+
+-- | The question this run forwarded, parked or not, for its answer to come down.
+forwardedAsking :: QId -> [Pending] -> Either Refusal Asking
+forwardedAsking qid pending =
+    pendingOf qid pending >>= \open -> case open.waits of
+        ForTriage -> Left (NotForwarded qid)
+        ForAnswer -> Right open.asking
+        ForLater _ -> Right open.asking
 
 -- | The question this run has yet to rule on or forward.
 forTriage :: QId -> [Pending] -> Either Refusal Asking

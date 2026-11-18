@@ -538,6 +538,27 @@ spec = describe "state over the doubles" $ do
             answered `shouldBe` ["answered " <> qid, Ask.replyNote]
             shown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - add a CLI first (" <> Ask.replyNote <> ")"]
 
+        it "refuses to park a question in triage its row must answer itself, as it refuses its answer" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Fact", "which", "store", "is", "used?"]
+            let qid = Text.drop (Text.length "asked ") asked
+            triaged <- loggedEvents world
+
+            parked <- state world ["answer", qid, "--park", "after", "the", "release"]
+
+            parked.code `shouldBe` 2
+            drop (length triaged) <$> loggedEvents world `shouldReturn` ["refused"]
+
+        it "forwards a question in triage before it parks it" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Pick", "which", "rows?"]
+            let qid = Text.drop (Text.length "asked ") asked
+            triaged <- loggedEvents world
+
+            _ <- succeeded =<< state world ["answer", qid, "--park", "after", "the", "release"]
+
+            drop (length triaged) <$> loggedEvents world `shouldReturn` ["forwarded", "parked"]
+
         it "shows a forwarded question with the answer that came down for it" $ \world -> do
             _ <- startedRun world
             [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
@@ -845,9 +866,17 @@ spec = describe "state over the doubles" $ do
                     take 1 grandAnswered `shouldSatisfy` (not . any ("PARKED" `Text.isPrefixOf`))
                     answersIn world `shouldReturn` [1, 1, 1]
 
-                it "ruling_one_child_question_changes_no_other_child_log" $ \_ -> hedgehog $ do
+                it "ruling_answering_or_parking_one_child_question_changes_no_other_child_log" $ \_ -> hedgehog $ do
                     children <- forAll (Gen.int (Range.linear 2 4))
                     asker <- forAll (Gen.int (Range.linear 1 children))
+                    -- The parent's command on the asker's question, its words after the qid, and the one event it writes down there.
+                    (command, rest, written) <-
+                        forAll . Gen.element $
+                            [ ("rule", ["--answer", "postgres", "--why", "already used", "--cost", "none"], "answered")
+                            , ("answer", ["postgres"], "answered")
+                            , ("answer", ["--other", "add", "a", "CLI"], "answered")
+                            , ("answer", ["--park", "after", "the", "release"], "parked")
+                            ]
                     (asked, ruled) <- evalIO $ do
                         world <- newWorld
                         parent <- startedIn world ["--flow", "10x"]
@@ -859,13 +888,13 @@ spec = describe "state over the doubles" $ do
                         asked <- traverse (loggedIn world . directNotes) [1 .. children]
                         atWorktree world "/work"
                         for_ [run | (i, run) <- zip [1 ..] runs, i == asker] $ \run ->
-                            succeeded =<< state world ["rule", run <> ":1", "--answer", "postgres", "--why", "already used", "--cost", "none"]
+                            succeeded =<< state world ([command, run <> ":1"] <> rest)
                         ruled <- traverse (loggedIn world . directNotes) [1 .. children]
                         pure (asked, ruled)
                     let others = filter ((/= asker) . fst) . zip [1 ..]
                         grown = [map (eventType . (.event)) (drop (length b) a) | (i, b, a) <- zip3 [1 ..] asked ruled, i == asker]
                     others ruled === others asked
-                    grown === [["answered"]]
+                    grown === [[written]]
 
             it "shows each task, its PR and what is held" $ \world -> do
                 _ <- tenXAtFanOut world

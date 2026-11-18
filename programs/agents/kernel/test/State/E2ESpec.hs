@@ -319,8 +319,8 @@ spec = describe "the state binary" $ do
             listed <- withStore (storeOf repo) (\store -> Store.children store (runId parent))
             listed `shouldBe` [runId child]
 
-        it "rules one direct child's question from the parent's run; only that child resumes, its sibling runs on unaffected" $ \repo -> do
-            parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+        it "answers one direct child's question from the chief's run, which forwards a Design; only that child resumes, its sibling runs on unaffected" $ \repo -> do
+            parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
             w1 <- worktree repo "w1"
             w2 <- worktree repo "w2"
             asking <- directChild bin w1 parent "n1"
@@ -332,7 +332,7 @@ spec = describe "the state binary" $ do
             siblingAsked <- succeeded =<< state bin w2 ["next"]
             pending <- succeeded =<< state bin repo ["pending"]
 
-            _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "postgres", "--why", "already used", "--cost", "none"]
+            _ <- succeeded =<< state bin repo ["answer", Text.unpack qid, "postgres"]
             resumed <- succeeded =<< state bin w1 ["next"]
             siblingRuled <- succeeded =<< state bin w2 ["next"]
             shownAsking <- succeeded =<< state bin w1 ["show"]

@@ -549,7 +549,7 @@ planOf steps worktreeHead file g state = \case
     Answer raw reply by ->
         answeredQid state raw >>= \qid ->
             Right (Plan (answerEvents state qid reply by) (\after _ -> printed ("answered " <> qidText qid <> "\n" <> otherNote reply) <> writtenDown state after qid))
-    Park raw why -> open raw >>= \qid -> Right (Plan [QuestionParked qid why] (\after _ -> printed ("parked " <> qidText qid <> "\n") <> writtenDown state after qid))
+    Park raw why -> open raw >>= \qid -> Right (Plan (forwardedFirst state qid <> [QuestionParked qid why]) (\after _ -> printed ("parked " <> qidText qid <> "\n") <> writtenDown state after qid))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> printed (showRun steps g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
@@ -573,19 +573,20 @@ planOf steps worktreeHead file g state = \case
         Ask.Other _ -> Ask.replyNote <> "\n"
     notSent kind refusal = Failure BadInput ("--to user on a " <> kindName kind <> " question") (explain g (Fold.fuelOf state) state.at (Fold.NotAllowed refusal)).why ("state ask --kind " <> kindName kind <> " <question>, without --to: the run answers it")
 
-{- | The events of an answer: a question still in triage is forwarded first,
-to whoever answers it, so one command takes it from triage to closed. A
-row that must answer it itself refuses the forward ('Ask.pass').
--}
+-- | The events of an answer: forwarded first if still in triage, so one command takes it from triage to closed.
 answerEvents :: RunState -> QId -> Ask.Reply -> Maybe Above -> [Event]
-answerEvents state qid reply by = forwardFirst <> [Answered qid reply (fromMaybe up by)]
-  where
-    up = Ask.deliver state.start.principal
-    forwardFirst = case (.waits) <$> Fold.pendingAt state qid of
-        Just ForTriage -> [Forwarded qid up]
-        Just ForAnswer -> []
-        Just (ForLater _) -> []
-        Nothing -> []
+answerEvents state qid reply by = forwardedFirst state qid <> [Answered qid reply (fromMaybe (Ask.deliver state.start.principal) by)]
+
+{- | A question still in triage is forwarded first, to whoever answers it,
+before this run answers or parks it. A row that must answer it itself
+refuses the forward ('Ask.pass').
+-}
+forwardedFirst :: RunState -> QId -> [Event]
+forwardedFirst state qid = case (.waits) <$> Fold.pendingAt state qid of
+    Just ForTriage -> [Forwarded qid (Ask.deliver state.start.principal)]
+    Just ForAnswer -> []
+    Just (ForLater _) -> []
+    Nothing -> []
 
 {- | The event @state record@ appends: the one its recording names, placed in
 the scope the run is in.
