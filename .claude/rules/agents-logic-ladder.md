@@ -26,7 +26,9 @@ Pick the rung by asking, in order:
 - Can the kernel decide it from its log and arguments? Pure Haskell.
 - Does it need the filesystem, git or the clock? The effect shell.
 - Does only the client see the moment (a tool call before it runs, a spawn,
-  a hand-back)? A hook.
+  a hand-back)? A hook. **Hooks are best effort**: fix every hook bug found,
+  but no skill assumes a hook fired. Prose names the fallback, `state record
+  <step>.spawned` or `state handback <role>`.
 - Is it judgment, taste or a fallback sentence, or would a program limit the
   agent or force a chain of commands (ADR 0013)? Prose.
 

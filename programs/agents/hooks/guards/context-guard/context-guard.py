@@ -27,28 +27,36 @@ from agent_hook import (
     parse_event,
 )
 
-
-class Limits(NamedTuple):
-    """Context sizes in tokens: warn once at `warn`, stop at `stop`."""
-
-    warn: int
-    stop: int
-
-
-# Orchestrators get more room for large tasks.
-LEAD = Limits(warn=300_000, stop=400_000)
-ROLE_LIMITS = {Role("engineer"): Limits(warn=260_000, stop=350_000)}
-OTHER = Limits(warn=220_000, stop=300_000)
 STOP_STEP = 10_000
 WARN = (
     "Context {size}k, budget {stop}k: stop there. Until then, never run a check "
     "over about 4 minutes yourself: commit, push and hand back naming it."
 )
-STOP = (
+HAND_BACK = (
     "Context {size}k, over the {stop}k budget: stop now. Commit, push, hand back "
     "a short note (files, decisions, what remains, how to verify); a fresh agent "
     "continues."
 )
+# The top-level agent has no caller to hand back to: the user resumes it.
+RESUME = (
+    "Context {size}k, over the {stop}k budget: stop now. Commit, push, write a "
+    "short note (files, decisions, what remains, how to verify) to your notes "
+    "dir, and tell the user to run `/chief resume` in a fresh session."
+)
+
+
+class Limits(NamedTuple):
+    """Context sizes in tokens: warn once at `warn`, stop with `stop_text` at `stop`."""
+
+    warn: int
+    stop: int
+    stop_text: str = HAND_BACK
+
+
+# Orchestrators get more room for large tasks.
+LEAD = Limits(warn=300_000, stop=400_000, stop_text=RESUME)
+ROLE_LIMITS = {Role("engineer"): Limits(warn=260_000, stop=350_000)}
+OTHER = Limits(warn=220_000, stop=300_000)
 
 
 def main() -> None:
@@ -86,7 +94,7 @@ def notice(previous: int, current: int, limit: Limits) -> str | None:
         case (True, 1):
             template = WARN
         case _:
-            template = STOP
+            template = limit.stop_text
     return template.format(size=current // 1000, stop=limit.stop // 1000)
 
 

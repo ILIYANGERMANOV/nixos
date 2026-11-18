@@ -10,12 +10,10 @@ argument-hint: "[request] | resume"
 Begin with `state`: your first command is
 `state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chief`,
 the slug a short name for the session, each character but `[A-Za-z0-9._-]`
-a `-`. Then check you are current: `git fetch origin main`; when
-`git rev-list --count HEAD..origin/main` is not 0, tell the user this
-worktree is that many commits behind `origin/main`, and branch new work from
-`origin/main`. Then loop `state next`, do what its first line says, record
-the outcome, and `state next` again, until `DONE`. `$ARGUMENTS` starting
-with `resume`: go to Resume.
+a `-`. Then get current, as the Current code rule says. Then loop
+`state next`, do what its first line says, record the outcome, and
+`state next` again, until `DONE`. `$ARGUMENTS` starting with `resume`: go
+to Resume.
 
 You are the user's chief for `$ARGUMENTS`, or the conversation so far. The
 user speaks to you only; you route each request and decide nothing for them.
@@ -60,8 +58,9 @@ request -> fuel -> route -> branch, inline -> next -> request | done
 - **Discussion.** Read-only: no edits, commits, pushes or PRs; the hooks deny
   them. Explain and show: findings, diagrams, pseudo-code, tables; then ask
   the next question, your recommendation first, at `discuss`, through
-  `state ask --kind <Design|Scope|Fact>` (no Discuss kind; then
-  `discuss.asked`). Facts come from researchers, never from memory. Record
+  `state ask --kind <Design|Scope>` (no Discuss kind; then
+  `discuss.asked`). The user's reply is always `state answer`, never
+  `state rule`. Record
   `discussing.enough` when the user moves on: it waits for every open
   researcher, then `notes` merges their hand-backs. A ticket only when the
   user asks: then record `enough` and route the next request to
@@ -85,8 +84,23 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   come to your `state pending`; answer, park or rule them from this run.
 
   A `fix:` line names the command that works now: run it.
-- **Gaps.** Record each gap you meet in a flow, a skill or `state` with
-  `state record gap "<text>"`, never in a loose file; `state show` lists them.
+- **Current code.** After `git fetch origin main`: a clean worktree with no
+  pushed work, `git merge --ff-only origin/main`; else a fresh worktree from
+  `origin/main` (`git worktree add <dir> origin/main`, then `state move
+  <dir>`). Never reset a worktree another run holds. Facts come from the
+  code, never from memory: read a known file and lines yourself (locate
+  with `rg`, then Read the range with the Read tool, never `git show
+  <ref>:<path>`, so its path-scoped rules load); spawn a researcher to
+  search. A research brief names `roots: <path> at origin/main <sha>` and
+  the area's rule files.
+- **Hooks are best effort.** A hook prints a `recorded` line after a spawn or
+  a hand-back. No `recorded` line means it missed: record it yourself,
+  `state record <step>.spawned` or `state handback <role>`.
+- **Gaps.** A **gap** is friction an agent actually hit with a flow, a
+  skill or `state` (a bug that makes agent runs harder counts). Code tech
+  debt (refactors, DRY, large files) is not a gap. Record only a gap you
+  are certain of, with `state record gap "<text>"`, never in a loose file;
+  `state show` lists them.
 - **Writing.** Follow "Writing for people". Each message fits a phone screen
   or two. Separate what you **verified** from what you **inferred**.
 
@@ -201,6 +215,6 @@ is no arrow: it leaves a request at its state and turns to another.
 `/chief resume`: the notes dir is the newest `/tmp/chief-*` unless the user
 names one. From the worktree the run started in (inside the notes dir it
 fails: not a git work tree), `state init --notes <notes dir>`: it resumes
-the run. Then check you are current, as above, and `state show` and `state tasks`. Stopped inside `architect`, `engineer` or `10x`:
-load that branch's skill again with the Skill tool. Carry on with
-`state next`.
+the run. Then get current, as the Current code rule says, and `state show`
+and `state tasks`. Stopped inside `architect`, `engineer` or `10x`: load
+that branch's skill again with the Skill tool. Carry on with `state next`.

@@ -17,8 +17,6 @@
     "chief"
     "engineer"
     "engineering"
-    "final-review"
-    "give-feedback"
     "grill-with-docs"
     "grilling"
     "domain-modeling"
@@ -29,7 +27,6 @@
     "refactor"
     "researcher"
     "setup-matt-pocock-skills"
-    "skeptic"
     "ui-coding"
   ];
   instructions = mkInstructions {
