@@ -503,7 +503,7 @@ writing = ["git commit -m x", "git push -u origin HEAD", "gh pr create --draft"]
 
 -- | Calls the architect's run lets through: its ticket, by @gh issue@ and a heredoc.
 issuing :: [Text]
-issuing = ["gh issue create --repo o/r --title '[WIP] t' --body x", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\n# Design\nEOF"]
+issuing = ["gh issue create --repo o/r --title t --body x", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\n# Design\nEOF"]
 
 -- | Whether the route hook denied the call, naming the architect flow.
 denies :: Ran -> Bool
