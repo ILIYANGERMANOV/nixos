@@ -103,7 +103,8 @@ let
 
   # An in-memory systemd: a unit is active while a file named after it exists.
   # Answers `is-active --quiet` for the deploy's health gate from $SSHD_UP, and
-  # `show -p MainPID --value` from what the matching unit files hold.
+  # `show -p MainPID --value` from what the matching unit files hold, and
+  # `list-units` with the files matching its patterns.
   fakeSystemctl = pkgs.writeShellScriptBin "systemctl" (builtins.readFile ./fakes/systemctl.sh);
 
   # Prints a fixed table, as `systemd-cgtop -b` does.

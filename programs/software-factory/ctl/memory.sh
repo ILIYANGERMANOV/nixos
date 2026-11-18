@@ -39,25 +39,37 @@ cmd_kill() {
 
 kill_usage() { die "usage: kill [--force] <pid> | kill ghcid <worktree>|--all"; }
 
-# systemd stops a scope's whole process tree, TERM then KILL. A package at the
-# worktree's root is ghcid-<worktree>.scope, one below it ghcid-<worktree>-*.scope;
-# systemd-escape turns a `-` in a name into \x2d, so no sibling worktree matches.
-# The [.] makes the exact name a glob too: a glob matching nothing is no error,
-# a missing unit name is.
+# systemd stops a scope's whole process tree, TERM then KILL.
 stop_ghcid() {
-  local dir unit
   case "$1" in
     --all)
       systemctl --user stop ghci.slice
       echo "Stopped every GHCi daemon."
       ;;
     *)
+      local dir scopes units
       dir=$(realpath -m -- "$1")
-      unit="ghcid-$(systemd-escape --path "$dir")"
-      systemctl --user stop "${unit}[.]scope" "$unit-*.scope"
+      scopes=$(ghcid_scopes "$dir")
+      if [ -n "$scopes" ]; then
+        mapfile -t units <<<"$scopes"
+        systemctl --user stop "${units[@]}"
+      fi
       echo "Stopped the GHCi daemons of $1, if any ran."
       ;;
   esac
+}
+
+# The running scopes of the packages in worktree $1: ghcid-<worktree>.scope at
+# its root, ghcid-<worktree>-*.scope below it. systemd-escape turns a `-` in a
+# name into \x2d, so no sibling worktree matches. A Claude worktree nests in
+# the main checkout (.claude/worktrees/<name>) but is not part of it: its
+# scopes stay. The unit goes to awk through the environment: -v would turn
+# its \x2d into a dash.
+ghcid_scopes() {
+  local unit
+  unit="ghcid-$(systemd-escape --path "$1")"
+  systemctl --user list-units --plain --no-legend "$unit.scope" "$unit-*.scope" |
+    unit=$unit awk 'index(substr($1, length(ENVIRON["unit"]) + 1), "-.claude-worktrees-") == 0 { print $1 }'
 }
 
 # Only the factory user's own processes, and never a Remote Control server

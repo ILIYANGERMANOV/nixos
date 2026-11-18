@@ -94,12 +94,49 @@ start_ready() {
 
 # ─── kill ghcid ──────────────────────────────────────────────────────────────
 
-@test "kill ghcid: stops the worktree's GHCi scopes, at its root and below" {
-  factory-ctl kill ghcid "$work/repos/my-repo/wt/"
+# A running GHCi scope of the package directory $1, named as ghcid.sh names it.
+given_scope() {
+  mkdir -p "$UNITS"
+  touch "$UNITS/ghcid-$(systemd-escape --path "$1").scope"
+}
+has_scope() { [ -e "$UNITS/ghcid-$(systemd-escape --path "$1").scope" ]; }
 
-  escaped=$(systemd-escape --path "$work/repos/my-repo/wt")
-  called "systemctl --user stop ghcid-${escaped}[.]scope ghcid-$escaped-*.scope"
-  [[ $escaped == *my\\x2drepo-wt ]] || fail "a dash in the path is not escaped: $escaped"
+@test "kill ghcid: stops the worktree's GHCi scopes, at its root and below" {
+  checkout="$work/repos/my-repo"
+  given_scope "$checkout"
+  given_scope "$checkout/programs/haskell"
+  given_scope "$work/repos/my-repo-old"
+
+  factory-ctl kill ghcid "$checkout/"
+
+  ! has_scope "$checkout" || fail "the root's scope survived"
+  ! has_scope "$checkout/programs/haskell" || fail "the scope below the root survived"
+  has_scope "$work/repos/my-repo-old" || fail "a sibling worktree's scope was stopped"
+}
+
+@test "kill ghcid: the main checkout leaves its Claude worktrees' scopes" {
+  checkout="$work/repos/my-repo"
+  worktree="$checkout/.claude/worktrees/fix-it"
+  given_scope "$checkout"
+  given_scope "$worktree"
+  given_scope "$worktree/programs/haskell"
+
+  factory-ctl kill ghcid "$checkout"
+
+  ! has_scope "$checkout" || fail "the main checkout's scope survived"
+  has_scope "$worktree" || fail "a Claude worktree's scope was stopped"
+  has_scope "$worktree/programs/haskell" || fail "a Claude worktree's scope was stopped"
+}
+
+@test "kill ghcid: a Claude worktree stops its own scopes" {
+  worktree="$work/repos/my-repo/.claude/worktrees/fix-it"
+  given_scope "$worktree"
+  given_scope "$worktree/programs/haskell"
+
+  factory-ctl kill ghcid "$worktree"
+
+  ! has_scope "$worktree" || fail "the worktree's scope survived"
+  ! has_scope "$worktree/programs/haskell" || fail "the scope below the worktree survived"
 }
 
 @test "kill ghcid --all: stops ghci.slice" {
