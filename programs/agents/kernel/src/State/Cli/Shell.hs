@@ -505,12 +505,11 @@ focusPlan run target summary = do
         (Fold.Finished, _) -> Right [stepTook NextRequest]
         (Fold.Underway, Just line) -> Right [Suspended run.state.focus line]
         (Fold.Underway, Nothing) -> Left (Failure BadInput ("the turn away from " <> taskNoText run.state.focus) "it recorded work: its card says where it stands" ("state focus" <> foldMap ((" " <>) . taskNoText) target <> " --summary <where it stands>"))
-    before <- Bifunctor.first refusal (Card.cards <$> Fold.trace run.g run.logged)
+    before <- cardsOf run
     Right $ Plan (waits <> map Focused (toList target)) $ \after written ->
-        printed . (recordedLines written <>) . Text.unlines $ case (target >>= \task -> find ((== task) . (.task)) before, listToMaybe (reverse written)) of
-            (Just card, Just focused) -> View.cardLines focused.envelope.ts card
-            (Just _, Nothing) -> [focusLine after]
-            (Nothing, _) -> [focusLine after]
+        let card = target >>= \task -> find ((== task) . (.task)) before
+            focusedAt = (.envelope.ts) <$> listToMaybe (reverse written)
+         in printed . (recordedLines written <>) . Text.unlines . fromMaybe [focusLine after] $ View.cardLines <$> focusedAt <*> card
   where
     refusal = explain run.g (Fold.fuelOf run.state) run.state.at
     focusLine after = taskNoText after.focus <> " in focus at " <> stateNameText (askedAt after)
@@ -522,7 +521,7 @@ linked to its run, so it gets no resume advice.
 tasks :: (Shell es) => Eff es (Either Failure Text)
 tasks = do
     at <- Clock.now
-    onRun (\_ run -> ([], (run.state,) <$> Bifunctor.first (explain run.g (Fold.fuelOf run.state) run.state.at) (Card.cards <$> Fold.trace run.g run.logged))) >>= \case
+    onRun (\_ run -> ([], (run.state,) <$> cardsOf run)) >>= \case
         NoRun -> pure (Left noRun)
         Ran (Left failure) -> pure (Left failure)
         Ran (Right (state, requests)) -> do
@@ -532,6 +531,10 @@ tasks = do
   where
     childLine child = either (\failure -> "child " <> runIdText child <> ": " <> failure.why) id <$> onLog (\_ run -> ([], Right (childText run.state))) child
     childText state = "child " <> runIdText state.run <> " " <> Codec.flowText state.start.flow <> (if Fold.over state then " over at " else " at ") <> stateNameText (askedAt state)
+
+-- | The cards of the run's requests, or why its log does not replay.
+cardsOf :: Loaded -> Either Failure [Card.Card]
+cardsOf run = Bifunctor.first (explain run.g (Fold.fuelOf run.state) run.state.at) (Card.cards <$> Fold.trace run.g run.logged)
 
 {- | @state dump <run>@: the run's events, one envelope per line in seq
 order, read under its lock. A run whose events do not read is named, as

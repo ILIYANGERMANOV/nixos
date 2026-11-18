@@ -10,7 +10,6 @@ module State.Cli.View (
     briefOf,
     beginText,
     cardLines,
-    adviceLine,
 ) where
 
 import Data.Bool (bool)
@@ -83,8 +82,6 @@ hookLines steps g =
         ]
     ]
 
--- | One line per open question, oldest first.
-
 {- | A request's resume card at this time: where it stands, what was
 decided in it, what it still asks, and how to take it up again.
 -}
@@ -111,6 +108,7 @@ adviceLine = \case
 minutesSeconds :: Integer -> Text
 minutesSeconds total = let (m, s) = total `divMod` 60 in tshow m <> "m" <> tshow s <> "s"
 
+-- | One line per open question, oldest first.
 pendingLines :: RunState -> [Text]
 pendingLines state = map line state.pending
   where
