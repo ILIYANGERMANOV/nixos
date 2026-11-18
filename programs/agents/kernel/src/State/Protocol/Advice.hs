@@ -611,7 +611,7 @@ factLines g facts state =
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
         <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]
         -- While the run is still where it asked, a reply that is none of the options says what it asks.
-        <> [qidText answer.about.qid <> " answered: " <> reply <> " - " <> replyNote | answer <- state.answers, Other reply <- [answer.given], answer.step == askedAt state]
+        <> [qidText answer.about.qid <> " answered: " <> reply <> " - " <> replyNote | answer <- state.answers, answer.step == askedAt state, Other reply <- [answer.given]]
   where
     readinessText = \case
         IsDraft -> " (draft)"

@@ -840,9 +840,9 @@ spec = describe "state over the doubles" $ do
                     grandAnswered <- succeeded =<< state world ["next"]
 
                     parked `shouldBe` ["parked " <> qid]
-                    take 1 topNext `shouldSatisfy` all (not . ("PARKED" `Text.isPrefixOf`))
+                    take 1 topNext `shouldSatisfy` (not . any ("PARKED" `Text.isPrefixOf`))
                     take 1 grandNext `shouldBe` ["PARKED " <> qid <> " after the release"]
-                    take 1 grandAnswered `shouldSatisfy` all (not . ("PARKED" `Text.isPrefixOf`))
+                    take 1 grandAnswered `shouldSatisfy` (not . any ("PARKED" `Text.isPrefixOf`))
                     answersIn world `shouldReturn` [1, 1, 1]
 
                 it "ruling_one_childs_question_changes_no_other_childs_log" $ \_ -> hedgehog $ do
