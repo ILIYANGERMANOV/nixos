@@ -22,7 +22,7 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designDiscussed, enoughIn, flowGraph, g, genAccepted, happyPath, loadSteps, pickOf, plainTask, problemUnderstood, researchedIn, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketUrl, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, flowGraph, g, genAccepted, happyPath, loadSteps, pickOf, plainTask, problemUnderstood, researchedIn, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketUrl, within)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Gather (Outcome (..))
@@ -237,7 +237,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the picker question" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
 
         it "ends with the confirmed design's ticket url" $
-            next noFacts (architectRun (atDesignConfirm <> [stepTook (ConfirmDesignConfirmed ticketUrl)])) `shouldBe` Done (Just ticketUrl)
+            next noFacts (architectRun (problemUnderstood <> designConfirmed)) `shouldBe` Done (Just ticketUrl)
 
     it "names a subagent's role with its article" $
         map (Text.isPrefixOf "at implement: a step an implementer subagent runs") (take 1 (explainedAt (runAt (knobs Balanced <> take 10 happyPath))))

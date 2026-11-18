@@ -47,7 +47,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), OutcomeName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Discusses, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
+import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Discusses, Ordinary, TellsResult), StepSet (..), confirmText, eventText, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
@@ -253,6 +253,7 @@ advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
 advise steps g facts state = Advice action more (atLine steps state) leads (factLines g facts state) prompt notify
   where
     plain next = (next, "")
+    askedKinds = map (.kind) state.askedHere
     more = case (state.stopped, fanHere) of
         (Nothing, Just here) -> alsoAtFan here facts.ended state action
         (Nothing, Nothing) -> []
@@ -297,7 +298,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
     going = case (state.at, stuck state) of
         (Out, _) -> plain (Done output)
         (Exit, _) -> plain (Done output)
-        (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
+        (At _, found : _) | Ask.Stuck `notElem` askedKinds -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) | isPick place.name, Map.member (place, enoughAt place) g.edges -> (atChoice place, choicePrompt place)
         (At place, _) | isPick place.name -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
         (At _, _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
@@ -314,7 +315,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
     budget, once; then each action its budget leaves, extend, and enough.
     -}
     atChoice place = case [budget | (_, budget) <- spentOn, budget.cap.atCap == Extend] of
-        used : _ | Ask.Stuck `notElem` state.askedHere -> goOn used
+        used : _ | Ask.Stuck `notElem` askedKinds -> goOn used
         used -> Run (someOptions ([pickOption event edge | (event, edge) <- shownEdges g place, isNothing (usedUpOn edge)] <> [extendOption | not (null used)]))
       where
         spentOn = [(event, budget) | (event, edge) <- shownEdges g place, Just budget <- [usedUpOn edge]]
@@ -346,14 +347,11 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         Nothing -> "\nNo Fuel given yet: take your brief's or the request's Fuel line; with none, ask the user once."
     -- A pick asks the user its branch at most once, and only when the request leaves it open.
     routePrompt
-        | Ask.Pick `elem` state.askedHere = "The user was asked the branch once: record the branch the answer names."
+        | Ask.Pick `elem` askedKinds = "The user was asked the branch once: record the branch the answer names."
         | otherwise = "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
     -- One line per action, so one action's task never reads as another's.
     choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (_, Edge {to = At next}) <- shownEdges g place, Just (AnyStep _ (SomeStep s)) <- [stepNamed next.name]]
-    -- The answers a Confirm offers are its step's outcomes, so the question names what is recorded.
-    confirmText :: (StepSet k) => Sing (s :: k) -> Text -> Text
-    confirmText s what = what <> ": " <> Text.intercalate ", or " [o | OutcomeName o <- outcomeNames (outcomes s)] <> "?"
-    confirmAsked = Ask.Confirm `elem` state.askedHere
+    confirmAsked = Ask.Confirm `elem` askedKinds
     told :: (StepSet k) => Sing (s :: k) -> Text
     told s = case special s of
         TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
@@ -372,7 +370,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         Discusses -> ""
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
     extendOrGo place budget
-        | Ask.Stuck `notElem` state.askedHere = goOn budget
+        | Ask.Stuck `notElem` askedKinds = goOn budget
         | otherwise = Run (someOptions (capRecords g place budget.cap.atCap))
     goOn budget = Ask Ask.Stuck (spentText budget <> ": go on?")
     {- At a used-up budget the step's question still comes first; it records

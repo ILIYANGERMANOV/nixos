@@ -28,6 +28,7 @@ module State.Category.Step (
     SomeStep (..),
     Special (..),
     Cue (..),
+    confirmText,
     StateName (..),
     stateNameText,
     OutcomeName (..),
@@ -250,6 +251,10 @@ data Special
     | -- | Run it as its row says, its work the user's questions: offer @state ask@ beside its records.
       Discusses
     deriving stock (Eq, Show)
+
+-- | A Confirm's question: its answers are the step's outcomes, so it names what is recorded.
+confirmText :: (StepSet k) => Sing (s :: k) -> Text -> Text
+confirmText s what = what <> ": " <> Text.intercalate ", or " [o | OutcomeName o <- outcomeNames (outcomes s)] <> "?"
 
 -- | When a step's Confirm question is asked.
 data Cue
