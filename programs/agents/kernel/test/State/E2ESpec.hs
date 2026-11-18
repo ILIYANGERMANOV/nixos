@@ -20,7 +20,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Database.SQLite.Simple qualified as SQLite
-import Effects.Store (withStore)
+import Effects.Store (Durability (Unsynced), withStore)
 import Effects.Store qualified as Store
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Codec (decodeLine, eventType)
@@ -316,7 +316,7 @@ spec = describe "the state binary" $ do
             parent <- tenXAtFanOut bin repo
             w1 <- worktree repo "w1"
             child <- childRun bin w1 parent "n1" "t1"
-            listed <- withStore (storeOf repo) (\store -> Store.children store (runId parent))
+            listed <- withStore Unsynced (storeOf repo) (\store -> Store.children store (runId parent))
             listed `shouldBe` [runId child]
 
         it "pauses the chief's architect request, answers an engineer child's question meanwhile, and turns back to the architect at the same node" $ \repo -> do
@@ -359,7 +359,7 @@ spec = describe "the state binary" $ do
             siblingRuled <- succeeded =<< state bin w2 ["next"]
             shownAsking <- succeeded =<< state bin w1 ["show"]
             shownSibling <- succeeded =<< state bin w2 ["show"]
-            listed <- withStore (storeOf repo) (\store -> Store.children store (runId parent))
+            listed <- withStore Unsynced (storeOf repo) (\store -> Store.children store (runId parent))
 
             listed `shouldBe` map runId [asking, sibling]
             take 1 waiting `shouldSatisfy` all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`)
@@ -1046,9 +1046,12 @@ data Ran = Ran {code :: Int, out :: [Text], err :: [Text]}
 state :: FilePath -> Repo -> [String] -> IO Ran
 state bin repo = stateIn bin repo ""
 
+{- | Every call's store is a throwaway temp one, so it skips the fsyncs that
+would cost each call ~4ms.
+-}
 stateIn :: FilePath -> Repo -> String -> [String] -> IO Ran
 stateIn bin repo stdin argv = do
-    (exit, out, err) <- readCreateProcessWithExitCode (proc bin argv) {cwd = Just repo.work, env = Just repo.env} stdin
+    (exit, out, err) <- readCreateProcessWithExitCode (proc bin ("--store-durability" : "unsynced" : argv)) {cwd = Just repo.work, env = Just repo.env} stdin
     let code = case exit of
             ExitSuccess -> 0
             ExitFailure n -> n

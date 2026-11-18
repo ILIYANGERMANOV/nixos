@@ -158,6 +158,7 @@ test-suite state-test
     State.Cli.Shell.HookSpec
     State.Cli.Shell.MainSpec
     State.Cli.Shell.World
+    State.Cli.ShellSpec
     State.Cli.ViewSpec
     State.E2ESpec
     State.Flow.Attend

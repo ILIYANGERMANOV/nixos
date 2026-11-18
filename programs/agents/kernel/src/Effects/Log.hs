@@ -17,7 +17,7 @@ import Database.SQLite.Simple (SQLError)
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
 import Effectful.Dispatch.Dynamic (interpret, send)
 import Effects.Environment (Environment, lookupEnv)
-import Effects.Store (Store, withStore)
+import Effects.Store (Durability, Store, withStore)
 import Effects.Store qualified as Store
 import State.Protocol.Binding (runStore)
 import State.Run.Codec (LogError)
@@ -52,15 +52,15 @@ children :: (Log :> es) => RunId -> Eff es [RunId]
 children = send . Children
 
 {- | The log in the run store the environment names ('runStore'), opened for
-each operation. A store error, such as a lock still held after the wait, or
+each operation at this durability. A store error, such as a lock still held after the wait, or
 no store at all, throws an 'IOException': an outage the shell tells.
 -}
-runLogIO :: (Environment :> es, IOE :> es) => Eff (Log : es) a -> Eff es a
-runLogIO = interpret $ \_ op -> do
+runLogIO :: (Environment :> es, IOE :> es) => Durability -> Eff (Log : es) a -> Eff es a
+runLogIO durability = interpret $ \_ op -> do
     path <- runStore <$> lookupEnv "XDG_STATE_HOME" <*> lookupEnv "HOME"
     liftIO . asIOError $ case path of
         Nothing -> throwIO (userError "no run store: neither XDG_STATE_HOME nor HOME is an absolute path")
-        Just db -> withStore db (onStore op)
+        Just db -> withStore durability db (onStore op)
   where
     asIOError = handle (\(e :: SQLError) -> throwIO (userError ("the run store: " <> show e)))
 

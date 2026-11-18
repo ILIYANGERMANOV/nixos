@@ -11,6 +11,7 @@ list, the version the count applied. A new table is a new migration.
 -}
 module Effects.Store (
     Store,
+    Durability (..),
     withStore,
     exists,
     firstEvent,
@@ -34,19 +35,33 @@ import System.FilePath (takeDirectory)
 -- | An open store: one connection, its pragmas set and its schema current.
 newtype Store = Store Connection
 
+{- | Whether a commit waits for the disk. 'Full' survives an OS crash or a
+power loss. 'Unsynced' never fsyncs: a crashed process still loses nothing
+committed, but an OS crash can drop writes or corrupt the store. It saves
+~4ms a writing process, the checkpoint each last connection's close syncs,
+so only the test suite's throwaway stores take it.
+-}
+data Durability = Full | Unsynced
+    deriving stock (Eq, Show)
+
 {- | The store at this path, created with its directory if absent, open for
 one action.
 -}
-withStore :: FilePath -> (Store -> IO a) -> IO a
-withStore path act = do
+withStore :: Durability -> FilePath -> (Store -> IO a) -> IO a
+withStore durability path act = do
     createDirectoryIfMissing True (takeDirectory path)
     withConnection path $ \conn -> do
         -- The wait first: switching to WAL takes a lock another writer may hold.
         execute_ conn "PRAGMA busy_timeout = 5000"
         execute_ conn "PRAGMA journal_mode = WAL"
         execute_ conn "PRAGMA foreign_keys = ON"
+        execute_ conn (synchronous durability)
         migrate conn
         act (Store conn)
+  where
+    synchronous = \case
+        Full -> "PRAGMA synchronous = FULL"
+        Unsynced -> "PRAGMA synchronous = OFF"
 
 -- | Whether the run was started in the store.
 exists :: Store -> RunId -> IO Bool

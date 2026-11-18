@@ -3,7 +3,7 @@ in pure code, then append to the log and print. Every decision is the
 kernel's; this module moves data between them and the effects, whose IO
 interpreters 'runShellIO' runs.
 -}
-module State.Cli.Shell (Shell, main, hook, runShellIO, recordedEvent) where
+module State.Cli.Shell (Shell, main, hook, runShellIO, storeDurability, recordedEvent) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
@@ -39,6 +39,7 @@ import Effects.Git qualified as Git
 import Effects.Log (Log, runLogIO)
 import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
+import Effects.Store (Durability (..))
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
@@ -88,8 +89,17 @@ import System.IO.Error (isDoesNotExistError)
 type Shell es = (Clock :> es, Console :> es, Environment :> es, Gh :> es, Git :> es, Log :> es, Random :> es, RoFileSystem :> es, WrFileSystem :> es)
 
 -- | A shell program against the real world: the process, its files, git and GitHub.
-runShellIO :: Eff '[Random, Log, Git, Gh, WrFileSystem, RoFileSystem, Environment, Console, Clock, IOE] a -> IO a
-runShellIO = runEff . runClockIO . runConsoleIO . runEnvironmentIO . runFileSystemIO . runGhIO . runGitIO . runLogIO . runRandomIO
+runShellIO :: Durability -> Eff '[Random, Log, Git, Gh, WrFileSystem, RoFileSystem, Environment, Console, Clock, IOE] a -> IO a
+runShellIO durability = runEff . runClockIO . runConsoleIO . runEnvironmentIO . runFileSystemIO . runGhIO . runGitIO . runLogIO durability . runRandomIO
+
+{- | The run store's durability and the rest of argv: 'Unsynced' when argv
+opens with the hidden @--store-durability unsynced@, which only the test
+suite passes, for its throwaway stores; 'Full' otherwise.
+-}
+storeDurability :: [Text] -> (Durability, [Text])
+storeDurability = \case
+    "--store-durability" : "unsynced" : argv -> (Unsynced, argv)
+    argv -> (Full, argv)
 
 -- | Run one command from argv; a failure goes to stderr with its exit code.
 main :: (Shell es) => [Text] -> Eff es ExitCode

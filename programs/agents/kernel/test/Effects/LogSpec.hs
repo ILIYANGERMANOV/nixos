@@ -16,7 +16,7 @@ import Effectful (Eff, runEff, runPureEff, (:>))
 import Effectful.Exception (try)
 import Effectful.State.Static.Local (evalState)
 import Effects.Log (Log, exists, firstLine, locked, runLogIO)
-import Effects.Store (children, withStore)
+import Effects.Store (Durability (Full), children, withStore)
 import Effects.Store qualified as Store
 import State.Run.Ask (Link (..), Parent (..), Principal (..))
 import State.Run.Codec (encodeLine)
@@ -36,16 +36,16 @@ spec = describe "Effects.Log" $ do
                 let db = dir </> "kernel.db"
                     perWriter = 25 :: Int
                     -- Each append on its own connection, as each process has one.
-                    writer = mapM_ (\_ -> withStore db (\store -> Store.locked store top appendOne)) [1 .. perWriter]
-                withStore db (\store -> Store.locked store top (const ([started top], ())))
+                    writer = mapM_ (\_ -> withStore Full db (\store -> Store.locked store top appendOne)) [1 .. perWriter]
+                withStore Full db (\store -> Store.locked store top (const ([started top], ())))
 
                 bothAtOnce writer writer
 
-                withStore db (\store -> Store.locked store top (\logged -> ([], map (.seq) <$> logged)))
+                withStore Full db (\store -> Store.locked store top (\logged -> ([], map (.seq) <$> logged)))
                     `shouldReturn` Right [1 .. 1 + 2 * fromIntegral perWriter]
 
         it "lists the runs started as a run's children" $
-            withSystemTempDirectory "state-store" $ \dir -> withStore (dir </> "kernel.db") $ \store -> do
+            withSystemTempDirectory "state-store" $ \dir -> withStore Full (dir </> "kernel.db") $ \store -> do
                 mapM_ (\e -> Store.locked store e.run (const ([e], ()))) [started top, childOf top child, started other]
 
                 traverse (children store) [top, child, other] `shouldReturn` [[child], [], []]
@@ -59,7 +59,7 @@ type Backend = forall a. [Envelope] -> (forall es. (Log :> es) => Eff es a) -> I
 inStore :: Backend
 inStore seeded program = withSystemTempDirectory "state-log" $ \dir -> do
     let env = Map.fromList [("XDG_STATE_HOME", dir)]
-    runEff . runEnvironmentGiven env . runLogIO $ do
+    runEff . runEnvironmentGiven env . runLogIO Full $ do
         mapM_ (\e -> locked e.run (const ([e], ()))) seeded
         program
 

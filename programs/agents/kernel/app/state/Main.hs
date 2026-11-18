@@ -11,5 +11,5 @@ main :: IO ()
 main = do
     -- What it prints is UTF-8 whatever the locale, as in a Nix build; stdin is read as bytes.
     mapM_ (`hSetEncoding` utf8) [stdout, stderr]
-    argv <- map Text.pack <$> getArgs
-    exitWith =<< Shell.runShellIO (Shell.main argv)
+    (durability, argv) <- Shell.storeDurability . map Text.pack <$> getArgs
+    exitWith =<< Shell.runShellIO durability (Shell.main argv)

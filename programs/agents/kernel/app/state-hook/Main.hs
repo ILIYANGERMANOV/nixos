@@ -11,5 +11,5 @@ main :: IO ()
 main = do
     -- The reply and its errors are UTF-8 whatever the locale; stdin is read as bytes.
     mapM_ (`hSetEncoding` utf8) [stdout, stderr]
-    argv <- map Text.pack <$> getArgs
-    exitWith =<< Shell.runShellIO (Shell.hook argv)
+    (durability, argv) <- Shell.storeDurability . map Text.pack <$> getArgs
+    exitWith =<< Shell.runShellIO durability (Shell.hook argv)
