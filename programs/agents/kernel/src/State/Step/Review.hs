@@ -12,66 +12,65 @@ module State.Step.Review (
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Commit, Picks, Sha, commitData, commitOf, headData, headOf, picksData, picksOf)
 
-type data ReviewStep = Review | Pick | Fix | ReReview
+type data ReviewStep = Review | PickRows | Fix | ReReview
 
 instance StepSet ReviewStep where
     type Sig Review = '( 'Diff, 'Just 'Diff, 'Findings)
-    type Sig Pick = '( 'Findings, 'Just 'Diff, 'Findings)
+    type Sig PickRows = '( 'Findings, 'Just 'Diff, 'Findings)
     type Sig Fix = '( 'Findings, 'Nothing, 'Diff)
     type Sig ReReview = '( 'Diff, 'Just 'Diff, 'Findings)
-    type Drawn s = 'True
 
     data Sing s where
         Review :: Sing Review
-        Pick :: Sing Pick
+        PickRows :: Sing PickRows
         Fix :: Sing Fix
         ReReview :: Sing ReReview
 
     data Outcome s l where
         ReviewClean :: Sha -> Outcome Review 'Exited
         ReviewRows :: Sha -> Outcome Review 'Continued
-        PickFinal :: Picks -> Outcome Pick 'Exited
-        PickLoop :: Picks -> Outcome Pick 'Continued
+        PickFinal :: Picks -> Outcome PickRows 'Exited
+        PickLoop :: Picks -> Outcome PickRows 'Continued
         FixDone :: Commit -> Outcome Fix 'Continued
         ReReviewClean :: Sha -> Outcome ReReview 'Exited
         ReReviewRows :: Sha -> Outcome ReReview 'Continued
 
-    layerSteps = [SomeStep Review, SomeStep Pick, SomeStep Fix, SomeStep ReReview]
+    layerSteps = [SomeStep Review, SomeStep PickRows, SomeStep Fix, SomeStep ReReview]
       where
         _listsEvery :: Sing (s :: ReviewStep) -> ()
         _listsEvery = \case
             Review -> ()
-            Pick -> ()
+            PickRows -> ()
             Fix -> ()
             ReReview -> ()
 
     stepName =
         StateName . \case
             Review -> "review"
-            Pick -> "pick"
+            PickRows -> "pick"
             Fix -> "fix"
             ReReview -> "re_review"
 
     outcomes = \case
         Review -> ExitsOr (OutcomeName "clean") (OutcomeName "rows")
-        Pick -> ExitsOr (OutcomeName "final") (OutcomeName "loop")
+        PickRows -> ExitsOr (OutcomeName "final") (OutcomeName "loop")
         Fix -> Continues (OutcomeName "done")
         ReReview -> ExitsOr (OutcomeName "clean") (OutcomeName "rows")
 
     special = \case
         Review -> Ordinary
-        Pick -> Ordinary
+        PickRows -> Ordinary
         Fix -> Ordinary
         ReReview -> Ordinary
 
     sameStep a b = case (a, b) of
         (Review, Review) -> Just Refl
         (Review, _) -> Nothing
-        (Pick, Pick) -> Just Refl
-        (Pick, _) -> Nothing
+        (PickRows, PickRows) -> Just Refl
+        (PickRows, _) -> Nothing
         (Fix, Fix) -> Just Refl
         (Fix, _) -> Nothing
         (ReReview, ReReview) -> Just Refl
@@ -80,8 +79,8 @@ instance StepSet ReviewStep where
     pack = \case
         o@(ReviewClean _) -> packed Review o
         o@(ReviewRows _) -> packed Review o
-        o@(PickFinal _) -> packed Pick o
-        o@(PickLoop _) -> packed Pick o
+        o@(PickFinal _) -> packed PickRows o
+        o@(PickLoop _) -> packed PickRows o
         o@(FixDone _) -> packed Fix o
         o@(ReReviewClean _) -> packed ReReview o
         o@(ReReviewRows _) -> packed ReReview o
@@ -98,8 +97,8 @@ instance StepSet ReviewStep where
     decoders =
         [ Decoder Review (fmap ReviewClean . headOf)
         , Decoder Review (fmap ReviewRows . headOf)
-        , Decoder Pick (fmap PickFinal . picksOf)
-        , Decoder Pick (fmap PickLoop . picksOf)
+        , Decoder PickRows (fmap PickFinal . picksOf)
+        , Decoder PickRows (fmap PickLoop . picksOf)
         , Decoder Fix (fmap FixDone . commitOf)
         , Decoder ReReview (fmap ReReviewClean . headOf)
         , Decoder ReReview (fmap ReReviewRows . headOf)
@@ -110,9 +109,9 @@ deriving stock instance Show (Outcome (s :: ReviewStep) l)
 deriving stock instance Eq (Outcome (s :: ReviewStep) l)
 
 -- | A re-review round: each @pick.loop@ buys one.
-instance Meter Pick where
-    meterName Pick = "Re-reviews"
-    spends Pick = \case
+instance Meter PickRows where
+    meterName PickRows = "Re-reviews"
+    spends PickRows = \case
         Ends _ (PickLoop _) -> 1
         Ends _ (PickFinal _) -> 0
         Asks -> 0

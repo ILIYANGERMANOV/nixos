@@ -20,21 +20,28 @@ module State.Run.RunGen (
     sha,
     commit,
     happyPath,
+    researchedIn,
+    spawnedIn,
+    enoughIn,
+    within,
+    skipOf,
+    runOf,
+    pickOf,
     runAt,
     runUnder,
     loadSteps,
     genAccepted,
     genAcceptedOn,
-    genKnobs,
     outcomeOf,
 ) where
 
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -43,25 +50,28 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), Name, ScopePath, scopePath, unqualify)
+import State.Category.Flow (Flow (..), Name (..), ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
-import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
-import State.Category.Step (EventName (..), stateNameText)
-import State.Category.Ty (NotSum, Ty (..))
+import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, outOf)
+import State.Category.Graph qualified as Graph
+import State.Category.Path (unrecorded)
+import State.Category.Step (EventName (..), OutcomeName (..), spawnedOutcome, stateNameText)
+import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Architect (architect)
 import State.Flow.Chief (chief)
+import State.Flow.Drawn (drawnOutcomes)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
 import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
-import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
-import State.Run.Fold (Append (..), RunState (..), append, replay)
+import State.Run.EventGen (fuelSet, genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
+import State.Run.Fold (Append (..), RunState (..), Worker (..), append, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
-import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
+import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
@@ -101,11 +111,11 @@ ticketUrl = Url "https://github.com/o/r/issues/1"
 
 -- | An architect run up to its ticket: researched, explored enough, the ticket opened.
 ticketOpened :: [Event]
-ticketOpened = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring), stepTook (OpenTicketDone ticketUrl)]
+ticketOpened = researchedIn "exploring" <> enoughIn "exploring" <> [stepTook (OpenTicketDone ticketUrl)]
 
 -- | A design round up to the user's verdict: discussed, written into the ticket.
 designWritten :: [Event]
-designWritten = [stepTook (Enough discussing), stepTook UpdateTicketDone]
+designWritten = enoughIn "discussing" <> [stepTook UpdateTicketDone]
 
 -- | The graph a run of this flow walks.
 flowGraph :: FlowName -> OpenGraph
@@ -122,7 +132,7 @@ tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
     tenXStart = start {Event.flow = TenXFlow}
-    toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf tasks))]
+    toFanOut = [fuelSet Balanced, Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf tasks))]
 
 -- | A task on its own branch off main, Balanced, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
@@ -191,53 +201,120 @@ sha = Sha "abc123"
 commit :: Commit
 commit = Commit sha Set.empty
 
-happyPath :: [AnyOutcome]
+-- | An engineer run from its gather to its PR ready: one researcher, the plan confirmed, a clean review.
+happyPath :: [Event]
 happyPath =
-    [outcome ResearchSpawned, outcome ResearchHandedBack, outcome (Enough gathering), outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome ConfirmConfirmed]
-        <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), outcome (RefactorDone sha), outcome (ReviewClean sha)]
-        <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
+    researchedIn "gather"
+        <> enoughIn "gather"
+        <> map
+            (Took mempty)
+            ( [outcome (PlanDone "plan.md"), runOf "simplify_plan", outcome SimplifyPlanDone, outcome ConfirmConfirmed]
+                <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), runOf "refactor", outcome (RefactorDone sha), outcome (ReviewClean sha)]
+                <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
+            )
 
-{- | Any Fuel, then up to 300 tries at an event on an edge out of where the
-run is, keeping those the fold accepts. Edges into a loop that leave none
+-- | A researcher spawned from this choice's pick, then its hand-back: the run is back at the pick.
+researchedIn :: Text -> [Event]
+researchedIn choice = spawnedIn choice <> [stepTook ResearchHandedBack]
+
+-- | A researcher spawned from this choice's pick, in the background: the run is back at the pick.
+spawnedIn :: Text -> [Event]
+spawnedIn choice = [Took mempty (pickOf choice "research"), tookIn (scopePath (Name choice)) ResearchSpawned]
+
+-- | This choice's enough with no researcher open: past its await, the notes merged.
+enoughIn :: Text -> [Event]
+enoughIn choice = [Took mempty (pickOf choice "enough"), tookIn (scopePath (Name choice)) NotesDone]
+
+-- | These events as a flow run inline under this scope records them.
+within :: Name -> [Event] -> [Event]
+within scope = map $ \case
+    Took bare o -> Took (scopePath scope <> bare) o
+    other -> other
+
+-- | The outcome that skips the flows' optional block of this name.
+skipOf :: Text -> AnyOutcome
+skipOf = skipStep "skip"
+
+-- | The outcome that runs the flows' optional block of this name.
+runOf :: Text -> AnyOutcome
+runOf = skipStep "run"
+
+skipStep :: Text -> Text -> AnyOutcome
+skipStep way block = drawn ("skip_" <> block) way
+
+-- | The outcome of the flows' pick of this name that takes this label.
+pickOf :: Text -> Text -> AnyOutcome
+pickOf = drawn
+
+-- | The flows' drawn outcome of this event: a skip's or a pick's.
+drawn :: Text -> Text -> AnyOutcome
+drawn step way = fromMaybe (error ("no drawn " <> Text.unpack step <> "." <> Text.unpack way)) (find ((== EventName (StateName step) (OutcomeName way)) . Catalog.outcomeEvent) drawnOutcomes)
+
+{- | Up to 300 tries at an event on an edge out of where the run is, or a
+researcher's hand-back while one is open, any Fuel at a Fuel step, keeping
+those the fold accepts. An await's edges take no event: the run goes on by
+itself once its group handed back. Edges into a loop that leave none
 are likelier, so loops run out of rounds: a review with rows enters the fix
 loop rather than exiting clean.
 -}
 genAccepted :: Gen [Event]
-genAccepted = genAcceptedOn g
+genAccepted = genAcceptedOn [] g
 
--- | 'genAccepted' on any graph: an edge inside a scope is taken in its place's scope.
-genAcceptedOn :: OpenGraph -> Gen [Event]
-genAcceptedOn on = do
-    knobs <- genKnobs
+{- | 'genAccepted' on any graph: an edge inside a scope is taken in its
+place's scope. The outcomes given are the flow's own picks and skips, which
+no role's flow draws (a generated term's), found before the drawn ones.
+-}
+genAcceptedOn :: [AnyOutcome] -> OpenGraph -> Gen [Event]
+genAcceptedOn own on = do
     steps <- Gen.int (Range.linear 0 300)
-    first <- either (fail . show) pure (replay on (logOf (started :| knobs)))
-    (knobs <>) <$> go steps first (fromIntegral (length knobs) + 1)
+    first <- either (fail . show) pure (replay on (logOf (started :| [])))
+    go steps first 1
   where
     go :: Int -> RunState -> Natural -> Gen [Event]
     go 0 _ _ = pure []
     go k state n = case state.at of
-        At place -> do
-            name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList on.edges, from == place]
-            -- The edge is named in the place's scope; the outcome is its step's own, a choice's action's at a choice.
-            took <- Took place.scope <$> outcomeOf (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
-            case append on state (line n took) of
-                Right (Appended next) -> (took :) <$> go (k - 1) next (n + 1)
-                Right AlreadyLogged -> go (k - 1) state n
-                Left _ -> go (k - 1) state n
+        -- At a fan-out's await, only the 10x's own events, which this draws none of, move the run.
+        At place -> case handBacks place state <> [(if stays place edge then 5 else 1, tookBy place name) | isNothing (unrecorded on place), (name, edge) <- outOf place on.edges] of
+            [] -> pure []
+            choices -> do
+                took <- Gen.frequency choices
+                case append on state (line n took) of
+                    Right (Appended next) -> (took :) <$> bound next (n + 1) (bindOf took n)
+                    Right AlreadyLogged -> go (k - 1) state n
+                    Left _ -> go (k - 1) state n
+              where
+                -- A researcher's spawn is bound to its agent next, as the bind hook logs it.
+                bound next m = \case
+                    Just bind | Right (Appended after) <- append on next (line m bind) -> (bind :) <$> go (k - 1) after (m + 1)
+                    _ -> go (k - 1) next m
         Out -> pure []
-        Exit -> pure []
+        Graph.Exit -> pure []
+    -- The edge is named in the place's scope; the outcome is its step's own.
+    tookBy place name = Took place.scope <$> outcomeIn own (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
+    {- A researcher in the background may return wherever the run is; at an
+    await, only it moves the run on. Its hand-back is taken anywhere, before
+    its bind too, and closes nothing.
+    -}
+    handBacks place state =
+        [(3, pure (WorkerReturned researcher Nothing)) | any ((== researcher) . (.role)) state.workers]
+            <> [(1, pure (Took place.scope (outcome ResearchHandedBack)))]
+    bindOf took n = case took of
+        Took scope spawn | (tookEvent scope spawn).outcome == spawnedOutcome -> Just (WorkerSpawned researcher (AgentId ("r" <> Text.pack (show n))))
+        _ -> Nothing
+    researcher = AgentRole "researcher"
     stays place edge = case edge.to of
         At to ->
             all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems on.loops)
                 && any (Set.member to . (.body)) (Map.elems on.loops)
         Out -> False
-        Exit -> False
-
-genKnobs :: Gen [Event]
-genKnobs = (\fuel -> [FuelSet fuel]) <$> Gen.enumBounded
+        Graph.Exit -> False
 
 outcomeOf :: EventName -> Gen AnyOutcome
-outcomeOf name = fromMaybe Gen.discard (genOutcomeNamed name)
+outcomeOf = outcomeIn []
+
+-- | 'outcomeOf', one of these outcomes first.
+outcomeIn :: [AnyOutcome] -> EventName -> Gen AnyOutcome
+outcomeIn own name = maybe (fromMaybe Gen.discard (genOutcomeNamed name)) pure (find ((== name) . Catalog.outcomeEvent) own)
 
 -- | The run after these events, from 'started'; the events must be a log the fold accepts.
 runAt :: [Event] -> RunState

@@ -23,6 +23,7 @@ module State.Run.EventGen (
     run,
     start,
     started,
+    fuelSet,
     genStart,
     line,
     lineOf,
@@ -47,15 +48,17 @@ import Numeric.Natural (Natural)
 import State.Category.FlowGen (genScopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
-import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
+import State.Flow.Drawn (drawnOutcomes)
+import State.Run.Ask (Above (..), Basis (..), Decision (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), discussing, exploring, gathering, routes)
 import State.Step.Fan (Outcome (..), fanOuts)
+import State.Step.Fuel (Outcome (..))
 import State.Step.Gather (Outcome (..))
+import State.Step.Pick qualified as Pick
 import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -77,7 +80,6 @@ genEvent :: Gen Event
 genEvent =
     Gen.choice
         [ Started <$> genStart
-        , FuelSet <$> Gen.enumBounded
         , Targeted <$> genTarget
         , Extended <$> genText
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
@@ -206,20 +208,19 @@ outcomeNames = Set.fromList (map outcomeEvent templates)
 -- | One of each outcome; 'like' fills in its data.
 templates :: [AnyOutcome]
 templates =
-    [ outcome ResearchSpawned
+    [ outcome (LevelSet Balanced)
+    , outcome ResearchSpawned
     , outcome ResearchHandedBack
-    , outcome (Enough gathering)
-    , outcome (Enough exploring)
-    , outcome (Enough discussing)
+    , outcome InterviewAsked
+    , outcome DiscussAsked
+    , outcome NotesDone
     , outcome (PlanDone "")
     , outcome SimplifyPlanDone
-    , outcome SimplifyPlanSkipped
     , outcome ConfirmConfirmed
     , outcome ConfirmAdjusted
     , outcome (DraftDone (DraftPr (Url "") (Branch "") (Branch "")))
     , outcome (ImplementDone (Commit (Sha "") Set.empty))
     , outcome (RefactorDone (Sha ""))
-    , outcome (RefactorSkipped "")
     , outcome (ReviewClean (Sha ""))
     , outcome (ReviewRows (Sha ""))
     , outcome (PickFinal (Picks Set.empty Map.empty))
@@ -229,7 +230,6 @@ templates =
     , outcome (ReReviewRows (Sha ""))
     , outcome (DescribeDone (Sha ""))
     , outcome (SimplifyPrDone (Sha ""))
-    , outcome (SimplifyPrSkipped (Sha ""))
     , outcome (AwaitCiGreen (Sha ""))
     , outcome (AwaitCiRed (Sha "") (Check "" :| []))
     , outcome (FixPrDone (Sha ""))
@@ -247,15 +247,14 @@ templates =
     , outcome NextDone
     , outcome NextRequest
     ]
-        <> [outcome (Picked route branch) | (route, branches) <- routes, branch <- branches]
         <> concat
             [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr ChildConfirms Nothing Nothing EngineerFlow :| [])))
-              , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)
               ]
             | fan <- fanOuts
             ]
+        <> drawnOutcomes
 
 -- | The same outcome, with generated data: of the same step, by the same leg.
 like :: AnyOutcome -> Gen AnyOutcome
@@ -266,17 +265,18 @@ likeIn = \case
     GatherLayer -> \case
         ResearchSpawned -> pure ResearchSpawned
         ResearchHandedBack -> pure ResearchHandedBack
+        InterviewAsked -> pure InterviewAsked
+        DiscussAsked -> pure DiscussAsked
+        NotesDone -> pure NotesDone
     PlanLayer -> \case
         PlanDone _ -> PlanDone <$> Gen.string (Range.linear 1 30) Gen.unicode
         SimplifyPlanDone -> pure SimplifyPlanDone
-        SimplifyPlanSkipped -> pure SimplifyPlanSkipped
         ConfirmConfirmed -> pure ConfirmConfirmed
         ConfirmAdjusted -> pure ConfirmAdjusted
     BuildLayer -> \case
         DraftDone _ -> DraftDone <$> (DraftPr . Url <$> genText <*> (Branch <$> genText) <*> (Branch <$> genText))
         ImplementDone _ -> ImplementDone <$> genCommit
         RefactorDone _ -> RefactorDone <$> genSha
-        RefactorSkipped _ -> RefactorSkipped <$> genText
     ReviewLayer -> \case
         ReviewClean _ -> ReviewClean <$> genSha
         ReviewRows _ -> ReviewRows <$> genSha
@@ -288,7 +288,6 @@ likeIn = \case
     ShipLayer -> \case
         DescribeDone _ -> DescribeDone <$> genSha
         SimplifyPrDone _ -> SimplifyPrDone <$> genSha
-        SimplifyPrSkipped _ -> SimplifyPrSkipped <$> genSha
         AwaitCiGreen _ -> AwaitCiGreen <$> genSha
         AwaitCiRed _ _ -> AwaitCiRed <$> genSha <*> Gen.nonEmpty (Range.linear 1 3) (Check <$> Gen.element ["lint", "test", "build"])
         FixPrDone _ -> FixPrDone <$> genSha
@@ -309,12 +308,14 @@ likeIn = \case
         NextRequest -> pure NextRequest
     FanLayer -> \case
         BreakdownDone fan _ -> BreakdownDone fan <$> genTasks
-        FanDone fan -> pure (FanDone fan)
         MergeDone fan _ -> MergeDone fan . Url <$> genText
         MergeNextRound fan -> pure (MergeNextRound fan)
-    ChoiceLayer -> \case
-        Enough choice -> pure (Enough choice)
-        Picked route branch -> pure (Picked route branch)
+    PickLayer -> \case
+        o@(Pick.Picked _) -> pure o
+    FuelLayer -> \case
+        LevelSet _ -> LevelSet <$> Gen.enumBounded
+        o@(Skipping _) -> pure o
+        o@(Running _) -> pure o
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks
@@ -401,6 +402,10 @@ start = Start EngineerFlow "notes" (ByUser OwnPr) (Set.fromList [AskUser, Hooks]
 
 started :: Event
 started = Started start
+
+-- | A Fuel step's event, as a root's or a request's records it: the run's level from here on.
+fuelSet :: Fuel -> Event
+fuelSet level = Took mempty (outcome (LevelSet level))
 
 -- | A CLI line of 'run', at its seq.
 line :: Natural -> Event -> Envelope

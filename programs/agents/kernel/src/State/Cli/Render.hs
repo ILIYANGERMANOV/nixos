@@ -15,12 +15,12 @@ module State.Cli.Render (
 
 import Data.List (nub, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Category.Flow (Name, namedState)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel, fullReview)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, isRouteHub, placeName, places, shownOrder)
+import State.Category.Graph (Cap (..), Edge (..), GroupAt (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Protocol.Handback (TokenWord (NeedsDecisionWord), tokenWordText, tokenWords)
@@ -30,14 +30,13 @@ import State.Run.Codec (areaText)
 import State.Show (tshow)
 import State.Step.Build (Sing (Refactor))
 import State.Step.Catalog (AnyStep (..), shownEdges, stepNamed)
-import State.Step.Choice (choiceNamed)
 import State.Step.Gather (Sing (Research))
-import State.Step.Review (Sing (Pick))
+import State.Step.Review (Sing (PickRows))
 import State.Table (Row (runner), Runner (..), Steps, row)
 
 {- | The flow's states in the term's order: who runs each, and where each of
-its outcomes goes. A skip is an arrow like any other: 'fuel' says when a
-level takes it.
+its outcomes goes. An optional block's skip is a state of its own, the
+lead's: 'fuel' says when a level takes its @skip@.
 -}
 states :: OpenGraph -> Steps -> Text
 states g steps =
@@ -45,13 +44,14 @@ states g steps =
         ["State", "Run by", "Arrows out"]
         [[stateNameText (placeName place), runBy place, arrowsOut place] | place <- Set.toList (places g)]
   where
-    -- A choice's and a route's hub are the lead's own: any other unnamed state is a fan-out.
-    runBy place = case (stepNamed place.name, isJust (choiceNamed place.name) || isRouteHub g (At place)) of
+    -- A group's fork fans out and its await waits for the children; any other unnamed state, a pick or a skip, is the lead's own.
+    runBy place = case (stepNamed place.name, Map.lookup place g.groupStates) of
         (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
             Agent agent _ -> roleText agent
             Inline -> "you"
-        (Nothing, True) -> "you"
-        (Nothing, False) -> "fan-out"
+        (Nothing, Just (Forking _)) -> "fan-out"
+        (Nothing, Just (Awaiting _)) -> "await"
+        (Nothing, Nothing) -> "you"
     arrowsOut place =
         Text.intercalate "; " [eventLabel place event <> ": " <> target edge.to | (event, edge) <- shownEdges g place]
     target = \case
@@ -65,10 +65,10 @@ which carries its term's budgets, and 'fullReview', with each level's depth pros
 after it. A meter is a row by its name, in the flow's order, a choice's
 actions in the order the term declares them. One
 capped alike at every level is no row. A step the flow draws as optional
-('Skip' arrow) is skippable by its state's name.
+('State.Flow.Library.opt') is skippable by its block's name.
 -}
-fuel :: OpenGraph -> Text
-fuel g =
+fuel :: [(Name, PerFuel SkipWhen)] -> OpenGraph -> Text
+fuel skips g =
     rows $
         [someMeterName cap.meter : map (\level -> meterCell cap.meter level (atFuel level cap.limit)) levels | (_, cap) <- sortOn (uncurry shownOrder) (Map.toList g.caps), varies cap.limit]
             <> [ "Skippable when trivial" : map skippable levels
@@ -78,10 +78,9 @@ fuel g =
   where
     levels = [minBound .. maxBound]
     varies limit = nub (map (`atFuel` limit) levels) /= [atFuel Low limit]
-    -- An 'Opt' draws as a skip arrow out of its first state.
     optSteps :: [(StateName, PerFuel SkipWhen)]
-    optSteps = nub [(placeName from, skips) | ((from, _), Edge {arrow = Skip _ skips}) <- Map.toList g.edges]
-    skippable level = case ["`" <> stateNameText name <> "`" | (name, skips) <- optSteps, atFuel level skips == Skippable] of
+    optSteps = nub [(namedState name, when) | (name, when) <- skips]
+    skippable level = case ["`" <> stateNameText name <> "`" | (name, when) <- optSteps, atFuel level when == Skippable] of
         [] -> "none"
         names -> Text.intercalate ", " names
     skipAt level step = maybe Never (atFuel level) (lookup step optSteps)
@@ -97,7 +96,7 @@ re-reviews how deep each goes.
 meterCell :: SomeMeter -> Fuel -> Limit -> Text
 meterCell meter level limit
     | meter == SomeMeter Research = researchers limit <> researchDepth level
-    | meter == SomeMeter Pick = upTo limit <> reReviewDepth level
+    | meter == SomeMeter PickRows = upTo limit <> reReviewDepth level
     | otherwise = upTo limit
   where
     researchers = \case

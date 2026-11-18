@@ -2,26 +2,30 @@ module State.Cli.CommandSpec (spec) where
 
 import Data.Either (fromLeft, fromRight)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Options.Applicative qualified as Opt
+import Options.Applicative qualified as Optparse
+import State.Category.Flow (unqualify)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Cap (..), OpenGraph (..))
 import State.Category.Meter (someMeterName)
+import State.Category.Path (unrecorded)
 import State.Category.Step (eventText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLineText)
 import State.Run.Event (Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
-import State.Run.EventGen (runId)
+import State.Run.EventGen (fuelSet, runId)
 import State.Run.Fold (Refusal (..), RunState (..))
-import State.Run.RunGen (g, happyPath, loadSteps, runAt, securityScope, sha)
+import State.Run.RunGen (g, happyPath, loadSteps, pickOf, runAt, securityScope, sha)
 import State.Step.Artifact (Shape (..), Url (..), shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Plan (Outcome (..))
+import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import System.Exit (ExitCode (..))
 import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shouldSatisfy)
@@ -47,8 +51,8 @@ spec = describe "State.Cli.Command" $ do
             Right _ -> "not help"
 
     describe "record" $ do
-        it "parses a stay event's argument" $
-            recorded ["fuel", "low"] `shouldBe` Right (FuelSet Low)
+        it "parses the Fuel step's level" $
+            recorded ["fuel.set", "low"] `shouldBe` Right (fuelSet Low)
 
         it "parses a request's target: a PR by its GitHub url, a branch, a ticket" $
             map recorded [["target", "pr", "https://github.com/o/r/pull/7"], ["target", "branch", "feat"], ["target", "ticket", "https://github.com/o/r/issues/3"]]
@@ -85,14 +89,14 @@ spec = describe "State.Cli.Command" $ do
             recorded ["pick.final", "--row", "R1", "--row", "R2"] `shouldBe` Right (stepTook (PickFinal (Picks (Set.fromList [Label "R1", Label "R2"]) Map.empty)))
 
         it "keeps an event's free words that start with a dash" $
-            recorded ["refactor.skipped", "-x", "--flag", "added"] `shouldBe` Right (stepTook (RefactorSkipped "-x --flag added"))
+            recorded ["direct.done", "-x", "--flag", "added"] `shouldBe` Right (stepTook (DirectDone "-x --flag added"))
 
         it "records a step's outcome named inside a scope in that scope" $
             recorded ["security/review.rows"] `shouldBe` Right (tookIn securityScope (ReviewRows sha))
 
         it "refuses a run's event named inside a scope" $
-            case parseCommand steps ["record", "security/fuel", "low"] of
-                Right (_, Left failure) -> (failure.what, failure.why) `shouldBe` ("record security/fuel", "only a step's outcome is named inside a scope")
+            case parseCommand steps ["record", "security/target", "branch", "b"] of
+                Right (_, Left failure) -> (failure.what, failure.why) `shouldBe` ("record security/target", "only a step's outcome is named inside a scope")
                 _ -> expectationFailure "not a refusal"
 
         it "refuses a scoped event's usage with its qualified name" $
@@ -213,67 +217,65 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` "state record: fuel - set once\nfix: state show\n"
 
         it "explains a void that breaks the replay by what breaks, fixing it by voiding the later line first" $
-            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (runAt []).meters (VoidBreaks 0 NotStarted))
+            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt fueled).at (VoidBreaks 0 NotStarted))
                 `shouldBe` ("the log without it does not replay: the log - its first line is not started", "state void <the later line that needs it> <why>, then this one")
 
-        it "explains a second Fuel by the one set" $
-            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (runAt []).meters (FuelSetOnce Max))
-                `shouldBe` ("it is max already, set once", "state show")
+        it "fixes a question past the gather's questions by extending, or going back to the gather's pick" $
+            (explain g Balanced (runAt interviewing).at (OutOfBudget (capOf "Interview questions") 30)).fix
+                `shouldBe` "state record extend <why> | state record interview.asked"
 
-        it "fixes a question past the gather's questions by extending or ending the gather" $
-            (explain g Balanced (runAt researched).at (runAt researched).meters (OutOfBudget (capOf "Interview questions") 30)).fix
-                `shouldBe` "state record extend <why> | state record gather.enough"
-
-        it "fixes a researcher past the cap by extending or ending the gather" $
-            (explain g Balanced (runAt []).at (runAt []).meters (OutOfBudget (capOf "Researchers") 5)).fix
-                `shouldBe` "state record extend <why> | state record gather.enough"
+        it "fixes a researcher past the cap at the research state by extending" $
+            (explain g Balanced (runAt researching).at (OutOfBudget (capOf "Researchers") 5)).fix
+                `shouldBe` "state record extend <why> | state record gather/research.spawned"
 
         it "fixes a plan round past the cap by confirming or stopping" $
-            (explain g Balanced (runAt planned).at (runAt planned).meters (OutOfBudget (capOf "Plan rounds") 3)).fix
+            (explain g Balanced (runAt planned).at (OutOfBudget (capOf "Plan rounds") 3)).fix
                 `shouldBe` "state record confirm.confirmed | state stop rounds <why>"
 
         it "fixes a re-review past the cap by the loop's exit alone" $
-            (explain g Balanced (runAt picking).at (runAt picking).meters (OutOfBudget (capOf "Re-reviews") 3)).fix
+            (explain g Balanced (runAt picking).at (OutOfBudget (capOf "Re-reviews") 3)).fix
                 `shouldBe` "state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
 
         it "explains an extend where no budget asks the user to go on" $
-            (explain g Balanced (runAt []).at (runAt []).meters NothingToExtend).fix `shouldBe` "state next"
+            (explain g Balanced (runAt fueled).at NothingToExtend).fix `shouldBe` "state next"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $
-            [ (explain g fuel (runAt simplifying).at (runAt simplifying).meters (NoEdge (runAt simplifying).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            [ (explain g fuel (runAt skipping).at (NoEdge (runAt skipping).at (outcomeEvent (outcome (ReviewClean sha))))).fix
             | fuel <- [Balanced, Low]
             ]
-                `shouldBe` ["state record simplify_plan.done", "state record simplify_plan.done | state record simplify_plan.skipped"]
+                `shouldBe` ["state record skip_simplify_plan.run", "state record skip_simplify_plan.run | state record skip_simplify_plan.skip"]
 
-        it "names a choice's hand-back in the fix only while a child is open" $
-            [ (explain g Balanced (runAt events).at (runAt events).meters (NoEdge (runAt events).at (outcomeEvent (outcome (ReviewClean sha))))).fix
-            | events <- [[], researched]
+        it "fixes an event with no arrow at the gather's pick by its picks, a researcher open or not: a hand-back is no pick" $
+            [ (explain g Balanced (runAt events).at (NoEdge (runAt events).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            | events <- [fueled, researched]
             ]
-                `shouldBe` [ "state record research.spawned | state record gather.enough"
-                           , "state record research.spawned | state record research.handed_back | state record gather.enough"
-                           ]
+                `shouldBe` replicate 2 "state record gather.enough | state record gather.interview | state record gather.research"
 
     describe "input the run refuses" $ do
-        it "lists the events a gather takes for an unknown one, fixing it by its step's" $
-            (\failure -> (failure.what, failure.why, failure.fix)) (unknownEvent g (runAt []) "gather.bogus")
-                `shouldBe` ("no event gather.bogus", "at gather the run takes research.spawned, research.handed_back, gather.enough, extend", "state record gather.enough")
+        it "lists the events a gather's pick takes for an unknown one, fixing it by state next among its picks" $
+            (\failure -> (failure.what, failure.why, failure.fix)) (unknownEvent g (runAt fueled) "gather.bogus")
+                `shouldBe` ("no event gather.bogus", "at gather the run takes gather.enough, gather.interview, gather.research, extend", "state next")
+
+        it "fixes an unknown event by the one event of the step it names" $
+            (unknownEvent g (runAt interviewing) "interview.bogus").fix `shouldBe` "state record interview.asked"
 
         it "fixes an unknown event by the only one the run takes" $
             (unknownEvent g (runAt simplifying) "nope").fix `shouldBe` "state record simplify_plan.done"
 
         it "fixes an unknown event matching no step by state next" $
-            (unknownEvent g (runAt []) "nope").fix `shouldBe` "state next"
+            (unknownEvent g (runAt fueled) "nope").fix `shouldBe` "state next"
 
         it "lists every event with no run, fixed by the help" $
-            (\failure -> (Text.isPrefixOf "the events are fuel, research.spawned, " failure.why, failure.fix)) (anyEvent "nope") `shouldBe` (True, "state help")
+            (\failure -> (Text.isPrefixOf "the events are research.spawned, " failure.why, failure.fix)) (anyEvent "nope") `shouldBe` (True, "state help")
 
         it "refuses a question id that is not open, malformed or not" $
-            [(failure.what, failure.why, failure.fix) | raw <- ["q1", "r1:99"], Left failure <- [openQid (runAt []) raw]]
+            [(failure.what, failure.why, failure.fix) | raw <- ["q1", "r1:99"], Left failure <- [openQid (runAt fueled) raw]]
                 `shouldBe` [(what, "no question is open", "state pending") | what <- ["question q1", "question r1:99"]]
 
     describe "help" $ do
         it "record's help lists every event the flow's arrows take" $
-            [event | (_, event) <- Map.keys g.edges, not (eventText event `Text.isInfixOf` helpOf ["record", "--help"])] `shouldBe` []
+            -- An await's edges take no event; a scoped event is recorded by its step's bare name.
+            [event | ((from, event), _) <- Map.toList g.edges, isNothing (unrecorded g from), not (snd (unqualify (eventText event)) `Text.isInfixOf` helpOf ["record", "--help"])] `shouldBe` []
 
         it "is what --help prints" $
             helpOf ["--help"] `shouldBe` help steps
@@ -292,11 +294,15 @@ spec = describe "State.Cli.Command" $ do
         it "of state rule" $ golden "usage/state-rule-help.txt" (helpOf ["rule", "--help"])
         it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
-    -- At the gather with a researcher open, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
-    researched = map (Took mempty) (take 1 happyPath)
-    simplifying = map (Took mempty) (take 4 happyPath)
-    planned = map (Took mempty) (take 5 happyPath)
-    picking = map (Took mempty) (take 9 happyPath) <> [stepTook (ReviewRows sha)]
+    -- At the gather, past the root's Fuel; then with a researcher open, at simplify_plan's skip, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
+    fueled = [fuelSet Balanced]
+    researched = fueled <> take 2 happyPath
+    researching = fueled <> [Took mempty (pickOf "gather" "research")]
+    interviewing = fueled <> [Took mempty (pickOf "gather" "interview")]
+    skipping = fueled <> take 6 happyPath
+    simplifying = fueled <> take 7 happyPath
+    planned = fueled <> take 8 happyPath
+    picking = fueled <> take 13 happyPath <> [stepTook (ReviewRows sha)]
     -- The engineer's cap of this meter.
     capOf :: Text -> Cap
     capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of
@@ -304,7 +310,7 @@ spec = describe "State.Cli.Command" $ do
         caps -> error ("no single cap of " <> show meter <> ": " <> show caps)
     -- optparse's text: help asked for on the right, a usage error on the left.
     usage :: String -> Usage -> Either Text Text
-    usage program (Usage failure) = case Opt.renderFailure failure program of
+    usage program (Usage failure) = case Optparse.renderFailure failure program of
         (text, ExitSuccess) -> Right (optparseText text)
         (text, ExitFailure _) -> Left (optparseText text)
     usageError :: String -> Either Usage a -> Text

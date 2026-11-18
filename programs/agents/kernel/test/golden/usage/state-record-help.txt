@@ -6,37 +6,21 @@ Available options:
   -h,--help                Show this help text
 
 Available commands:
-  fuel                     <low|balanced|max>
   research.spawned         no arguments
   research.handed_back     no arguments
-  gather.enough            no arguments
-  exploring.enough         no arguments
-  discussing.enough        no arguments
+  interview.asked          no arguments
+  discuss.asked            no arguments
+  notes.done               no arguments
   target                   <pr <url>|branch <name>|ticket <url>>
-  route.architect          no arguments
-  route.engineer           no arguments
-  route.10x                no arguments
-  route.blocks             no arguments
-  route.discussion         no arguments
-  route.other              no arguments
-  block.researching        no arguments
-  block.gathering          no arguments
-  block.agreeing           no arguments
-  block.proposing          no arguments
-  block.building           no arguments
-  block.reviewing          no arguments
-  block.describing         no arguments
-  block.shipping           no arguments
+  fuel.set                 <low|balanced|max>
   extend                   <why>
   plan.done                <path>
   simplify_plan.done       no arguments
-  simplify_plan.skipped    no arguments
   confirm.confirmed        no arguments
   confirm.adjusted         no arguments
   draft.done               <url> <base> <branch>
   implement.done           [--touches <area>,...|none]
   refactor.done            no arguments
-  refactor.skipped         <why>
   review.clean             no arguments
   review.rows              no arguments
   pick.final               [--row <label>]... [--verdict
@@ -48,7 +32,6 @@ Available commands:
   re_review.rows           no arguments
   describe.done            no arguments
   simplify_pr.done         no arguments
-  simplify_pr.skipped      no arguments
   await_ci.green           no arguments
   await_ci.red             <check>...
   fix_pr.done              no arguments
@@ -66,7 +49,6 @@ Available commands:
   next.request             no arguments
   next.done                no arguments
   breakdown.done           --tasks <file.json>
-  engineers.done           no arguments
   task                     <id> <ci|review|merged|kept|round> <pr> | add
                            <task.json> | <id> parked <why> [--pr <url>]
   held                     <task> <url>
@@ -75,5 +57,31 @@ Available commands:
   resumed                  <child run>
   merge.done               <url>
   merge.next_round         no arguments
+  gather.enough            no arguments
+  gather.research          no arguments
+  gather.interview         no arguments
+  skip_simplify_plan.skip  no arguments
+  skip_simplify_plan.run   no arguments
+  skip_refactor.skip       no arguments
+  skip_refactor.run        no arguments
+  exploring.enough         no arguments
+  exploring.research       no arguments
+  discussing.enough        no arguments
+  discussing.research      no arguments
+  discussing.discuss       no arguments
+  route.architect          no arguments
+  route.engineer           no arguments
+  route.10x                no arguments
+  route.blocks             no arguments
+  route.discussion         no arguments
+  route.other              no arguments
+  block.researching        no arguments
+  block.gathering          no arguments
+  block.agreeing           no arguments
+  block.proposing          no arguments
+  block.building           no arguments
+  block.reviewing          no arguments
+  block.describing         no arguments
+  block.shipping           no arguments
 
 A commit event records HEAD.

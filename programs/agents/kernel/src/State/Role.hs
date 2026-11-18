@@ -27,11 +27,10 @@ module State.Role (
 
 import Data.List (find)
 import Data.Maybe (mapMaybe)
-import Data.Text (Text)
-import State.Category.Flow (Flow, Name (..), scopeNames, unqualify)
+import State.Category.Flow (AgentRole (..), Flow, Name (..), roleText, scopeNames, unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
-import State.Category.Ty (KnownTy (..), NotSum, Ty (..))
+import State.Category.Ty (KnownTy (..), NotSum, TyOf (..), TyVal)
 import State.Flow.Architect (architect)
 import State.Flow.Chief (chief, discussion)
 import State.Flow.Engineer (engineer)
@@ -42,10 +41,6 @@ import State.FlowName (FlowName (..), defaultFlow, flowText)
 data Rung = Worker | Lead | Orchestrator | User
     deriving stock (Eq, Show, Enum, Bounded)
 
--- | A subagent's role, as @state handback <role>@ names it: @implementer@.
-newtype AgentRole = AgentRole Text
-    deriving stock (Eq, Show)
-
 -- | A role that leads a flow: its wire name, its flow, and its rung.
 data RoleDef = RoleDef {name :: AgentRole, flow :: SomeFlow, rung :: Rung}
 
@@ -54,7 +49,7 @@ data SomeFlow where
     SomeFlow :: (KnownTy o, NotSum o) => Flow 'Ctx 'Nothing o -> SomeFlow
 
 -- | What the flow ends in.
-flowOut :: SomeFlow -> Ty
+flowOut :: SomeFlow -> TyVal
 flowOut (SomeFlow (_ :: Flow 'Ctx 'Nothing o)) = tyVal @o
 
 role :: FlowName -> RoleDef
@@ -70,9 +65,6 @@ roles = map role [minBound .. maxBound]
 -- | The flow a role leads; a worker leads none.
 leads :: AgentRole -> Maybe FlowName
 leads agent = find (\flowName -> (role flowName).name == agent) [minBound .. maxBound]
-
-roleText :: AgentRole -> Text
-roleText (AgentRole name) = name
 
 {- | The flow a scope runs inline: a scope named after a flow's wire name,
 @Scope "10x" tenX@, runs that flow. The chief's @discussion@ runs as the

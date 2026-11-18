@@ -31,7 +31,7 @@ module State.Run.Ask (
     flattened,
     Question (..),
     Reading (..),
-    Choice (..),
+    Decision (..),
     Proposal (..),
     Basis (..),
     Ruling,
@@ -184,10 +184,10 @@ data Question = Question {qid :: QId, kind :: Kind, text :: OneLine}
     deriving stock (Eq, Show)
 
 -- | What a role made of a question: the kind it reads it as, and its choice.
-data Reading = Reading {kind :: Kind, choice :: Choice}
+data Reading = Reading {kind :: Kind, choice :: Decision}
     deriving stock (Eq, Show)
 
-data Choice = RuleOn Proposal | PassOn
+data Decision = RuleOn Proposal | PassOn
     deriving stock (Eq, Show)
 
 -- | A role's answer, before 'triage' checks the role may give it.

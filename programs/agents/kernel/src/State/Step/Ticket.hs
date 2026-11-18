@@ -13,7 +13,7 @@ module State.Step.Ticket (
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Url, urlData, urlOf)
 
 type data TicketStep = OpenTicket | UpdateTicket | ConfirmDesign | FinalizeTicket
@@ -23,7 +23,6 @@ instance StepSet TicketStep where
     type Sig UpdateTicket = '( 'Ctx, 'Nothing, 'Ticket)
     type Sig ConfirmDesign = '( 'Ticket, 'Just 'Ticket, 'Ctx)
     type Sig FinalizeTicket = '( 'Ticket, 'Nothing, 'Ticket)
-    type Drawn s = 'True
 
     data Sing s where
         OpenTicket :: Sing OpenTicket

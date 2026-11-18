@@ -62,8 +62,9 @@ import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
 import State.Category.Flow (unqualify)
-import State.Category.Fuel (fuelName, parseByName, parseFuel)
+import State.Category.Fuel (parseByName)
 import State.Category.Step (eventText)
+import State.Flow.Drawn (drawnDecoders)
 import State.Role (flowText)
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
@@ -206,7 +207,6 @@ sourceOf run n raw
 eventType :: Event -> Text
 eventType = \case
     Started _ -> "started"
-    FuelSet _ -> "fuel"
     Targeted _ -> "target"
     Extended _ -> "extend"
     Took scope outcome -> eventText (tookEvent scope outcome)
@@ -239,7 +239,6 @@ eventData = \case
             <> "notes" .= start.notes
             <> pair "principal" (principalEncoding start.principal)
             <> "interface" .= map opText (Set.toList start.interface)
-    FuelSet fuel -> "level" .= fuelName fuel
     Targeted target -> targetData target
     Extended why -> "why" .= why
     Took _ outcome -> outcomeData outcome
@@ -285,7 +284,6 @@ eventData = \case
 eventOf :: Text -> Object -> Parser Event
 eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
-    "fuel" -> FuelSet <$> (obj .: "level" >>= named "fuel" parseFuel)
     "target" -> Targeted <$> targetOf obj
     "extend" -> Extended <$> obj .: "why"
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
@@ -320,7 +318,7 @@ outcome changes the wire with it. A step inside a scope logs its outcome
 under the qualified name, @security/review.rows@.
 -}
 outcomeParsers :: Map Text (Object -> Parser AnyOutcome)
-outcomeParsers = Map.fromList (map (first eventText) outcomeDecoders)
+outcomeParsers = Map.fromList (map (first eventText) (outcomeDecoders <> drawnDecoders))
 
 childOf :: Object -> Parser RunId
 childOf obj = obj .: "child" >>= runIdOf

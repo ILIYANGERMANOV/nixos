@@ -6,16 +6,18 @@ is asked whether to go on.
 -}
 module State.Flow.Architect (architect) where
 
-import State.Category.Flow (Flow (..))
+import State.Category.Flow (CapTarget (..), Flow (..))
 import State.Category.Fuel (always)
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Flow.Library (discuss, research)
+import State.Step.Fuel (Sing (Fuel))
 import State.Step.Ticket (Sing (..))
 
 architect :: Flow 'Ctx 'Nothing 'Ticket
 architect =
-    research
+    Do Fuel
+        :> research
         :> Do OpenTicket
-        :> Loop "design" (discuss :> Do UpdateTicket :> Capped (always (UpTo 3)) Extend ConfirmDesign)
+        :> Loop "design" (discuss :> Do UpdateTicket :> Capped (always (UpTo 3)) Extend (Step ConfirmDesign))
         :> Do FinalizeTicket

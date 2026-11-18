@@ -26,10 +26,11 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, skippedOutcome, stateNameText, stepName)
-import State.Category.Ty (KnownTy (..), Ty (..))
+import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, stateNameText, stepName)
+import State.Category.Ty (KnownTy (..), TyOf (..), TyVal)
+import State.Flow.Drawn (drawnDecoders, drawnSteps)
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
-import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders, outcomeSteps)
+import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders)
 
 {- | A row for every step of the layers and no other, each with the step's
 types and outcomes. Only 'parseSteps' builds one.
@@ -99,8 +100,8 @@ stepNames = [stepName s | AnyStep _ (SomeStep s) <- allSteps]
 catalogProblems :: [Text]
 catalogProblems = namingProblems stepNames readers declared
   where
-    readers = map fst outcomeDecoders
-    declared = Set.fromList (concat [stepEvents s (EventName (stepName s) skippedOutcome `elem` readers) | AnyStep _ (SomeStep s) <- outcomeSteps])
+    readers = map fst (outcomeDecoders <> drawnDecoders)
+    declared = Set.fromList (concat [stepEvents s | AnyStep _ (SomeStep s) <- allSteps <> drawnSteps])
 
 {- | Every way these names clash or miss an outcome: the steps' names, the
 event each outcome reader reads, and the events the steps declare.
@@ -115,9 +116,9 @@ namingProblems steps readers declared =
     twice :: (Ord a) => [a] -> [a]
     twice names = Map.keys (Map.filter (> (1 :: Int)) (Map.fromListWith (+) [(name, 1) | name <- names]))
 
--- | A step's events: its exit and continuing ones, and its skip if it has one.
-stepEvents :: (StepSet k) => Sing (s :: k) -> Bool -> [EventName]
-stepEvents s skips = map (EventName (stepName s)) (outcomeNames (outcomes s) <> [skippedOutcome | skips])
+-- | A step's events: its exit and continuing ones, or one per branch.
+stepEvents :: (StepSet k) => Sing (s :: k) -> [EventName]
+stepEvents s = map (EventName (stepName s)) (outcomeNames (outcomes s))
 
 check :: Map StateName Written -> AnyStep -> Either [Text] (StateName, Row)
 check rows (AnyStep _ (SomeStep s)) = case Map.lookup name rows of
@@ -151,16 +152,15 @@ roleProblems written =
   where
     leads = map (\def -> roleText def.name) roles
 
-exitOf :: forall e o. Outcomes e o -> Maybe Ty
+exitOf :: forall e o. Outcomes e o -> Maybe TyVal
 exitOf = \case
     Continues _ -> Nothing
     ExitsOr @x _ _ -> Just (tyVal @x)
-    Branches _ _ -> Nothing
+    Branches -> Nothing
     OpensChildren -> Nothing
-    AsksOnly -> Nothing
 
 -- | As the table spells a type: @[Ctx]@ for a list.
-tyText :: Ty -> Text
+tyText :: TyVal -> Text
 tyText = \case
     Ctx -> "Ctx"
     Plan -> "Plan"
@@ -170,7 +170,7 @@ tyText = \case
     Ticket -> "Ticket"
     Result -> "Result"
     List t -> "[" <> tyText t <> "]"
-    a :+ b -> "(" <> tyText a <> " + " <> tyText b <> ")"
+    Sum summands -> "(" <> Text.intercalate " + " [label <> ": " <> tyText t | (label, t) <- summands] <> ")"
 
 -- | The runner sum: an inline step has no lead, a role's step has one.
 runnerOf :: Text -> Maybe Text -> Either Text Runner

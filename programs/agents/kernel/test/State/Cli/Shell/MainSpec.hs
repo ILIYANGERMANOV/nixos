@@ -71,6 +71,7 @@ spec = describe "state over the doubles" $ do
                 for_ [("engineer", []), ("10x", ["--flow", "10x"]), ("architect", ["--flow", "architect"])] $ \(branch, flag) -> do
                     fresh <- newWorld
                     chief <- startedIn fresh ["--flow", "chief"]
+                    _ <- succeeded =<< state fresh ["record", "fuel.set", "balanced"]
                     _ <- succeeded =<< state fresh ["record", "route." <> branch]
                     next <- succeeded =<< state fresh ["next"]
                     before' <- loggedEvents fresh
@@ -81,14 +82,14 @@ spec = describe "state over the doubles" $ do
                     shown <- succeeded =<< state fresh ["show"]
                     (inner, after, take 1 shown) `shouldBe` (next, before', ["run: " <> chief <> " (chief)"])
 
-            it "starts an engineer, 10x or architect run in a free worktree as before" $ \_ ->
-                for_ [[], ["--flow", "10x"], ["--flow", "architect"]] $ \flag -> do
+            it "starts an engineer, 10x, architect or chief run in a free worktree, only the 10x past its Fuel at Balanced" $ \_ ->
+                for_ [([], ["started"]), (["--flow", "10x"], ["started", "fuel.set"]), (["--flow", "architect"], ["started"]), (["--flow", "chief"], ["started"])] $ \(flag, begun) -> do
                     fresh <- newWorld
 
                     ran <- state fresh (["init", "--notes", "/notes"] <> flag)
 
                     events <- loggedEvents fresh
-                    (ran.code, ran.out, ran.err, events) `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work"], [], ["started"])
+                    (ran.code, ran.out, ran.err, events) `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work"], [], begun)
 
             it "refuses an engineer, 10x or architect init over a run no branch of which runs that flow, as before" $ \_ -> do
                 let engineer = []
@@ -97,12 +98,13 @@ spec = describe "state over the doubles" $ do
                     chief = ["--flow", "chief"]
                     standalone = [(held, [], flag) | held <- [engineer, tenX, architect], flag <- [engineer, tenX, architect]]
                     atHub = [(chief, [], flag) | flag <- [engineer, tenX, architect]]
-                    otherBranch = [(chief, ["route.engineer"], tenX), (chief, ["route.engineer"], architect), (chief, ["route.10x"], engineer)]
-                    inBlocks = [(chief, ["route.blocks"], flag) | flag <- [engineer, tenX, architect]]
+                    requested pick = [["fuel.set", "balanced"], [pick]]
+                    otherBranch = [(chief, requested "route.engineer", tenX), (chief, requested "route.engineer", architect), (chief, requested "route.10x", engineer)]
+                    inBlocks = [(chief, requested "route.blocks", flag) | flag <- [engineer, tenX, architect]]
                 for_ (standalone <> atHub <> otherBranch <> inBlocks) $ \(held, picks, flag) -> do
                     fresh <- newWorld
                     run <- startedIn fresh held
-                    for_ picks $ \pick -> succeeded =<< state fresh ["record", pick]
+                    for_ picks $ \argv -> succeeded =<< state fresh ("record" : argv)
 
                     refused <- state fresh (["init", "--notes", "/other"] <> flag)
 
@@ -190,14 +192,14 @@ spec = describe "state over the doubles" $ do
 
             for_ ["balanced", "max"] $ \fuel ->
                 it ("goes from the simplified plan straight to confirm at " <> Text.unpack fuel) $ \world -> do
-                    transcript <- drive world [Record ["fuel", fuel], Record ["gather.enough"], Planned, Handback "researcher" ready]
+                    transcript <- drive world ([Record ["fuel.set", fuel]] <> gathered <> [Planned, Handback "researcher" ready])
 
-                    drop 2 transcript `shouldBe` ["plan.done -> simplify_plan", "simplify_plan.done -> confirm"]
+                    drop 3 transcript `shouldBe` ["plan.done -> skip_simplify_plan", "skip_simplify_plan.run -> simplify_plan", "simplify_plan.done -> confirm"]
 
-            -- The agent's call, a fact line of next: never recorded for it, and Confirm is asked all the same.
-            for_ [("low", lowSkips), ("balanced", []), ("max", [])] $ \(fuel, skips) ->
+            -- The agent's call, a fact line of next: never recorded for it, so at Low the agent runs the proposal, and Confirm is asked all the same.
+            for_ [("low", lowSkips, ranProposal), ("balanced", [], toImplement), ("max", [], toImplement)] $ \(fuel, skips, acts) ->
                 it ("leaves simplify_plan and refactor to the agent only at Low, and asks Confirm, at " <> Text.unpack fuel) $ \world -> do
-                    outs <- driveOut world (Record ["fuel", fuel] : toImplement)
+                    outs <- driveOut world (Record ["fuel.set", fuel] : acts)
                     _ : confirm <- succeeded =<< state world ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
 
                     let said = concat outs
@@ -205,7 +207,7 @@ spec = describe "state over the doubles" $ do
                         `shouldBe` (skips, ["ASK Confirm the simplified plan: confirmed, or adjusted?"], ["ASK user"])
 
             it "prints each record it advises with its arguments" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"]]
+                _ <- drive world (Record ["fuel.set", "balanced"] : gathered)
 
                 advice <- succeeded =<< state world ["next"]
 
@@ -220,7 +222,7 @@ spec = describe "state over the doubles" $ do
                 advice `shouldContain` ["  PR sync skipped - gh pr view timed out after 10s"]
 
             it "says the changed lines are unknown when origin lacks the PR's base" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- drive world [Record ["fuel.set", "balanced"]]
                 modifyIORef' world (\w -> w {pr = prOn "gone" IsDraft})
 
                 advice <- succeeded =<< state world ["next"]
@@ -238,7 +240,7 @@ spec = describe "state over the doubles" $ do
                 editLog world (<> "{\"v\":3,broken\n")
                 before' <- logBytes world
 
-                for_ [("next", []), ("show", []), ("record", ["fuel", "max"])] $ \(sub, args) -> do
+                for_ [("next", []), ("show", []), ("record", ["fuel.set", "max"])] $ \(sub, args) -> do
                     bad <- state world (sub : args)
                     (bad.code, map (fst . Text.breakOn " - ") bad.err)
                         `shouldBe` (2, ["state " <> sub <> ": /notes/events.jsonl line 2 is not read", "fix: repair or move /notes/events.jsonl"])
@@ -256,17 +258,17 @@ spec = describe "state over the doubles" $ do
 
         describe "record" $ do
             it "refuses an event with no arrow: exit 2, a fix line, the refusal logged, and next warns" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- drive world [Record ["fuel.set", "balanced"]]
 
                 refused <- state world ["record", "ready.done", prUrl]
 
                 (refused.code, refused.out, refused.err)
-                    `shouldBe` (2, [], ["state record: ready.done - no such arrow out of gather", "fix: state record research.spawned | state record gather.enough"])
+                    `shouldBe` (2, [], ["state record: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record gather.interview | state record gather.research"])
                 events <- loggedEvents world
                 last events `shouldBe` "refused"
                 warned <- succeeded =<< state world ["next"]
                 take 3 warned
-                    `shouldBe` ["RUN one option below", "refused: ready.done - no such arrow out of gather", "fix: state record research.spawned | state record gather.enough"]
+                    `shouldBe` ["RUN one option below", "refused: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record gather.interview | state record gather.research"]
 
             it "fixes a refused event by the arrows this Fuel takes, never a skip it refuses" $ \world -> do
                 _ <- drive world toSimplifyPr
@@ -279,10 +281,10 @@ spec = describe "state over the doubles" $ do
             it "appends the event and prints it with where the run is now" $ \world -> do
                 _ <- startedRun world
 
-                ran <- state world ["record", "fuel", "max"]
+                ran <- state world ["record", "fuel.set", "max"]
 
-                (ran.code, ran.out, ran.err) `shouldBe` (0, ["recorded 2 fuel -> gather"], [])
-                loggedEvents world `shouldReturn` ["started", "fuel"]
+                (ran.code, ran.out, ran.err) `shouldBe` (0, ["recorded 2 fuel.set -> gather"], [])
+                loggedEvents world `shouldReturn` ["started", "fuel.set"]
 
             it "refuses a surplus argument to an event with its own usage, not the whole help" $ \world -> do
                 _ <- startedRun world
@@ -297,12 +299,12 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["record"]
 
                 (ran.code, take 1 ran.err) `shouldBe` (2, ["Missing: EVENT"])
-                ran.err `shouldSatisfy` any (Text.isPrefixOf "  fuel ")
+                ran.err `shouldSatisfy` any (Text.isPrefixOf "  fuel.set ")
                 loggedEvents world `shouldReturn` ["started"]
 
         describe "handback" $ do
             it "records a role's hand-back from stdin" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Planned]
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> gathered <> [Planned])
 
                 ran <- stateIn world "READY\nDone.\n" ["handback", "researcher"]
 
@@ -310,7 +312,7 @@ spec = describe "state over the doubles" $ do
                 recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
 
             it "records a researcher's simplify report from stdin, which opens with no token" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Planned]
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> gathered <> [Planned])
 
                 ran <- stateIn world "# Plan (simplify proposal)\n## Goals\n" ["handback", "researcher"]
 
@@ -318,7 +320,7 @@ spec = describe "state over the doubles" $ do
                 recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
 
             it "advises a worker's BLOCKED for triage until the run asks it as its own" $ \world -> do
-                _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
                 _ <- succeeded =<< stateIn world "BLOCKED no access\n" ["handback", "implementer"]
 
                 blocked <- succeeded =<< state world ["next"]
@@ -330,7 +332,7 @@ spec = describe "state over the doubles" $ do
                 ruled `shouldSatisfy` (not . any ("triage: BLOCKED no access" `Text.isInfixOf`))
 
             it "refuses a hand-back with no token on line 1, its fix piping it again with one" $ \world -> do
-                _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
 
                 ran <- stateIn world "Done, all green.\n" ["handback", "implementer"]
 
@@ -338,7 +340,7 @@ spec = describe "state over the doubles" $ do
                 drop 1 ran.err `shouldBe` ["fix: state handback implementer < <the hand-back, a token added as line 1>"]
 
             it "refuses a Touches line with words after its areas, its fix piping it again with bare names" $ \world -> do
-                _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
                 untouched <- loggedEvents world
 
                 ran <- stateIn world "READY\nTouches: interface (the parser)\n" ["handback", "implementer"]
@@ -364,7 +366,7 @@ spec = describe "state over the doubles" $ do
 
         describe "override" $ do
             it "names the PR ready.done recorded in a run that skipped its draft" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Override "ready", Record ["ready.done", prUrl]]
+                _ <- drive world [Record ["fuel.set", "balanced"], Override "ready", Record ["ready.done", prUrl]]
 
                 done <- succeeded =<< state world ["next"]
 
@@ -388,7 +390,7 @@ spec = describe "state over the doubles" $ do
                     `shouldBe` ( 2
                                ,
                                    [ "state override: override to nowhere - the flow has no single state of that name"
-                                   , "fix: state override <gather|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                                   , "fix: state override <fuel|gather|gather/researchers|gather/notes|gather/research|interview|plan|skip_simplify_plan|simplify_plan|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                    ]
                                )
 
@@ -405,7 +407,7 @@ spec = describe "state over the doubles" $ do
                 voided <- succeeded =<< state world ["void", "2", "overridden", "in", "error"]
                 shown <- succeeded =<< state world ["show"]
 
-                (voided, "step: review" `elem` shown) `shouldBe` (["recorded 3 voided -> gather"], False)
+                (voided, "step: review" `elem` shown) `shouldBe` (["recorded 3 voided -> fuel"], False)
 
             it "refuses a seq no line the run replays has, and the started line, which the run needs" $ \world -> do
                 _ <- drive world []
@@ -582,7 +584,7 @@ spec = describe "state over the doubles" $ do
                 advised <- succeeded =<< state world ["next"]
 
                 take 1 advised `shouldBe` ["RUN one option below"]
-                advised `shouldSatisfy` any ("spawn a researcher in the foreground - " `Text.isInfixOf`)
+                advised `shouldSatisfy` any ("which spawns a researcher in the foreground" `Text.isInfixOf`)
                 -- Max's researcher budget: Balanced, the default, caps it.
                 filter ("Researchers: " `Text.isInfixOf`) advised `shouldBe` ["  Researchers: 0 used, one per group"]
 
@@ -630,7 +632,7 @@ spec = describe "state over the doubles" $ do
                 _ <- childRun world parent "/child" "t1"
                 _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
                 once <- loggedEvents world
-                _ <- succeeded =<< state world ["record", "fuel", "balanced"]
+                _ <- succeeded =<< state world ["record", "gather.research"]
 
                 again <- succeeded =<< state world ["next"]
 
@@ -638,11 +640,12 @@ spec = describe "state over the doubles" $ do
                 again `shouldSatisfy` (not . any ("parent: " `Text.isPrefixOf`))
                 loggedEvents world `shouldReturn` once
 
-            for_ [(ChildConfirms, ["plan.done -> simplify_plan"]), (ParentDecided, ["plan.done -> simplify_plan", "simplify_plan.skipped -> confirm", "confirm.confirmed -> draft"])] $ \(plan, transcript) ->
+            for_ [(ChildConfirms, ["plan.done -> skip_simplify_plan", "skip_simplify_plan.run -> simplify_plan"]), (ParentDecided, ["plan.done -> skip_simplify_plan", "skip_simplify_plan.skip -> confirm", "confirm.confirmed -> draft"])] $ \(plan, transcript) ->
                 it ("passes a child's plan per its task's plan call, asking its parent nothing: " <> show plan) $ \world -> do
                     parent <- tenXAtFanOutOf world [(plainTask "t1" []) {plan}]
                     _ <- childRun world parent "/child" "t1"
                     _ <- succeeded =<< state world ["record", "gather.enough"]
+                    _ <- succeeded =<< state world ["record", "gather/notes.done"]
                     putFile world "/child/plan.md" "the plan"
                     planned <- succeeded =<< state world ["record", "plan.done", "/child/plan.md"]
                     advised <- succeeded =<< state world ["next"]
@@ -904,7 +907,7 @@ grandWorktree = "/grand-work"
 -- | A Balanced run to its first Simplify of the PR.
 toSimplifyPr :: [Act]
 toSimplifyPr =
-    Record ["fuel", "balanced"]
+    Record ["fuel.set", "balanced"]
         : toImplement
             <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
 
@@ -913,16 +916,19 @@ balancedPath = toSimplifyPr <> [Handback "fixer" simplified, Record ["await_ci.g
 
 balancedTranscript :: [Text]
 balancedTranscript =
-    [ "fuel -> gather"
-    , "research.spawned -> gather"
-    , "research.handed_back -> gather"
-    , "gather.enough -> plan"
-    , "plan.done -> simplify_plan"
+    [ "fuel.set -> gather"
+    , "gather.research -> gather/research"
+    , "gather/research.spawned -> gather"
+    , "gather/research.handed_back -> gather"
+    , "gather.enough -> gather/notes"
+    , "gather/notes.done -> plan"
+    , "plan.done -> skip_simplify_plan"
+    , "skip_simplify_plan.run -> simplify_plan"
     , "simplify_plan.done -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
-    , "implement.done -> refactor"
-    , "refactor.skipped -> review"
+    , "implement.done -> skip_refactor"
+    , "skip_refactor.skip -> review"
     , "review.rows -> pick"
     , "pick.final -> describe"
     , "describe.done -> simplify_pr"
@@ -934,33 +940,34 @@ balancedTranscript =
 -- | Low, a trivial task: the agent gathers nothing, skips the proposal and the refactor, so no hand-back of theirs.
 trivialPath :: [Act]
 trivialPath =
-    [ Record ["fuel", "low"]
-    , Record ["gather.enough"]
-    , Planned
-    , Record ["simplify_plan.skipped"]
-    , Record ["confirm.confirmed"]
-    , OpenPr
-    , Commit
-    , Handback "implementer" ready
-    , Record ["refactor.skipped", "a", "one-line", "change"]
-    , Handback "review-lead" reviewed
-    , Record ["pick.final"]
-    , Handback "fixer" ready
-    , Handback "fixer" simplified
-    , Record ["await_ci.green"]
-    , Record ["ready.done", prUrl]
-    ]
+    Record ["fuel.set", "low"]
+        : gathered
+            <> [ Planned
+               , Record ["skip_simplify_plan.skip"]
+               , Record ["confirm.confirmed"]
+               , OpenPr
+               , Commit
+               , Handback "implementer" ready
+               , Record ["skip_refactor.skip"]
+               , Handback "review-lead" reviewed
+               , Record ["pick.final"]
+               , Handback "fixer" ready
+               , Handback "fixer" simplified
+               , Record ["await_ci.green"]
+               , Record ["ready.done", prUrl]
+               ]
 
 trivialTranscript :: [Text]
 trivialTranscript =
-    [ "fuel -> gather"
-    , "gather.enough -> plan"
-    , "plan.done -> simplify_plan"
-    , "simplify_plan.skipped -> confirm"
+    [ "fuel.set -> gather"
+    , "gather.enough -> gather/notes"
+    , "gather/notes.done -> plan"
+    , "plan.done -> skip_simplify_plan"
+    , "skip_simplify_plan.skip -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
-    , "implement.done -> refactor"
-    , "refactor.skipped -> review"
+    , "implement.done -> skip_refactor"
+    , "skip_refactor.skip -> review"
     , "review.rows -> pick"
     , "pick.final -> describe"
     , "describe.done -> simplify_pr"
@@ -972,13 +979,19 @@ trivialTranscript =
 -- | What next says a Low run's agent may skip, at simplify_plan and refactor.
 lowSkips :: [Text]
 lowSkips =
-    [ "  Low: skip it when the task is trivial: state record simplify_plan.skipped"
-    , "  Low: skip it when the task is trivial: state record refactor.skipped <why>"
+    [ "  Low: skip it when the task is trivial: state record skip_simplify_plan.skip"
+    , "  Low: skip it when the task is trivial: state record skip_refactor.skip"
     ]
+
+-- | 'toImplement' with the proposal's run recorded by the agent, as at Low, where the kernel leaves it the skip.
+ranProposal :: [Act]
+ranProposal = planned <> [Record ["skip_simplify_plan.run"]] <> proposed
+  where
+    (planned, proposed) = splitAt 6 toImplement
 
 -- | Balanced, moved to the review by override.
 atReview :: [Act]
-atReview = [Record ["fuel", "balanced"], Override "review"]
+atReview = [Record ["fuel.set", "balanced"], Override "review"]
 
 -- | A review back with its rows, and the lead's picks: a loop on this row.
 reviewRound :: Text -> [Text] -> [Act]

@@ -15,7 +15,7 @@ import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Branch (..), Url, branchText, urlData, urlOf)
 
 type data RequestStep = OpenPlan | OpenBranch | OpenPr | Direct | Next
@@ -26,7 +26,6 @@ instance StepSet RequestStep where
     type Sig OpenPr = '( 'Ctx, 'Nothing, 'PR)
     type Sig Direct = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Next = '( 'Result, 'Just 'Result, 'Ctx)
-    type Drawn s = 'True
 
     data Sing s where
         OpenPlan :: Sing OpenPlan

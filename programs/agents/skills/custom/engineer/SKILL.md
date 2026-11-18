@@ -69,11 +69,13 @@ who owns each decision.
   `pragmatic-review` the PR URL, `pr-description` the base ref. Every prompt
   you write carries the worktree path and the base.
 - **Fuel** is in your instructions. Your row in the Fuel table says what
-  each step runs. A `Fuel:` line in your prompt is set:
-  `state record fuel <level>`. Else, when `state next` prints that record,
-  ask Fuel in one `Confirm` question, Balanced recommended; a re-plan keeps
-  it. At Low, `state next` names the steps a
-  trivial task may skip and the record that skips one.
+  each step runs. A run you start stops at `fuel` first: a `Fuel:` line in
+  your prompt is `state record fuel.set <level>`. Else ask Fuel in one
+  `Confirm` question, Balanced recommended; a re-plan keeps it. A child run
+  (your brief's `state init --parent` line) starts at `gather`, its Fuel
+  already recorded from the brief: record no `fuel.set`. An optional block is a
+  `skip_<block>` state: record `skip` or `run` as `state next` says. At Low,
+  it names the blocks a trivial task may skip.
 - **One plan text.** The plan exists once, as a file: your brief when it holds
   the plan, a plan file you were given, else `plan.md` in the notes directory.
   Never write a second plan beside one. Every brief and review prompt names
@@ -99,24 +101,32 @@ who owns each decision.
 
 ## States
 
-Each step is a state; `state next` names the one you are in. Fuel takes skip
-arrows, never adds any.
+Each step is a state; `state next` names the one you are in. Fuel takes
+`skip` arrows, never adds any. An `await` state goes on by itself (`done`) once
+every child handed back: wait there, never record it.
 
 | State | Run by | Arrows out |
 |---|---|---|
-| gather | you | research.spawned: gather; research.handed_back: gather; enough: plan |
-| plan | you | done: simplify_plan |
-| simplify_plan | researcher | done: confirm; skipped: confirm |
+| fuel | you | set: gather |
+| gather | you | enough: gather/researchers; interview: interview; research: gather/research |
+| gather/researchers | await | done: gather/notes; handed_back: gather/researchers |
+| gather/notes | you | done: plan |
+| gather/research | researcher | spawned: gather |
+| interview | you | asked: gather |
+| plan | you | done: skip_simplify_plan |
+| skip_simplify_plan | you | run: simplify_plan; skip: confirm |
+| simplify_plan | researcher | done: confirm |
 | confirm | you | adjusted: gather; confirmed: draft |
 | draft | you | done: implement |
-| implement | implementer | done: refactor |
-| refactor | refactorer | done: review; skipped: review |
+| implement | implementer | done: skip_refactor |
+| skip_refactor | you | run: refactor; skip: review |
+| refactor | refactorer | done: review |
 | review | review-lead | clean: describe; rows: pick |
 | pick | you | final: describe; loop: fix |
 | fix | fixer | done: re_review |
 | re_review | review-lead | clean: describe; rows: pick |
 | describe | fixer | done: simplify_pr |
-| simplify_pr | fixer | done: await_ci; skipped: await_ci |
+| simplify_pr | fixer | done: await_ci |
 | await_ci | you | green: ready; red: fix_pr |
 | fix_pr | fixer | done: await_ci |
 | ready | you | done: end; skipped: end |
@@ -155,10 +165,12 @@ Fuel row's Researchers, each prompt `state brief
 researcher` filled in as `## Callers` in `~/.claude/skills/researcher/SKILL.md`
 says. An answer that opens a new fact gap gets research too.
 
-Gather is a choice, one step at a time, in any order: spawn a researcher as
-its option says, ask a question, end your turn to wait for a hand-back, or
-`gather.enough`. The hooks record each spawn and hand-back; asking needs no
-record. `gather.enough` waits until every open researcher handed back.
+Gather is a choice, one pick at a time, in any order: `gather.research`, then
+spawn a researcher in the background as its option says; `gather.interview`,
+then ask and record `interview.asked`; or `gather.enough`. The hooks record
+each spawn and hand-back. `gather.enough` waits at `gather/researchers` until
+every open researcher handed back, then `gather/notes` merges their hand-backs
+into your notes (`notes.done`).
 Your Fuel row caps researchers and interview questions apart; at either cap
 `state next` asks the user whether to go on: yes is `state record extend
 <why>`, no is `gather.enough`.

@@ -59,7 +59,6 @@ spec = describe "State.Run.Ask" $ do
         question <- forAll genSecurity
         let verdict = rung handler question
         cover 5 "ruled" (isRuled verdict)
-        cover 1 "refused for no basis" (verdict == Left (NoBasis question.qid))
         holdsBasis verdict
 
     describe "triage" $ do

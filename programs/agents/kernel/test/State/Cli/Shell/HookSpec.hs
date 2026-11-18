@@ -27,7 +27,7 @@ spec = describe "state-hook over the doubles" $ do
                 (said.code, said.out, said.err) `shouldBe` (0, [], [])
 
             it "tells a resumed session where its run stands" $ \world -> do
-                _ <- drive world []
+                _ <- drive world [Record ["fuel.set", "balanced"]]
 
                 said <- hook world "resume" sessionStart
 
@@ -35,7 +35,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False ("step: gather" `Text.isInfixOf`)
 
             it "is silent off the branch the draft PR bound the run to" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 modifyIORef' world (\w -> w {branch = Just (Branch "other")})
 
                 said <- succeeded =<< hook world "resume" sessionStart
@@ -60,7 +60,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False ("line 2 is not read" `Text.isInfixOf`)
 
             it "tells a disk failure before any run is found as context naming none, and still exits 0" $ \world -> do
-                _ <- drive world []
+                _ <- drive world [Record ["fuel.set", "balanced"]]
 
                 said <- hook world "resume" (sessionStartIn "/gone")
 
@@ -68,7 +68,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False ("state hook resume: " `Text.isPrefixOf`)
 
             it "names the run of the session's own worktree in what resume, spawn and asked tell" $ \world -> do
-                _ <- drive world []
+                _ <- drive world [Record ["fuel.set", "balanced"]]
                 run <- runOf world
                 _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
 
@@ -77,7 +77,7 @@ spec = describe "state-hook over the doubles" $ do
                 map contextOf said `shouldSatisfy` all (maybe False (("run " <> run <> ": ") `Text.isPrefixOf`))
 
             it "names the run of the session's own worktree on a log line it does not read" $ \world -> do
-                _ <- drive world []
+                _ <- drive world [Record ["fuel.set", "balanced"]]
                 run <- runOf world
                 editLog world (<> "{\"v\":3,broken\n")
 
@@ -86,7 +86,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": ") `Text.isPrefixOf`)
 
             it "names the run of the session's own worktree on a disk failure" $ \world -> do
-                _ <- drive world []
+                _ <- drive world [Record ["fuel.set", "balanced"]]
                 run <- runOf world
                 unmount world notes
 
@@ -95,7 +95,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook resume: ") `Text.isPrefixOf`)
 
             it "is silent for a session bound to a worktree since removed" $ \world -> do
-                _ <- drive world []
+                _ <- drive world [Record ["fuel.set", "balanced"]]
                 run <- runOf world
                 putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
                 before' <- logged world
@@ -107,7 +107,7 @@ spec = describe "state-hook over the doubles" $ do
 
         describe "handback" $ do
             it "records a hand-back seen twice once, telling what it recorded as context" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 _ <- hook world "bind" (spawnResult "implementer")
                 before' <- logged world
                 run <- runOf world
@@ -118,13 +118,13 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 first.code `shouldBe` 0
-                contextOf first `shouldBe` Just ("run " <> run <> ": state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor\n")
+                contextOf first `shouldBe` Just ("run " <> run <> ": state: recorded 14 implement.done -> skip_refactor\nstate: recorded 15 worker_returned -> skip_refactor\n")
                 first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
 
             it "leaves a child run's hand-back in the lead's worktree be" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 before' <- logged world
 
                 said <- hook world "handback" (handedBack "engineer")
@@ -133,7 +133,7 @@ spec = describe "state-hook over the doubles" $ do
                 (said.code, said.out, length after) `shouldBe` (0, [], length before')
 
             it "is silent once the drafted PR is merged or closed" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 _ <- hook world "bind" (spawnResult "implementer")
                 before' <- logged world
 
@@ -148,30 +148,30 @@ spec = describe "state-hook over the doubles" $ do
 
         describe "spawn" $ do
             it "warns the lead spawning a role off the advice" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Planned]
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> gathered <> [Planned])
 
                 said <- hook world "spawn" (spawned "implementer")
 
                 said.code `shouldBe` 0
                 contextOf said `shouldSatisfy` maybe False ("state: the advice is SPAWN researcher, not implementer" `Text.isInfixOf`)
 
-            it "records a researcher's spawn at the gather, and its hand-back, which lets the gather end" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+            it "records a researcher's spawn at its research state, and its hand-back and return, which moves the waiting gather on to its notes" $ \world -> do
+                _ <- drive world researching
 
                 spawn <- hook world "spawn" (spawned "researcher")
                 _ <- hook world "bind" (spawnResult "researcher")
-                early <- state world ["record", "gather.enough"]
-                back <- hook world "handback" (handedBack "researcher")
                 enough <- state world ["record", "gather.enough"]
+                back <- hook world "handback" (handedBack "researcher")
 
-                (contextOf spawn, early.code, contextOf back, enough.code)
+                (contextOf spawn, enough.code, contextOf back)
                     `shouldSatisfy` \case
-                        (Just opened, 2, Just closed, 0) -> "recorded event 3 research.spawned -> gather" `Text.isInfixOf` opened && "recorded event 6 research.handed_back -> gather" `Text.isInfixOf` closed
+                        (Just opened, 0, Just closed) -> "recorded event 4 gather/research.spawned -> gather" `Text.isInfixOf` opened && "recorded event 7 gather/research.handed_back -> gather/researchers" `Text.isInfixOf` closed && "recorded 8 worker_returned -> gather/notes" `Text.isInfixOf` closed
                         _ -> False
 
-            it "tells a recorded spawn's line, the researchers running and left, and to spawn more or wait, not the advice" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+            it "tells a recorded spawn's line, the researchers left, and to spawn more or wait, not the advice" $ \world -> do
+                _ <- drive world researching
                 _ <- hook world "spawn" (spawned "researcher")
+                _ <- state world ["record", "gather.research"]
 
                 said <- hook world "spawn" (spawned "researcher")
 
@@ -179,14 +179,14 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said
                     `shouldBe` Just
                         ( Text.unlines
-                            [ "run " <> run <> ": recorded event 4 research.spawned -> gather"
-                            , "  researchers: 2 running, 3 of 5 left"
+                            [ "run " <> run <> ": recorded event 6 gather/research.spawned -> gather"
+                            , "  researchers: 3 of 5 left"
                             , "  next: spawn more, or end your turn until they hand back"
                             ]
                         )
 
-            it "tells a spawn that spends the researchers' budget only to wait for the one running" $ \world -> do
-                _ <- drive world [Record ["fuel", "low"]]
+            it "tells a spawn that spends the researchers' budget only to wait" $ \world -> do
+                _ <- drive world [Record ["fuel.set", "low"], Record ["gather.research"]]
 
                 said <- hook world "spawn" (spawned "researcher")
 
@@ -194,15 +194,17 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said
                     `shouldBe` Just
                         ( Text.unlines
-                            [ "run " <> run <> ": recorded event 3 research.spawned -> gather"
-                            , "  researchers: 1 running, none of 1 left"
-                            , "  next: end your turn until it hands back"
+                            [ "run " <> run <> ": recorded event 4 gather/research.spawned -> gather"
+                            , "  researchers: none of 1 left"
+                            , "  next: end your turn until they hand back"
                             ]
                         )
 
             it "tells a researcher's hand-back with another still running to wait for it" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- drive world researching
                 _ <- hook world "spawn" (spawned "researcher")
+                _ <- hook world "bind" (spawnResultOf "researcher" "a0")
+                _ <- state world ["record", "gather.research"]
                 _ <- hook world "spawn" (spawned "researcher")
                 _ <- hook world "bind" (spawnResult "researcher")
 
@@ -212,15 +214,15 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said
                     `shouldBe` Just
                         ( Text.unlines
-                            [ "run " <> run <> ": recorded event 6 research.handed_back -> gather"
+                            [ "run " <> run <> ": recorded event 9 gather/research.handed_back -> gather"
                             , "  researchers: 1 running, 3 of 5 left"
                             , "  next: end your turn until it hands back"
-                            , "state: recorded 7 worker_returned -> gather"
+                            , "state: recorded 10 worker_returned -> gather"
                             ]
                         )
 
             it "tells the last researcher's hand-back to ask state next" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- drive world researching
                 _ <- hook world "spawn" (spawned "researcher")
                 _ <- hook world "bind" (spawnResult "researcher")
 
@@ -230,42 +232,43 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said
                     `shouldBe` Just
                         ( Text.unlines
-                            [ "run " <> run <> ": recorded event 5 research.handed_back -> gather"
+                            [ "run " <> run <> ": recorded event 6 gather/research.handed_back -> gather"
                             , "  researchers: none running, 4 of 5 left"
                             , "  next: state next"
-                            , "state: recorded 6 worker_returned -> gather"
+                            , "state: recorded 7 worker_returned -> gather"
                             ]
                         )
 
             it "opens no child for a spawn past the researchers' cap, and tells the refusal" $ \world -> do
-                _ <- drive world [Record ["fuel", "low"]]
+                _ <- drive world [Record ["fuel.set", "low"], Record ["gather.research"]]
                 _ <- hook world "spawn" (spawned "researcher")
+                picked <- state world ["record", "gather.research"]
 
                 said <- hook world "spawn" (spawned "researcher")
 
-                said.code `shouldBe` 0
+                (picked.code, said.code) `shouldBe` (2, 0)
                 contextOf said `shouldSatisfy` maybe False ("Researchers allows 1" `Text.isInfixOf`)
-                loggedEvents world `shouldReturn` ["started", "fuel", "research.spawned"]
+                loggedEvents world `shouldReturn` ["started", "fuel.set", "gather.research", "gather/research.spawned", "refused"]
 
             it "records nothing on a spawn of a role whose step opens no child" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- drive world [Record ["fuel.set", "balanced"]]
 
                 _ <- hook world "spawn" (spawned "implementer")
 
-                loggedEvents world `shouldReturn` ["started", "fuel"]
+                loggedEvents world `shouldReturn` ["started", "fuel.set"]
 
             it "leaves a researcher's hand-back off the gather to the lead, logging only that it returned" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"]]
+                _ <- drive world (Record ["fuel.set", "balanced"] : gathered)
                 _ <- hook world "bind" (spawnResult "researcher")
 
                 said <- hook world "handback" (handedBack "researcher")
 
                 (said.code, said.out) `shouldBe` (0, [])
-                loggedEvents world `shouldReturn` ["started", "fuel", "gather.enough", "worker_spawned", "worker_returned"]
+                loggedEvents world `shouldReturn` ["started", "fuel.set", "gather.enough", "gather/notes.done", "worker_spawned", "worker_returned"]
 
         describe "bind" $ do
             it "leaves an unbound worker's hand-back unrecorded until its spawner's hook binds it, then records it once" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 before' <- logged world
 
                 early <- hook world "handback" (handedBack "implementer")
@@ -276,29 +279,29 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 (early.code, early.out, length unbound) `shouldBe` (0, [], length before')
-                contextOf bound `shouldSatisfy` maybe False ("state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor" `Text.isInfixOf`)
+                contextOf bound `shouldSatisfy` maybe False ("state: recorded 14 implement.done -> skip_refactor\nstate: recorded 15 worker_returned -> skip_refactor" `Text.isInfixOf`)
                 (length once, length twice) `shouldBe` (length before' + 3, length once)
                 contextOf again `shouldSatisfy` maybe False (not . Text.isInfixOf "recorded")
 
             it "records a worker's hand-back made after its spawner's hook bound it" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
 
                 bound <- hook world "bind" (spawnResult "implementer")
                 back <- hook world "handback" (handedBack "implementer")
 
                 contextOf bound `shouldBe` Just ("run " <> run <> ": state: implementer a1 works in this run\n")
-                contextOf back `shouldBe` Just ("run " <> run <> ": state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor\n")
+                contextOf back `shouldBe` Just ("run " <> run <> ": state: recorded 14 implement.done -> skip_refactor\nstate: recorded 15 worker_returned -> skip_refactor\n")
 
             it "binds no subagent no flow knows, whose hand-back stays its own" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
 
                 said <- hook world "bind" (spawnResult "Explore")
 
                 (said.code, said.out) `shouldBe` (0, [])
 
             it "records nothing for a worker bound to a run its worktree no longer holds, and says so" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- drive world [Record ["fuel.set", "balanced"]]
                 old <- runOf world
                 _ <- hook world "bind" (spawnResult "researcher")
                 _ <- succeeded =<< state world ["stop", "blocked", "moved", "on"]
@@ -312,7 +315,7 @@ spec = describe "state-hook over the doubles" $ do
                 (length <$> logged world) `shouldReturn` length before'
 
             it "names the run when it removes a stashed hand-back that is no step's" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
                 let stash = bindings <> "/handback-a1.json"
                 putFile world stash "{}"
@@ -328,7 +331,7 @@ spec = describe "state-hook over the doubles" $ do
                         )
 
             it "names the run a bound worker's hand-back failed at, on a log line it does not read" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
                 _ <- hook world "bind" (spawnResult "implementer")
                 editLog world (<> "{\"v\":3,broken\n")
@@ -338,7 +341,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": ") `Text.isPrefixOf`)
 
             it "names the run a bound worker's hand-back failed at, on a disk failure" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
                 _ <- hook world "bind" (spawnResult "implementer")
                 unmount world notes
@@ -348,7 +351,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook handback: ") `Text.isPrefixOf`)
 
             it "names the spawner's run a stashed hand-back failed at, on a disk failure" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
                 _ <- hook world "handback" (handedBack "implementer")
                 unmount world notes
@@ -358,7 +361,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook bind: ") `Text.isInfixOf`)
 
             it "names a bound spawner's run when it binds its worker" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
                 putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
 
@@ -367,7 +370,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldBe` Just ("run " <> run <> ": state: implementer a1 works in this run\n")
 
             it "binds no worker for a spawner bound to a worktree since removed, and stays silent" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
                 putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
 
@@ -376,7 +379,7 @@ spec = describe "state-hook over the doubles" $ do
                 (said.code, said.out) `shouldBe` (0, [])
 
             it "tells a git that cannot start as context naming the run, never as a removed worktree" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
                 _ <- hook world "bind" (spawnResult "implementer")
                 modifyIORef' world (\w -> w {gitOnPath = False})
@@ -386,7 +389,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook handback: ") `Text.isPrefixOf`)
 
             it "records nothing and stays silent for a worker bound to a worktree since removed" $ \world -> do
-                _ <- drive world (init toImplement)
+                _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 run <- runOf world
                 putFile world (bindings <> "/a1") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
                 before' <- logged world
@@ -419,6 +422,7 @@ spec = describe "state-hook over the doubles" $ do
                 for_ ["route.discussion", "route.architect"] $ \branch -> do
                     world <- newWorld
                     run <- startedIn world ["--flow", "chief"]
+                    _ <- succeeded =<< state world ["record", "fuel.set", "balanced"]
                     _ <- succeeded =<< state world ["record", branch]
                     putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
 
@@ -428,11 +432,11 @@ spec = describe "state-hook over the doubles" $ do
 
                     said `shouldBe` map (const True) denied <> map (const False) allowed
 
-            it "lets a session bound to a chief run edit, commit and push at its hub and in its engineer, 10x, blocks or other branch" $ \_ ->
-                for_ [[], ["route.engineer"], ["route.10x"], ["route.blocks"], ["route.other"]] $ \picks -> do
+            it "lets a session bound to a chief run edit, commit and push at its Fuel, its hub and in its engineer, 10x, blocks or other branch" $ \_ ->
+                for_ [[], [["fuel.set", "balanced"]], [["fuel.set", "balanced"], ["route.engineer"]], [["fuel.set", "balanced"], ["route.10x"]], [["fuel.set", "balanced"], ["route.blocks"]], [["fuel.set", "balanced"], ["route.other"]]] $ \picks -> do
                     world <- newWorld
                     run <- startedIn world ["--flow", "chief"]
-                    for_ picks $ \pick -> succeeded =<< state world ["record", pick]
+                    for_ picks $ \pick -> succeeded =<< state world ("record" : pick)
                     putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
 
                     said <- traverse (hook world "route") (editCall : map stateCall writing)
@@ -458,7 +462,7 @@ spec = describe "state-hook over the doubles" $ do
 
         describe "asked" $ do
             it "tells the lead how to record the answer to a question put to the user" $ \world -> do
-                _ <- drive world []
+                _ <- drive world [Record ["fuel.set", "balanced"]]
                 [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
                 let qid = Text.drop (Text.length "asked ") asked
 
@@ -485,7 +489,7 @@ spec = describe "state-hook over the doubles" $ do
                 (said.code, said.err) `shouldBe` (2, ["state-hook resume does not run at afterTool"])
 
             it "appends nothing on bad usage" $ \world -> do
-                _ <- drive world []
+                _ <- drive world [Record ["fuel.set", "balanced"]]
                 before' <- logBytes world
 
                 _ <- hook world "handback" "not json"
@@ -527,3 +531,7 @@ unmount world dir = modifyIORef' world (\w -> w {disk = w.disk {dirs = Set.delet
 -- | Session @s1@'s bindings, under the world's @HOME@.
 bindings :: FilePath
 bindings = "/home/.local/state/state/bindings/s1"
+
+-- | At Balanced, the gather's research picked: a researcher's spawn is recorded here.
+researching :: [Act]
+researching = [Record ["fuel.set", "balanced"], Record ["gather.research"]]

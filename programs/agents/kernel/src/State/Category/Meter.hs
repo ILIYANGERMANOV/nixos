@@ -34,9 +34,9 @@ data Spend (s :: k) where
     Asks :: Spend s
 
 {- | A step that spends a budget: its row name in the Fuel table, and what
-each event costs. 'Owes' says whether a spend opens a child that must hand
-back ('State.Category.Flow.spawn'): only then may the step's outcomes open
-and close one.
+each event costs. 'Owes' says whether a spend starts a child that hands
+back ('State.Category.Flow.Fork'): only then may the step's outcomes be a
+spawn and a hand-back ('Owed').
 -}
 class (StepSet k) => Meter (s :: k) where
     type Owes s :: Bool
@@ -106,9 +106,7 @@ owedBy (SomeMeter s) = \case
         ByClosing -> Just Closes
         ByExit -> Nothing
         ByContinuing -> Nothing
-        BySkip -> Nothing
-        ByInl -> Nothing
-        ByInr -> Nothing
+        ByTaking -> Nothing
 
 -- | An event a run records at a metered state, its step's kind hidden.
 data Recorded where

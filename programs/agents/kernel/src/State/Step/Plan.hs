@@ -11,7 +11,7 @@ import Data.Aeson ((.:), (.=))
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 
 type data PlanStep = PlanS | SimplifyP | Confirm
 
@@ -19,7 +19,6 @@ instance StepSet PlanStep where
     type Sig PlanS = '( 'Ctx, 'Nothing, 'Plan)
     type Sig SimplifyP = '( 'Plan, 'Nothing, 'Plan)
     type Sig Confirm = '( 'Plan, 'Just 'Plan, 'Ctx)
-    type Drawn s = 'True
 
     data Sing s where
         PlanS :: Sing PlanS
@@ -30,7 +29,6 @@ instance StepSet PlanStep where
         -- \| The plan file.
         PlanDone :: FilePath -> Outcome PlanS 'Continued
         SimplifyPlanDone :: Outcome SimplifyP 'Continued
-        SimplifyPlanSkipped :: Outcome SimplifyP 'Skipped
         ConfirmConfirmed :: Outcome Confirm 'Exited
         ConfirmAdjusted :: Outcome Confirm 'Continued
 
@@ -69,21 +67,18 @@ instance StepSet PlanStep where
     pack = \case
         o@(PlanDone _) -> packed PlanS o
         o@SimplifyPlanDone -> packed SimplifyP o
-        o@SimplifyPlanSkipped -> packed SimplifyP o
         o@ConfirmConfirmed -> packed Confirm o
         o@ConfirmAdjusted -> packed Confirm o
 
     encodeOutcome = \case
         PlanDone path -> "path" .= path
         SimplifyPlanDone -> mempty
-        SimplifyPlanSkipped -> mempty
         ConfirmConfirmed -> mempty
         ConfirmAdjusted -> mempty
 
     decoders =
         [ Decoder PlanS (\obj -> PlanDone <$> obj .: "path")
         , Decoder SimplifyP (const (pure SimplifyPlanDone))
-        , Decoder SimplifyP (const (pure SimplifyPlanSkipped))
         , Decoder Confirm (const (pure ConfirmConfirmed))
         , Decoder Confirm (const (pure ConfirmAdjusted))
         ]

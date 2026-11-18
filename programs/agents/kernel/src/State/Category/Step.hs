@@ -36,8 +36,6 @@ module State.Category.Step (
     eventText,
     continueEvent,
     exitEvent,
-    skipEvent,
-    skippedOutcome,
     spawnedOutcome,
     handedBackOutcome,
     OutcomeEdge (..),
@@ -46,16 +44,16 @@ module State.Category.Step (
 import Data.Aeson (Object)
 import Data.Aeson.Types (Parser, Series)
 import Data.Kind (Type)
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable)
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
-import State.Category.Ty (KnownTy, NotSum, Ty (..))
+import GHC.TypeLits (KnownSymbol, Symbol, sameSymbol, symbolVal)
+import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..), TyVal, labelledTys)
 
-{- | A step's signature: @(in, exit, continue)@. Only an endo step (@in ~
-continue@, no exit) can sit under 'State.Category.Flow.Opt', so the steps a
-mode may skip are fixed by it.
--}
+-- | A step's signature: @(in, exit, continue)@.
 type Sig3 = (Ty, Maybe Ty, Ty)
 
 type DomOf :: Sig3 -> Ty
@@ -81,13 +79,6 @@ missing arm is an incomplete match.
 class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
     type Sig (s :: k) :: Sig3
 
-    {- | Whether 'State.Category.Flow.Do' draws the step: every one, but a
-    fan-out's own state, which 'State.Category.Flow.Par' draws, whose 'Drawn' is a
-    type error. 'State.Category.Flow.Do' asks for @Drawn s ~ 'True@, an equality, so
-    the refusal is also raised by a term built with its type errors deferred.
-    -}
-    type Drawn (s :: k) :: Bool
-
     -- | The value of a step: 'State.Category.Flow.Do' takes it.
     data Sing (s :: k) :: Type
 
@@ -100,9 +91,7 @@ class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outc
     -- | The wire name: the state a run is at, and the first half of its events.
     stepName :: Sing (s :: k) -> StateName
 
-    {- | The names of the step's exit and continuing outcomes. None is
-    @skipped@: that word is the event a skip appends.
-    -}
+    -- | The names of the step's exit and continuing outcomes.
     outcomes :: Sing (s :: k) -> Outcomes (ExitOf (Sig s)) (CodOf (Sig s))
 
     special :: Sing (s :: k) -> Special
@@ -117,31 +106,28 @@ class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outc
     -- | A reader per outcome of the layer, each keyed by the event it reads.
     decoders :: [Decoder k]
 
-{- | How a step ends: by its exit, by continuing, skipped by a mode, or, when
-its out is a sum, by continuing into its left or right summand. A choice's
-action ('State.Category.Flow.Choice') ends by none: it stays, and one that
-owes a hand-back opens a child or closes one.
+{- | How a step ends: by its exit, by continuing, or, when
+its out is a sum, by continuing into the summand labelled @l@, @'Took' l@.
+A forked step ('State.Category.Flow.Fork') ends by none: it opens a child,
+which closes by its hand-back. A kind only: no
+value of a 'Symbol' exists.
 -}
-data Leg = Exited | Continued | Skipped | Inl | Inr | Opened | Closed
-    deriving stock (Eq, Show)
+data Leg = Exited | Continued | Took Symbol | Opened | Closed
 
 -- | The proof a leg fits a signature: matching it recovers the signature's shape.
 data LegOf (sig :: Sig3) (l :: Leg) where
     ByExit :: LegOf '(i, 'Just x, o) 'Exited
     ByContinuing :: (NotSum o) => LegOf '(i, e, o) 'Continued
-    BySkip :: LegOf '(i, 'Nothing, i) 'Skipped
-    ByInl :: LegOf '(i, e, a ':+ b) 'Inl
-    ByInr :: LegOf '(i, e, a ':+ b) 'Inr
+    ByTaking :: (KnownSymbol l, HasLabel l ss ~ 'True) => LegOf '(i, e, 'Sum ss) ('Took l)
     ByOpening :: LegOf '(i, 'Nothing, i) 'Opened
     ByClosing :: LegOf '(i, 'Nothing, i) 'Closed
 
 deriving stock instance Show (LegOf sig l)
 
-{- | The legs a signature has: an exit only with an exit type, a skip only on
-an endo step with none, a plain continue only into one type and 'Inl' or
-'Inr' only into a sum. A refusal names the signature or the sum, where GHC
-would print a missing instance; 'Inl' or 'Inr' into one type is the missing
-instance itself, which names the signature too.
+{- | The legs a signature has: an exit only with an exit type, a plain continue only into one type and 'Took' only
+into a sum with that label. A refusal names the signature, the sum or the
+label, where GHC would print a missing instance; 'Took' into one type is
+the missing instance itself, which names the signature too.
 -}
 class Fits (sig :: Sig3) (l :: Leg) where
     legOf :: LegOf sig l
@@ -155,20 +141,10 @@ instance (Unsatisfiable ('Text "Outcome leg Exited does not fit step signature "
 instance (NotSum o) => Fits '(i, e, o) 'Continued where
     legOf = ByContinuing
 
-instance Fits '(i, e, a ':+ b) 'Inl where
-    legOf = ByInl
+instance (KnownSymbol l, HasLabel l ss ~ 'True) => Fits '(i, e, 'Sum ss) ('Took l) where
+    legOf = ByTaking
 
-instance Fits '(i, e, a ':+ b) 'Inr where
-    legOf = ByInr
-
--- | A skip on a step that changes the type fails on @i ~ o@: GHC names both types.
-instance (i ~ o) => Fits '(i, 'Nothing, o) 'Skipped where
-    legOf = BySkip
-
-instance (Unsatisfiable ('Text "Outcome leg Skipped does not fit step signature " ':<>: 'ShowType '(i, 'Just x, o))) => Fits '(i, 'Just x, o) 'Skipped where
-    legOf = unsatisfiable
-
--- | A child opens or closes only at a choice, which an endo step with no exit sits in.
+-- | A child opens or closes only at a fork, of an endo step with no exit.
 instance (i ~ o) => Fits '(i, 'Nothing, o) 'Opened where
     legOf = ByOpening
 
@@ -191,16 +167,18 @@ instance (StepSet k) => Eq (SomeOutcome k) where
             (ByExit, _) -> False
             (ByContinuing, ByContinuing) -> o == o'
             (ByContinuing, _) -> False
-            (BySkip, BySkip) -> o == o'
-            (BySkip, _) -> False
-            (ByInl, ByInl) -> o == o'
-            (ByInl, _) -> False
-            (ByInr, ByInr) -> o == o'
-            (ByInr, _) -> False
+            (ByTaking, ByTaking) -> case sameTaken leg leg' of
+                Just Refl -> o == o'
+                Nothing -> False
+            (ByTaking, _) -> False
             (ByOpening, ByOpening) -> o == o'
             (ByOpening, _) -> False
             (ByClosing, ByClosing) -> o == o'
             (ByClosing, _) -> False
+
+-- | Whether two legs into a sum take one summand.
+sameTaken :: forall sig l m. LegOf sig ('Took l) -> LegOf sig ('Took m) -> Maybe ('Took l :~: 'Took m)
+sameTaken ByTaking ByTaking = (\Refl -> Refl) <$> sameSymbol (Proxy @l) (Proxy @m)
 
 -- | The packing 'pack' does per outcome, where the leg must fit the step.
 packed :: forall k (s :: k) l. (Fits (Sig s) l) => Sing s -> Outcome s l -> SomeOutcome k
@@ -218,13 +196,13 @@ legEvent :: (StepSet k) => Sing (s :: k) -> LegOf (Sig s) l -> EventName
 legEvent s = \case
     ByExit -> exitEvent s
     ByContinuing -> continueEvent s
-    BySkip -> skipEvent s
-    ByInl -> case outcomes s of
-        Branches left _ -> EventName (stepName s) left
-    ByInr -> case outcomes s of
-        Branches _ right -> EventName (stepName s) right
+    leg@ByTaking -> EventName (stepName s) (OutcomeName (takenLabel leg))
     ByOpening -> EventName (stepName s) spawnedOutcome
     ByClosing -> EventName (stepName s) handedBackOutcome
+
+-- | The label of the summand a leg takes: its outcome's name.
+takenLabel :: forall sig l. LegOf sig ('Took l) -> Text
+takenLabel ByTaking = Text.pack (symbolVal (Proxy @l))
 
 {- | The reader of one outcome. Its key is derived from the type it reads, so
 a reader cannot sit under another outcome's name.
@@ -275,30 +253,31 @@ newtype OutcomeName = OutcomeName Text
     deriving stock (Eq, Ord, Show)
 
 {- | A step's outcome names, indexed by its exit and its out. A step that
-branches continues into either summand, each one type, and has no exit:
+branches continues into any summand, each one type, and has no exit:
 no step needs both yet.
 -}
 data Outcomes (e :: Maybe Ty) (o :: Ty) where
     Continues :: (NotSum o) => OutcomeName -> Outcomes 'Nothing o
     -- | The exit outcome, then the continuing one.
     ExitsOr :: (KnownTy x, NotSum o) => OutcomeName -> OutcomeName -> Outcomes ('Just x) o
-    -- | The outcome into the left summand, then the one into the right.
-    Branches :: (KnownTy a, KnownTy b, NotSum a, NotSum b) => OutcomeName -> OutcomeName -> Outcomes 'Nothing (a ':+ b)
-    {- | A choice's action that spawns a child, which hands back: both
-    events stay at the choice ('State.Category.Flow.Choice').
+    -- | One outcome per summand, named by its label, in the sum's order.
+    Branches :: (Summands ss) => Outcomes 'Nothing ('Sum ss)
+    {- | A step that spawns a child, which hands back: drawn only by a
+    'State.Category.Flow.Fork', whose group's await takes the hand-back.
     -}
     OpensChildren :: (NotSum o) => Outcomes 'Nothing o
-    -- | A choice's action whose only events are the questions it asks: it has no outcome.
-    AsksOnly :: (NotSum o) => Outcomes 'Nothing o
 
 -- | Every outcome name, exit first.
 outcomeNames :: Outcomes e o -> [OutcomeName]
 outcomeNames = \case
     Continues continue -> [continue]
     ExitsOr exit continue -> [exit, continue]
-    Branches left right -> [left, right]
+    branches@Branches -> branchNames branches
     OpensChildren -> [spawnedOutcome, handedBackOutcome]
-    AsksOnly -> []
+
+-- | A branching step's outcome names: its summands' labels, in the sum's order.
+branchNames :: forall ss. Outcomes 'Nothing ('Sum ss) -> [OutcomeName]
+branchNames Branches = [OutcomeName label | (label, _) <- labelledTys @ss]
 
 -- | An event of a run, @<step>.<outcome>@ on the wire, such as @review.rows@.
 data EventName = EventName {step :: StateName, outcome :: OutcomeName}
@@ -312,24 +291,15 @@ continueEvent :: (StepSet k, NotSum (CodOf (Sig s))) => Sing (s :: k) -> EventNa
 continueEvent s = EventName (stepName s) $ case outcomes s of
     Continues continue -> continue
     ExitsOr _ continue -> continue
-    -- Unreached: a choice's action declares no continuing outcome, and the step table's catalog check refuses a reader of one.
-    OpensChildren -> error (show (stepName s) <> " stays at its choice: it has no continuing outcome")
-    AsksOnly -> error (show (stepName s) <> " stays at its choice: it has no continuing outcome")
+    -- Unreached: a forked step declares no continuing outcome, and the step table's catalog check refuses a reader of one.
+    OpensChildren -> error (show (stepName s) <> " is forked: it has no continuing outcome")
 
 -- | The event a step's exit outcome appends: only a step with an exit has one.
 exitEvent :: (StepSet k, ExitOf (Sig s) ~ 'Just x) => Sing (s :: k) -> EventName
 exitEvent s = case outcomes s of
     ExitsOr exit _ -> EventName (stepName s) exit
 
--- | The event a skip appends: only an endo step can sit under an 'State.Category.Flow.Opt'.
-skipEvent :: (StepSet k, ExitOf (Sig s) ~ 'Nothing, DomOf (Sig s) ~ CodOf (Sig s)) => Sing (s :: k) -> EventName
-skipEvent s = EventName (stepName s) skippedOutcome
-
--- | The outcome of a step a mode skipped, which no step has of its own.
-skippedOutcome :: OutcomeName
-skippedOutcome = OutcomeName "skipped"
-
--- | The outcome that opens a child, a fan-out's or a choice's: the run stays.
+-- | The outcome that opens a child: a fork's, the run going on.
 spawnedOutcome :: OutcomeName
 spawnedOutcome = OutcomeName "spawned"
 
@@ -338,5 +308,5 @@ handedBackOutcome :: OutcomeName
 handedBackOutcome = OutcomeName "handed_back"
 
 -- | A generating arrow of @Cap@: one outcome of one step, @step.outcome : dom -> cod@.
-data OutcomeEdge = OutcomeEdge {event :: EventName, dom :: Ty, cod :: Ty}
+data OutcomeEdge = OutcomeEdge {event :: EventName, dom :: TyVal, cod :: TyVal}
     deriving stock (Eq, Show)

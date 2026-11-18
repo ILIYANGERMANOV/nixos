@@ -12,7 +12,9 @@ changes confidently when they lead to a better long-term design.**
   alive only so they still load.
 - Prefer general, category-theory-aligned designs (sums, cases, Elgot
   iteration and their laws) over special-case building blocks. The model and
-  its laws live in `docs/adr/0018-category-model-haskell-state.md` and
-  `docs/adr/0019-composable-flows.md`.
+  its laws live in `docs/adr/0018-category-model-haskell-state.md`,
+  `docs/adr/0019-composable-flows.md` and, for the flow core that replaces
+  0019's word table, `docs/adr/0020-flow-core-from-sums-and-elgot.md`.
 - Example: ADR 0019 kept `Choice` and `Route` partly for log and graph
-  compatibility. That reason no longer counts.
+  compatibility. ADR 0020 dropped them for `choice` and `choiceLoop` built
+  from `Case`, `Exit` and `Loop`, breaking old logs.

@@ -28,31 +28,33 @@ module State.Protocol.Advice (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Monad (join, mfilter)
+import Control.Monad (mfilter)
 import Data.Aeson (eitherDecodeStrictText, withObject, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Containers.ListUtils (nubOrdOn)
 import Data.Foldable (asum, toList)
-import Data.List (sortOn)
+import Data.List (genericLength, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify)
+import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), isRouteHub, placeName, shownOrder)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..), TyVal)
+import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
+import State.Flow.Library (simplifyPlan)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
-import State.Role (FlowName (..), RoleDef (..))
+import State.Role (RoleDef (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, oneLineText, qidText, questionLine)
 import State.Run.Ask qualified as Ask
@@ -61,14 +63,14 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), OnTarget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, fuelOf, given, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
+import State.Run.Fold (Budget (..), OnTarget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, targetsAt, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
-import State.Step.Choice (choiceNamed)
-import State.Step.Fan (Outcome (..), fanNamed)
-import State.Step.Plan (Outcome (..), Sing (Confirm, SimplifyP))
+import State.Step.Fan (fanNamed)
+import State.Step.Fuel (Sing (Fuel))
+import State.Step.Plan (Outcome (..), Sing (Confirm))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Step.Ticket (Outcome (OpenTicketDone), Sing (OpenTicket))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
@@ -181,9 +183,9 @@ skip the Fuel makes, the plan settled without the user, or the ticket a
 request targets, at the step's scope. The shell records it and asks
 again, until 'Nothing'.
 -}
-due :: OpenGraph -> Facts -> RunState -> Maybe Event
-due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> adopted place.name <> fromGitHub place.name <> skipped place <> leaves place)
+due :: Facts -> RunState -> Maybe Event
+due facts state = case (state.stopped, state.at) of
+    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> adopted place.name <> fromGitHub place.name <> skipped place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -199,7 +201,7 @@ due g facts state = case (state.stopped, state.at) of
     -- A plan its parent decided, or feedback on a target with no Design or Scope question open:
     -- the run neither simplifies nor confirms it with the user.
     decided name
-        | planSettled state = [Catalog.outcome SimplifyPlanSkipped | name == stepName SimplifyP] <> [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
+        | planSettled state = [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
         | otherwise = []
     -- A request on a ticket works on that one: it opens none.
     adopted name = [Catalog.outcome (OpenTicketDone url) | name == stepName OpenTicket, Just (OnTicket url) <- [(.target) <$> state.onTarget]]
@@ -209,64 +211,33 @@ due g facts state = case (state.stopped, state.at) of
         IsReady -> True
         IsMerged -> False
         IsClosed -> False
-    -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
-    leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans (ScopedFan place.scope fan))]]
-    -- The graph names the skip inside its scopes; its outcome is the step's own.
-    skipped place =
-        [ outcome
-        | (event, rule) <- skipsHere g state
-        , Just why <- [skipsBecause rule]
-        , Just outcome <- [skipOutcome facts state why (EventName place.name event.outcome)]
-        ]
-    skipsBecause = \case
-        Never -> Nothing
-        -- The agent's call: 'skippable' says so.
-        Skippable -> Nothing
-        AtOrBelow most -> case facts.changedLines of
-            Just changed | changed <= most -> Just (tshow changed <> " changed lines, at or below " <> tshow most)
-            _ -> Nothing
+    -- The Fuel decides a skip, or the facts at a level that skips by changed lines; a trivial task's is the agent's.
+    skipped place = case skipHere place.name of
+        Just skip
+            | skip.block == simplifyPlan && planSettled state -> [skip.skips]
+            | otherwise -> case atFuel (fuelOf state) skip.when of
+                Never -> [skip.runs]
+                Skippable -> []
+                AtOrBelow most -> [if changed <= most then skip.skips else skip.runs | Just changed <- [facts.changedLines]]
+        Nothing -> []
 
-{- | The outcome a skip appends. @simplify_pr@ has none here: no level skips
-it, and its skip names a head these facts lack.
+{- | What decides the skip the run's Fuel leaves to the agent here: a
+trivial task's, with the record that takes it, or the changed lines 'due'
+could not read.
 -}
-skipOutcome :: Facts -> RunState -> Text -> EventName -> Maybe AnyOutcome
-skipOutcome facts state why event =
-    join . lookup event $
-        map
-            stated
-            [ Catalog.outcome SimplifyPlanSkipped
-            , Catalog.outcome (RefactorSkipped why)
-            ]
-            <> [(builtEvent Ready ReadySkipped, Catalog.outcome . ReadySkipped <$> prUrl facts state)]
+skippable :: RunState -> [Text]
+skippable state = case (state.stopped, state.at) of
+    (Nothing, At place) | Just skip <- skipHere place.name -> case atFuel level skip.when of
+        Skippable -> [fuelLabel level <> ": skip it when the task is trivial: " <> recordCommand (qualifyEvent place.scope (Catalog.outcomeEvent skip.skips))]
+        AtOrBelow most -> [fuelLabel level <> ": skip it at or below " <> tshow most <> " changed lines, else run it"]
+        Never -> []
+    _ -> []
   where
-    stated skip = (Catalog.outcomeEvent skip, Just skip)
-
-{- | The skips the run's Fuel leaves to the agent here, each with the record
-that takes it: the agent skips the step of a trivial task and runs it
-otherwise, so 'due' never records these.
--}
-skippable :: OpenGraph -> RunState -> [Text]
-skippable g state =
-    [ fuelLabel (fuelOf state) <> ": skip it when the task is trivial: " <> recordCommand event
-    | (event, Skippable) <- skipsHere g state
-    ]
-
--- | Each skip arrow out of a running run's state, with when its Fuel takes it.
-skipsHere :: OpenGraph -> RunState -> [(EventName, SkipWhen)]
-skipsHere g state = case (state.stopped, state.at) of
-    (Nothing, At place) ->
-        [ (event, atFuel (fuelOf state) skips)
-        | ((from, event), edge) <- Map.toList g.edges
-        , from == place
-        , Skip _ skips <- [edge.arrow]
-        ]
-    (Nothing, Out) -> []
-    (Nothing, Exit) -> []
-    (Just _, _) -> []
+    level = fuelOf state
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
-advise steps g facts state = Advice action more (atLine steps g state) leads (factLines g facts state) prompt notify
+advise steps g facts state = Advice action more (atLine steps state) leads (factLines g facts state) prompt notify
   where
     plain next = (next, "")
     more = case (state.stopped, fanHere) of
@@ -290,30 +261,20 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         Nothing -> []
     along edge = case edge.arrow of
         Along _ -> True
-        Skip _ _ -> False
         Stay -> False
     notify = case (state.at, Text.null prompt) of
         (At place, False) | Just (AnyStep _ (SomeStep s)) <- stepNamed place.name -> (row steps s).notifies
         _ -> False
-    (action, prompt) = case (state.stopped, state.pending, fuelAsked) of
-        (Just stop, _, _) -> plain (Stopped stop)
+    (action, prompt) = case (state.stopped, state.pending) of
+        (Just stop, _) -> plain (Stopped stop)
         -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
-        (Nothing, _ : _, True) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
-        (Nothing, oldest : _, _) -> plain $ case oldest.waits of
+        (Nothing, _ : _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
+        (Nothing, oldest : _) -> plain $ case oldest.waits of
             ForTriage -> Triage oldest.asking.question
             ForAnswer -> AwaitAnswer oldest.asking.question
-        (Nothing, [], False) -> plain (Run (one (recordOne "fuel" (map fuelName [minBound .. maxBound])) "sets the run's Fuel, once: how much it researches, reviews and spends"))
-        (Nothing, [], True) -> case state.untriaged of
+        (Nothing, []) -> case state.untriaged of
             (role, line) : _ -> plain (TriageHandback role line)
             [] -> going
-    {- The 10x picks each task's Fuel and never asks one: it runs at the default.
-    The chief's Fuel is each request's, set at its route's hub only when it differs.
-    -}
-    fuelAsked = case state.start.flow of
-        EngineerFlow -> isJust state.fuel
-        TenXFlow -> True
-        ArchitectFlow -> isJust state.fuel
-        ChiefFlow -> True
     output = outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state
     fanHere = case state.at of
         At place -> ScopedFan place.scope <$> fanNamed place.name
@@ -323,51 +284,58 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (Out, _) -> plain (Done output)
         (Exit, _) -> plain (Done output)
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
-        (At place, _) | Just _ <- choiceNamed place.name -> (atChoice place, choicePrompt place)
-        (At place, _) | isRouteHub g state.at -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
+        (At place, _) | isPick place.name, Map.member (place, enoughAt place) g.edges -> (atChoice place, choicePrompt place)
+        (At place, _) | isPick place.name -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
+        (At _, _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
+        (At place, _) | Just (Awaiting _) <- Map.lookup place g.groupStates -> plain (atAwait place)
+        (At place, _) | place.name == stepName Fuel -> (atStep place Fuel, promptOf (row steps Fuel) <> targetFirst place <> fuelGiven)
+        (At place, _) | Just _ <- skipHere place.name -> plain (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place, fuelTakes (fuelOf state) place.name event]))
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s) <> told s)
-            Nothing -> case fanNamed place.name of
-                Just fan -> plain (atFan (ScopedFan place.scope fan) facts.ended state)
-                Nothing -> plain (Run (one ("state record the " <> stateNameText (placeName place) <> " fan-out's outcome") "ends the fan-out"))
+            Nothing -> plain (Run (one ("state record the " <> stateNameText (placeName place) <> " state's outcome") "goes on"))
     usedUpAt place = mfilter usedUp (listToMaybe [budget | (_, budget) <- budgetsAt place])
     budgetsAt place = [(metered.step, budget) | (metered, budget) <- shownBudgets g state, metered.place == place]
-    {- At a choice: the user says whether to go on at a used-up budget, once;
-    then each action its budget leaves, in the order the term declares them,
-    extend, and enough once every child handed back.
+    {- At a choice's pick: the user says whether to go on at a used-up
+    budget, once; then each action its budget leaves, extend, and enough.
     -}
-    atChoice place = case [budget | (_, budget) <- here, usedUp budget, budget.cap.atCap == Extend] of
+    atChoice place = case [budget | (_, budget) <- spentOn, budget.cap.atCap == Extend] of
         used : _ | Ask.Stuck `notElem` state.askedHere -> goOn used
-        used -> Run (NonEmpty.prependList ([option step | (step, budget) <- here, not (usedUp budget)] <> [extendOption | not (null used)]) (leave :| []))
+        used -> Run (someOptions ([pickOption event edge | (event, edge) <- shownEdges g place, isNothing (usedUpOn edge)] <> [extendOption | not (null used)]))
       where
-        here = budgetsAt place
-        open = sum [budget.ledger.open | (_, budget) <- here]
-        enough = EventName (placeName place) enoughOutcome
-        leave = case (Map.lookup (place, enough) g.edges, open) of
-            (Just edge, 0) -> recordOption enough edge
-            (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", after the open ones hand back (" <> tshow open <> " open): end your turn until then"}
-            (Nothing, _) -> commandOption (recordCommand enough) "leaves the choice"
-        option step = maybe (commandOption (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
-    -- A route asks the user its branch at most once, and only when the request leaves it open.
+        spentOn = [(event, budget) | (event, edge) <- shownEdges g place, Just budget <- [usedUpOn edge]]
+    -- An action that forks an agent's child says so, and how it runs, as a spawn's option does.
+    pickOption event edge = case edge.to of
+        At next
+            | Just (Forking _) <- Map.lookup next g.groupStates
+            , Just (AnyStep _ (SomeStep s)) <- stepNamed next.name
+            , Agent (AgentRole role) _ <- (row steps s).runner ->
+                (recordOption event edge) {means = goes edge <> ", which spawns " <> withArticle role, spawns = True}
+        _ -> recordOption event edge
+    usedUpOn edge = case edge.to of
+        At next -> usedUpAt next
+        Out -> Nothing
+        Exit -> Nothing
+    enoughAt place = EventName (placeName place) enoughOutcome
+    {- At a group's await, children are open: the run goes on by itself
+    once the last hands back, so it only waits.
+    -}
+    atAwait place = Run (commandOption "end your turn" ("until the " <> tshow (awaitedOpen g state place) <> " open hand back: each hand-back is recorded, and the last moves the run on") :| [])
+    targetFirst place
+        | targetsAt state.start.flow place = "\nA request on existing work names its target first, before its Fuel: `target pr <url>`, `target branch <name>` or `target ticket <url>`."
+        | otherwise = ""
+    {- Fuel is an input: the level a caller gave, or one an earlier request
+    set, is recorded as given; the user is asked only when none is.
+    -}
+    fuelGiven = case state.fuel of
+        Just level -> "\nThe Fuel given: " <> fuelName level <> ". Record it, unless the request names another."
+        Nothing -> "\nNo Fuel given yet: take your brief's or the request's Fuel line; with none, ask the user once."
+    -- A pick asks the user its branch at most once, and only when the request leaves it open.
     routePrompt
         | Ask.Pick `elem` state.askedHere = "The user was asked the branch once: record the branch the answer names."
         | otherwise = "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
     -- One line per action, so one action's task never reads as another's.
-    choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (step, _) <- budgetsAt place, Just (AnyStep _ (SomeStep s)) <- [stepNamed step]]
-    actionAt :: Place -> AnyStep -> Option
-    actionAt place (AnyStep _ (SomeStep s)) = case outcomes s of
-        OpensChildren -> case (row steps s).runner of
-            Agent (AgentRole role) _ ->
-                Option
-                    ("spawn a " <> role)
-                    ("prompted with state brief " <> role <> " and the task below; the hook records " <> eventText (EventName (stepName s) spawnedOutcome) <> ", and its hand-back as " <> eventText (EventName (stepName s) handedBackOutcome))
-                    True
-            Inline -> commandOption (recordCommand (EventName (stepName s) spawnedOutcome)) "opens a child that must hand back"
-        AsksOnly -> commandOption "state ask --kind <kind> <question>" "asks one question; what it prints says who answers"
-        Continues _ -> NonEmpty.head (recordOutcomes g place s)
-        ExitsOr _ _ -> NonEmpty.head (recordOutcomes g place s)
-        Branches _ _ -> NonEmpty.head (recordOutcomes g place s)
+    choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (_, Edge {to = At next}) <- shownEdges g place, Just (AnyStep _ (SomeStep s)) <- [stepNamed next.name]]
     told :: (StepSet k) => Sing (s :: k) -> Text
     told s = case special s of
         TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
@@ -413,43 +381,48 @@ shownBudgets g state = sortOn (\(metered, budget) -> shownOrder metered budget.c
 {- | What a child's spawn or hand-back tells under its line in place of the
 advice, which parallel spawns would each repeat:
 
-> researchers: 2 running, 3 of 5 left
+> researchers: 3 of 5 left
 > next: spawn more, or end your turn until they hand back
 
-None for an event that opens or closes no child.
+A hand-back tells the children of its group's role still open in the
+run's 'State.Run.Fold.ledger' instead: a spawn's own child is not in it
+before its bind. None for an event that opens or closes no child.
 -}
 childBudget :: OpenGraph -> RunState -> Event -> Maybe [Text]
 childBudget g state event =
     listToMaybe
-        [ childLines owed budget
+        [ childLines owed budget (genericLength (filter ((== group.runner) . (.role)) (ledger g state)))
         | Event.Took _ (AnyOutcome _ some) <- [event]
-        , (_, budget) <- shownBudgets g state
+        , (metered, budget) <- shownBudgets g state
         , Just owed <- [owedBy budget.cap.meter (RecordedOutcome some)]
+        , Just (Forking group) <- [Map.lookup metered.place g.groupStates]
         ]
 
-childLines :: Owed -> Budget -> [Text]
-childLines owed budget =
-    [ Text.toLower (someMeterName budget.cap.meter) <> ": " <> howMany open <> " running" <> foldMap left budget.allows
+childLines :: Owed -> Budget -> Natural -> [Text]
+childLines owed budget open =
+    [ Text.toLower (someMeterName budget.cap.meter) <> ": " <> Text.intercalate ", " (running <> foldMap left budget.allows)
     , "next: " <> next
     ]
   where
-    open = budget.ledger.open
-    left allows = ", " <> howMany (allows - min allows budget.ledger.spent) <> " of " <> tshow allows <> " left"
+    running = case owed of
+        Opens -> []
+        Closes -> [howMany open <> " running"]
+    left allows = [howMany (allows - min allows budget.spent) <> " of " <> tshow allows <> " left"]
     howMany n = if n == 0 then "none" else tshow n
-    await = "end your turn until " <> if open == 1 then "it hands back" else "they hand back"
     next = case owed of
-        Opens | usedUp budget -> await
-        Opens -> "spawn more, or " <> await
+        Opens | usedUp budget -> "end your turn until they hand back"
+        Opens -> "spawn more, or end your turn until they hand back"
         Closes | open == 0 -> "state next"
-        Closes -> await
+        Closes | open == 1 -> "end your turn until it hands back"
+        Closes -> "end your turn until they hand back"
 
 -- | @Re-reviews: 1 of 3 used, 2 left@: what a budget spent of what the run's Fuel allows.
 spentText :: Budget -> Text
-spentText budget = someMeterName budget.cap.meter <> ": " <> tshow budget.ledger.spent <> left budget.allows
+spentText budget = someMeterName budget.cap.meter <> ": " <> tshow budget.spent <> left budget.allows
   where
     left = \case
-        Just allows | budget.ledger.spent >= allows -> " of " <> tshow allows <> " used, none left"
-        Just allows -> " of " <> tshow allows <> " used, " <> tshow (allows - budget.ledger.spent) <> " left"
+        Just allows | budget.spent >= allows -> " of " <> tshow allows <> " used, none left"
+        Just allows -> " of " <> tshow allows <> " used, " <> tshow (allows - budget.spent) <> " left"
         Nothing -> " used, one per group"
 
 {- | At a fan-out: what this run does at once first - record the hand-back
@@ -550,7 +523,7 @@ recordTask task = "state record task " <> taskIdText task.id <> " " <> taskState
 a ticket's, or a request's, the url recorded last. No step records a url for
 any other type yet.
 -}
-outputUrl :: Ty -> Facts -> RunState -> Maybe Url
+outputUrl :: TyVal -> Facts -> RunState -> Maybe Url
 outputUrl out facts state = case out of
     PR -> prUrl facts state
     Ticket -> state.ticket
@@ -560,7 +533,7 @@ outputUrl out facts state = case out of
     Diff -> Nothing
     Findings -> Nothing
     List _ -> Nothing
-    _ :+ _ -> Nothing
+    Sum _ -> Nothing
 
 -- | The PR's url as GitHub reports it, else the PR the run recorded.
 prUrl :: Facts -> RunState -> Maybe Url
@@ -572,11 +545,13 @@ recordOutcomes g place s =
     someOptions
         [ maybe (commandOption (recordCommand event) "") (recordOption event) (Map.lookup (place, event) g.edges)
         | outcome <- outcomeNames (outcomes s)
+        , EventName place.name outcome /= shapeSkip
         , let event = EventName (placeName place) outcome
         ]
 
-recordOne :: Text -> [Text] -> Text
-recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "|" choices <> ">"
+-- | @ready.skipped@: a round's shape takes it ('due'), the fold refuses it elsewhere, so it is no option of the agent's.
+shapeSkip :: EventName
+shapeSkip = Catalog.outcomeEvent (Catalog.outcome (ReadySkipped (Url "")))
 
 stuckText :: Stuck -> Text
 stuckText found =
@@ -646,7 +621,7 @@ structured-concurrency scope ends only after its children. Decided on the
 delivered line, so 'advise' stays principal-blind. Names the oldest worker.
 -}
 heldBy :: Start -> [Worker] -> Advice -> Advice
-heldBy start live advice = case live of
+heldBy start workers advice = case workers of
     worker : _
         | handsBack (deliver start advice.action) ->
             advice {action = AwaitWorker worker.role worker.agent, more = [], leads = [], facts = stillAtWork worker <> advice.facts}
@@ -687,7 +662,7 @@ deliver start = \case
     AwaitMerge tasks
         | has Event.Await -> awaiting Merge (Text.unwords (map (taskIdText . fst) (toList tasks)))
         | otherwise -> awaiting Merge (Text.unwords [maybe (taskIdText task) urlText pr | (task, pr) <- toList tasks])
-    Run (option :| []) -> "RUN " <> optionCommand start option
+    Run (option :| []) -> "RUN " <> option.command
     Run (_ :| _ : _) -> "RUN one option below"
     Stopped stop -> case Ask.deliver start.principal of
         TheUser -> "STOP " <> reasonText stop.reason <> " " <> stop.why
@@ -748,20 +723,26 @@ ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itsel
 {- | Where the run is, in one plain line: the state, and what it means to
 an agent that knows nothing of the kernel.
 -}
-atLine :: Steps -> OpenGraph -> RunState -> Text
-atLine steps g state = case state.at of
+atLine :: Steps -> RunState -> Text
+atLine steps state = case state.at of
     At place -> "at " <> stateNameText (placeName place) <> ": " <> meaning place
     Out -> "at the end: the flow is done"
     Exit -> "at the end: the flow is done"
   where
     meaning place
-        | isRouteHub g (At place) = "a route you pick - take one option below, once, then state next"
-        | otherwise = case (stepNamed place.name, choiceNamed place.name) of
-            (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
+        | isPick place.name = "a branch you pick - take one option below, then state next"
+        | Just _ <- skipHere place.name = "an optional block - take one option below, then state next"
+        | otherwise = case stepNamed place.name of
+            Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
                 Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
-                Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
-            (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
-            (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
+                Agent role _ -> "a step " <> withArticle (roleText role) <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
+            Nothing -> "children at work - each runs on its own; do what each unindented line says, then state next"
+
+-- | A role after its indefinite article, by the role's first letter: @an implementer@, @a fixer@.
+withArticle :: Text -> Text
+withArticle role = case Text.uncons role of
+    Just (first, _) | first `elem` ("aeiou" :: String) -> "an " <> role
+    _ -> "a " <> role
 
 {- | The lines under the advice's first line: where the run is, then each
 option to take, or where the step's outcomes lead, one per line.
@@ -770,15 +751,15 @@ explained :: Start -> Advice -> [Text]
 explained start advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads
   where
     listed _ [] = []
-    listed heading options = heading : ["  " <> optionCommand start option <> " - " <> option.means | option <- options]
+    listed heading options = heading : ["  " <> option.command <> " - " <> optionMeans start option | option <- options]
 
-{- | An option's command for this interface: a spawn runs in the background
+{- | What an option means for this interface: a spawn runs in the background
 only where the interface can, as 'deliver' says of a @SPAWN@.
 -}
-optionCommand :: Start -> Option -> Text
-optionCommand start option
-    | option.spawns = option.command <> if Set.member Event.Background start.interface then " in the background" else " in the foreground"
-    | otherwise = option.command
+optionMeans :: Start -> Option -> Text
+optionMeans start option
+    | option.spawns = option.means <> if Set.member Event.Background start.interface then " in the background" else " in the foreground"
+    | otherwise = option.means
 
 -- | The options a 'Run' offers.
 runOptions :: Action -> [Option]

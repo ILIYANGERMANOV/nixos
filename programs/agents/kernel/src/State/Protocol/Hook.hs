@@ -75,12 +75,12 @@ import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty, toList)
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath)
-import State.Category.Graph (Node (..), Place (..))
+import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingIn)
@@ -88,12 +88,11 @@ import State.Role (leads)
 import State.Run.Ask (Principal (..), Question (..), qidText)
 import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
-import State.Run.Fold (Pending (..), RunState (..), Waits (..), over, unvoided)
+import State.Run.Fold (Open (..), Pending (..), RunState (..), Waits (..), forks, ledger, over, unvoided)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..))
-import State.Step.Choice (choiceNamed, nodeChoice)
 import State.Step.Gather qualified as Gather
 import State.Table (Steps, agentRoles, stepsRunBy)
 
@@ -436,23 +435,23 @@ spawned beside reports to its spawner alone.
 tracked :: Steps -> AgentRole -> Bool
 tracked steps role = role `elem` agentRoles steps
 
-{- | Whether the run records this step runner's hand-back where it is: one
-also spawned beside the advice only at a choice, where it runs an action. A
-child run records its own in its parent's run.
+{- | Whether the run records this step runner's hand-back: one also spawned
+beside the advice only while the flow forks its step and the run's 'ledger'
+has a child of its role open, wherever the run is. A child run records its
+own in its parent's run.
 -}
-followedAt :: Node -> AgentRole -> Bool
-followedAt at role = role `notElem` beside || isJust (nodeChoice at)
+followedAt :: Steps -> OpenGraph -> RunState -> AgentRole -> Bool
+followedAt steps g state role =
+    role `notElem` beside
+        || (any ((== role) . (.role)) (ledger g state) && or [stepName s == metered.step | metered <- forks g state, AnyStep _ (SomeStep s) <- stepsRunBy steps role])
 
-{- | What a lead's spawn of this role records: at a choice, the spawn of the
-action the role runs, a child the choice then waits for. The spawn hook
+{- | What a lead's spawn of this role records: at a fork of the step the
+role runs, the spawn of a child the group then waits for. The spawn hook
 carries no child id, so a spawn seen twice records twice: none is deduplicated.
 -}
 spawnedAt :: Steps -> Node -> AgentRole -> Maybe Event
 spawnedAt steps at spawned = case at of
-    At place
-        | Just _ <- choiceNamed place.name ->
-            listToMaybe [event | AnyStep l (SomeStep s) <- stepsRunBy steps spawned, Just event <- [opening place.scope l s]]
-        | otherwise -> Nothing
+    At place -> listToMaybe [event | AnyStep l (SomeStep s) <- stepsRunBy steps spawned, stepName s == place.name, Just event <- [opening place.scope l s]]
     Out -> Nothing
     Exit -> Nothing
 
@@ -463,6 +462,7 @@ opening scope l s = case l of
         Gather.Research -> Just (tookIn scope Gather.ResearchSpawned)
         Gather.Interview -> Nothing
         Gather.Discuss -> Nothing
+        Gather.Notes -> Nothing
     PlanLayer -> Nothing
     BuildLayer -> Nothing
     ReviewLayer -> Nothing
@@ -470,7 +470,8 @@ opening scope l s = case l of
     TicketLayer -> Nothing
     RequestLayer -> Nothing
     FanLayer -> Nothing
-    ChoiceLayer -> Nothing
+    PickLayer -> Nothing
+    FuelLayer -> Nothing
 
 {- | Spawned beside the advised role, never instead of it: a dry-run reviewer
 next to the review-lead, a fact-gap researcher, a checker for the full check.
@@ -525,7 +526,7 @@ restartOf source state = case source of
     Resumed -> lost
     Compact -> Nothing
   where
-    lost = if all (Set.null . (.atWork)) state.fans && null state.live then Nothing else Just Restarted
+    lost = if all (Set.null . (.atWork)) state.fans && null state.workers then Nothing else Just Restarted
 
 {- | The ids of a hook's records, one per event it appends, in order: a hash
 of the run, the agent and its message, so the same hand-back seen twice

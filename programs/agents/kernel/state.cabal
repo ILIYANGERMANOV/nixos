@@ -55,6 +55,7 @@ library
     State.Cli.View
     State.Flow.Architect
     State.Flow.Chief
+    State.Flow.Drawn
     State.Flow.Engineer
     State.Flow.Library
     State.Flow.TenX
@@ -75,9 +76,10 @@ library
     State.Step.Artifact
     State.Step.Build
     State.Step.Catalog
-    State.Step.Choice
     State.Step.Fan
+    State.Step.Fuel
     State.Step.Gather
+    State.Step.Pick
     State.Step.Plan
     State.Step.Request
     State.Step.Review
@@ -131,6 +133,7 @@ test-suite state-test
     Effects.FileSystemSpec
     Effects.LogSpec
     Effects.RandomSpec
+    SpecHook
     State.ArchitectureSpec
     State.Category.FlowGen
     State.Category.FlowSpec
@@ -166,7 +169,6 @@ test-suite state-test
     State.Run.EventSpec
     State.Run.FanSpec
     State.Run.FoldSpec
-    State.Run.ReplaySpec
     State.Run.RunGen
     State.TableSpec
 

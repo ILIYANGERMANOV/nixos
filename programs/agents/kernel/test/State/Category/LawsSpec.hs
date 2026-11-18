@@ -7,29 +7,31 @@ the copy sits under @Scope "u"@, so a copied loop keeps a name of its own.
 module State.Category.LawsSpec (spec) where
 
 import Data.Either (isRight)
-import Data.Foldable (toList)
-import Data.List (sortOn)
-import Data.List.NonEmpty (NonEmpty (..))
-import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Type.Equality ((:~:) (..))
+import Data.Typeable (eqT)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, qualify, qualifyText, scoped, spawn, unqualify, (|||))
-import State.Category.FlowGen (Kit (..), diffKit, genBranches, genBranching, genEndo, genExiting, genFlow, genScopePath, redrawn)
+import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Name (..), branchesWith, nameText, qualify, qualifyText, scoped, unqualify)
+import State.Category.Flow qualified as Flow
+import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
-import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places, shownOrder)
+import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, outOf, placeName, places)
+import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..), limitAtMost, meterName)
-import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName (..), StepSet (stepName), stateNameText)
-import State.Category.Ty (NotSum, Ty (..))
+import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Sing, StateName (..), StepSet, stateNameText)
+import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Engineer (engineer)
+import State.Flow.Library (choice, choiceLoop, par)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
-import State.Step.Gather (Sing (..))
+import State.Step.Fuel (FuelStep, Sing (Fuel, Skip))
+import State.Step.Ship (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -48,34 +50,29 @@ spec = describe "laws" $ do
             (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph ((f :> g) :> h))) ((,,) <$> genExiting diffKit <*> genEndo diffKit <*> genBranching))
             drawn ((f :> g) :> h) === drawn (f :> (g :> h))
 
-    {- The sum in #351: a case after an injection is the branch it injects
-    into, a case of the two injections each followed by @h@ is @h@, and the
-    case is associative.
+    {- The sum in #351, read off a step into it, as the core has no
+    injection: beta, the step's edge into a summand walks as that summand's
+    branch; fusion, a series after a case is the case of each branch then
+    the series. A choice's branches are a set: their order is the type's only.
+    Eta, @h = Case (each l, inj_l :> h)@, is not expressible: the core has
+    no injection, and a flow out of a sum is a 'Case' already, as 'Do'
+    takes no sum.
     -}
     describe "sums" $ do
-        it "inl_then_case_draws_as_the_left_branch" . hedgehog $ do
+        it "case_beta_each_summand_walks_as_its_branch" . hedgehog $ do
             (f, g) <- forAll genCase
-            drawn (inl :> (f ||| g)) === drawn f
+            let walked label = case graph (triaged f g) of
+                    Right whole | Just (Edge {to = At entry}) <- Map.lookup (whole.inPort, EventName (StateName "triage") (OutcomeName label)) whole.edges -> Right whole {inPort = entry}
+                    other -> other
+            (bisimilar <$> walked "small" <*> graph f, bisimilar <$> walked "big" <*> graph (Do Implement :> g)) === (Right [], Right [])
 
-        it "inr_then_case_draws_as_the_right_branch" . hedgehog $ do
+        it "case_fusion_series_distributes_into_each_branch" . hedgehog $ do
+            (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph (Do Triage :> Case (#small :-> f :& #big :-> Do Implement :> g :& End) :> h))) ((,,) <$> genEndo diffKit <*> genEndo diffKit <*> genBranching))
+            (bisimilar <$> graph (Do Triage :> Case (#small :-> f :& #big :-> Do Implement :> g :& End) :> h) <*> graph (Do Triage :> Case (#small :-> f :> h :& #big :-> Do Implement :> g :> Scope copy h :& End))) === Right []
+
+        it "the_order_of_a_choice_s_branches_changes_nothing_a_run_walks" . hedgehog $ do
             (f, g) <- forAll genCase
-            drawn (inr :> (f ||| g)) === drawn g
-
-        -- @Do Triage@ feeds both summands, so both sides draw each branch.
-        it "a_case_of_injections_then_h_walks_as_h" . hedgehog $ do
-            h <- forAll (Gen.filter (isRight . graph . (Do Triage :>)) genOnSum)
-            (bisimilar <$> graph (Do Triage :> ((inl :> h) ||| (inr :> Scope copy h))) <*> graph (Do Triage :> h)) === Right []
-
-        {- @x@ ends in @(Diff + Plan) + Plan@; the associator moves it to
-        @Diff + (Plan + Plan)@, so both cases see the same three branches.
-        Over terms that build: with two clashes, the one a side names first
-        follows its nesting, and 'Clash' has its own cases.
-        -}
-        it "case_is_associative" . hedgehog $ do
-            let x = Do Triage :> (Do Triage :> inl ||| inr)
-                associator = (inl ||| inl :> inr) ||| inr :> inr
-            (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph (x :> ((f ||| g) ||| h)))) ((,,) <$> genBranching <*> genPlanned <*> genPlanned))
-            drawn (x :> ((f ||| g) ||| h)) === drawn (x :> associator :> (f ||| (g ||| h)))
+            (bisimilar <$> graph (choice "route" (#small :-> f :& #big :-> g :& End)) <*> graph (choice "route" (#big :-> g :& #small :-> f :& End))) === Right []
 
     describe "Catch, the codiagonal" $ do
         it "catch_moves_past_a_side_with_no_exit" . hedgehog $ do
@@ -84,7 +81,11 @@ spec = describe "laws" $ do
 
         it "catch_distributes_over_a_case" . hedgehog $ do
             (f, g) <- forAll ((,) <$> genExiting diffKit <*> ((Do Implement :>) <$> genExiting diffKit))
-            drawn (Do Triage :> Catch (f ||| g)) === drawn (Do Triage :> (Catch f ||| Catch g))
+            drawn (Do Triage :> Catch (Case (#small :-> f :& #big :-> g :& End))) === drawn (Do Triage :> Case (#small :-> Catch f :& #big :-> Catch g :& End))
+
+        it "catching_exit_is_identity" . hedgehog $ do
+            f <- forAll (Gen.filter (isRight . graph) genFlow)
+            drawn (Catch Flow.Exit :> f) === drawn f
 
     describe "Loop, Elgot's fixpoint" $ do
         {- The unrolled round is a second copy of the body's states, whose
@@ -94,6 +95,29 @@ spec = describe "laws" $ do
             body <- forAll (Gen.filter (isRight . graph . Loop "review") genBody)
             let loop = Loop "review" body
             (bisimilar <$> graph loop <*> graph (Catch (Scope copy body :> loop))) === Right []
+
+        it "a_choice_loop_walks_as_its_choice_unrolled_once" . hedgehog $ do
+            (f, g) <- forAll genPolishActions
+            let body = choice "polish" (#enough :-> Flow.Exit :& #fix :-> fixCapped :> f :& #simplify :-> g :& End)
+            (bisimilar <$> graph (choiceLoop "polish" Id (#fix :-> fixCapped :> f :& #simplify :-> g :& End)) <*> graph (Catch (Scope copy body :> Loop "polish" body))) === Right []
+
+    describe "choiceLoop, the Kleene star of a sum" $
+        it "the_order_of_the_actions_changes_nothing_a_run_walks" . hedgehog $ do
+            (f, g) <- forAll genPolishActions
+            (bisimilar <$> graph (choiceLoop "polish" Id (#fix :-> fixCapped :> f :& #simplify :-> g :& End)) <*> graph (choiceLoop "polish" Id (#simplify :-> g :& #fix :-> fixCapped :> f :& End))) === Right []
+
+    {- What a parent's graph says of @traverse@: each child is a run of its
+    own, so the parent draws the same states whatever the child, a series of
+    steps or none: identity, @par g Id@, and composition, @par g (f :> h)@,
+    draw as @par g f@. The results' values never reach the kernel, so
+    @par g (f :> h) = par g f :> par g' h@ holds of the children's runs, not
+    of a graph; their order, the items', is the run's
+    ("State.Protocol.AdviceSpec", par_identity).
+    -}
+    describe "par, traverse over child runs" $
+        it "par_identity_and_composition_draw_one_parent_graph" . hedgehog $ do
+            (f, g) <- forAll ((,) <$> genEndo diffKit <*> genEndo diffKit)
+            (drawn (par engineers (f :> g)), drawn (par engineers f)) === (drawn (par engineers Id), drawn (par engineers Id))
 
     describe "Scope" $ do
         it "scope_preserves_the_graph_but_its_names" . hedgehog $ do
@@ -122,83 +146,44 @@ spec = describe "laws" $ do
             (f, g) <- forAll (Gen.filter (\(f, g) -> isRight (graph (f :> Scope "inner" g))) ((,) <$> genExiting diffKit <*> genBranching))
             (stateNames <$> graph (f :> Scope "inner" g)) === liftA2 (<>) (stateNames <$> graph f) (stateNames <$> graph (Scope "inner" g))
 
-    describe "Choice, the Kleene star of a sum" $ do
-        it "the_order_of_the_actions_changes_only_the_order_they_are_shown_in" . hedgehog $ do
-            actions <- map snd <$> forAll genActions
-            shuffled <- forAll (Gen.shuffle actions)
-            fmap unranked (drawn (Choice "gather" shuffled)) === fmap unranked (drawn (Choice "gather" actions))
-
-        it "shows_the_actions_in_the_order_the_term_declares_them" . hedgehog $ do
-            actions <- forAll genActions
-            fmap shown (graph (Choice "gather" (map snd actions))) === Right (map fst actions)
-
-    {- A route's branches sit at their term positions, so a law that moves
-    them holds up to bisimulation: a run picks the same branch by the same
-    event and walks on through the same names.
-    -}
-    describe "Route, a pick of one branch" $ do
-        it "the_order_of_the_branches_changes_nothing_a_run_walks" . hedgehog $ do
-            branches <- forAll (Gen.filter (isRight . graph . Route "route") (genBranches genBranching))
-            shuffled <- forAll (Gen.shuffle (toList branches))
-            (bisimilar <$> graph (Route "route" (NonEmpty.fromList shuffled)) <*> graph (Route "route" branches)) === Right []
-
-        it "series_distributes_over_a_route" . hedgehog $ do
-            let routed f g = Route "route" ((OutcomeName "small", f) :| [(OutcomeName "big", g)])
-            (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph (routed f g :> h))) ((,,) <$> genEndo diffKit <*> genEndo diffKit <*> genBranching))
-            (bisimilar <$> graph (routed f g :> h) <*> graph (routed (f :> h) (g :> Scope copy h))) === Right []
-
     describe "PerFuel" $
         it "allows each level at least the spends and runs of the level below, in every named flow" $
             [(flow, name) | (flow, budgets) <- [("engineer" :: String, budgetsOf engineer), ("tenX", budgetsOf tenX)], (name, False) <- budgets]
                 `shouldBe` []
+
+{- | Two actions on a PR, the first after a capped fix, whose choice loop
+builds: a clash inside either refuses the whole term.
+-}
+genPolishActions :: Gen (Flow 'PR 'Nothing 'PR, Flow 'PR 'Nothing 'PR)
+genPolishActions = Gen.filter (\(f, g) -> isRight (graph (choiceLoop "polish" Id (#fix :-> fixCapped :> f :& #simplify :-> g :& End)))) ((,) <$> genEndo prKit <*> genEndo prKit)
+
+-- | A triage, then a case of its two summands.
+triaged :: Flow 'Diff 'Nothing 'PR -> Flow 'Diff 'Nothing 'PR -> Flow 'Diff 'Nothing 'PR
+triaged f g = Do Triage :> Case (#small :-> f :& #big :-> Do Implement :> g :& End)
+
+-- | The group 'par' forks its children into, in the laws.
+engineers :: Group 'Diff
+engineers = Group "engineers" (AgentRole "engineer")
+
+-- | A capped fix of a PR: what bounds a choice loop over PRs.
+fixCapped :: Flow 'PR 'Nothing 'PR
+fixCapped = Capped (always (UpTo 5)) Stop (Step FixPR)
 
 -- | The graph with each state's path its rank, or the clash that refuses the term.
 drawn :: (NotSum i, NotSum o) => Flow i e o -> Either Clash OpenGraph
 drawn = fmap redrawn . graph
 
 {- | Two branches whose case builds. A clash inside either branch, or a loop
-id both use, refuses the whole term, even the branch an injection never
-runs: 'Clash' has its own cases.
+id both use, refuses the whole term: 'Clash' has its own cases.
 -}
 genCase :: Gen (Flow 'Diff 'Nothing 'PR, Flow 'Diff 'Nothing 'PR)
-genCase = Gen.filter builds ((,) <$> genBranching <*> genBranching)
-  where
-    builds (f, g) = isRight (graph (inl :> (f ||| g)))
-
--- | A branch for a planned summand: implement the plan, then on as a diff.
-genPlanned :: Gen (Flow 'Plan 'Nothing 'PR)
-genPlanned = (Do Implement :>) <$> genBranching
+genCase = Gen.filter (\(f, g) -> isRight (graph (triaged f g)) && isRight (graph (choice "route" (#small :-> f :& #big :-> g :& End)))) ((,) <$> genBranching <*> genBranching)
 
 {- | The scope a law's copied subterm sits under: one loop name drawn twice
 would mix its rounds ('SameLoop'), so the copy is renamed.
 -}
 copy :: Name
 copy = "u"
-
--- | A case over a triaged diff, then more steps.
-genOnSum :: Gen (Flow ('Diff ':+ 'Plan) 'Nothing 'Diff)
-genOnSum =
-    Gen.recursive
-        Gen.choice
-        [(\f g -> f ||| Do Implement :> g) <$> genDiff <*> genDiff]
-        [ (:>) <$> genOnSum <*> genDiff
-        , Scope "inner" <$> genOnSum
-        ]
-  where
-    genDiff =
-        Gen.recursive
-            Gen.choice
-            [genEndo diffKit]
-            [(Do Triage :>) <$> genOnSum]
-
--- | Some of the gather's actions, each with a cap of its own, by its step's name.
-genActions :: Gen [(StateName, Flow 'Ctx 'Nothing 'Ctx)]
-genActions = do
-    let genLimit = Gen.element [UpTo 1, UpTo 5, PerGroup]
-        genCap = Gen.element [Refuse, Stop, Extend]
-    research <- spawn <$> (PerFuel <$> genLimit <*> genLimit <*> genLimit) <*> genCap <*> pure Research
-    interview <- Capped . always <$> genLimit <*> genCap <*> pure Interview
-    Gen.subsequence [(stepName Research, research), (stepName Interview, interview)]
 
 -- | A loop body with an exit.
 genBody :: Gen (Flow 'Diff ('Just 'Diff) 'Diff)
@@ -234,9 +219,9 @@ bisimilar left right = go Set.empty [(left.inPort, right.inPort)]
         | otherwise = case (a.to, b.to) of
             (At x, At y) -> Just [(x, y)]
             (Out, Out) -> Just []
-            (Exit, Exit) -> Just []
+            (Graph.Exit, Graph.Exit) -> Just []
             _ -> Nothing
-    leaving g place = Map.fromList [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place]
+    leaving g place = Map.fromAscList (outOf place g.edges)
     uncopiedKeys = Map.mapKeys (renameEvent strip)
     uncopied = renameState strip
     strip text = fromMaybe text (Text.stripPrefix (nameText copy <> "/") text)
@@ -251,9 +236,12 @@ unscoped scope g =
         , edges = Map.fromList [((place from, renameEvent bare event), renameEdge edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = Map.fromList [(renameName bare loop, at {entry = place at.entry, body = Set.map place at.body}) | (loop, at) <- Map.toList g.loops]
         , caps = Map.mapKeys (\metered -> metered {place = place metered.place}) g.caps
-        , routes = Set.map place g.routes
+        , groupStates = Map.mapKeys place (fmap renameGroup g.groupStates)
         }
   where
+    renameGroup = \case
+        Graph.Forking group -> Graph.Forking group {Graph.group = renameName bare group.group}
+        Graph.Awaiting group -> Graph.Awaiting group {Graph.group = renameName bare group.group}
     bare text = fromMaybe ("unscoped:" <> text) (Text.stripPrefix (nameText scope <> "/") text)
     place at = let (inner, name) = unqualify (bare (stateNameText (placeName at))) in at {scope = inner, name = StateName name}
     renameEdge edge =
@@ -261,7 +249,7 @@ unscoped scope g =
             { to = case edge.to of
                 At at -> At (place at)
                 Out -> Out
-                Exit -> Exit
+                Graph.Exit -> Graph.Exit
             , arrow = renameArrow bare edge.arrow
             , back = renameName bare <$> edge.back
             }
@@ -269,7 +257,6 @@ unscoped scope g =
 renameArrow :: (Text -> Text) -> Arrow -> Arrow
 renameArrow f = \case
     Along along -> Along along {event = renameEvent f along.event}
-    Skip name skips -> Skip (renameName f name) skips
     Stay -> Stay
 
 renameEvent :: (Text -> Text) -> EventName -> EventName
@@ -289,34 +276,33 @@ more Fuel never allows less, nor skips where less Fuel runs.
 -}
 budgetsOf :: Flow i e o -> [(Name, Bool)]
 budgetsOf = \case
-    Do _ -> []
-    Capped limit _ s -> [(Name (meterName s), capped limit)]
+    Do s -> [(name, skipped skips) | Just (name, skips) <- [skipOf s]]
+    Capped limit _ (Step s) -> [(Name (meterName s), capped limit)]
+    Capped limit _ (ForkOf _ s) -> [(Name (meterName s), capped limit)]
     Id -> []
     Into -> []
     f :> g -> budgetsOf f <> budgetsOf g
     Loop _ body -> budgetsOf body
-    Opt name skips body -> (name, skipped skips) : budgetsOf body
-    Par _ body -> budgetsOf body
-    InL -> []
-    InR -> []
-    f :||| g -> budgetsOf f <> budgetsOf g
+    Case branches -> concat (branchesWith budgetsOf branches)
+    Flow.Exit -> []
+    Each body -> budgetsOf body
+    Fork _ body -> budgetsOf body
+    Await _ -> []
     Catch body -> budgetsOf body
     Scope _ body -> budgetsOf body
-    Choice _ branches -> concatMap budgetsOf branches
-    Route _ branches -> concatMap (budgetsOf . snd) branches
   where
     capped :: PerFuel Limit -> Bool
     capped = monotone limitAtMost
     skipped :: PerFuel SkipWhen -> Bool
     skipped = monotone (flip skipsAtMost)
 
--- | The graph with every cap's rank, its presentation, forgotten.
-unranked :: OpenGraph -> OpenGraph
-unranked g = g {caps = fmap (\cap -> cap {rank = 0}) g.caps}
-
--- | The steps the caps meter, in the order they are shown.
-shown :: OpenGraph -> [StateName]
-shown g = [metered.step | (metered, _) <- sortOn (uncurry shownOrder) (Map.toList g.caps)]
+-- | A skip step's name and the levels that skip its block.
+skipOf :: forall k (s :: k). (StepSet k) => Sing s -> Maybe (Name, PerFuel SkipWhen)
+skipOf s = case eqT @k @FuelStep of
+    Just Refl -> case s of
+        Skip name skips -> Just (name, skips)
+        Fuel -> Nothing
+    Nothing -> Nothing
 
 -- | The caps spent at a state, by the step each meters.
 capsAt :: Place -> OpenGraph -> [(StateName, Cap)]

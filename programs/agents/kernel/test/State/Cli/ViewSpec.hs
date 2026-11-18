@@ -2,11 +2,13 @@ module State.Cli.ViewSpec (spec) where
 
 import Data.Foldable (for_)
 import Data.Text qualified as Text
+import State.Category.Fuel (Fuel (Balanced))
 import State.Cli.Render qualified as Render
 import State.Cli.View (beginText, brief, briefOf)
 import State.Protocol.Handback (tokenWords)
 import State.Protocol.Hook (Begin (..), LeadSkill (..))
-import State.Run.Event (AgentRole (..), Event (Took))
+import State.Run.Event (AgentRole (..))
+import State.Run.EventGen (fuelSet)
 import State.Run.RunGen (happyPath, loadSteps, runAt)
 import State.Table (agentRoles)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
@@ -25,7 +27,7 @@ spec = describe "the texts that need no run" $ do
                 briefOf steps role `shouldSatisfy` \text -> all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
 
         it "names every hand-back token for line 1 at a step the role runs" $ do
-            let atImplement = runAt (map (Took mempty) (take 7 happyPath))
+            let atImplement = runAt (fuelSet Balanced : take 10 happyPath)
             brief steps atImplement (AgentRole "implementer") Nothing `shouldSatisfy` \case
                 Right text -> take 1 (Text.lines text) == ["## implement"] && all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
                 Left _ -> False

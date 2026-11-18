@@ -16,18 +16,20 @@ module State.Category.Graph (
     LoopAt (..),
     Cap (..),
     Metered (..),
+    GroupAt (..),
+    GroupOf (..),
+    eachDoneOutcome,
     shownOrder,
     Clash (..),
     graph,
     places,
     innermost,
     leaving,
+    outOf,
     eventLabel,
-    isRouteHub,
 ) where
 
-import Control.Monad (foldM)
-import Data.Foldable (minimumBy, toList)
+import Data.Foldable (minimumBy)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -35,15 +37,18 @@ import Data.Ord (comparing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
-import State.Category.Flow (FanEvent (..), Flow (..), Name (..), ScopePath, enoughOutcome, fanEvent, namedState, qualify, qualifyEvent, scopePath, scoped)
-import State.Category.Fuel (PerFuel, SkipWhen)
-import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
-import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), Sig, Sing, StateName (..), StepSet, eventText, handedBackOutcome, outcomes, skippedOutcome, spawnedOutcome, stepName)
-import State.Category.Ty (IsSum, KnownTy (..), NotSum, Ty (..))
 
-{- | A state where a step, or a fan-out, runs next. The path is the step's
+-- Flow's 'Exit' is qualified: 'Exit' here is the 'Node'.
+import State.Category.Flow (AgentRole, Branch (..), Branches (..), CapTarget (..), FanEvent (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Id, Into, Loop, Scope, (:>)), Group (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyEvent, scopePath, scoped)
+import State.Category.Flow qualified as Flow
+import State.Category.Fuel (PerFuel)
+import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
+import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), Sig, Sing, StateName (..), StepSet, eventText, outcomes, stepName)
+import State.Category.Ty (Elem (..), IsSum, KnownTy (..), NotSum, Summand (..), Summands (..), Ty, TyOf (..), TyVal, elemLabel)
+
+{- | A state where a step, a fork or an await runs next. The path is the step's
 position in the term, so a step used twice is two states. The name is its
-step's, or its fan-out's, inside the scopes around it: 'placeName' is what
+step's, or its group's, inside the scopes around it: 'placeName' is what
 people and the log read.
 -}
 data Place = Place {path :: [Int], scope :: ScopePath, name :: StateName}
@@ -60,9 +65,7 @@ data Node = At Place | Out | Exit
 -- | What @ty@ sends an edge to.
 data Arrow
     = Along OutcomeEdge
-    | -- | @<step>.skipped@: a level skipped this 'Opt', the identity, when its 'SkipWhen' lets it.
-      Skip Name (PerFuel SkipWhen)
-    | -- | A child spawned or handed back inside a fan-out or a choice, the identity.
+    | -- | A child spawned or handed back at an await, the identity.
       Stay
     deriving stock (Eq, Show)
 
@@ -80,16 +83,12 @@ data LoopAt = LoopAt {entry :: Place, body :: Set Place}
 
 {- | A 'Capped' step's budget at its state: its step's meter, the limit at
 each Fuel, what a spend past it does, and its rank among the caps at that
-state as the term declares them: a choice's actions are shown in that order
-(0 for a step's own cap). The rank is presentation only: the choice's
-law says the actions' order changes nothing else.
+state, presentation only: 0, as a state meters only its own step.
 -}
 data Cap = Cap {meter :: SomeMeter, limit :: PerFuel Limit, atCap :: AtCap, rank :: Int}
     deriving stock (Eq, Show)
 
-{- | Where a 'Capped' step's budget is spent: at its own state, or, as a
-choice's action, at the choice's, beside its other actions.
--}
+-- | Where a 'Capped' step's budget is spent: at its own state.
 data Metered = Metered {place :: Place, step :: StateName}
     deriving stock (Eq, Ord, Show)
 
@@ -103,8 +102,8 @@ data OpenGraph = OpenGraph
     , edges :: Map (Place, EventName) (Edge Node)
     , loops :: Map Name LoopAt
     , caps :: Map Metered Cap
-    , routes :: Set Place
-    -- ^ Each 'Route''s hub, where the run picks a branch.
+    , groupStates :: Map Place GroupAt
+    -- ^ The 'Fork' and 'Await' states, by group in its scopes.
     }
     deriving stock (Eq, Show)
 
@@ -113,8 +112,6 @@ data Clash
       SameEvent Place EventName
     | -- | One loop name twice: its rounds would mix.
       SameLoop Name
-    | -- | One fan-out name twice: a run keeps one fan-out's tasks per name.
-      SameFan Name
     | {- | A whole flow, or a loop's body, that runs no step: a run would
       have no state to start at, or a round none to end at.
       -}
@@ -125,15 +122,14 @@ data Clash
       past the cap its spend is refused and nothing is left to record.
       -}
       RefuseWithoutWayOut Place
-    | {- | A choice's branch that is not a 'Capped' step whose events stay at
-      the choice ('State.Category.Step.OpensChildren' or
-      'State.Category.Step.AsksOnly'): it would leave the choice.
-      -}
-      NotAnAction Name
-    | -- | One action twice in a choice: their meters would be one.
-      SameAction Name StateName
-    | -- | A choice's action outside a choice: its events would stay nowhere.
+    | -- | A step that only forks ('State.Category.Step.OpensChildren') drawn by 'Do', not 'Fork': it would never leave its state.
       StaysOutside Place
+    | {- | A 'Fork' with a way out of the flow, by its end or its exit,
+      that passes no 'Await' of its group: its children would outlive it.
+      -}
+      NotAwaited Place Name
+    | -- | Two states of one name: an event names its state, so one would stand for both.
+      SameState StateName
     deriving stock (Eq, Show)
 
 {- | A whole flow starts from one type and ends in one, so it has one in port
@@ -154,12 +150,19 @@ whole p = do
                 , edges = Map.filterWithKey (\(from, _) _ -> Set.member from reached) edges
                 , loops = Map.mapMaybe (\at -> if Set.member at.entry reached then Just at {body = Set.intersection at.body reached} else Nothing) p.loops
                 , caps = Map.filterWithKey (\metered _ -> Set.member metered.place reached) p.caps
-                , routes = Set.intersection p.routes reached
+                , groupStates = Map.restrictKeys p.groups reached
                 }
+    case [name | (name, n) <- Map.toList (Map.fromListWith (+) [(placeName place, 1 :: Int) | place <- Set.toList reached]), n > 1] of
+        [] -> pure ()
+        name : _ -> Left (SameState name)
     case [metered.place | (metered, cap) <- Map.toList g.caps, refuses cap.atCap, null (leaving g metered.place)] of
-        [] -> pure g
+        [] -> pure ()
         place : _ -> Left (RefuseWithoutWayOut place)
+    case [(place, group) | (place, Forking group) <- Map.toList p.groups, Set.member place reached, escapes g.edges (awaitsOf group) place] of
+        [] -> pure g
+        (place, group) : _ -> Left (NotAwaited place group.group)
   where
+    awaitsOf group = Map.keysSet (Map.filter (== Awaiting group) p.groups)
     refuses = \case
         Refuse -> True
         Stop -> False
@@ -169,6 +172,20 @@ whole p = do
         ToOut _ -> Out
         ToExit -> Exit
 
+{- | Whether a walk from this state reaches the flow's end or exit without
+passing one of these states: they do not post-dominate it.
+-}
+escapes :: Map (Place, EventName) (Edge Node) -> Set Place -> Place -> Bool
+escapes edges awaits start = any leavesFlow (Map.toList walked)
+  where
+    walked = Map.filterWithKey (\(from, _) _ -> Set.notMember from awaits) edges
+    reached = reachable start walked
+    leavesFlow ((from, _), edge) =
+        Set.member from reached && case edge.to of
+            At _ -> False
+            Out -> True
+            Exit -> True
+
 -- | The states a walk from this one can reach.
 reachable :: Place -> Map (Place, EventName) (Edge Node) -> Set Place
 reachable start edges = go Set.empty [start]
@@ -177,7 +194,7 @@ reachable start edges = go Set.empty [start]
         [] -> seen
         place : rest
             | Set.member place seen -> go seen rest
-            | otherwise -> go (Set.insert place seen) ([next | ((from, _), Edge {to = At next}) <- Map.toList edges, from == place] <> rest)
+            | otherwise -> go (Set.insert place seen) ([next | (_, Edge {to = At next}) <- outOf place edges] <> rest)
 
 {- | Which summand of @t@ an edge continues into, down to one type. 'Here' at
 a sum does not type-check, so every selector names one in port. Its context
@@ -186,71 +203,72 @@ forces that evidence, so a refusal deferred to run time fires when drawn.
 -}
 data Sel (t :: Ty) where
     Here :: (IsSum t ~ 'False) => Sel t
-    SL :: Sel a -> Sel (a ':+ b)
-    SR :: Sel b -> Sel (a ':+ b)
+    In :: (IsSum a ~ 'False) => Elem ss l a -> Sel ('Sum ss)
 
 -- | Where an edge of a part goes: a state, a summand of the part's out, or its exit.
 data To o = ToState Place | ToOut (Sel o) | ToExit
 
-{- | Where a summand of a part's in enters: a state, or straight on to a
-summand of its out, as an injection or 'Id' does.
+{- | Where a summand of a part's in enters: a state, straight on to a
+summand of its out, as 'Id' does, or out by the exit, as 'Exit' does.
 -}
-data Entry o = Enters Place | Passes (Sel o)
+data Entry o = Enters Place | Passes (Sel o) | Exits
 
 -- | The graph of a term inside a flow: one in port per summand of @i@, out edges typed by summand of @o@.
 data Part i o = Part
     { inPorts :: Sel i -> Entry o
     , edges :: Map (Place, EventName) (Edge (To o))
     , loops :: Map Name LoopAt
-    , fans :: Set Name
-    -- ^ The fan-outs drawn: each once, as a run keeps one fan-out's tasks per name.
     , caps :: Map Metered Cap
-    , routes :: Set Place
+    , groups :: Map Place GroupAt
+    -- ^ The 'Fork' and 'Await' states, by group: 'whole' checks each fork is awaited.
     }
+
+-- | What a state does to its group's children: starts one, or waits for all.
+data GroupAt = Forking GroupOf | Awaiting GroupOf
+    deriving stock (Eq, Show)
+
+-- | A group in its scopes, and the role that runs each of its children ('Group').
+data GroupOf = GroupOf {group :: Name, runner :: AgentRole}
+    deriving stock (Eq, Show)
 
 part :: Flow i e o -> Either Clash (Part i o)
 part = \case
     Do s -> stepPart s
-    Capped limit atCap s -> cappedPart limit atCap s
-    Id -> Right (passing id)
-    Into -> Right (passing (\Here -> Here))
+    Capped limit atCap (Step s) -> cappedPart limit atCap s
+    Capped limit atCap (ForkOf (Group group runner) s) -> Right (cappedFork limit atCap (GroupOf group runner) s)
+    Id -> Right (passing Passes)
+    Into -> Right (passing (\Here -> Passes Here))
     f :> g -> do
         left <- part f
         right <- part g
         glue left right
     Loop name body -> closeLoop name =<< part body
-    Opt name skips body -> skippable name skips =<< part body
-    Par fan body -> Right (fanOut fan body)
-    InL -> Right (passing SL)
-    InR -> Right (passing SR)
-    f :||| g -> do
-        left <- part f
-        right <- part g
-        copair left right
+    Case branches -> casePart 0 branches
+    Flow.Exit -> Right (passing (const Exits))
+    Each body -> eachPart =<< part body
+    Fork (Group group runner) body -> Right (forkPart (GroupOf group runner) (forkName group body))
+    Await (Group group runner) -> Right (awaitPart (GroupOf group runner))
     Catch body -> caught <$> part body
     Scope name body -> inScope name <$> part body
-    Choice name branches -> choicePart name branches
-    Route name branches -> routePart name branches
 
 {- | Series: each of the left part's out edges goes on to the in port of the
 right part's summand it names, and the two exits become one. The paths of
 each side get their own prefix, so no state of one side is a state of the
-other, and only a loop or fan-out name can clash.
+other, and only a loop name can clash.
 -}
 glue :: Part a b -> Part b c -> Either Clash (Part a c)
 glue left right = do
     loops <- unionLoops first.loops second.loops
-    fans <- unionFans first.fans second.fans
     pure
         Part
             { inPorts = \sel -> case first.inPorts sel of
                 Enters place -> Enters place
                 Passes on -> second.inPorts on
+                Exits -> Exits
             , edges = Map.union (fmap (fmap into) first.edges) second.edges
             , loops
-            , fans
             , caps = Map.union first.caps second.caps
-            , routes = Set.union first.routes second.routes
+            , groups = Map.union first.groups second.groups
             }
   where
     first = within 0 left
@@ -265,42 +283,47 @@ entering :: Entry o -> To o
 entering = \case
     Enters place -> ToState place
     Passes sel -> ToOut sel
+    Exits -> ToExit
 
--- | Case: the left part takes the left summand's in ports, the right part the right's.
-copair :: Part a c -> Part b c -> Either Clash (Part (a ':+ b) c)
-copair left right = do
-    loops <- unionLoops first.loops second.loops
-    fans <- unionFans first.fans second.fans
-    pure
-        Part
-            { inPorts = \case
-                SL sel -> first.inPorts sel
-                SR sel -> second.inPorts sel
-            , edges = Map.union first.edges second.edges
-            , loops
-            , fans
-            , caps = Map.union first.caps second.caps
-            , routes = Set.union first.routes second.routes
-            }
-  where
-    first = within 0 left
-    second = within 1 right
+{- | Case: each summand's in port is its branch's, the branches beside each
+other, the @n@th under path prefix @n@.
+-}
+casePart :: Int -> Branches ss e c -> Either Clash (Part ('Sum ss) c)
+casePart n = \case
+    End -> Right (passing (\(In e) -> case e of {}))
+    (_ :-> f) :& rest -> do
+        first <- within n <$> part f
+        others <- casePart (n + 1) rest
+        loops <- unionLoops first.loops others.loops
+        pure
+            Part
+                { inPorts = \(In e) -> case e of
+                    First -> first.inPorts Here
+                    Next e' -> others.inPorts (In e')
+                , edges = Map.union first.edges others.edges
+                , loops
+                , caps = Map.union first.caps others.caps
+                , groups = Map.union first.groups others.groups
+                }
 
--- | An injection or 'Id': no state, each summand of its in passes on to its summand of the out.
-passing :: (Sel i -> Sel o) -> Part i o
-passing inject = Part {inPorts = Passes . inject, edges = Map.empty, loops = Map.empty, fans = Set.empty, caps = Map.empty, routes = Set.empty}
+-- | 'Id', 'Into' or 'Exit': no state, each summand of its in passes on to where it enters.
+passing :: (Sel i -> Entry o) -> Part i o
+passing inPorts = Part {inPorts, edges = Map.empty, loops = Map.empty, caps = Map.empty, groups = Map.empty}
 
--- | The codiagonal: the body's exit edges go on as its out.
+-- | The codiagonal: the body's exit edges, and an in port straight to its exit, go on as its out.
 caught :: (NotSum b) => Part a b -> Part a b
-caught body = Part {inPorts = body.inPorts, edges = fmap out body.edges, loops = body.loops, fans = body.fans, caps = body.caps, routes = body.routes}
+caught body = body {inPorts = inPort, edges = fmap out body.edges}
   where
+    inPort sel = case body.inPorts sel of
+        Exits -> Passes Here
+        entry -> entry
     out edge = case edge.to of
         ToExit -> edge {to = ToOut Here}
         ToOut sel -> edge {to = ToOut sel}
         ToState place -> edge {to = ToState place}
 
 {- | Every name inside the part prefixed with the scope's: its states, their
-events, its loops, skips and fan-outs.
+events, its loops, skips and groups.
 -}
 inScope :: Name -> Part i o -> Part i o
 inScope scope p =
@@ -308,11 +331,13 @@ inScope scope p =
         { inPorts = moved.inPorts
         , edges = Map.fromList [((from, eventIn event), edgeIn edge) | ((from, event), edge) <- Map.toList moved.edges]
         , loops = Map.mapKeys (scoped scope) moved.loops
-        , fans = Set.map (scoped scope) p.fans
         , caps = moved.caps
-        , routes = moved.routes
+        , groups = fmap groupIn moved.groups
         }
   where
+    groupIn = \case
+        Forking group -> Forking group {group = scoped scope group.group}
+        Awaiting group -> Awaiting group {group = scoped scope group.group}
     moved = movePlaces (\place -> place {scope = scopePath scope <> place.scope}) p
     eventIn = qualifyEvent (scopePath scope)
     edgeIn edge =
@@ -320,7 +345,6 @@ inScope scope p =
             { to = edge.to
             , arrow = case edge.arrow of
                 Along along -> Along along {event = eventIn along.event}
-                Skip name skips -> Skip (scoped scope name) skips
                 Stay -> Stay
             , back = scoped scope <$> edge.back
             }
@@ -333,23 +357,14 @@ stepPart s = do
     edges <- case outcomes s of
         Continues continue -> Right [edge continue (ToOut Here) (tyVal @o)]
         exits@(ExitsOr exit continue) -> Right [edge exit ToExit (exitTy exits), edge continue (ToOut Here) (tyVal @o)]
-        branches@(Branches left right) ->
-            let (leftTy, rightTy) = summandTys branches
-             in Right [edge left (ToOut (SL Here)) leftTy, edge right (ToOut (SR Here)) rightTy]
+        branches@Branches -> Right (branchEdges branches)
         OpensChildren -> Left (StaysOutside place)
-        AsksOnly -> Left (StaysOutside place)
-    Right
-        Part
-            { inPorts = \Here -> Enters place
-            , edges = Map.fromList edges
-            , loops = Map.empty
-            , fans = Set.empty
-            , caps = Map.empty
-            , routes = Set.empty
-            }
+    Right (oneState place (Map.fromList edges))
   where
     place = rootPlace (stepName s)
-    edge :: OutcomeName -> To o -> Ty -> ((Place, EventName), Edge (To o))
+    branchEdges :: forall ss. (o ~ 'Sum ss) => Outcomes 'Nothing ('Sum ss) -> [((Place, EventName), Edge (To o))]
+    branchEdges Branches = [edge (OutcomeName (elemLabel e)) (ToOut (In e)) (summandTy e) | Summand e <- summands @ss]
+    edge :: OutcomeName -> To o -> TyVal -> ((Place, EventName), Edge (To o))
     edge outcome to cod =
         let event = EventName place.name outcome
          in ((place, event), Edge to (Along (OutcomeEdge event (tyVal @i) cod)) Nothing)
@@ -362,75 +377,13 @@ rootPlace = Place [] mempty
 cappedPart :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Either Clash (Part i o)
 cappedPart limit atCap s = do
     p <- stepPart s
-    Right Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Metered (rootPlace (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0), routes = p.routes}
+    Right Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, caps = Map.singleton (Metered (rootPlace (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0), groups = p.groups}
 
-{- | One state, the hub: each action's events stay there, each action's
-meter is spent there, and @enough@ goes on to the out. The hub is a loop of
-its own, its body the hub alone, so its meters last while the run stays and
-start afresh each time it comes back (law Kleene star). Branches are a set:
-the drawing names each by its step, and its position is only its cap's
-rank, the order it is shown in.
--}
-choicePart :: forall a. (KnownTy a, NotSum a) => Name -> [Flow a 'Nothing a] -> Either Clash (Part a a)
-choicePart name branches = do
-    actions <- traverse (uncurry action) (zip [0 ..] branches)
-    edges <- foldM (\drawn (key, edge) -> insertNew key edge drawn) (Map.singleton (hub, enough) leave) (concatMap fst actions)
-    caps <- foldM capOnce Map.empty (map snd actions)
-    Right Part {inPorts = \Here -> Enters hub, edges, loops = Map.singleton name LoopAt {entry = hub, body = Set.singleton hub}, fans = Set.empty, caps, routes = Set.empty}
-  where
-    hub = rootPlace (namedState name)
-    enough = EventName hub.name enoughOutcome
-    leave = Edge (ToOut Here) (Along (OutcomeEdge enough (tyVal @a) (tyVal @a))) Nothing
-    stays :: (StepSet k) => Sing (s :: k) -> OutcomeName -> ((Place, EventName), Edge (To a))
-    stays s outcome = ((hub, EventName (stepName s) outcome), Edge (ToState hub) Stay Nothing)
-    action :: Int -> Flow a 'Nothing a -> Either Clash ([((Place, EventName), Edge (To a))], (Metered, Cap))
-    action rank = \case
-        Capped limit atCap s ->
-            let metered = (Metered hub (stepName s), Cap (SomeMeter s) limit atCap rank)
-             in case outcomes s of
-                    OpensChildren -> Right ([stays s spawnedOutcome, stays s handedBackOutcome], metered)
-                    AsksOnly -> Right ([], metered)
-                    Continues _ -> Left (NotAnAction name)
-        Do _ -> notAction
-        Id -> notAction
-        Into -> notAction
-        _ :> _ -> notAction
-        Loop _ _ -> notAction
-        Opt {} -> notAction
-        Par _ _ -> notAction
-        -- InL, InR and :||| are absent: a sum in or out, which a branch's type refutes.
-        Catch _ -> notAction
-        Scope _ _ -> notAction
-        Choice _ _ -> notAction
-        Route _ _ -> notAction
-    notAction = Left (NotAnAction name)
-    capOnce drawn (metered, cap)
-        | Map.member metered drawn = Left (SameAction name metered.step)
-        | otherwise = Right (Map.insert metered cap drawn)
-
-{- | One state, the hub: one edge per branch, @<route>.<branch>@, into that
-branch's in port, each branch's states beside the others' as a case's are.
-The hub is no loop: the run picks once ('Route').
--}
-routePart :: forall a e c. (KnownTy a, NotSum a) => Name -> NonEmpty (OutcomeName, Flow a e c) -> Either Clash (Part a c)
-routePart name branches = do
-    drawn <- traverse (\(i, (branch, f)) -> (branch,) . within i <$> part f) (zip [0 ..] (toList branches))
-    let parts = map snd drawn
-    edges <- foldM (\inserted (key, edge) -> insertNew key edge inserted) (Map.unions (map (.edges) parts)) (map (uncurry pick) drawn)
-    loops <- foldM unionLoops Map.empty (map (.loops) parts)
-    fans <- foldM unionFans Set.empty (map (.fans) parts)
-    Right Part {inPorts = \Here -> Enters hub, edges, loops, fans, caps = Map.unions (map (.caps) parts), routes = Set.insert hub (Set.unions (map (.routes) parts))}
-  where
-    hub = rootPlace (namedState name)
-    pick branch p =
-        let event = EventName hub.name branch
-         in ((hub, event), Edge (entering (p.inPorts Here)) (Along (OutcomeEdge event (tyVal @a) (tyVal @a))) Nothing)
-
-exitTy :: forall x o. Outcomes ('Just x) o -> Ty
+exitTy :: forall x o. Outcomes ('Just x) o -> TyVal
 exitTy (ExitsOr _ _) = tyVal @x
 
-summandTys :: forall a b. Outcomes 'Nothing (a ':+ b) -> (Ty, Ty)
-summandTys (Branches _ _) = (tyVal @a, tyVal @b)
+summandTy :: forall ss l a. (KnownTy a) => Elem ss l a -> TyVal
+summandTy _ = tyVal @a
 
 {- | The body's continue goes back to its in port; its exit is the loop's
 out. A body that caps no step outside its nested loops is refused: a nested
@@ -446,49 +399,99 @@ closeLoop name body = do
             ToExit -> Edge (ToOut Here) edge.arrow edge.back
             ToState place -> Edge (ToState place) edge.arrow edge.back
     if any ((`Set.notMember` nested) . (.place)) (Map.keys body.caps)
-        then pure Part {inPorts = \Here -> Enters entry, edges = fmap closed body.edges, loops, fans = body.fans, caps = body.caps, routes = body.routes}
+        then pure body {inPorts = \Here -> Enters entry, edges = fmap closed body.edges, loops}
         else Left (Unbounded name)
-
-{- | A skip edge from the body's in port to its out, named after its first
-state. A body that runs no step is the identity already: it has nothing to skip.
--}
-skippable :: (NotSum a) => Name -> PerFuel SkipWhen -> Part a a -> Either Clash (Part a a)
-skippable name skips body = case body.inPorts Here of
-    Passes _ -> Right body
-    Enters entry -> do
-        edges <- insertNew (entry, EventName entry.name skippedOutcome) (Edge (ToOut Here) (Skip name skips) Nothing) body.edges
-        pure Part {inPorts = body.inPorts, edges, loops = body.loops, fans = body.fans, caps = body.caps, routes = body.routes}
 
 -- | The state a part over one type starts at, if it runs a step before it ends.
 entryOf :: (NotSum a) => Part a o -> Either Clash Place
 entryOf p = case p.inPorts Here of
     Enters place -> Right place
     Passes _ -> Left NoStep
+    Exits -> Left NoStep
 
-{- | One state: each child runs the body as a run of its own, so the body is
-not drawn here and gives only its types. Children are spawned and hand back
-while the state stays; @done@ leaves it, once every task is settled
-("State.Run.Fan"). The parent logs the stay events under the bare names
-@spawned@ and @handed_back@: they carry the child, not an outcome.
+{- | The body's states once: its out goes back to its first state for the
+next item, and @<first>.each_done@ leaves once the items are spent. A body
+that runs no step maps each item straight on.
 -}
-fanOut :: forall a b. (KnownTy a, KnownTy b) => Name -> Flow a 'Nothing b -> Part ('List a) ('List b)
-fanOut fan _ =
-    Part
-        { inPorts = \Here -> Enters place
-        , edges =
-            Map.fromList
-                [ edge Spawns (Edge (ToState place) Stay Nothing)
-                , edge HandsBack (Edge (ToState place) Stay Nothing)
-                , edge Leaves (Edge (ToOut Here) (Along (OutcomeEdge (fanEvent Leaves place.name) (List (tyVal @a)) (List (tyVal @b)))) Nothing)
-                ]
-        , loops = Map.empty
-        , fans = Set.singleton fan
-        , caps = Map.empty
-        , routes = Set.empty
+eachPart :: forall a b. (KnownTy a, KnownTy b, NotSum a, NotSum b) => Part a b -> Either Clash (Part ('List a) ('List b))
+eachPart body = case body.inPorts Here of
+    Passes Here -> Right (passing (\Here -> Passes Here))
+    Exits -> Right (passing (\Here -> Exits))
+    Enters entry -> do
+        let next edge = case edge.to of
+                ToOut Here -> edge {to = ToState entry}
+                ToState place -> edge {to = ToState place}
+                ToExit -> edge {to = ToExit}
+            event = EventName entry.name eachDoneOutcome
+        edges <- insertNew (entry, event) (Edge (ToOut Here) (Along (OutcomeEdge event (List (tyVal @a)) (List (tyVal @b)))) Nothing) (fmap next body.edges)
+        pure body {inPorts = \Here -> Enters entry, edges}
+
+-- | The outcome that leaves an 'Each' once its items are spent.
+eachDoneOutcome :: OutcomeName
+eachDoneOutcome = OutcomeName "each_done"
+
+{- | One state: @spawned@ starts a child in the group and goes on with the
+input. The child's body is its own run, so only its types are drawn here.
+-}
+forkPart :: forall a. (KnownTy a, NotSum a) => GroupOf -> StateName -> Part a a
+forkPart group name =
+    (oneState place (Map.singleton (place, event) (Edge (ToOut Here) (Along (OutcomeEdge event (tyVal @a) (tyVal @a))) Nothing)))
+        { groups = Map.singleton place (Forking group)
         }
   where
-    place = rootPlace (namedState fan)
-    edge event target = ((place, fanEvent event place.name), target)
+    place = rootPlace name
+    event = fanEvent Spawns name
+
+{- | A 'Fork''s state: its step's, when it forks one step, so the spawn is
+that step's @spawned@ outcome; else @spawn_<group>@. The group's own name
+is its 'Await''s.
+-}
+forkName :: Name -> Flow a e b -> StateName
+forkName group = \case
+    Do s -> stepName s
+    Capped {} -> spawnName
+    Id -> spawnName
+    Into -> spawnName
+    _ :> _ -> spawnName
+    Loop _ _ -> spawnName
+    Case _ -> spawnName
+    Flow.Exit -> spawnName
+    Each _ -> spawnName
+    Fork _ _ -> spawnName
+    Await _ -> spawnName
+    Catch _ -> spawnName
+    Scope _ _ -> spawnName
+  where
+    spawnName = StateName ("spawn_" <> nameText group)
+
+-- | 'forkPart' of one step, its meter counting the children it starts.
+cappedFork :: forall k (s :: k) a. (StepSet k, Meter s, KnownTy a, NotSum a) => PerFuel Limit -> AtCap -> GroupOf -> Sing s -> Part a a
+cappedFork limit atCap group s = Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, caps = Map.singleton (Metered (rootPlace (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0), groups = p.groups}
+  where
+    p = forkPart group (stepName s)
+
+{- | One state, the group's: a child's @handed_back@ stays, @done@ goes on
+with every child's result once all have handed back.
+-}
+awaitPart :: forall a b. (KnownTy a, KnownTy b, NotSum a) => GroupOf -> Part a ('List b)
+awaitPart group =
+    ( oneState
+        place
+        ( Map.fromList
+            [ ((place, fanEvent HandsBack place.name), Edge (ToState place) Stay Nothing)
+            , ((place, done), Edge (ToOut Here) (Along (OutcomeEdge done (tyVal @a) (List (tyVal @b)))) Nothing)
+            ]
+        )
+    )
+        { groups = Map.singleton place (Awaiting group)
+        }
+  where
+    place = rootPlace (namedState group.group)
+    done = fanEvent Leaves place.name
+
+-- | A part of one state: entered there, with these edges out of it.
+oneState :: (IsSum i ~ 'False) => Place -> Map (Place, EventName) (Edge (To o)) -> Part i o
+oneState place edges = Part {inPorts = \Here -> Enters place, edges, loops = Map.empty, caps = Map.empty, groups = Map.empty}
 
 -- | The graph's states. Every state has an edge out, so the edges' keys hold them all.
 places :: OpenGraph -> Set Place
@@ -504,7 +507,7 @@ innermost g place = case [loop | loop <- Map.elems g.loops, Set.member place loo
 
 -- | The edges out of the state that leave the innermost loop around it: every one, for a state in no loop.
 leaving :: OpenGraph -> Place -> [(EventName, Edge Node)]
-leaving g place = [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place, not (stays edge.to)]
+leaving g place = [(event, edge) | (event, edge) <- outOf place g.edges, not (stays edge.to)]
   where
     stays = \case
         At to -> maybe False (Set.member to . (.body)) (innermost g place)
@@ -512,21 +515,18 @@ leaving g place = [(event, edge) | ((from, event), edge) <- Map.toList g.edges, 
         Exit -> False
 
 {- | An event as drawn beside the state it leaves: its outcome, or the
-whole event where another step's event stays there, as a choice's actions' do.
+whole event where another step's event is taken there.
 -}
 eventLabel :: Place -> EventName -> Text
 eventLabel place event@(EventName step (OutcomeName outcome))
     | step == placeName place = outcome
     | otherwise = eventText event
 
-{- | Whether the run sits at a 'Route''s hub, where it picks a branch, and
-where nothing of a branch has run yet.
+{- | The edges out of the state, by event: a range of the map, as its keys
+order by state first.
 -}
-isRouteHub :: OpenGraph -> Node -> Bool
-isRouteHub g = \case
-    At place -> Set.member place g.routes
-    Out -> False
-    Exit -> False
+outOf :: Place -> Map (Place, EventName) a -> [(EventName, a)]
+outOf place = map (\((_, event), a) -> (event, a)) . Map.toAscList . Map.takeWhileAntitone ((== place) . fst) . Map.dropWhileAntitone ((< place) . fst)
 
 -- | The states these edges leave.
 sources :: Map (Place, EventName) a -> Set Place
@@ -543,11 +543,11 @@ movePlaces move p =
         { inPorts = \sel -> case p.inPorts sel of
             Enters place -> Enters (move place)
             Passes on -> Passes on
+            Exits -> Exits
         , edges = Map.fromList [((move from, event), fmap node edge) | ((from, event), edge) <- Map.toList p.edges]
         , loops = fmap (\at -> at {entry = move at.entry, body = Set.map move at.body}) p.loops
-        , fans = p.fans
         , caps = Map.mapKeys (\metered -> metered {place = move metered.place}) p.caps
-        , routes = Set.map move p.routes
+        , groups = Map.mapKeys move p.groups
         }
   where
     node = \case
@@ -559,11 +559,6 @@ unionLoops :: Map Name LoopAt -> Map Name LoopAt -> Either Clash (Map Name LoopA
 unionLoops left right = case Map.keys (Map.intersection left right) of
     [] -> Right (Map.union left right)
     name : _ -> Left (SameLoop name)
-
-unionFans :: Set Name -> Set Name -> Either Clash (Set Name)
-unionFans left right = case Set.toList (Set.intersection left right) of
-    [] -> Right (Set.union left right)
-    fan : _ -> Left (SameFan fan)
 
 insertNew :: (Place, EventName) -> Edge n -> Map (Place, EventName) (Edge n) -> Either Clash (Map (Place, EventName) (Edge n))
 insertNew key@(place, event) edge = Map.alterF (maybe (Right (Just edge)) (const (Left (SameEvent place event)))) key

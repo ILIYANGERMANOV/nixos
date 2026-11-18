@@ -1,25 +1,87 @@
+== fuel
+RUN state record fuel.set <low|balanced|max>
+  at fuel: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record fuel.set <low|balanced|max> - on to gather
+  fuel: low
+Fuel: record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
+The Fuel given: low. Record it, unless the request names another.
+
 == gather
 RUN one option below
-  at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at gather: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state ask --kind <kind> <question> - asks one question; what it prints says who answers
-    state record gather.enough - on to plan
+    state record gather.enough - on to gather/researchers
+    state record gather.interview - on to interview
+    state record gather.research - on to gather/research, which spawns a researcher in the foreground
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Interview questions: 0 of 15 used, 15 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== gather/researchers
+RUN end your turn
+  at gather/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Interview questions: 0 of 15 used, 15 left
+  Plan rounds: 0 of 3 used, 3 left
+
+== gather/notes
+RUN state record gather/notes.done
+  at gather/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record gather/notes.done - on to plan
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Interview questions: 0 of 15 used, 15 left
+  Plan rounds: 0 of 3 used, 3 left
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== gather/research
+SPAWN researcher background: no
+  at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    gather/research.spawned - back to gather, the gather loop's next round
   fuel: low
   Researchers: 0 of 1 used, 1 left
   Interview questions: 0 of 15 used, 15 left
   Plan rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+
+== interview
+RUN state record interview.asked
+  at interview: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record interview.asked - back to gather, the gather loop's next round
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Interview questions: 0 of 15 used, 15 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 
 == plan
 RUN state record plan.done <path>
   at plan: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record plan.done <path> - on to simplify_plan
+    state record plan.done <path> - on to skip_simplify_plan
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
 Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== skip_simplify_plan
+RUN one option below
+  at skip_simplify_plan: an optional block - take one option below, then state next
+  options:
+    state record skip_simplify_plan.run - on to simplify_plan
+    state record skip_simplify_plan.skip - on to confirm
+  fuel: low
+  Plan rounds: 0 of 3 used, 3 left
+  Low: skip it when the task is trivial: state record skip_simplify_plan.skip
 
 == simplify_plan
 SPAWN researcher background: no
@@ -28,7 +90,6 @@ SPAWN researcher background: no
     simplify_plan.done - on to confirm
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
-  Low: skip it when the task is trivial: state record simplify_plan.skipped
 Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal. Run the researcher skill's `references/proposal.md` on the plan your prompt names.
 
 == confirm
@@ -51,11 +112,20 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 
 == implement
 SPAWN implementer background: no
-  at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
   outcomes:
-    implement.done - on to refactor
+    implement.done - on to skip_refactor
   fuel: low
 Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== skip_refactor
+RUN one option below
+  at skip_refactor: an optional block - take one option below, then state next
+  options:
+    state record skip_refactor.run - on to refactor
+    state record skip_refactor.skip - on to review
+  fuel: low
+  Low: skip it when the task is trivial: state record skip_refactor.skip
 
 == refactor
 SPAWN refactorer background: no
@@ -63,7 +133,6 @@ SPAWN refactorer background: no
   outcomes:
     refactor.done - on to review
   fuel: low
-  Low: skip it when the task is trivial: state record refactor.skipped <why>
 Build: one refactorer, briefed with `state brief refactorer`. Refactor the branch's diff; hand back each bigger proposal as a Scope question.
 
 == review
@@ -148,28 +217,88 @@ RUN state record ready.done <url>
 Ship: the skill's gates, then mark the PR ready.
 
 
+== fuel
+RUN state record fuel.set <low|balanced|max>
+  at fuel: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record fuel.set <low|balanced|max> - on to gather
+  fuel: balanced
+Fuel: record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
+The Fuel given: balanced. Record it, unless the request names another.
+
 == gather
 RUN one option below
-  at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at gather: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state ask --kind <kind> <question> - asks one question; what it prints says who answers
-    state record gather.enough - on to plan
+    state record gather.enough - on to gather/researchers
+    state record gather.interview - on to interview
+    state record gather.research - on to gather/research, which spawns a researcher in the foreground
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== gather/researchers
+RUN end your turn
+  at gather/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+
+== gather/notes
+RUN state record gather/notes.done
+  at gather/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record gather/notes.done - on to plan
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== gather/research
+SPAWN researcher background: no
+  at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    gather/research.spawned - back to gather, the gather loop's next round
   fuel: balanced
   Researchers: 0 of 5 used, 5 left
   Interview questions: 0 of 30 used, 30 left
   Plan rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+
+== interview
+RUN state record interview.asked
+  at interview: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record interview.asked - back to gather, the gather loop's next round
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 
 == plan
 RUN state record plan.done <path>
   at plan: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record plan.done <path> - on to simplify_plan
+    state record plan.done <path> - on to skip_simplify_plan
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
 Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== skip_simplify_plan
+RUN state record skip_simplify_plan.run
+  at skip_simplify_plan: an optional block - take one option below, then state next
+  options:
+    state record skip_simplify_plan.run - on to simplify_plan
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
 
 == simplify_plan
 SPAWN researcher background: no
@@ -200,11 +329,20 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 
 == implement
 SPAWN implementer background: no
-  at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
   outcomes:
-    implement.done - on to refactor
+    implement.done - on to skip_refactor
   fuel: balanced
 Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== skip_refactor
+RUN one option below
+  at skip_refactor: an optional block - take one option below, then state next
+  options:
+    state record skip_refactor.run - on to refactor
+    state record skip_refactor.skip - on to review
+  fuel: balanced
+  Balanced: skip it at or below 100 changed lines, else run it
 
 == refactor
 SPAWN refactorer background: no
@@ -296,28 +434,88 @@ RUN state record ready.done <url>
 Ship: the skill's gates, then mark the PR ready.
 
 
+== fuel
+RUN state record fuel.set <low|balanced|max>
+  at fuel: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record fuel.set <low|balanced|max> - on to gather
+  fuel: max
+Fuel: record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
+The Fuel given: max. Record it, unless the request names another.
+
 == gather
 RUN one option below
-  at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at gather: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state ask --kind <kind> <question> - asks one question; what it prints says who answers
-    state record gather.enough - on to plan
+    state record gather.enough - on to gather/researchers
+    state record gather.interview - on to interview
+    state record gather.research - on to gather/research, which spawns a researcher in the foreground
+  fuel: max
+  Researchers: 0 used, one per group
+  Interview questions: 0 of 50 used, 50 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== gather/researchers
+RUN end your turn
+  at gather/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: max
+  Researchers: 0 used, one per group
+  Interview questions: 0 of 50 used, 50 left
+  Plan rounds: 0 of 3 used, 3 left
+
+== gather/notes
+RUN state record gather/notes.done
+  at gather/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record gather/notes.done - on to plan
+  fuel: max
+  Researchers: 0 used, one per group
+  Interview questions: 0 of 50 used, 50 left
+  Plan rounds: 0 of 3 used, 3 left
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== gather/research
+SPAWN researcher background: no
+  at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    gather/research.spawned - back to gather, the gather loop's next round
   fuel: max
   Researchers: 0 used, one per group
   Interview questions: 0 of 50 used, 50 left
   Plan rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+
+== interview
+RUN state record interview.asked
+  at interview: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record interview.asked - back to gather, the gather loop's next round
+  fuel: max
+  Researchers: 0 used, one per group
+  Interview questions: 0 of 50 used, 50 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 
 == plan
 RUN state record plan.done <path>
   at plan: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record plan.done <path> - on to simplify_plan
+    state record plan.done <path> - on to skip_simplify_plan
   fuel: max
   Plan rounds: 0 of 3 used, 3 left
 Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== skip_simplify_plan
+RUN state record skip_simplify_plan.run
+  at skip_simplify_plan: an optional block - take one option below, then state next
+  options:
+    state record skip_simplify_plan.run - on to simplify_plan
+  fuel: max
+  Plan rounds: 0 of 3 used, 3 left
 
 == simplify_plan
 SPAWN researcher background: no
@@ -348,11 +546,18 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 
 == implement
 SPAWN implementer background: no
-  at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
   outcomes:
-    implement.done - on to refactor
+    implement.done - on to skip_refactor
   fuel: max
 Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== skip_refactor
+RUN state record skip_refactor.run
+  at skip_refactor: an optional block - take one option below, then state next
+  options:
+    state record skip_refactor.run - on to refactor
+  fuel: max
 
 == refactor
 SPAWN refactorer background: no

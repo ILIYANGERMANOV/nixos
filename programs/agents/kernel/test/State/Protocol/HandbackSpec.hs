@@ -9,13 +9,14 @@ import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Fuel (Area (..))
+import State.Category.Flow (scopePath)
+import State.Category.Fuel (Area (..), Fuel (Balanced))
 import State.Protocol.Handback
 import State.Run.Ask (Kind (..), QId (..), Question (..))
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), TaskId (..), TaskState (..), Url (..), stepTook)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), TaskId (..), TaskState (..), Url (..), stepTook, tookIn)
 import State.Run.Event qualified as Event
-import State.Run.EventGen (genOneLine, genQuestion, genRunId, oneLine, run, runId)
-import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
+import State.Run.EventGen (fuelSet, genOneLine, genQuestion, genRunId, oneLine, run, runId)
+import State.Run.RunGen (childOf, g, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Gather (Outcome (..))
@@ -56,7 +57,7 @@ spec = describe "State.Protocol.Handback" $ do
 typing :: Spec
 typing = describe "typeHandback" $ do
     steps <- runIO loadSteps
-    let typed at role = typeHandback steps at (Just sha) (AgentRole role) Nothing . parsed
+    let typed at role = typeHandback steps g at (Just sha) (AgentRole role) Nothing . parsed
 
     it "types an implementer's READY as implement.done at the head, with its areas" $
         typed atImplement "implementer" "READY built\nTouches: auth"
@@ -71,8 +72,8 @@ typing = describe "typeHandback" $ do
             `shouldBe` Right (Typed [stepTook (FixDone (Commit sha Set.empty))] Nothing)
 
     it "says a worker logged at work returned, by its id or else its role, and no other" $ do
-        let fixing = runAt (map (Took mempty) (take 9 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]) <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
-            returns agent = drop 1 . (.events) <$> typeHandback steps fixing (Just sha) (AgentRole "fixer") agent (parsed "READY fixed")
+        let fixing = runAt (fuelSet Balanced : take 13 happyPath <> map (Took mempty) [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))] <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
+            returns agent = drop 1 . (.events) <$> typeHandback steps g fixing (Just sha) (AgentRole "fixer") agent (parsed "READY fixed")
         map returns [Just (AgentId "a1"), Nothing, Just (AgentId "a2")]
             `shouldBe` [Right [Event.WorkerReturned (AgentRole "fixer") (Just (AgentId "a1"))], Right [Event.WorkerReturned (AgentRole "fixer") Nothing], Right []]
 
@@ -91,7 +92,7 @@ typing = describe "typeHandback" $ do
 
     it "closes a researcher's child at the gather on its report, which opens with no token" $
         typed atGather "researcher" "The Index, ranked\n1. src/State.hs:12"
-            `shouldBe` Right (Typed [stepTook ResearchHandedBack] Nothing)
+            `shouldBe` Right (Typed [tookIn (scopePath "gather") ResearchHandedBack] Nothing)
 
     it "records simplify_plan.done on a researcher's report, which opens with no token" $
         typed atSimplifyPlan "researcher" "# t5 plan (simplify proposal)\n## Goals"
@@ -139,11 +140,11 @@ typing = describe "typeHandback" $ do
         it "refuses a question the child did not ask in its own run" $
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
-    atGather = runAt (map (Took mempty) (take 1 happyPath))
-    atSimplifyPlan = runAt (map (Took mempty) (take 4 happyPath))
-    atImplement = runAt (map (Took mempty) (take 7 happyPath))
-    atReview = runAt (map (Took mempty) (take 9 happyPath))
-    atFix = runAt (map (Took mempty) (take 9 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
+    atGather = runAt (fuelSet Balanced : take 2 happyPath)
+    atSimplifyPlan = runAt (fuelSet Balanced : take 7 happyPath)
+    atImplement = runAt (fuelSet Balanced : take 10 happyPath)
+    atReview = runAt (fuelSet Balanced : take 13 happyPath)
+    atFix = runAt (fuelSet Balanced : take 13 happyPath <> map (Took mempty) [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))])
     atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
     engineers = StateName "engineers"

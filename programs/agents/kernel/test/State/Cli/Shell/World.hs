@@ -42,6 +42,7 @@ module State.Cli.Shell.World (
     stateCall,
     editCall,
     spawnResult,
+    spawnResultOf,
     Act (..),
     drive,
     driveOut,
@@ -50,6 +51,7 @@ module State.Cli.Shell.World (
     reviewed,
     simplified,
     toImplement,
+    gathered,
 ) where
 
 import Data.Aeson (Value (..), encode, object, (.=))
@@ -322,13 +324,17 @@ stateCall command = hookEvent Null ["event" .= String "beforeTool", "tool" .= St
 
 -- | The lead's spawn of a subagent @a1@ of this role, done: its result names the agent.
 spawnResult :: Text -> LBS.ByteString
-spawnResult role =
+spawnResult role = spawnResultOf role "a1"
+
+-- | The lead's spawn of a subagent of this role and id, done.
+spawnResultOf :: Text -> Text -> LBS.ByteString
+spawnResultOf role agent =
     hookEvent
         Null
         [ "event" .= String "afterTool"
         , "tool" .= String "delegate"
         , "input" .= object ["subagent_type" .= role]
-        , "output" .= object ["status" .= String "completed", "agentId" .= String "a1", "agentType" .= role]
+        , "output" .= object ["status" .= String "completed", "agentId" .= String agent, "agentType" .= role]
         , "context" .= Null
         ]
 
@@ -387,13 +393,19 @@ simplified sha = "READY\nSimplified: " <> sha <> "\n"
 -- | From the start to the draft PR and a first commit on it.
 toImplement :: [Act]
 toImplement =
-    [ Record ["research.spawned"]
+    [ Record ["gather.research"]
+    , Record ["gather/research.spawned"]
     , Handback "researcher" ready
-    , Record ["gather.enough"]
-    , Planned
-    , Handback "researcher" ready
-    , Record ["confirm.confirmed"]
-    , OpenPr
-    , Commit
-    , Handback "implementer" ready
     ]
+        <> gathered
+        <> [ Planned
+           , Handback "researcher" ready
+           , Record ["confirm.confirmed"]
+           , OpenPr
+           , Commit
+           , Handback "implementer" ready
+           ]
+
+-- | The gather ended with no researcher open: its await goes on by itself to the notes.
+gathered :: [Act]
+gathered = [Record ["gather.enough"], Record ["gather/notes.done"]]

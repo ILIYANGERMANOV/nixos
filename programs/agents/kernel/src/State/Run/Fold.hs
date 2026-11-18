@@ -11,6 +11,9 @@ of 'State.Run.Ask.authority', the row of the role its flow runs.
 module State.Run.Fold (
     RunState (..),
     Worker (..),
+    ChildId (..),
+    Open (..),
+    ledger,
     returnOf,
     Round (..),
     Problem (..),
@@ -26,6 +29,7 @@ module State.Run.Fold (
     append,
     appendTo,
     fuelOf,
+    targetsAt,
     OnTarget (..),
     shape,
     onRound,
@@ -34,7 +38,6 @@ module State.Run.Fold (
     stuck,
     stuckExits,
     Budget (..),
-    Spent (..),
     budgets,
     extendable,
     usedUp,
@@ -44,6 +47,8 @@ module State.Run.Fold (
     askingChildren,
     askedAt,
     over,
+    forks,
+    awaitedOpen,
     ScopedFan (..),
     fanAt,
     fanIn,
@@ -54,22 +59,25 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
-import Data.List (find, partition)
+import Data.List (find, genericLength, isSuffixOf, partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), Name, ScopePath, fanEvent, namedState, qualify)
+import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText, scopeNames)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, isRouteHub, placeName, places)
-import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
-import State.Category.Path (step)
-import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName))
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, outOf, placeName, places)
+import State.Category.Meter (AtCap (..), Owed (Closes), Recorded (..), allowed, owedBy, spentBy)
+import State.Category.Path (awaitDone, forkPasses, step)
+import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
+import State.Flow.Drawn (isPick)
+import State.Flow.Library (simplifyPlan)
+import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
@@ -79,8 +87,8 @@ import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
-import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
-import State.Step.Plan (Sing (SimplifyP))
+import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
+import State.Step.Fuel (FuelStep, Outcome (..), Sing (Fuel, Skip))
 import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
@@ -102,10 +110,9 @@ data RunState = RunState
     -- ^ Oldest first.
     , everAsked :: Set QId
     -- ^ Every question asked, open or closed: a retried ask is refused, so it is never ruled twice.
-    , meters :: Map Metered Spent
+    , meters :: Map Metered Natural
     {- ^ What the run spent of each capped step's budget since it entered the
-    innermost loop around the step's state, or extended it, and the children
-    its spends opened that have yet to hand back: an empty ledger is absent.
+    innermost loop around the step's state, or extended it: none spent is absent.
     -}
     , askedHere :: [Kind]
     {- ^ The kinds asked since the run last moved, oldest first: advice asks a step's
@@ -120,8 +127,10 @@ data RunState = RunState
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
     , untriaged :: [(AgentRole, OneLine)]
     -- ^ The workers' hand-backs the run has yet to ask as its own question, oldest first.
-    , live :: [Worker]
-    -- ^ The workers spawned that have yet to return, oldest first: the run hands back after them.
+    , workers :: [Worker]
+    {- ^ The agents spawned that have yet to return, oldest first: the run
+    hands back after them. The agent children of the run's 'ledger'.
+    -}
     , published :: Maybe Url
     {- ^ The PR @ready@ recorded last: the url of a run that skipped its draft
     by override, as a retry does, when GitHub is not read.
@@ -145,9 +154,38 @@ since it was named: then the user confirms its plan after all.
 data OnTarget = OnTarget {target :: Target, designAsked :: Bool}
     deriving stock (Eq, Show)
 
--- | A worker at work: its role, its id, and the seq of the line that logged its spawn.
+{- | A worker at work: its role, its id, and the seq of the line that logged
+its spawn (@worker_spawned@, the bind, the first line to name its id).
+-}
 data Worker = Worker {role :: AgentRole, agent :: AgentId, spawnedAt :: Natural}
     deriving stock (Eq, Show)
+
+-- | A child of the run: an agent it spawned, or a child run of its fan-out.
+data ChildId = AgentChild AgentId | RunChild RunId
+    deriving stock (Eq, Show)
+
+-- | A child of the run spawned and yet to return or hand back its end, and the role that runs it.
+data Open = Open {child :: ChildId, role :: AgentRole}
+    deriving stock (Eq, Show)
+
+{- | The run's open children, agents first, each oldest first: what a group's
+'State.Category.Flow.Await' waits on, those of its role. An agent's entry
+opens at its bind and closes when it returns ('WorkerReturned'). A child
+run's is its task book's: running ('Fan.running'), on a task not settled,
+as parking a task settles even a lost child. Derived, not stored: the task
+book holds each child's hand-backs, its last one says whether it runs on.
+-}
+ledger :: OpenGraph -> RunState -> [Open]
+ledger g state =
+    [Open (AgentChild worker.agent) worker.role | worker <- state.workers]
+        <> [ Open (RunChild childRun.child.run) group.runner
+           | (scoped, fan) <- Map.toList state.fans
+           , (place, Awaiting group) <- Map.toList g.groupStates
+           , place.scope == scoped.scope
+           , place.name == namedState scoped.fan
+           , childRun <- Fan.running fan
+           , not (Fan.settled fan childRun.child.task)
+           ]
 
 -- | A forwarded question and the answer that came down for it.
 data Answer = Answer {about :: Question, given :: Text}
@@ -184,21 +222,16 @@ data Refusal
       NotSkippable Name
     | -- | The event would spend past its step's cap, which allows this many at the run's Fuel.
       OutOfBudget Cap Natural
-    | -- | A hand-back to this step where it has no child open.
-      NoneOpen StateName
-    | -- | A move off the state while this many children its spends opened have yet to hand back.
+    | -- | A move off a group's 'State.Category.Flow.Await' while this many of its children have yet to hand back.
       StillOpen Natural
     | -- | An @extend@ where no budget the user may extend holds the run.
       NothingToExtend
-    | FuelSetOnce Fuel
-    | -- | A target named off a route's hub: only a request, before its branch, has one.
-      TargetOffHub
+    | -- | A target named off a Fuel step: only a request's Fuel, before its branch, names one.
+      TargetOffFuel
     | -- | An override names a state the flow does not have, or more than one.
       NoSingleState StateName
     | -- | The question was asked already, whether pending or closed.
       AskedTwice QId
-    | -- | A second pick of the branch asked at a route's hub: the user names it once.
-      PickedOnce
     | NotPending QId
     | -- | Forwarded already: only its answer is left.
       AlreadyForwarded QId
@@ -245,29 +278,16 @@ unvoided logged = partition (\envelope -> Set.notMember envelope.seq voided) log
 
 {- | One more line to the log the state replays. A void is no step of the
 fold, so the log is replayed with it: it must name a line the replay keeps,
-and the log without that line must still replay. A fan-out's end is written
-only once every task is settled ('leaves').
+and the log without that line must still replay.
 -}
 appendTo :: OpenGraph -> RunState -> NonEmpty Envelope -> Envelope -> Either Refusal Append
 appendTo g state logged envelope
     | Voided n _ <- envelope.event = voiding n
-    | otherwise =
-        append g state envelope >>= \case
-            Appended next -> Appended next <$ leaves state envelope.event
-            AlreadyLogged -> Right AlreadyLogged
+    | otherwise = append g state envelope
   where
     voiding n
         | n `notElem` map (.seq) (fst (unvoided (NonEmpty.toList logged))) = Left (NotVoidable n)
         | otherwise = Appended <$> Bifunctor.first (VoidBreaks n) (replay g (logged <> pure envelope))
-
-{- | A fan-out's end needs every task settled as it is written, not as it
-replays: what settles a task changes, and a logged end stays a fact. A v4 log
-left a fan-out with a finished task's PR still in CI, settled then.
--}
-leaves :: RunState -> Event -> Either Refusal ()
-leaves state = \case
-    Took scope (AnyOutcome FanLayer (SomeOutcome _ _ (FanDone fan))) -> Bifunctor.first FanRefused (Fan.leave (fanIn state.fans (ScopedFan scope fan)))
-    _ -> Right ()
 
 -- | The log's events after a state: @fold (a <> b) = fold a >=> fold b@.
 fold :: OpenGraph -> RunState -> [Envelope] -> Either Refusal RunState
@@ -310,7 +330,7 @@ begin g envelope = case runStart envelope.event of
                 , drafted = Nothing
                 , published = Nothing
                 , untriaged = []
-                , live = []
+                , workers = []
                 , fans = Map.empty
                 , ticket = Nothing
                 , latest = Nothing
@@ -321,7 +341,6 @@ begin g envelope = case runStart envelope.event of
 runStart :: Event -> Maybe Start
 runStart = \case
     Started start -> Just start
-    FuelSet _ -> Nothing
     Targeted _ -> Nothing
     Extended _ -> Nothing
     Took _ _ -> Nothing
@@ -352,8 +371,7 @@ applyEvent :: OpenGraph -> RunState -> Natural -> Event -> Either Refusal RunSta
 applyEvent g state n = \case
     Refused note -> Right state {refused = Just note}
     Started _ -> going (Left StartedTwice)
-    FuelSet fuel -> going (fuelSet g state fuel)
-    Targeted target -> going (targeted g state target)
+    Targeted target -> going (targeted state target)
     Extended _ -> going (extended g state)
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
@@ -364,7 +382,7 @@ applyEvent g state n = \case
     Forwarded qid to -> going (forwarded state qid to)
     Answered qid answer by -> going (answered state qid answer by)
     Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
-    Spawned child -> going (atFan g state Spawns >> inFan (Fan.spawned (askingChildren state) child))
+    Spawned child -> going (atAwait g state >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))
     HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
     TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= afterMove task moved)
@@ -372,10 +390,10 @@ applyEvent g state n = \case
     ActedOn task url -> going (inFan (Fan.actedOn task url))
     TaskAdded task -> going (inFan (Fan.added task) >>= reopened g)
     -- The lead's session started afresh: every agent it had at work is gone.
-    Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, live = []})
+    Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
-    WorkerSpawned role agent -> going (Right state {live = state.live <> [Worker role agent n]})
-    WorkerReturned role agent -> going (Right state {live = returned role agent state.live})
+    WorkerSpawned role agent -> going (Right state {workers = state.workers <> [Worker role agent n]})
+    WorkerReturned role agent -> going (Right state {workers = returned role agent state.workers})
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
@@ -396,38 +414,42 @@ applyEvent g state n = \case
     inFan change = case fanAt state.at of
         Just fan -> (\changed -> state {fans = Map.insert fan changed state.fans}) <$> Bifunctor.first FanRefused (change (fanIn state.fans fan))
         Nothing -> Left NotAtFan
+    -- After any event, a state that goes on by itself does ('joined').
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
-        Nothing -> (\moved -> moved {refused = Nothing}) <$> next
+        Nothing -> (\moved -> joined g moved {refused = Nothing}) <$> next
 
-{- | Fuel is set once, and again at each Route hub: each request a run routes
-there may run at a Fuel of its own. Requests run one after another, so the
-run holds one Fuel, the one set last.
+{- | A target is named at a request's Fuel step, before its level: its
+request's work is on it, so a PR, draft or ticket an earlier request
+recorded is not its own.
 -}
-fuelSet :: OpenGraph -> RunState -> Fuel -> Either Refusal RunState
-fuelSet g state fuel = case state.fuel of
-    Just set | set /= fuel, not (isRouteHub g state.at) -> Left (FuelSetOnce set)
-    _ -> Right state {fuel = Just fuel}
+targeted :: RunState -> Target -> Either Refusal RunState
+targeted state target = case state.at of
+    At place | targetsAt state.start.flow place -> Right state {onTarget = Just (OnTarget target False), drafted = Nothing, published = Nothing, ticket = Nothing}
+    _ -> Left TargetOffFuel
 
-{- | A target is named at a route's hub, as Fuel is: its request's work is
-on it, so a PR, draft or ticket an earlier request recorded is not its own.
+{- | Whether a target may be named here: only at a chief request's Fuel
+steps, its own or its routed flow's. A flow run on its own takes its PR
+from its init, never a target.
 -}
-targeted :: OpenGraph -> RunState -> Target -> Either Refusal RunState
-targeted g state target
-    | isRouteHub g state.at = Right state {onTarget = Just (OnTarget target False), drafted = Nothing, published = Nothing, ticket = Nothing}
-    | otherwise = Left TargetOffHub
+targetsAt :: FlowName -> Place -> Bool
+targetsAt flow place = case flow of
+    ChiefFlow -> place.name == stepName Fuel
+    EngineerFlow -> False
+    TenXFlow -> False
+    ArchitectFlow -> False
 
 {- | The worker gone from those at work: the one of that id, else the oldest
 of that role, as a hand-back piped in by hand names no id.
 -}
 returned :: AgentRole -> Maybe AgentId -> [Worker] -> [Worker]
-returned role agent live = case break (returning role agent) live of
+returned role agent workers = case break (returning role agent) workers of
     (before, _ : after) -> before <> after
     (before, []) -> before
 
 -- | The event saying a worker of this role returned, when it is one at work: none for another.
 returnOf :: RunState -> AgentRole -> Maybe AgentId -> Maybe Event
-returnOf state role agent = WorkerReturned role agent <$ find (returning role agent) state.live
+returnOf state role agent = WorkerReturned role agent <$ find (returning role agent) state.workers
 
 returning :: AgentRole -> Maybe AgentId -> Worker -> Bool
 returning role agent worker = maybe (worker.role == role) (== worker.agent) agent
@@ -439,27 +461,67 @@ triagedBy role untriaged = case break ((== role) . fst) untriaged of
     (before, []) -> before
 
 {- | Moves along the outcome's edge, after the outcome spends its step's
-meter and its problems join the rounds it ends.
+meter and its problems join the rounds it ends. A forked child's hand-back
+(@research.handed_back@) is taken anywhere, before its bind too, and
+changes nothing: its agent's return closes its entry in the 'ledger'.
 -}
 took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
-took g state scope outcome@(AnyOutcome _ some) = do
+took g state scope outcome@(AnyOutcome _ some)
+    | any (\cap -> owedBy cap.meter (RecordedOutcome some) == Just Closes) g.caps = Right state
+    | otherwise = walked g state scope outcome
+
+{- | A group's 'State.Category.Flow.Await' goes on by itself once every
+child handed back (an AND-join): no one records its @done@, as the
+run's ledger already holds the fact. A par's fork state goes on at once
+('forkPasses'). At any other state, the run stays.
+-}
+joined :: OpenGraph -> RunState -> RunState
+joined g state = case state.at of
+    At place
+        | Just edge <- awaitDone g place
+        , awaitedOpen g state place == 0 ->
+            joined g (movedOn edge)
+        | Just edge <- forkPasses g place -> joined g (movedOn edge)
+    At _ -> state
+    Out -> state
+    Exit -> state
+  where
+    movedOn edge = state {at = edge.to, rounds = enter g edge.back state.at edge.to state.rounds, meters = kept g edge.to state.meters, askedHere = []}
+
+walked :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
+walked g state scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
-    case edge.arrow of
-        Skip opt when | not (skips state from when) -> Left (NotSkippable opt)
-        Skip _ _ -> Right ()
-        Along _ -> Right ()
-        Stay -> Right ()
-    case (edge.to == At from, openAt from state.meters) of
+    let effect = effects scope outcome
+    maybe (Right ()) (skipped state scope) effect.skip
+    maybe (Right ()) Left (pickedUsedUp g state from edge)
+    case (edge.to == At from, awaitedOpen g state from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
     meters <- spend g state (RecordedOutcome some)
-    let effect = effects scope outcome
     fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
-    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
+    Right state {at = edge.to, fuel = effect.level <|> state.fuel, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
+
+{- | A pick into a step whose budget is used up: refused, as the advice
+offers only the actions a budget leaves, so a pick never strands the run
+at a step it may not spend.
+-}
+pickedUsedUp :: OpenGraph -> RunState -> Place -> Edge Node -> Maybe Refusal
+pickedUsedUp g state from edge = case edge.to of
+    At next
+        | isPick from.name ->
+            listToMaybe
+                [ OutOfBudget budget.cap most
+                | (metered, budget@Budget {allows = Just most}) <- Map.toList (budgets g state)
+                , metered.place == next
+                , budget.spent >= most
+                ]
+    At _ -> Nothing
+    Out -> Nothing
+    Exit -> Nothing
 
 -- | The edge an event takes where the run is, and the state it leaves.
 edgeHere :: OpenGraph -> RunState -> EventName -> Maybe (Place, Edge Node)
@@ -468,17 +530,18 @@ edgeHere g state name = case state.at of
     Out -> Nothing
     Exit -> Nothing
 
-{- | A step's outcome named bare, as a flow's skill names its own, while
-the run sits inside a scope: the outcome of the step of that scope, when
-only it has an edge here. A flow runs inline under a scope with its skill
-unchanged so. An event an edge here takes as named is that event, so a run
-outside every scope records each event as named.
+{- | A step's outcome named in its flow's own scopes, as a flow's skill
+names it (@gather.enough@, @gather/notes.done@), while the run sits inside
+more scopes: the outcome of the step of the place's scope, when the named
+scopes end it and only it has an edge here. A flow runs inline under a
+scope with its skill unchanged so. An event an edge here takes as named is
+that event, so a run outside every scope records each event as named.
 -}
 inScope :: OpenGraph -> RunState -> Event -> Event
 inScope g state event = case (event, state.at) of
-    (Took bare outcome, At place)
-        | bare == mempty
-        , Nothing <- edgeHere g state (tookEvent bare outcome)
+    (Took named outcome, At place)
+        | scopeNames named `isSuffixOf` scopeNames place.scope
+        , Nothing <- edgeHere g state (tookEvent named outcome)
         , Just _ <- edgeHere g state (tookEvent place.scope outcome) ->
             Took place.scope outcome
     _ -> event
@@ -494,7 +557,14 @@ data Effect = Effect
     , opened :: Maybe Url
     , anew :: Bool
     -- ^ A new request starts: it has no target until one is named.
+    , level :: Maybe Fuel
+    -- ^ The run's Fuel from here on, as a 'Fuel' step sets it.
+    , skip :: Maybe Skipping
+    -- ^ The outcome skips a block, which the run's Fuel or its shape must allow.
     }
+
+-- | Why a block may be skipped: a level that skips it, or a round on an existing PR, which keeps it.
+data Skipping = ByLevel Name (PerFuel SkipWhen) | ByShape
 
 {- | One arm per layer: a new layer breaks the build here, and a new outcome
 in the layer's own match below. A fan-out's outcome moves the fan-out in the
@@ -506,13 +576,39 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     PlanLayer -> none
     BuildLayer -> none {draft = built o}
     ReviewLayer -> none {problems = reviewProblems o}
-    ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url}
+    ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url, skip = keeps o}
     TicketLayer -> none {opened = ticketOf o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
-    ChoiceLayer -> none
+    PickLayer -> none
+    FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False, level = Nothing, skip = Nothing}
+
+-- | The level a 'Fuel' step sets; a skip sets none.
+fuelOutcome :: Outcome (s :: FuelStep) l -> Maybe Fuel
+fuelOutcome = \case
+    LevelSet level -> Just level
+    Skipping _ -> Nothing
+    Running _ -> Nothing
+
+-- | The block a skip step skips, by the levels that may.
+skipOutcome :: Outcome (s :: FuelStep) l -> Maybe Skipping
+skipOutcome = \case
+    Skipping (Skip name when) -> Just (ByLevel name when)
+    LevelSet _ -> Nothing
+    Running _ -> Nothing
+
+-- | A @ready@ that leaves the PR as it is.
+keeps :: Outcome (s :: ShipStep) l -> Maybe Skipping
+keeps = \case
+    ReadySkipped _ -> Just ByShape
+    ReadyDone _ -> Nothing
+    DescribeDone _ -> Nothing
+    SimplifyPrDone _ -> Nothing
+    AwaitCiGreen _ -> Nothing
+    AwaitCiRed _ _ -> Nothing
+    FixPrDone _ -> Nothing
 
 -- | The ticket an @open_ticket@ names.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
@@ -549,27 +645,30 @@ built = \case
     DraftDone pr -> Just pr
     ImplementDone _ -> Nothing
     RefactorDone _ -> Nothing
-    RefactorSkipped _ -> Nothing
 
 -- | A breakdown sets its fan-out's tasks; its end is checked as it is written ('leaves').
 fanOutcome :: ScopePath -> Outcome (s :: FanStep) l -> Map ScopedFan Fan -> Either Fan.Refusal (Map ScopedFan Fan)
 fanOutcome scope outcome fans = case outcome of
     BreakdownDone fan tasks -> (\fresh -> Map.insert (here fan) fresh fans) <$> Fan.broken tasks (fanIn fans (here fan))
-    FanDone _ -> Right fans
     MergeDone fan _ -> fans <$ Fan.closed (fanIn fans (here fan))
     MergeNextRound fan -> fans <$ Fan.closed (fanIn fans (here fan))
   where
     here = ScopedFan scope
 
-{- | The Fuel's skips, @ready@ for a round on an existing PR at every
-Fuel: the PR stays as it is, by the task's shape, and @simplify_plan@ for a
-plan settled without the user.
+{- | A skip the run may take: one its Fuel allows, @simplify_plan@'s for a
+plan settled without the user, and @ready@'s on a round on an existing PR
+at every Fuel, which leaves the PR as it is, by the task's shape.
 -}
-skips :: RunState -> Place -> PerFuel SkipWhen -> Bool
-skips state from when =
-    atFuel (fuelOf state) when /= Never
-        || (from.name == stepName Ready && onRound (shape state))
-        || (from.name == stepName SimplifyP && planSettled state)
+skipped :: RunState -> ScopePath -> Skipping -> Either Refusal ()
+skipped state scope = \case
+    ByLevel name when
+        | atFuel (fuelOf state) when /= Never || (name == simplifyPlan && planSettled state) -> Right ()
+        | otherwise -> refused (nameText name)
+    ByShape
+        | onRound (shape state) -> Right ()
+        | otherwise -> refused (stateNameText (stepName Ready))
+  where
+    refused block = Left (NotSkippable (Name (qualifyText scope block)))
 
 {- | What the run does to its PR now: its request's target's, else its
 start's. A branch's work opens its PR from that branch, or adopts the one open.
@@ -624,7 +723,16 @@ fanIn fans fan = Map.findWithDefault emptyFan fan fans
 currentFan :: RunState -> Fan
 currentFan state = maybe emptyFan (fanIn state.fans) (fanAt state.at)
 
--- | A child's spawn or hand-back stays where the graph has that fan-out event: at the fan-out.
+{- | A child of a 'State.Flow.Library.par' is spawned while the run waits
+for its group, at its 'State.Category.Flow.Await': the 10x spawns an
+engineer once its task's dependencies merged.
+-}
+atAwait :: OpenGraph -> RunState -> Either Refusal ()
+atAwait g state = case state.at of
+    At place | Just (Awaiting _) <- Map.lookup place g.groupStates -> Right ()
+    _ -> Left (NoEdge state.at (fanEvent Spawns (askedAt state)))
+
+-- | A child's hand-back stays where the graph has that fan-out event: at the fan-out.
 atFan :: OpenGraph -> RunState -> FanEvent -> Either Refusal ()
 atFan g state event = case state.at of
     At place | Just Edge {arrow = Stay} <- step g place name -> Right ()
@@ -634,12 +742,10 @@ atFan g state event = case state.at of
 
 {- | A question the run asks: its own question at a capped step, as the
 interview's, spends the step's meter. Asking whether to go on spends none.
-At a route's hub the run asks the user its branch once.
 -}
 asked :: OpenGraph -> RunState -> Asking -> Either Refusal RunState
 asked g state asking
     | Set.member qid state.everAsked = Left (AskedTwice qid)
-    | asking.question.kind == Ask.Pick, isRouteHub g state.at, Ask.Pick `elem` state.askedHere = Left PickedOnce
     | otherwise = do
         meters <- if spends then spend g state RecordedAsk else Right state.meters
         Right
@@ -673,7 +779,7 @@ once more.
 extended :: OpenGraph -> RunState -> Either Refusal RunState
 extended g state = case extendable g state of
     [] -> Left NothingToExtend
-    regranted -> Right state {meters = foldr (Map.update (\l -> ledger (Spent 0 l.open))) state.meters regranted, askedHere = []}
+    regranted -> Right state {meters = foldr Map.delete state.meters regranted, askedHere = []}
 
 -- | The budgets holding the run that the user may extend: what an @extend@ grants again.
 extendable :: OpenGraph -> RunState -> [Metered]
@@ -684,54 +790,53 @@ extendable g state = Map.keys (Map.filter (\budget -> extends budget.cap.atCap) 
         Refuse -> False
         Stop -> False
 
-{- | What the event spends of each cap at the run's place, and the child it
-opens or closes. Past the cap at the run's Fuel it is refused; a
-'State.Category.Meter.PerGroup' cap the kernel only counts. A hand-back
-closes any child its step opened: children are alike, so none is named.
+{- | What the event spends of each cap at the run's place. Past the cap at
+the run's Fuel it is refused; a 'State.Category.Meter.PerGroup' cap the
+kernel only counts.
 -}
-spend :: OpenGraph -> RunState -> Recorded -> Either Refusal (Map Metered Spent)
+spend :: OpenGraph -> RunState -> Recorded -> Either Refusal (Map Metered Natural)
 spend g state recorded = case state.at of
     At place -> foldM charge state.meters [(metered, cap) | (metered, cap) <- Map.toList g.caps, metered.place == place]
     Out -> Right state.meters
     Exit -> Right state.meters
   where
     charge meters (metered, cap) = do
-        let before = Map.findWithDefault empty metered meters
+        let before = Map.findWithDefault 0 metered meters
         spent <- case (spentBy cap.meter recorded, allowed (atFuel (fuelOf state) cap.limit)) of
-            (0, _) -> Right before.spent
-            (cost, Just most) | before.spent + cost > most -> Left (OutOfBudget cap most)
-            (cost, _) -> Right (before.spent + cost)
-        open <- case (owedBy cap.meter recorded, before.open) of
-            (Nothing, open) -> Right open
-            (Just Opens, open) -> Right (open + 1)
-            (Just Closes, 0) -> Left (NoneOpen metered.step)
-            (Just Closes, open) -> Right (open - 1)
-        Right (Map.alter (const (ledger (Spent spent open))) metered meters)
+            (0, _) -> Right before
+            (cost, Just most) | before + cost > most -> Left (OutOfBudget cap most)
+            (cost, _) -> Right (before + cost)
+        Right (if spent == 0 then meters else Map.insert metered spent meters)
 
-{- | What the run spent of a capped step's budget, and how many children its
-spends opened that have yet to hand back.
+{- | At a group's 'State.Category.Flow.Await', the 'ledger''s open children
+of its role, and a fan-out's tasks not yet settled with no child running:
+the state is left only at none (an AND-join). None elsewhere.
 -}
-data Spent = Spent {spent :: Natural, open :: Natural}
-    deriving stock (Eq, Show)
+awaitedOpen :: OpenGraph -> RunState -> Place -> Natural
+awaitedOpen g state place = case Map.lookup place g.groupStates of
+    Just (Awaiting group) ->
+        genericLength (filter ((== group.runner) . (.role)) (ledger g state))
+            + sum [genericLength (filter (`notElem` running fan) (Fan.unsettled fan)) | Just name <- [fanNamed place.name], let fan = fanIn state.fans (ScopedFan place.scope name)]
+    Just (Forking _) -> 0
+    Nothing -> 0
+  where
+    running fan = map (.child.task) (Fan.running fan)
 
-empty :: Spent
-empty = Spent 0 0
+{- | The capped forks whose budget holds the run: a forked child's
+hand-back is recorded at one, in its scope, wherever the run is in the
+fork's loop. Outside it, its role's hand-back is the step's there, as a
+researcher also simplifies the plan.
+-}
+forks :: OpenGraph -> RunState -> [Metered]
+forks g state = [metered | metered <- Map.keys (budgets g state), Just (Forking _) <- [Map.lookup metered.place g.groupStates]]
 
--- | The ledger as the map keeps it: an empty one is absent.
-ledger :: Spent -> Maybe Spent
-ledger spent = if spent == empty then Nothing else Just spent
-
--- | The children the spends at this state opened, yet to hand back: the state is left only at none (an AND-join).
-openAt :: Place -> Map Metered Spent -> Natural
-openAt place meters = sum [spent.open | (metered, spent) <- Map.toList meters, metered.place == place]
-
--- | A cap's budget as the run stands: its ledger, and what the run's Fuel allows.
-data Budget = Budget {cap :: Cap, ledger :: Spent, allows :: Maybe Natural}
+-- | A cap's budget as the run stands: what it spent, and what the run's Fuel allows.
+data Budget = Budget {cap :: Cap, spent :: Natural, allows :: Maybe Natural}
     deriving stock (Eq, Show)
 
 -- | Nothing is left of it: the next spend is refused.
 usedUp :: Budget -> Bool
-usedUp budget = maybe False (budget.ledger.spent >=) budget.allows
+usedUp budget = maybe False (budget.spent >=) budget.allows
 
 {- | The budgets that hold the run: of each cap whose innermost loop holds
 its place, so the run spends them in this round.
@@ -739,14 +844,14 @@ its place, so the run spends them in this round.
 budgets :: OpenGraph -> RunState -> Map Metered Budget
 budgets g state = Map.mapWithKey budgetOf (Map.filterWithKey (\metered _ -> heldIn g metered.place state.at) g.caps)
   where
-    budgetOf metered cap = Budget {cap, ledger = Map.findWithDefault empty metered state.meters, allows = allowed (atFuel (fuelOf state) cap.limit)}
+    budgetOf metered cap = Budget {cap, spent = Map.findWithDefault 0 metered state.meters, allows = allowed (atFuel (fuelOf state) cap.limit)}
 
 -- | The budgets at the run's state that a question spends.
 spentByAsk :: OpenGraph -> RunState -> [Budget]
 spentByAsk g state = [budget | (metered, budget) <- Map.toList (budgets g state), At metered.place == state.at, spentBy budget.cap.meter RecordedAsk > 0]
 
 -- | The ledger after a move: a meter's spend lasts while the run stays in the innermost loop around its step's state.
-kept :: OpenGraph -> Node -> Map Metered Spent -> Map Metered Spent
+kept :: OpenGraph -> Node -> Map Metered Natural -> Map Metered Natural
 kept g to = Map.filterWithKey (\metered _ -> heldIn g metered.place to)
 
 {- | The node is in the innermost loop around the capped step's place, or the
@@ -921,7 +1026,6 @@ shipped = \case
     ReadySkipped url -> (Set.empty, Just url)
     DescribeDone _ -> (Set.empty, Nothing)
     SimplifyPrDone _ -> (Set.empty, Nothing)
-    SimplifyPrSkipped _ -> (Set.empty, Nothing)
     AwaitCiGreen _ -> (Set.empty, Nothing)
     FixPrDone _ -> (Set.empty, Nothing)
 
@@ -943,7 +1047,7 @@ stuckExits :: OpenGraph -> RunState -> Place -> [(EventName, Edge Node)]
 stuckExits g state place = case innermost g place of
     Just loop
         | Ask.Stuck `elem` state.askedHere && loop.entry /= place && not (awaits loop.entry) ->
-            [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == loop.entry, not (inBody loop edge.to)]
+            [(event, edge) | (event, edge) <- outOf loop.entry g.edges, not (inBody loop edge.to)]
     _ -> []
   where
     inBody loop = \case

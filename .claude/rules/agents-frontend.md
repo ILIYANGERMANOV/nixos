@@ -60,24 +60,35 @@ A run appends its events to `<notes>/events.jsonl`, version 4
 change updates `analyze.py` too. The step table is `flows/steps.nix`, handed
 to the kernel as JSON (`State/Table.hs`) and to the roles, whose capabilities
 and skills derive from it (`lib/derive.nix`). Why:
-`docs/adr/0018-category-model-haskell-state.md` and
-`docs/adr/0019-composable-flows.md`.
+`docs/adr/0018-category-model-haskell-state.md`,
+`docs/adr/0019-composable-flows.md` and
+`docs/adr/0020-flow-core-from-sums-and-elgot.md`.
 
 A flow is a term of `Flow i e o` (`State/Category/Flow.hs`); a named flow
-composes the small flows of `State/Flow/Library.hs`. Its words, each with a
-law in `LawsSpec`:
+composes the small flows of `State/Flow/Library.hs`. Its core words, each
+with a law in `LawsSpec`:
 
-- `Do s`: one step. `Id`: no step. `f :> g`: series.
-- `inl`, `inr`, `f ||| g`: sums and case. `Catch f`: the exit goes on as the out.
+- `Do s`: one step. `Id`: no step. `Into`: retype as `Result`. `f :> g`: series.
+- `Case bs`: one branch per label of a `Sum`, in its order (a missing or
+  mislabelled branch does not compile). `Exit`: leave to the innermost
+  `Catch f` or `Loop name f`, whose out it is; uncaught, it does not compile.
 - `Loop name f`: repeat until the exit; a `Capped` step in it bounds it.
-- `Capped limits atCap s`: a step whose `Meter` spends a budget per Fuel;
-  `spawn`, one whose spend opens a child that must hand back.
-- `choiceLoop name actions`: the agent takes capped actions in any order,
-  then `<name>.enough`, which waits for open children.
-- `Route name branches`: the agent picks one named branch, once, by
-  `<name>.<branch>`; it asks the user only when the request is ambiguous.
-- `Opt name skips f`: a Fuel may skip it. `Par name f`: one child run per item.
+- `Capped limits atCap c`: a step, or a `Fork` of one, whose `Meter` spends
+  a budget per Fuel.
+- `Fork g f`: start `f` as a child in group `g`, go on at once. `Await g`:
+  wait for every child of `g`, their results in fork order. A path out of a
+  `Fork` that skips its `Await` is refused. `Each f`: `f` once per item.
 - `Scope name f`: its states record `name/step.outcome`.
+
+The library builds the rest from them:
+
+- `choice name bs` = `Do (Pick name) :> Case bs`: the agent picks one
+  branch by `<name>.<label>`, then the branch runs.
+- `choiceLoop name enough actions`: a `Loop` over a `choice` whose `enough`
+  branch ends in `Exit`: actions in any order, then `<name>.enough`.
+- `opt name skips f`: a `skip_<name>` state, `skip` or `run`; Fuel says
+  when `skip` is taken.
+- `par g f` = `Each (Fork g f) :> Await g`: one child per item.
 
 How to extend it; the compiler and `parseSteps` name what is missing:
 
@@ -85,17 +96,18 @@ How to extend it; the compiler and `parseSteps` name what is missing:
   `Sing`, `Sig` and `Outcome` cases), its row in `flows/steps.nix`, and its
   arm in `State/Run/Fold.hs`'s match on `Layer` if its outcome carries data.
   A step a lead records by hand also needs an entry in `recordables` in
-  `State/Protocol/Record.hs` (the CLI parser), and one a mode skips an entry
-  in `skipOutcome` in `State/Protocol/Advice.hs`.
+  `State/Protocol/Record.hs` (the CLI parser). A step a Fuel may skip goes
+  inside an `opt`.
 - **A layer:** its module under `State/Step/`, then in `State/Step/Catalog.hs`
   a `Layer` constructor, a `KnownLayer` instance and an entry in `layers`, then
   the arms the compiler asks for.
-- **A branch:** a step whose `Sig` out is a sum, `'( 'Diff, 'Nothing, 'Diff
-  ':+ 'Plan)`, with `Branches small big` as its outcomes and `'Inl`/`'Inr`
-  legs, then a case after it: `Do Triage :> (Do Describe ||| Do Implement :>
-  Do Describe)`. `inl`/`inr` inject into a sum without a step. A branching
-  step has no exit and plain summands; `Opt` and `Loop` refuse a sum, so close
-  the branches with `|||` first.
+- **A branch:** a step whose `Sig` out is a labelled sum, `'( 'PR,
+  'Nothing, 'Sum '[ '("done", 'PR), '("skipped", 'PR)])`, its outcomes on
+  `'Took "<label>"` legs, then a case after it: `Do Ready :> Case (#done :->
+  Id :& #skipped :-> Id :& End)`. The labels are the event names. A
+  branching step has no exit and plain summands; `Loop` refuses a sum, so
+  close the branches with a `Case` first. The agent's own pick is a
+  `choice`, no step of yours.
 - **A role that leads a flow:** a `FlowName` constructor and its `role` arm in
   `State/Role.hs` (name, flow, rung), the name in `flowNames` of
   `flows/default.nix` and in a row's `flows` in `flows/steps.nix`. A worker

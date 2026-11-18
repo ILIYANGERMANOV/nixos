@@ -40,8 +40,9 @@ import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
-import Options.Applicative qualified as Opt
-import State.Category.Fuel (Fuel (Balanced))
+import Options.Applicative qualified as Optparse
+import State.Category.Flow (Name)
+import State.Category.Fuel (Fuel (Balanced), PerFuel, SkipWhen)
 import State.Category.Graph (Node (..), OpenGraph (..), graph, placeName)
 import State.Category.Step (StateName, stateNameText)
 import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, chiefInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
@@ -72,6 +73,8 @@ import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
 import State.Step.Artifact (Shape (..), shellPathText, shellWord)
+import State.Step.Catalog (outcome, termSkips)
+import State.Step.Fuel (Outcome (LevelSet))
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
@@ -103,7 +106,7 @@ main argv =
 
 -- | Help asked for goes to stdout, exit 0; a usage error to stderr, exit 2.
 usageOut :: (Console :> es) => String -> Usage -> Eff es ExitCode
-usageOut program (Usage failure) = case Opt.renderFailure failure program of
+usageOut program (Usage failure) = case Optparse.renderFailure failure program of
     (text, ExitSuccess) -> Console.out (optparseText text) $> ExitSuccess
     (text, ExitFailure _) -> Console.err (optparseText text) $> ExitFailure 2
 
@@ -364,7 +367,7 @@ runAnswer steps call bound found want = case want of
         -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
         (facts, told) <- readFacts
         onHook facts.pr $ \stamp run -> case commit stamp run [(Cli, event) | event <- maybeToList (restartOf source run.state)] of
-            Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
+            Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
             Right (restart, after) ->
                 let (new, _, out) = adviceOf steps facts told stamp after
                  in (map (.envelope) restart <> new, recordedLines restart <> showRun after.g after.state <> out.text)
@@ -373,7 +376,7 @@ runAnswer steps call bound found want = case want of
         onHook facts.pr $ \stamp run ->
             -- At a choice, the spawn of an action's worker opens a child; elsewhere it records nothing.
             case commit stamp run [(Cli, event) | Just role <- [spawned], Just event <- [spawnedAt steps run.state.at role]] of
-                Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
+                Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
                 Right (opened, after) ->
                     let (new, action, out) = adviceOf steps facts told stamp after
                         warning = case (action, spawned) of
@@ -389,9 +392,9 @@ runAnswer steps call bound found want = case want of
             let sources = hookSources run.state.run agent role message
                 said = either (failureText "handback") (.text)
                 told = record stamp run sources . fmap (\plan -> plan {say = childrenTold run.g plan.say})
-             in case (loggedAlready run.logged sources, followedAt run.state.at role, Fold.returnOf run.state role agent.agentId) of
+             in case (loggedAlready run.logged sources, followedAt steps run.g run.state role, Fold.returnOf run.state role agent.agentId) of
                     (True, _, _) -> ([], "")
-                    (False, True, _) -> said <$> told (handbackPlan steps stamp.head run.state role agent.agentId Nothing message)
+                    (False, True, _) -> said <$> told (handbackPlan steps stamp.head run.g run.state role agent.agentId Nothing message)
                     -- A worker spawned beside the advice returns, its report its spawner's alone.
                     (False, False, Just back) -> said <$> told (Right (Plan [back] (\_ _ -> mempty)))
                     (False, False, Nothing) -> ([], "")
@@ -446,7 +449,7 @@ execute steps = \case
         input <- Console.readStdin
         case decodeUtf8' input of
             Left _ -> pure (Left (Failure BadInput "the hand-back" "stdin is not UTF-8" "state help"))
-            Right message -> fmap (.text) . orNoRun <$> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role Nothing child message))
+            Right message -> fmap (.text) . orNoRun <$> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.g run.state role Nothing child message))
     OnRun command -> do
         -- Read before the lock, as GitHub is.
         file <- traverse FileSystem.readText (fileOf command)
@@ -559,11 +562,11 @@ namedEvent worktreeHead file = \case
 {- | A worker's hand-back as the run records it. One with no kind on its
 question, or a worker's BLOCKED or FAILED, is the run's to triage.
 -}
-handbackPlan :: Steps -> Maybe Sha -> RunState -> AgentRole -> Maybe AgentId -> Maybe RunId -> Text -> Either Failure Plan
-handbackPlan steps worktreeHead state role agent child message = do
+handbackPlan :: Steps -> Maybe Sha -> OpenGraph -> RunState -> AgentRole -> Maybe AgentId -> Maybe RunId -> Text -> Either Failure Plan
+handbackPlan steps worktreeHead g state role agent child message = do
     parsed <- Bifunctor.first refused (parseHandback message)
     let run = parsed.run <|> child
-    typed <- Bifunctor.first refused (typeHandback steps state worktreeHead role agent parsed {Handback.run = run})
+    typed <- Bifunctor.first refused (typeHandback steps g state worktreeHead role agent parsed {Handback.run = run})
     let from = maybe (roleText role) runIdText run
         triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> from <> " <question>\n"
     Right (Plan typed.events (\_ new -> printed (recordedLines new <> foldMap triage typed.untriaged)))
@@ -587,21 +590,21 @@ adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, 
 adviceOf steps facts told stamp run = (map (.envelope) new, advice.action, out)
   where
     (new, settled, unsynced) = settle run
-    advice = Advice.heldBy settled.state.start settled.state.live (advise steps settled.g facts settled.state)
+    advice = Advice.heldBy settled.state.start settled.state.workers (advise steps settled.g facts settled.state)
     out =
         recorded new
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( foldMap (<> "\n") (deliverMore settled.state.start advice)
                     <> foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
-                    <> Text.concat ["  " <> line <> "\n" | line <- explained settled.state.start advice <> told <> unsynced <> advice.facts <> skippable settled.g settled.state]
+                    <> Text.concat ["  " <> line <> "\n" | line <- explained settled.state.start advice <> told <> unsynced <> advice.facts <> skippable settled.state]
                     <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
                 )
-    settle current = case due current.g facts current.state of
+    settle current = case due facts current.state of
         Nothing -> ([], current, [])
         Just event -> case commit stamp current [(Cli, event)] of
             -- Nobody asked for it, so it is told and not stored.
-            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.fuelOf current.state) current.state.at current.state.meters refusal).why])
+            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why])
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
 
 -- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
@@ -659,7 +662,7 @@ record stamp run sources = \case
     Right plan -> case commit stamp run (zip sources plan.events) of
         Right (new, after) -> (map (.envelope) new, Right (plan.say after.state new))
         Left refusal ->
-            let failure = explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal
+            let failure = explain run.g (Fold.fuelOf run.state) run.state.at refusal
              in ([stamped stamp Cli run.state.run (nextSeq run) (Refused (noteOf failure))], Left failure)
 
 -- | Lines are numbered from 1 in the order written, @started@ first.
@@ -726,7 +729,7 @@ handedUp steps up =
     sources = [Hook (digestOf [runIdText up.child, up.once, tshow n]) | n <- [0 :: Int ..]]
     append stamp run
         | loggedAlready run.logged sources = ([], Right ())
-        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state up.role Nothing (Just up.child) up.text) of
+        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.g run.state up.role Nothing (Just up.child) up.text) of
             -- The child tells its refusal; the parent's log does not keep it.
             (_, Left failure) -> ([], Left failure)
             (new, Right _) -> (new, Right ())
@@ -761,7 +764,7 @@ answeredDown down =
     write stamp run = case commit stamp run [(source, Answered down.qid down.answer (ParentRun down.above))] of
         Right (new, after) -> (map (.envelope) new, Right after.state)
         -- The answering run tells the refusal; the child's log does not keep it.
-        Left refusal -> ([], Left (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
+        Left refusal -> ([], Left (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
     told why =
         "child "
             <> runIdText down.child.run
@@ -819,7 +822,7 @@ replayed path logged@(first :| _) = case Fold.runStart first.event of
     Just start ->
         let g = graphOf start.flow
          in -- Balanced, the Fuel until recorded: only what and why are read.
-            either (Left . unreplayed path . explain g Balanced Out Map.empty) (Right . (g,)) (replay g logged)
+            either (Left . unreplayed path . explain g Balanced Out) (Right . (g,)) (replay g logged)
 
 {- | @state init@: idempotent, as a retried brief runs it again. A child names
 its parent's log, which is checked to hold that run before this one starts.
@@ -849,7 +852,8 @@ initRun gd args = do
             fresh <- newRunId
             let path = logOf notes
                 start = Start {flow, notes = notes, principal, interface = interfaceOf principal}
-                begun = Started start : map FuelSet (toList fuel)
+                -- The run starts at its root's Fuel step: a Fuel given takes it at once.
+                begun = Started start : [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
             result <- Log.locked path $ \case
                 Left bad -> ([], Left (unreadLine path bad))
                 Right [] -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
@@ -1008,7 +1012,7 @@ liveness state = case (state.stopped, Fold.over state) of
     (Nothing, True) -> Ended "finished"
     (Nothing, False) -> Live
 
--- | Who starts a run, its flow, and the Fuel already set: a child's task sets it, a user's run asks.
+-- | Who starts a run, its flow, and the Fuel given it: a child's task gives one, the 10x's is fixed, a user's other run, the chief's each request too, takes one at its Fuel step.
 data Begin = Begin {principal :: Principal, flow :: FlowName, fuel :: Maybe Fuel}
 
 {- | Who starts the run, and its flow: a child runs its task's flow, at its
@@ -1016,11 +1020,22 @@ task's Fuel, the task read from the parent's log.
 -}
 startOf :: (Shell es) => InitArgs -> Eff es (Either Failure Begin)
 startOf args = case args.origin of
-    FromUser shape -> pure (Right (Begin (ByUser shape) (fromMaybe defaultFlow args.flow) Nothing))
+    FromUser shape -> let flow = fromMaybe defaultFlow args.flow in pure (Right (Begin (ByUser shape) flow (fixedFuel flow)))
     FromParent parent ->
         parentStarts parent >>= \case
             Left failure -> pure (Left failure)
             Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.log
+
+{- | The Fuel a flow runs at whoever starts it: the 10x picks each task's
+Fuel and runs at Balanced itself, so its user is asked none. The chief has
+none: each request, the first too, records its own at its Fuel step.
+-}
+fixedFuel :: FlowName -> Maybe Fuel
+fixedFuel = \case
+    TenXFlow -> Just Balanced
+    ChiefFlow -> Nothing
+    EngineerFlow -> Nothing
+    ArchitectFlow -> Nothing
 
 {- | A parent's log path was checked by the parser; here its first line must
 be that run's start.
@@ -1100,7 +1115,7 @@ unreplayed path refusal = Failure BadInput (Text.pack path <> " does not replay"
 rendered :: Steps -> Block -> FlowName -> Text
 rendered steps block flow = case block of
     States -> Render.states g steps
-    FuelRows -> Render.fuel g
+    FuelRows -> Render.fuel (flowSkips flow) g
     Mermaid -> mermaid g
     Kinds -> Render.kinds
     StopRule -> Render.stopRule
@@ -1112,6 +1127,11 @@ rendered steps block flow = case block of
         ChiefFlow -> chiefInitFix <> "\n"
   where
     g = graphOf flow
+
+-- | The optional blocks of the flow, with the levels that skip each.
+flowSkips :: FlowName -> [(Name, PerFuel SkipWhen)]
+flowSkips flowName = case (Role.role flowName).flow of
+    SomeFlow flow -> termSkips flow
 
 -- | Each flow's graph glues, as its test holds: a clash here is a bug.
 graphOf :: FlowName -> OpenGraph

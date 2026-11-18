@@ -6,32 +6,32 @@ question asked inside it climbs from that flow's rung.
 -}
 module State.Flow.Chief (chief, discussion) where
 
-import Data.List.NonEmpty (NonEmpty (..))
-import State.Category.Flow (Flow (..), Name (..))
+import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Label (..), Name (..))
 import State.Category.Fuel (PerFuel (..))
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Step (OutcomeName (..))
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Flow.Architect (architect)
 import State.Flow.Engineer (engineer)
-import State.Flow.Library (blocks, branch, discuss)
+import State.Flow.Library (blocks, branch, choice, discuss)
 import State.Flow.TenX (tenX)
-import State.FlowName (FlowName (..), flowText)
+import State.Step.Fuel (Sing (Fuel))
 import State.Step.Request (Sing (..))
 
--- | Each request after the first spends one: at the cap the user is asked whether to go on.
+{- | Each request sets its own Fuel, then is routed. Each request after the
+first spends one: at the cap the user is asked whether to go on. A whole
+flow's label is its flow's name ('State.FlowName.flowText').
+-}
 chief :: Flow 'Ctx 'Nothing 'Result
-chief = Loop "requests" (Route "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend Next)
+chief = Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend (Step Next))
   where
     requests =
-        branch (flowScope ArchitectFlow) architect
-            :| [ branch (flowScope EngineerFlow) engineer
-               , branch (flowScope TenXFlow) tenX
-               , (OutcomeName "blocks", Route "block" blocks)
-               , branch discussion discuss
-               , (OutcomeName "other", Do Direct :> Into)
-               ]
-    flowScope = Name . flowText
+        branch @"architect" architect
+            :& branch @"engineer" engineer
+            :& branch @"10x" tenX
+            :& (Label @"blocks" :-> choice "block" blocks)
+            :& branch @"discussion" discuss
+            :& (Label @"other" :-> Do Direct :> Into)
+            :& End
 
 -- | The read-only discussion's branch and scope: "State.Role" runs it as the architect's.
 discussion :: Name

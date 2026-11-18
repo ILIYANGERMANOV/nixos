@@ -11,6 +11,10 @@ implementation: PR #392.
 
 Supersedes ADR 0018's blocks and its loop `rounds`. The rest of 0018 holds.
 
+Superseded in part by ADR 0020: the word table, the gather and route
+decisions, the `Choice` and `Route` laws, the `Par` ledger and the rejected
+`choiceLoop` option. The flow core is now sums, cases and Elgot iteration.
+
 ## Decision
 
 - **A flow is a term of `Flow i e o`.** In `i`, out `o`, and an optional

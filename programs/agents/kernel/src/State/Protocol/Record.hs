@@ -31,9 +31,10 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath, nameText, unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, leaving, placeName)
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, leaving, outOf, placeName)
 import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
+import State.Flow.Drawn (drawnOutcomes)
 import State.Protocol.Handback (parseTouches, refusalText)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
@@ -41,9 +42,8 @@ import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Even
 import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
-import State.Step.Choice (Outcome (..))
-import State.Step.Choice qualified as Choice
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
+import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (..))
 import State.Step.Request (Outcome (..), Sing (..))
@@ -66,9 +66,9 @@ recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usag
     step = snd (unqualify name)
 
 {- | One way on from where the run is: the exact command, and what taking
-it means, where the run goes next among it. A spawn's command names the
-agent, not how it runs: whether in the background is the run's interface's
-to say, told when the option is printed.
+it means, where the run goes next among it. An option that spawns names
+the agent, not how it runs: whether in the background is the run's
+interface's to say, told when the option is printed.
 -}
 data Option = Option {command :: Text, means :: Text, spawns :: Bool}
     deriving stock (Eq, Show)
@@ -85,7 +85,6 @@ recordOption event edge = commandOption (recordCommand event) (goes edge)
 goes :: Edge Node -> Text
 goes edge = case (edge.arrow, edge.to, edge.back) of
     (Stay, _, _) -> "the run stays here"
-    (Skip _ _, to, _) -> "skips the step: " <> onTo to
     (Along _, At place, Just loop) -> "back to " <> stateNameText (placeName place) <> ", the " <> nameText loop <> " loop's next round"
     (Along _, to, _) -> onTo to
   where
@@ -109,7 +108,7 @@ capRecords g place atCap = case atCap of
     Extend -> extendOption : if null exits then outs else exits
   where
     exits = [recordOption event edge | (event, edge) <- leaving g place]
-    outs = [recordOption event edge | ((from, event), edge) <- Map.toList g.edges, from == place]
+    outs = [recordOption event edge | (event, edge) <- outOf place g.edges]
 
 -- | The user's yes to one more interview round, and why.
 extend :: Recordable
@@ -144,28 +143,28 @@ usageOf r = Text.unwords (filter (not . Text.null) (r.positional : map flagUsage
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
 recordables =
-    [ stay "fuel" ("<" <> choices fuelName <> ">") $ \case
-        [raw] -> FuelSet <$> known "fuel" parseFuel raw
-        _ -> Left "one level"
-    , nothing ResearchSpawned
+    [ nothing ResearchSpawned
     , nothing ResearchHandedBack
+    , nothing InterviewAsked
+    , nothing DiscussAsked
+    , nothing NotesDone
     ]
-        <> [nothing (Enough choice) | choice <- Choice.choices]
-        <> [ -- Named at a route's hub, before its branch.
+        <> [ -- Named at a request's Fuel, before its level.
              stay "target" "<pr <url>|branch <name>|ticket <url>>" $ \case
                 ["pr", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Targeted . OnPr) (parsePrUrl pr)
                 ["branch", name] -> Right (Targeted (OnBranch (Branch name)))
                 ["ticket", link] -> Right (Targeted (OnTicket (Url link)))
                 _ -> Left "pr and its url, branch and its name, or ticket and its url"
            ]
-        <> [nothing (Picked route branch) | (route, branches) <- Choice.routes, branch <- branches]
-        <> [ extend
+        <> [ outcome (builtEvent Fuel LevelSet) ("<" <> choices fuelName <> ">") [] $ \a -> case a.positional of
+                [raw] -> Plain . tookIn a.scope . LevelSet <$> known "fuel" parseFuel raw
+                _ -> Left "one level"
+           , extend
            , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
                 -- Read as a file only to refuse a plan not written yet.
                 [path] -> Right (FromFile (Text.unpack path) (const (Right (tookIn a.scope (PlanDone (Text.unpack path))))))
                 _ -> Left "the plan's path"
            , nothing SimplifyPlanDone
-           , nothing SimplifyPlanSkipped
            , nothing ConfirmConfirmed
            , nothing ConfirmAdjusted
            , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of
@@ -174,18 +173,16 @@ recordables =
            , -- As a hand-back with no Touches line reads: an implementer may have touched any area.
              commitAt Implement ImplementDone (Set.fromList [minBound .. maxBound])
            , atHead Refactor RefactorDone
-           , outcome (builtEvent Refactor RefactorSkipped) "<why>" [] (\a -> Plain . tookIn a.scope . RefactorSkipped <$> because a.positional)
            , atHead Review ReviewClean
            , atHead Review ReviewRows
-           , picks Pick PickFinal
-           , picks Pick PickLoop
+           , picks PickRows PickFinal
+           , picks PickRows PickLoop
            , -- A fixer's hand-back with no Touches line touches no area.
              commitAt Fix FixDone Set.empty
            , atHead ReReview ReReviewClean
            , atHead ReReview ReReviewRows
            , atHead Describe DescribeDone
            , atHead SimplifyPR SimplifyPrDone
-           , atHead SimplifyPR SimplifyPrSkipped
            , atHead AwaitCi AwaitCiGreen
            , outcome (builtEvent AwaitCi (uncurry AwaitCiRed)) "<check>..." [] $ \a -> case a.positional of
                 check : more -> Right (AtHead (\sha -> tookIn a.scope (AwaitCiRed sha (fmap Check (check :| more)))))
@@ -209,7 +206,7 @@ recordables =
            , nothing NextRequest
            , nothing NextDone
            ]
-        <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
+        <> [breakdown fan | fan <- fanOuts]
         <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | add <task.json> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, "round", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Plain . TaskMoved (TaskId task) . Round) (parsePrUrl pr)
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
@@ -231,7 +228,12 @@ recordables =
                 _ -> Left "the child run you resume"
            ]
         <> concat [[url "the PR's url" (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- fanOuts]
+        -- Each pick's label and each skip's choice, as the flows draw them.
+        <> [flowOutcome o | o <- drawnOutcomes]
   where
+    flowOutcome o = outcome (Catalog.outcomeEvent o) "" [] $ \a -> case a.positional of
+        [] -> Right (Plain (Took a.scope o))
+        _ -> Left "no arguments"
     breakdown fan = outcome (builtEvent (Breakdown fan) (BreakdownDone fan)) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
         ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (tookIn a.scope . BreakdownDone fan) . Codec.decodeBreakdown))
         _ -> Left "the tasks file, as --tasks <file.json>"

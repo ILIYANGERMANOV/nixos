@@ -1,18 +1,29 @@
 stateDiagram-v2
   direction LR
-  [*] --> gather
-  gather --> plan: enough
-  gather --> gather: research.handed_back
-  gather --> gather: research.spawned
-  plan --> simplify_plan: done
+  state "gather/researchers" as gather__researchers
+  state "gather/notes" as gather__notes
+  state "gather/research" as gather__research
+  [*] --> fuel
+  fuel --> gather: set
+  gather --> gather__researchers: enough
+  gather --> interview: interview
+  gather --> gather__research: research
+  gather__researchers --> gather__notes: done
+  gather__researchers --> gather__researchers: handed_back
+  gather__notes --> plan: done
+  gather__research --> gather: spawned
+  interview --> gather: asked
+  plan --> skip_simplify_plan: done
+  skip_simplify_plan --> simplify_plan: run
+  skip_simplify_plan --> confirm: skip
   simplify_plan --> confirm: done
-  simplify_plan --> confirm: skipped
   confirm --> gather: adjusted
   confirm --> draft: confirmed
   draft --> implement: done
-  implement --> refactor: done
+  implement --> skip_refactor: done
+  skip_refactor --> refactor: run
+  skip_refactor --> review: skip
   refactor --> review: done
-  refactor --> review: skipped
   review --> describe: clean
   review --> pick: rows
   pick --> describe: final
@@ -22,7 +33,6 @@ stateDiagram-v2
   re_review --> pick: rows
   describe --> simplify_pr: done
   simplify_pr --> await_ci: done
-  simplify_pr --> await_ci: skipped
   await_ci --> ready: green
   await_ci --> fix_pr: red
   fix_pr --> await_ci: done

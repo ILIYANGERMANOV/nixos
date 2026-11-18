@@ -37,20 +37,19 @@ module State.Cli.Command (
 import Control.Applicative (many, optional, some, (<**>))
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
-import Options.Applicative qualified as Opt
+import Options.Applicative qualified as Optparse
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
-import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), placeName, places)
+import State.Category.Fuel (Fuel, parseByName)
+import State.Category.Graph (Cap (..), Node (..), OpenGraph (..), Place (..), placeName, places)
 import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
+import State.Flow.Drawn (fuelTakes)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
 import State.Role (RoleDef (..), defaultFlow)
@@ -61,7 +60,7 @@ import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), Task, TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Refusal (..), RunState (..), Spent (..))
+import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
@@ -160,7 +159,7 @@ noteOf failure = Note (failure.what <> " - " <> failure.why) failure.fix
 {- | Help asked for, or argv the grammar rejects: optparse's verdict. Its
 exit code tells the two apart, so the shell, which owns exit codes, renders it.
 -}
-newtype Usage = Usage (Opt.ParserFailure Opt.ParserHelp)
+newtype Usage = Usage (Optparse.ParserFailure Optparse.ParserHelp)
 
 {- | The subcommand, for the failure line, and the command or why it is not
 one; else optparse's help or usage error. No command at all is help.
@@ -182,44 +181,44 @@ parseHook = runCli hookInfo
 
 -- | The full usage: every command, then the run's kinds, stop reasons, roles and areas.
 help :: Steps -> Text
-help steps = optparseText (fst (Opt.renderFailure (Opt.parserFailure cliPrefs (commandInfo steps mempty) (Opt.ShowHelpText Nothing) []) "state"))
+help steps = optparseText (fst (Optparse.renderFailure (Optparse.parserFailure cliPrefs (commandInfo steps mempty) (Optparse.ShowHelpText Nothing) []) "state"))
 
 {- | optparse's own parse: a misuse prints its error, then the help of the
 command it reached, so @state record nope@ lists every event. The completion
 it answers is refused: this CLI offers none, and only a shell asks for it.
 -}
 runCli :: ParserInfo a -> [Text] -> Either Usage a
-runCli pinfo argv = case Opt.execParserPure cliPrefs pinfo (map Text.unpack argv) of
-    Opt.Success parsed -> Right parsed
-    Opt.Failure failure -> Left (Usage failure)
-    Opt.CompletionInvoked _ -> Left (Usage (Opt.parserFailure cliPrefs pinfo (Opt.ErrorMsg "shell completion is not offered") []))
+runCli pinfo argv = case Optparse.execParserPure cliPrefs pinfo (map Text.unpack argv) of
+    Optparse.Success parsed -> Right parsed
+    Optparse.Failure failure -> Left (Usage failure)
+    Optparse.CompletionInvoked _ -> Left (Usage (Optparse.parserFailure cliPrefs pinfo (Optparse.ErrorMsg "shell completion is not offered") []))
 
 {- | No backtracking: a surplus argument fails in the subcommand it follows,
 so its help, not the top-level one, follows the error.
 -}
-cliPrefs :: Opt.ParserPrefs
-cliPrefs = Opt.prefs (Opt.showHelpOnError <> Opt.noBacktrack)
+cliPrefs :: Optparse.ParserPrefs
+cliPrefs = Optparse.prefs (Optparse.showHelpOnError <> Optparse.noBacktrack)
 
 -- | optparse's text, less the trailing spaces it leaves where it wraps a usage line.
 optparseText :: String -> Text
 optparseText = Text.unlines . map Text.stripEnd . Text.lines . Text.pack
 
 hookInfo :: ParserInfo HookName
-hookInfo = Opt.info (Opt.hsubparser (foldMap hookCommand [minBound .. maxBound]) <**> Opt.helper) (Opt.progDesc "One hook event on stdin, its reply on stdout.")
+hookInfo = Optparse.info (Optparse.hsubparser (foldMap hookCommand [minBound .. maxBound]) <**> Optparse.helper) (Optparse.progDesc "One hook event on stdin, its reply on stdout.")
   where
-    hookCommand name = Opt.command (Text.unpack (hookName name)) (Opt.info (pure name) (Opt.progDesc (Text.unpack (hookPurpose name))))
+    hookCommand name = Optparse.command (Text.unpack (hookName name)) (Optparse.info (pure name) (Optparse.progDesc (Text.unpack (hookPurpose name))))
 
 -- | The grammar, its @record@ events inside the scope their name gave.
 commandInfo :: Steps -> ScopePath -> ParserInfo (Either Failure Command)
 commandInfo steps scope =
-    Opt.info
-        (Opt.hsubparser commands <**> Opt.helper)
-        (Opt.header "state - the run of an agent flow, kept in the worktree's log" <> Opt.footerDoc (Just (vsep (map pretty footer))))
+    Optparse.info
+        (Optparse.hsubparser commands <**> Optparse.helper)
+        (Optparse.header "state - the run of an agent flow, kept in the worktree's log" <> Optparse.footerDoc (Just (vsep (map pretty footer))))
   where
     commands =
         mconcat
             [ sub "init" "Start a run: a child of --parent, a round on --pr" initArgs
-            , Opt.command "record" (Opt.info (recordEvent scope) (Opt.progDesc "Record an event: 'state record --help' lists them" <> Opt.footer "A commit event records HEAD."))
+            , Optparse.command "record" (Optparse.info (recordEvent scope) (Optparse.progDesc "Record an event: 'state record --help' lists them" <> Optparse.footer "A commit event records HEAD."))
             , sub "handback" "Record a role's hand-back, read from stdin" $
                 (\role child -> HandbackOf <$> knownRole anyRole role <*> traverse runId child)
                     <$> textArgument "<role>"
@@ -252,7 +251,7 @@ commandInfo steps scope =
                 (\qid strays answer why cost basis raise -> OnRun <$> (RuleOn <$> oneWordEach qid strays <*> raising raise <*> (Proposal <$> oneLine answer <*> oneLine why <*> oneLine cost <*> traverse basisOf basis)))
                     <$> textArgument "<qid>"
                     -- The words past an option's one: an unquoted answer, why or cost, refused below.
-                    <*> many (Opt.strArgument @Text (Opt.metavar "" <> Opt.internal))
+                    <*> many (Optparse.strArgument @Text (Optparse.metavar "" <> Optparse.internal))
                     <*> textOption "answer" "<a>" "the answer"
                     <*> textOption "why" "<w>" "why it is the answer"
                     <*> textOption "cost" "<c>" "what the answer costs"
@@ -287,9 +286,9 @@ commandInfo steps scope =
         , "Run 'state <command> --help' for a command's arguments."
         ]
     anyRole = agentRoles steps <> map (.name) Role.roles
-    sub name about parser = Opt.command name (Opt.info parser (Opt.progDesc about))
+    sub name about parser = Optparse.command name (Optparse.info parser (Optparse.progDesc about))
     -- Its last words are free text, which may start with a dash: an option it does not take is a word.
-    freeText name about parser = Opt.command name (Opt.info parser (Opt.progDesc about <> Opt.forwardOptions))
+    freeText name about parser = Optparse.command name (Optparse.info parser (Optparse.progDesc about <> Optparse.forwardOptions))
     raiseOption = textOption "raise" "security" "raise the question to a Security one first"
     raising = \case
         Nothing -> Right AsAsked
@@ -305,7 +304,7 @@ commandInfo steps scope =
         [] -> Right qid
         _ : _ -> Left (Failure BadInput "--answer, --why and --cost" "each takes one word: quote a longer one" ("state rule " <> qid <> " --answer \"<a>\" --why \"<w>\" --cost \"<c>\""))
 
-initArgs :: Opt.Parser (Either Failure Command)
+initArgs :: Optparse.Parser (Either Failure Command)
 initArgs =
     init'
         <$> textOption "notes" "<dir>" "the directory of the run's notes, an absolute path"
@@ -328,10 +327,10 @@ initArgs =
     roundPr raw = maybe (Left (Failure BadInput ("--pr " <> raw) ("the PR is " <> prUrlRule) "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>")) Right (parsePrUrl raw)
 
 -- | One subcommand per event the table holds, its flags its options.
-recordEvent :: ScopePath -> Opt.Parser (Either Failure Command)
-recordEvent scope = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recordables)
+recordEvent :: ScopePath -> Optparse.Parser (Either Failure Command)
+recordEvent scope = Optparse.hsubparser (Optparse.metavar "EVENT" <> foldMap event recordables)
   where
-    event r = Opt.command (Text.unpack r.name) (Opt.info (recording r <$> positionals r <*> flags r) (Opt.progDesc (Text.unpack (describe r)) <> freeWords r))
+    event r = Optparse.command (Text.unpack r.name) (Optparse.info (recording r <$> positionals r <*> flags r) (Optparse.progDesc (Text.unpack (describe r)) <> freeWords r))
     recording r positional options = OnRun . Record <$> first (refused r) (r.parse (Args scope positional options))
     refused r why = Failure BadInput ("record " <> qualified r) why (Text.strip ("state record " <> qualified r <> " " <> usageOf r))
     qualified r = qualifyText scope r.name
@@ -339,16 +338,16 @@ recordEvent scope = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recorda
         | Text.null r.positional = pure []
         | otherwise = many (textArgument r.positional)
     flags r = concat <$> traverse flag r.flags
-    flag f = map (f.name,) <$> arity f.arity (Opt.strOption (Opt.long (Text.unpack f.name) <> Opt.metavar (Text.unpack f.value)))
+    flag f = map (f.name,) <$> arity f.arity (Optparse.strOption (Optparse.long (Text.unpack f.name) <> Optparse.metavar (Text.unpack f.value)))
     arity = \case
         Required -> fmap pure
         Optional -> fmap toList . optional
         Repeated -> many
     -- An event's positionals may be free text, which may start with a dash.
-    freeWords r = if Text.null r.positional then mempty else Opt.forwardOptions
+    freeWords r = if Text.null r.positional then mempty else Optparse.forwardOptions
     describe r = if Text.null (usageOf r) then "no arguments" else usageOf r
 
-flowOption :: Opt.Parser Text
+flowOption :: Optparse.Parser Text
 flowOption = textOption "flow" (choices Codec.flowText) "the flow (default engineer)"
 
 flowOf :: Maybe Text -> Either Failure FlowName
@@ -357,14 +356,14 @@ flowOf = maybe (Right defaultFlow) flowNamed
 flowNamed :: Text -> Either Failure FlowName
 flowNamed = named "flow" (parseByName Codec.flowText)
 
-textOption :: String -> Text -> String -> Opt.Parser Text
-textOption name value about = Opt.strOption (Opt.long name <> Opt.metavar (Text.unpack value) <> Opt.help about)
+textOption :: String -> Text -> String -> Optparse.Parser Text
+textOption name value about = Optparse.strOption (Optparse.long name <> Optparse.metavar (Text.unpack value) <> Optparse.help about)
 
-textArgument :: Text -> Opt.Parser Text
-textArgument value = Opt.strArgument (Opt.metavar (Text.unpack value))
+textArgument :: Text -> Optparse.Parser Text
+textArgument value = Optparse.strArgument (Optparse.metavar (Text.unpack value))
 
 -- | One or more words, joined: a shell user need not quote a sentence.
-sentence :: Text -> Opt.Parser Text
+sentence :: Text -> Optparse.Parser Text
 sentence value = Text.unwords <$> some (textArgument value)
 
 -- | The usage failure, with @state help@ as the fix.
@@ -435,31 +434,27 @@ notStarted = Failure BadInput "the log" "its first line is not started" "state i
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
-run's Fuel would take, and the run's meters: a hand-back is named only while
-a child it closes is open.
+run's Fuel would take: a hand-back is never named, as its hand-back records it.
 -}
-explain :: OpenGraph -> Fuel -> Node -> Map Metered Spent -> Refusal -> Failure
-explain g fuel at meters = \case
+explain :: OpenGraph -> Fuel -> Node -> Refusal -> Failure
+explain g fuel at = \case
     NotStarted -> notStarted
     StartedTwice -> refused "started" "the run has started already" "state next"
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
     AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"
-    NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText at) (records (taken fuel))
-    NotSkippable _ -> refused "the skip" "this Fuel never skips the step" (records (not . skips))
+    NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText at) records
+    NotSkippable _ -> refused "the skip" "this Fuel never skips the block" "state next"
     OutOfBudget cap allowed ->
         refused
             ("the spend at " <> atText at)
             (someMeterName cap.meter <> " allows " <> tshow allowed <> " at this Fuel, all spent")
             (atPlace (\place -> Text.intercalate " | " (map (.command) (capRecords g place cap.atCap))))
-    NoneOpen (StateName step) -> refused ("the hand-back to " <> step) "no child it spawned is open" "state show"
     StillOpen open -> refused ("leaving " <> atText at) (tshow open <> " spawned here have yet to hand back") "state next"
     NothingToExtend -> refused "extend" ("the run is at " <> atText at <> ", where no budget asks the user to go on") "state next"
-    FuelSetOnce set -> refused "fuel" ("it is " <> fuelName set <> " already, set once") "state show"
-    TargetOffHub -> refused "target" ("the run is at " <> atText at <> ": a target is named at a route's hub, before its branch") "state show"
+    TargetOffFuel -> refused "target" ("the run is at " <> atText at <> ": a target is named at a chief run's request Fuel, before its level") "state show"
     NoSingleState (StateName name) ->
         refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
     AskedTwice qid -> refused (qidText qid) "it was asked already" "state pending"
-    PickedOnce -> refused "the pick" "the user was asked this route's branch once already" (records (const True))
     NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))
@@ -488,24 +483,17 @@ explain g fuel at meters = \case
     NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText at <> ", no fan-out's state") "state show"
     NotVoidable n -> refused ("seq " <> tshow n) "no line the run replays has it: none does, it is voided, or it is a void" ("state void <seq of a line in " <> Text.pack logName <> "> <why>")
     VoidBreaks n refusal ->
-        let broken = explain g fuel at meters refusal
+        let broken = explain g fuel at refusal
          in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"
   where
     refused = Failure BadInput
-    records keep = atPlace $ \place -> case [recordCommand event | (event, edge) <- shownEdges g place, keep edge, closesOpen place event] of
+    records = atPlace $ \place -> case [recordCommand event | (event, _) <- shownEdges g place, fuelTakes fuel place.name event, event.outcome /= handedBackOutcome] of
         [] -> "state show"
         commands -> Text.intercalate " | " commands
     atPlace fix = case at of
         At place -> fix place
         Out -> "state show"
         Exit -> "state show"
-    skips edge = case edge.arrow of
-        Skip _ _ -> True
-        Along _ -> False
-        Stay -> False
-    closesOpen place event
-        | event.outcome == handedBackOutcome = maybe False ((> 0) . (.open)) (Map.lookup (Metered place event.step) meters)
-        | otherwise = True
     stateNames = map (stateNameText . placeName) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid
@@ -517,13 +505,6 @@ atText = \case
     Out -> "the end"
     Exit -> "the end"
 
--- | An edge the run's Fuel takes: a skip it never makes is no way on.
-taken :: Fuel -> Edge Node -> Bool
-taken fuel edge = case edge.arrow of
-    Skip _ when -> atFuel fuel when /= Never
-    Along _ -> True
-    Stay -> True
-
 {- | An event the grammar lacks, at a run: refused with the events the run's
 Fuel takes where it is, an @extend@ too where a budget here grants one. A
 hand-back is listed even with no child open: the name is what the reader lacks.
@@ -534,7 +515,7 @@ unknownEvent g state name =
   where
     events = edgeEvents <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
-        At place -> [(eventText event, recordCommand event) | (event, edge) <- shownEdges g place, taken (Fold.fuelOf state) edge]
+        At place -> [(eventText event, recordCommand event) | (event, _) <- shownEdges g place, fuelTakes (Fold.fuelOf state) place.name event]
         Out -> []
         Exit -> []
     listed = \case
