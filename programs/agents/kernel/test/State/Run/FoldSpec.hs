@@ -1,9 +1,7 @@
 module State.Run.FoldSpec (spec) where
 
-import Control.Monad (foldM)
 import Data.Either (isRight)
 import Data.Foldable (for_)
-import Data.Functor ((<&>))
 import Data.List (inits, intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -315,22 +313,24 @@ spec = describe "State.Run.Fold" $ do
 
     {- One pure handler per effect serves a live run and its replay: live
     makes the event and appends it to the log so far, as the shell's commit
-    does ('appendTo'), and a replay folds the same events.
+    does ('appendTo'), and a replay folds the same events. The log written
+    live holds voids and hooks fired again, where 'appendTo' is no 'append'.
     -}
     describe "effects, live and replayed" $ do
         it "live_appends_reach_the_run_the_log_replays" . hedgehog $ do
-            (flow, logged) <- forAll genEffectLog
-            cover 30 "a pick" (or [isPick took | Took _ took <- NonEmpty.toList logged])
-            cover 10 "a question" (or [True | Asked _ <- NonEmpty.toList logged])
-            live <- evalEither (appendedLive flow (logOf logged))
-            replay flow (logOf logged) === Right live
+            (flow, written, live) <- forAll genShellLog
+            let events = map (.event) (NonEmpty.toList written)
+            cover 30 "a pick" (or [isPick took | Took _ took <- events])
+            cover 10 "a question" (or [True | Asked _ <- events])
+            cover 20 "a void" (or [True | Voided _ _ <- events])
+            replay flow written === Right live
 
-        it "replaying_a_prefix_then_the_rest_is_replaying_the_whole" . hedgehog $ do
-            (flow, logged) <- forAll genEffectLog
-            k <- forAll (Gen.int (Range.linear 1 (length logged)))
-            let (before, rest) = NonEmpty.splitAt k (logOf logged)
+        it "replaying_a_prefix_then_appending_the_rest_is_replaying_the_whole" . hedgehog $ do
+            (flow, written, _) <- forAll genShellLog
+            k <- forAll (Gen.int (Range.linear 1 (length written)))
+            let (before, rest) = NonEmpty.splitAt k written
             prefix <- evalMaybe (NonEmpty.nonEmpty before)
-            (replay flow prefix >>= \state -> fold flow state rest) === replay flow (logOf logged)
+            (replay flow prefix >>= \state -> appendAll flow prefix state rest) === replay flow written
 
         it "a_pick_replayed_off_its_choice_is_refused" . hedgehog $ do
             flow <- forAll (Gen.element roleGraphs)
@@ -1081,15 +1081,61 @@ isPick = \case
     AnyOutcome PickLayer _ -> True
     AnyOutcome _ _ -> False
 
-{- | The run as live commands reach it: each line appended to the log so
-far, as the shell's commit appends it ('State.Cli.Shell' exports none).
+{- | A line the shell is sent: a new event, a void of the line logged @k@
+lines back, or the hook of the line logged @k@ lines back fired again.
 -}
-appendedLive :: OpenGraph -> NonEmpty Envelope -> Either Fold.Refusal RunState
-appendedLive flow (first :| rest) = do
-    begun <- replay flow (first :| [])
-    snd <$> foldM next (first :| [], begun) rest
+data Sent = Fresh Event | VoidBack Int | Refire Int
+    deriving stock (Show)
+
+{- | A run's flow, the log the shell writes for it and the run the shell
+holds. Between a run's events the shell also meets: a line voided just
+after it is logged, its hook fired again and the event logged anew; a hook
+fired twice; a void of an older line, which the run may refuse.
+-}
+genShellLog :: Gen (OpenGraph, NonEmpty Envelope, RunState)
+genShellLog = do
+    (flow, begun :| events) <- genEffectLog
+    sends <- concat <$> traverse withExtras events
+    (written, live) <- either (fail . show) pure (shellLog flow begun sends)
+    pure (flow, written, live)
   where
-    next (logged, state) envelope =
-        appendTo flow state logged envelope <&> \case
-            Appended later -> (logged <> pure envelope, later)
-            AlreadyLogged -> (logged, state)
+    withExtras event =
+        (Fresh event :)
+            <$> Gen.frequency
+                [ (6, pure [])
+                , (1, pure [VoidBack 0, Refire 1, Fresh event])
+                , (1, pure . Refire <$> Gen.int (Range.linear 0 5))
+                , (1, pure . VoidBack <$> Gen.int (Range.linear 0 10))
+                ]
+
+{- | Each sent line numbered and appended to the log so far ('appendTo'), as
+the shell's commit appends it ('State.Cli.Shell' exports none): a line
+refused or logged already is not written. Each new line is a hook's, so a
+hook fired again is the same line.
+-}
+shellLog :: OpenGraph -> Event -> [Sent] -> Either Fold.Refusal (NonEmpty Envelope, RunState)
+shellLog flow begun sends = do
+    let first = line 0 begun
+    state <- replay flow (first :| [])
+    Right (foldl' send (first :| [], state) sends)
+  where
+    send (logged, state) sent = case appendTo flow state logged envelope of
+        Right (Appended later) -> (logged <> pure envelope, later)
+        Right AlreadyLogged -> (logged, state)
+        Left _ -> (logged, state)
+      where
+        next = fromIntegral (length logged)
+        back k = NonEmpty.reverse logged NonEmpty.!! min k (length logged - 1)
+        envelope = case sent of
+            Fresh event -> hookLine (Text.pack ("d" <> show next)) next event
+            VoidBack k -> line next (Voided (back k).seq "logged in error")
+            Refire k -> (back k) {seq = next}
+
+-- | The lines appended one by one to the log so far, as the shell appends them.
+appendAll :: OpenGraph -> NonEmpty Envelope -> RunState -> [Envelope] -> Either Fold.Refusal RunState
+appendAll flow logged state = \case
+    [] -> Right state
+    envelope : rest ->
+        appendTo flow state logged envelope >>= \case
+            Appended later -> appendAll flow (logged <> pure envelope) later rest
+            AlreadyLogged -> appendAll flow logged state rest
