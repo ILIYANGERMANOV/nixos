@@ -16,6 +16,7 @@ import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
+import State.Category.Effect (Handler (..))
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Name (..), Shape (..), branchesWith, nameText, qualify, qualifyText, scoped, unqualify)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (AnyFlow (..), Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn, series)
@@ -118,6 +119,11 @@ spec = describe "laws" $ do
         it "par_identity_and_composition_draw_one_parent_graph" . hedgehog $ do
             (AnyFlow f, AnyFlow g) <- forAll ((,) <$> genEndo diffKit <*> genEndo diffKit)
             (drawn (par engineers (f :> g)), drawn (par engineers f)) === (drawn (par engineers Id), drawn (par engineers Id))
+
+    describe "Handle" $
+        it "a_handler_draws_as_the_flow_it_handles" . hedgehog $ do
+            AnyFlow f <- forAll (Gen.filter builds genFlow)
+            (drawn (Handle AgentPicks f), drawn (Handle UserAsks f), drawn (Handle FocusHere f)) === (drawn f, drawn f, drawn f)
 
     describe "Scope" $ do
         it "scope_preserves_the_graph_but_its_names" . hedgehog $ do

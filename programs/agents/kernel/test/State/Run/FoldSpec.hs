@@ -1,7 +1,9 @@
 module State.Run.FoldSpec (spec) where
 
+import Control.Monad (foldM)
 import Data.Either (isRight)
 import Data.Foldable (for_)
+import Data.Functor ((<&>))
 import Data.List (inits, intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -10,10 +12,11 @@ import Data.Maybe (isJust, isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe, failure, forAll, (/==), (===))
+import Hedgehog (Gen, PropertyT, annotate, annotateShow, assert, cover, discard, evalEither, evalMaybe, failure, forAll, success, (/==), (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Category.Effect (Handler (FocusHere))
 import State.Category.Flow (Flow (..), Group (..), scopePath, unqualify)
 import State.Category.FlowGen (AnyFlow (..), composes, genFlow, genWalk, threeWay, threeWayGraph, threeWayPick)
 import State.Category.Fuel (Fuel (..))
@@ -22,7 +25,7 @@ import State.Category.Graph qualified as Graph
 import State.Category.Meter (someMeterName)
 import State.Category.Path (ty, unrecorded)
 import State.Category.Step (EventName (..), OutcomeName (..), StepSet (stepName), stateNameText)
-import State.Flow.Drawn (fuelTakes)
+import State.Flow.Drawn (drawnOutcomes, fuelTakes)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library qualified as Library
 import State.Flow.TenX (tenX)
@@ -35,7 +38,7 @@ import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
 import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketOpened, ticketUrl, within)
-import State.Step.Catalog (flowOutcomes, outcome, outcomeEvent, termSteps)
+import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
 import State.Step.Gather (Outcome (..))
@@ -309,6 +312,54 @@ spec = describe "State.Run.Fold" $ do
             spawned hooks = (\state -> (state.at, state.meters)) <$> replay g (line 0 started :| atFork <> hooks)
         spawned [hook 3, hook 4] `shouldSatisfy` isRight
         spawned [hook 3, hook 4] `shouldBe` spawned [hook 3]
+
+    {- One pure handler per effect serves a live run and its replay: live
+    makes the event and appends it to the log so far, as the shell's commit
+    does ('appendTo'), and a replay folds the same events.
+    -}
+    describe "effects, live and replayed" $ do
+        it "live_appends_reach_the_run_the_log_replays" . hedgehog $ do
+            (flow, logged) <- forAll genEffectLog
+            cover 30 "a pick" (or [isPick took | Took _ took <- NonEmpty.toList logged])
+            cover 10 "a question" (or [True | Asked _ <- NonEmpty.toList logged])
+            live <- evalEither (appendedLive flow (logOf logged))
+            replay flow (logOf logged) === Right live
+
+        it "replaying_a_prefix_then_the_rest_is_replaying_the_whole" . hedgehog $ do
+            (flow, logged) <- forAll genEffectLog
+            k <- forAll (Gen.int (Range.linear 1 (length logged)))
+            let (before, rest) = NonEmpty.splitAt k (logOf logged)
+            prefix <- evalMaybe (NonEmpty.nonEmpty before)
+            (replay flow prefix >>= \state -> fold flow state rest) === replay flow (logOf logged)
+
+        it "a_pick_replayed_off_its_choice_is_refused" . hedgehog $ do
+            flow <- forAll (Gen.element roleGraphs)
+            events <- forAll (genAcceptedOn [] flow)
+            let picks = [(take k events, scope, took, drop (k + 1) events) | (k, Took scope took) <- zip [0 :: Int ..] events, isPick took]
+            (before, scope, took, after) <- if null picks then discard else forAll (Gen.element picks)
+            other <- forAll (Gen.element [o | o <- drawnOutcomes, isPick o, (outcomeEvent o).step /= (outcomeEvent took).step])
+            case replay flow (logOf (started :| before <> [Took scope other] <> after)) of
+                Left (NoEdge _ _) -> success
+                refused -> annotateShow refused >> failure
+
+        it "the_answer_that_came_down_is_the_answer_the_run_holds" . hedgehog $ do
+            (state, logged) <- forAll genAskLog
+            let answers = [(qid, text) | Answered qid text _ <- NonEmpty.toList logged]
+            cover 5 "an answer" (not (null answers))
+            map (heldAnswer state . fst) answers === map (Just . snd) answers
+
+        it "an_answer_to_a_question_never_asked_is_refused" . hedgehog $ do
+            (state, logged) <- forAll genAskLog
+            let unasked = QId run 1000
+            case replay g (logOf (logged <> pure (Answered unasked "yes" TheUser))) of
+                Left (NotPending qid) -> qid === unasked
+                Left (AfterStop _) -> state.stopped /== Nothing
+                refused -> annotateShow refused >> failure
+
+        it "granting_focus_leaves_the_run_where_it_is" . hedgehog $ do
+            (flow, logged) <- forAll genEffectLog
+            state <- evalEither (replay flow (logOf logged))
+            handle FocusHere flow state Focused === Right state
 
     describe "a void" $ do
         it "a_void_replays_as_the_line_never_logged" . hedgehog $ do
@@ -808,7 +859,8 @@ questions = describe "questions" $ do
             `shouldBe` Left (AskedTwice (q 1))
 
     it "every_ruling_is_in_show_and_in_the_handback" . hedgehog $ do
-        (state, events) <- forAll genAskLog
+        (state, logged) <- forAll genAskLog
+        let events = NonEmpty.toList logged
         let ruled = [(qid, ruling) | RuledOn qid ruling <- events]
             sent = Text.lines (handback "READY ref" state.run state.rulings)
         -- About 37% of runs: a 100-test run misses 15% on about 1 seed in 3 million.
@@ -818,7 +870,8 @@ questions = describe "questions" $ do
             assert (any (\sentLine -> all (`Text.isInfixOf` sentLine) (qidText qid <> " " : map oneLineText [ruling.answer, ruling.why, ruling.cost])) sent)
 
     it "no_event_retags_security" . hedgehog $ do
-        (state, events) <- forAll genAskLog
+        (state, logged) <- forAll genAskLog
+        let events = NonEmpty.toList logged
         let security = Set.fromList ([asking.question.qid | Asked asking <- events, asking.question.kind == Security] <> [qid | RetaggedSecurity qid <- events])
             kinds =
                 [pending.asking.question.kind | pending <- state.pending, Set.member pending.asking.question.qid security]
@@ -883,15 +936,16 @@ startOf flow principal = Start flow "notes" principal Set.empty
 
 {- | Up to 60 tries at an ask event on a run of the engineer or the 10x flow,
 one per rung that rules, under the user or a parent, keeping those the fold
-accepts: the run state and the events.
+accepts: the run state and its log, @started@ first.
 -}
-genAskLog :: Gen (RunState, [Event])
+genAskLog :: Gen (RunState, NonEmpty Event)
 genAskLog = do
     flow <- Gen.element [EngineerFlow, TenXFlow]
     principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") (TaskId "t1")) OwnPr ChildConfirms]
-    first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
+    let begun = Started (startOf flow principal)
+    first <- either (fail . show) pure (replay g (logOf (begun :| [])))
     tries <- Gen.int (Range.linear 0 60)
-    go tries first 1 0
+    fmap (begun :|) <$> go tries first 1 0
   where
     go :: Int -> RunState -> Natural -> Natural -> Gen (RunState, [Event])
     go 0 state _ _ = pure (state, [])
@@ -988,3 +1042,36 @@ unseenIn :: Append -> Append
 unseenIn = \case
     Appended state -> Appended (unseen state)
     AlreadyLogged -> AlreadyLogged
+
+-- | The graphs of the engineer, 10x, architect and chief flows.
+roleGraphs :: [OpenGraph]
+roleGraphs = [g, tenXGraph, architectGraph, chiefGraph]
+
+{- | An accepted log with the graph it replays on: a role's steps and
+picks, or the engineer's questions.
+-}
+genEffectLog :: Gen (OpenGraph, NonEmpty Event)
+genEffectLog =
+    Gen.choice
+        [ Gen.element roleGraphs >>= \flow -> (flow,) . (started :|) <$> genAcceptedOn [] flow
+        , (g,) . snd <$> genAskLog
+        ]
+
+-- | Whether the outcome is a choice's pick.
+isPick :: AnyOutcome -> Bool
+isPick = \case
+    AnyOutcome PickLayer _ -> True
+    AnyOutcome _ _ -> False
+
+{- | The run as live commands reach it: each line appended to the log so
+far, as the shell's commit appends it ('State.Cli.Shell' exports none).
+-}
+appendedLive :: OpenGraph -> NonEmpty Envelope -> Either Fold.Refusal RunState
+appendedLive flow (first :| rest) = do
+    begun <- replay flow (first :| [])
+    snd <$> foldM next (first :| [], begun) rest
+  where
+    next (logged, state) envelope =
+        appendTo flow state logged envelope <&> \case
+            Appended later -> (logged <> pure envelope, later)
+            AlreadyLogged -> (logged, state)
