@@ -9,6 +9,7 @@ this server from their phone. Other agents work in the repositories under
 Runtime state only:
 
 - turning repositories on and off, ending sessions, restarting servers
+- ending processes and GHCi daemons that hold too much memory
 - freeing disk
 - requesting deploys, rollbacks, reboots, poweroffs and garbage collection
 

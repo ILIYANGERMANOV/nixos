@@ -155,6 +155,20 @@
                 touch "$out"
               '';
 
+          # That the GHCi scope and slice names agree across three files that
+          # build apart: ghcid.sh starts a ghcid-<escaped dir> scope in
+          # ghci.slice, the factory's ctl/memory.sh finds and stops it, and the
+          # factory's home module defines the slice.
+          ghci-scope-names = pkgs.runCommand "ghci-scope-names" { } ''
+            has() { grep -qF -- "$2" "$1" || { echo "ERROR: $1 lacks: $2" >&2; exit 1; }; }
+            has ${./programs/haskell/ghcid.sh} '--unit="ghcid-$(systemd-escape --path "$PWD")"'
+            has ${./programs/haskell/ghcid.sh} '--slice=ghci.slice'
+            has ${./programs/software-factory/ctl/memory.sh} 'unit="ghcid-$(systemd-escape --path "$1")"'
+            has ${./programs/software-factory/ctl/memory.sh} 'stop ghci.slice'
+            has ${./modules/home/factory/claude-factory.nix} 'slices.ghci = {'
+            touch "$out"
+          '';
+
           # Static analysis of .github/: pinned actions, token permissions,
           # credential persistence. Offline, against `.github/zizmor.yml`.
           zizmor = import ./programs/zizmor/check.nix {
