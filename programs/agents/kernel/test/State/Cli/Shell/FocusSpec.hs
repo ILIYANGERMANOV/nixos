@@ -98,7 +98,7 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
 
             refused <- state world ["focus"]
 
-            (refused.code, refused.err) `shouldBe` (2, ["state focus: the turn away from r1 - it recorded work: its card says where it stands", "fix: state focus --summary <where it stands>"])
+            (refused.code, refused.err) `shouldBe` (2, ["state focus: the turn away from r1 - it recorded work: it is suspended first", "fix: state focus [<request>] --summary <where it stands>"])
 
         it "refuses a request switch in a run of a flow that does not switch requests" $ \world -> do
             _ <- startedRun world

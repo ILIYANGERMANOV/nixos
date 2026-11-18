@@ -528,7 +528,7 @@ explain g fuel at = \case
     NoFocus -> refused "the request switch" "only a chief run going on switches requests" "state next"
     NotInFocus task -> refused ("the suspension of " <> taskNoText task) "it is not the request in focus" "state tasks"
     NotSuspended task -> refused ("the focus on " <> taskNoText task) "it is not a waiting request" "state tasks"
-    FocusRecorded task -> refused ("the turn away from " <> taskNoText task) "it recorded work: it is suspended first" "state focus <request> --summary <where it stands>"
+    FocusRecorded task -> refused ("the turn away from " <> taskNoText task) "it recorded work: it is suspended first" "state focus [<request>] --summary <where it stands>"
     VoidBreaks n refusal ->
         let broken = explain g fuel at refusal
          in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"

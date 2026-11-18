@@ -504,7 +504,7 @@ focusPlan run target summary = do
         (Fold.Untouched, _) -> Right []
         (Fold.Finished, _) -> Right [stepTook NextRequest]
         (Fold.Underway, Just line) -> Right [Suspended run.state.focus line]
-        (Fold.Underway, Nothing) -> Left (Failure BadInput ("the turn away from " <> taskNoText run.state.focus) "it recorded work: its card says where it stands" ("state focus" <> foldMap ((" " <>) . taskNoText) target <> " --summary <where it stands>"))
+        (Fold.Underway, Nothing) -> Left (refusal (Fold.FocusRecorded run.state.focus))
     before <- cardsOf run
     Right $ Plan (waits <> map Focused (toList target)) $ \after written ->
         let card = target >>= \task -> find ((== task) . (.task)) before
