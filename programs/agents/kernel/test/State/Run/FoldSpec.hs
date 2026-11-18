@@ -17,7 +17,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), Group (..), Name, scopePath, unqualify)
 import State.Category.FlowGen (AnyFlow (..), builds, composes, genFlow, genWalk, threeWay, threeWayGraph, threeWayPick)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered, Node (..), OpenGraph (..), Place (..), graph, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (someMeterName)
 import State.Category.Path (ty, unrecorded)
@@ -408,6 +408,15 @@ spec = describe "State.Run.Fold" $ do
         it "drops a finished request, at next, on the turn back to a waiting one" $ do
             back <- either (fail . show) pure (chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Took mempty (pickOf "route" "other"), stepTook (DirectDone "done"), Focused (TaskNo 1)])
             (back.focus, nodeName back.at, Map.keys back.suspended) `shouldBe` (TaskNo 1, StateName "route", [])
+
+        it "keeps the requests finished while one waited on the turn back to it" $ do
+            back <- either (fail . show) pure (chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Took mempty (pickOf "route" "other"), stepTook (DirectDone "done"), stepTook NextRequest, Focused (TaskNo 1)])
+            Map.elems (Map.filterWithKey (\metered _ -> metered.step == StateName "next") back.meters) `shouldBe` [1]
+
+        it "shows no url of a later request on the turn back to a waiting one" $ do
+            let engineered = Took mempty (pickOf "route" "engineer") : within "engineer" (fuelSet Balanced : happyPath)
+            back <- either (fail . show) pure (chief ([fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max] <> engineered <> [Focused (TaskNo 1)]))
+            back.latest `shouldBe` Nothing
 
         it "refuses a request switch in a run of a flow that does not switch requests" $
             replay g (logOf (started :| [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x")])) `shouldBe` Left NoFocus

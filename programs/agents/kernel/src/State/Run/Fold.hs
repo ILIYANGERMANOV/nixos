@@ -183,12 +183,12 @@ defunctionalised continuation's label and live locals. The run's fields of
 these names, in their order; positional, as a record's update of a field
 two records name is ambiguous.
 -}
-data Position = Position Node (Maybe Fuel) (Map Name (NonEmpty Round)) (Map Metered Natural) [Kind] (Maybe OnTarget)
+data Position = Position Node (Maybe Fuel) (Map Name (NonEmpty Round)) (Map Metered Natural) [Kind] (Maybe OnTarget) (Maybe Url)
     deriving stock (Eq, Show)
 
 -- | The node a waiting request stands at.
 waitsAt :: Suspension -> Node
-waitsAt (Suspension (Position at _ _ _ _ _) _ _) = at
+waitsAt (Suspension (Position at _ _ _ _ _ _) _ _) = at
 
 {- | A request's target, and whether a Design or Scope question was asked
 since it was named: then the user confirms its plan after all.
@@ -1173,7 +1173,7 @@ focuses g state task = case (Map.lookup task state.suspended, stage g state) of
     (Just suspension, Finished) -> Right (resumed suspension)
   where
     resumed (Suspension position _ asks) =
-        (placed position state)
+        (placed g position state)
             { focus = task
             , suspended = Map.delete task state.suspended
             , pending = map (\p -> maybe p (\waits -> p {waits}) (lookup (pendingId p) asks)) state.pending
@@ -1206,10 +1206,17 @@ stage g state
     | otherwise = Underway
 
 positionOf :: RunState -> Position
-positionOf state = Position state.at state.fuel state.rounds state.meters state.askedHere state.onTarget
+positionOf state = Position state.at state.fuel state.rounds state.meters state.askedHere state.onTarget state.latest
 
-placed :: Position -> RunState -> RunState
-placed (Position at fuel rounds meters askedHere onTarget) state = state {at, fuel, rounds, meters, askedHere, onTarget}
+{- | The run at the waiting request's position. A meter whose loop holds the
+request's start counts across requests, as the Requests cap does: it keeps
+its live spend, so the requests finished while this one waited still count.
+-}
+placed :: OpenGraph -> Position -> RunState -> RunState
+placed g (Position at fuel rounds meters askedHere onTarget latest) state =
+    state {at, fuel, rounds, meters = Map.union (Map.filterWithKey (const . acrossRequests) state.meters) (Map.filterWithKey (\metered _ -> not (acrossRequests metered)) meters), askedHere, onTarget, latest}
+  where
+    acrossRequests metered = heldIn g metered.place (At g.inPort)
 
 -- | The questions the waiting requests hold: none waits on the request in focus.
 suspendedAsks :: RunState -> [QId]
