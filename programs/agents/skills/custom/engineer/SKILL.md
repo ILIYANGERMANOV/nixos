@@ -270,6 +270,7 @@ and CI runs.
   notify, pasting the body's `## What & Why` and optional next
   steps: `/qa <PR>` in a fresh session for a UI or
   runtime change, `/chief feedback for <PR>: ...` for a review or
-  feedback, and `/address-pr-feedback <PR>` when others commented. Only the user runs them.
+  feedback, and `/address-pr-feedback <PR>` when others commented. Only
+  the user runs them.
 - A round leaves its PR as is: `state` records `ready.skipped <url>`;
   never `gh pr ready`.

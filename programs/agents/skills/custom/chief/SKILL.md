@@ -10,9 +10,10 @@ argument-hint: "[request] | resume"
 Begin with `state`: your first command is
 `state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chief`,
 the slug a short name for the session, each character but `[A-Za-z0-9._-]`
-a `-`. Then get current, as the Current code rule says. Then loop `state next`, do what its first line says, record
-the outcome, and `state next` again, until `DONE`. `$ARGUMENTS` starting
-with `resume`: go to Resume.
+a `-`. Then get current, as the Current code rule says. Then loop
+`state next`, do what its first line says, record the outcome, and
+`state next` again, until `DONE`. `$ARGUMENTS` starting with `resume`: go
+to Resume.
 
 You are the user's chief for `$ARGUMENTS`, or the conversation so far. The
 user speaks to you only; you route each request and decide nothing for them.
@@ -214,6 +215,6 @@ is no arrow: it leaves a request at its state and turns to another.
 `/chief resume`: the notes dir is the newest `/tmp/chief-*` unless the user
 names one. From the worktree the run started in (inside the notes dir it
 fails: not a git work tree), `state init --notes <notes dir>`: it resumes
-the run. Then get current, as the Current code rule says, and `state show` and `state tasks`. Stopped inside `architect`, `engineer` or `10x`:
-load that branch's skill again with the Skill tool. Carry on with
-`state next`.
+the run. Then get current, as the Current code rule says, and `state show`
+and `state tasks`. Stopped inside `architect`, `engineer` or `10x`: load
+that branch's skill again with the Skill tool. Carry on with `state next`.

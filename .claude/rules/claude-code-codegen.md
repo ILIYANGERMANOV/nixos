@@ -75,8 +75,8 @@ the last refactor), so flows spawn roles freely.
 
 `codegen/mcp.nix`'s `toWire` dispatches on the catalog's `type` through an
 attrset (`mkLocal` is Claude's `stdio`, `mkRemote` its `http`), so a transport
-with no entry aborts evaluation. A local server's `env` becomes `${VAR}` references
-that Claude Code expands from the wrapper's environment.
+with no entry aborts evaluation. A local server's `env` becomes `${VAR}`
+references that Claude Code expands from the wrapper's environment.
 
 ### Secret file guard
 

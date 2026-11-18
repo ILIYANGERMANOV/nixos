@@ -392,9 +392,9 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
   once per head (`docs/adr/0013-deterministic-programs-over-instructions.md`).
 - **A progress file in every mode**, so a fresh context resumes from it and
   `git log` (https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
-- **Hand-over is ready on green CI.** `/qa`, feedback
-  through `/chief` and `/address-pr-feedback` are optional next steps in the
-  ready notice; no QA gate. `/10x-engineer` matches it.
+- **Hand-over is ready on green CI.** `/qa`, feedback through `/chief` and
+  `/address-pr-feedback` are optional next steps in the ready notice; no QA
+  gate. `/10x-engineer` matches it.
 - **Commits are kept.** A new plan adds commits on top; a revert only when the
   user asks.
 - **Diagrams in Mermaid**, fenced in this file: GitHub renders them on web and

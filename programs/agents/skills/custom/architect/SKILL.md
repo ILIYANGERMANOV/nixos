@@ -9,9 +9,9 @@ argument-hint: "[question, idea, PR, branch or topic]"
 Begin with `state`: your first command is
 `state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --flow architect`,
 the slug a short name for the topic, each character but `[A-Za-z0-9._-]` a
-`-`. Then get current, as the Current code rule says. Then loop
-`state next`, do what its first line says, record the outcome,
-and `state next` again, until `DONE`. The hooks enforce it: until `state init`
+`-`. Then get current, as the Current code rule says. Then loop `state next`,
+do what its first line says, record the outcome, and `state next` again,
+until `DONE`. The hooks enforce it: until `state init`
 your writes are denied, and after it the run stays read-only.
 
 You are the user's design partner for `$ARGUMENTS`, or the conversation so
