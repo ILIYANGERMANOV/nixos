@@ -214,7 +214,7 @@ spec = describe "the state binary" $ do
                 `shouldBe` ( 2
                            ,
                                [ "state init: --notes " <> Text.pack (repo.root </> "other") <> " - the worktree holds unfinished run " <> run <> " in " <> Text.pack repo.notes
-                               , "fix: state init --notes " <> Text.pack repo.notes <> " resumes it, or state stop <reason> <why> ends it"
+                               , "fix: state next goes on with it, a branch inline in it, or state stop <reason> <why> ends it"
                                ]
                            )
 
@@ -300,7 +300,7 @@ spec = describe "the state binary" $ do
                 (bad.code, bad.err)
                     `shouldBe` (2, ["state " <> Text.pack sub <> ": run " <> run <> " event 2 is not read - log version 3, this state reads 4", "fix: state init --notes <a new dir> starts afresh"])
             after <- storedRows repo run
-            after `shouldBe` before
+            shownAfter `shouldBe` shownBefore
 
         it "loses no event of two state processes appending to one run at once" $ \repo -> do
             _ <- drive bin repo []
@@ -318,6 +318,28 @@ spec = describe "the state binary" $ do
             child <- childRun bin w1 parent "n1" "t1"
             listed <- withStore (storeOf repo) (\store -> Store.children store (runId parent))
             listed `shouldBe` [runId child]
+
+        it "pauses the chief's architect request, answers an engineer child's question meanwhile, and turns back to the architect at the same node" $ \repo -> do
+            parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
+            for_ [["record", "fuel.set", "balanced"], ["record", "route.architect"]] (succeeded <=< state bin repo)
+            shownBefore <- succeeded =<< state bin repo ["show"]
+            away <- succeeded =<< state bin repo ["focus", "--summary", "the architect gathers"]
+            w1 <- worktree repo "w1"
+            child <- directChild bin w1 parent "n1"
+            let qid = child <> ":1"
+            _ <- succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
+            _ <- succeeded =<< state bin w1 ["next"]
+
+            _ <- succeeded =<< state bin repo ["answer", Text.unpack qid, "postgres"]
+            answered <- succeeded =<< state bin w1 ["show"]
+            listed <- succeeded =<< state bin repo ["tasks"]
+            _ <- succeeded =<< state bin repo ["focus", "r1"]
+            shownAfter <- succeeded =<< state bin repo ["show"]
+
+            away `shouldSatisfy` mentions "r2 in focus at fuel"
+            answered `shouldSatisfy` mentions (qid <> " Design: which store? - postgres")
+            listed `shouldSatisfy` mentions ("child " <> child <> " engineer at ")
+            shownAfter `shouldBe` shownBefore
 
         it "answers one direct child's question from the chief's run, which forwards a Design; only that child resumes, its sibling runs on unaffected" $ \repo -> do
             parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
@@ -791,7 +813,7 @@ spec = describe "the state binary" $ do
                     handed <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
                     (resumed, handed) `shouldBe` ([], [])
                 after <- logLines bin repo
-                after `shouldBe` before
+                shownAfter `shouldBe` shownBefore
 
             it "are silent on a log they do not read" $ \repo -> do
                 run <- startedRun bin repo
@@ -861,7 +883,7 @@ spec = describe "the state binary" $ do
                     after <- logLines bin repo
                     said `shouldSatisfy` mentions "gather/research.spawned"
                     loggedTypes bin w1 `shouldReturnContaining` ["gather/research.spawned"]
-                    after `shouldBe` before
+                    shownAfter `shouldBe` shownBefore
 
                 it "record a depth-2 worker's hand-back made before its spawner's hook bound it, as a foreground one is" $ \repo -> do
                     (engineer, w1) <- childEngineer bin hookBin repo

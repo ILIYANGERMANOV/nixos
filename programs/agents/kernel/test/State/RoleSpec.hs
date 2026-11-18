@@ -4,7 +4,7 @@ import Data.Either (isRight)
 import Data.Set qualified as Set
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Effect (Eff (..))
-import State.Category.Flow (Effects, scopeNames)
+import State.Category.Flow (Effects, Shape (HandleS), scopeNames)
 import State.Category.Graph (Place (..), graph, placeName, places)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (TyOf (..))
@@ -62,7 +62,7 @@ up to the 10x.
 effectsRaised ::
     ( Effects EngineerS :~: '[PickE, AskE]
     , Effects TenXS :~: '[PickE, AskE]
-    , Effects ChiefS :~: '[PickE, AskE]
+    , Effects ChiefS :~: '[PickE, AskE, FocusE]
     , Effects ArchitectS :~: '[PickE, AskE]
     , Effects (ParS (Handled EngineerS)) :~: '[AskE]
     )
@@ -72,7 +72,7 @@ effectsRaised = (Refl, Refl, Refl, Refl, Refl)
 rootsHandled ::
     ( Effects (Root (Handled EngineerS)) :~: '[]
     , Effects (Root (Handled TenXS)) :~: '[]
-    , Effects (Root (Handled ChiefS)) :~: '[]
+    , Effects (Root (Handled (HandleS FocusE ChiefS))) :~: '[]
     , Effects (Root (Handled ArchitectS)) :~: '[]
     )
 rootsHandled = (Refl, Refl, Refl, Refl)

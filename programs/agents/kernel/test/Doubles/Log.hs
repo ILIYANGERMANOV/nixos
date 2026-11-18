@@ -9,6 +9,7 @@ module Doubles.Log (Runs (..), runLogInMemory, rowsOf) where
 import Control.Monad ((<=<))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.List (sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Effectful (Eff, (:>))
@@ -17,7 +18,7 @@ import Effectful.Exception (throwIO)
 import Effectful.State.Static.Local (State, get, put)
 import Effects.Log (Log (..))
 import State.Run.Codec (decodeLines, encodeLine)
-import State.Run.Event (Envelope (..), Event (..), RunId)
+import State.Run.Event (Envelope (..), Event (..), Parent (..), Principal (..), RunId, Start (..))
 
 {- | Each run's rows, in seq order; read-only, every lock throws, as a full
 disk or a lock held past the wait fails the real store's.
@@ -42,6 +43,24 @@ runLogInMemory = interpret $ \_ -> \case
             (Runs _, Nothing, Envelope {seq = 1, event = Started _} : _) -> put (Runs (Map.insert run appended runs))
             (Runs _, Nothing, _ : _) -> throwIO (userError "events for a run never started")
         pure result
+    -- Oldest first, as the store's created_at orders them: by the start's time, then id.
+    Children run -> map snd . sortOn fst . Map.foldrWithKey (\child rows found -> [((started.ts, child), child) | started <- startOf rows, parentOf started == Just run] <> found) [] . rowsOf <$> get
+
+-- | The run's first line, when it reads.
+startOf :: [Text] -> [Envelope]
+startOf rows = case decodeLines (take 1 rows) of
+    Right [started] -> [started]
+    Right _ -> []
+    Left _ -> []
+
+-- | The parent run a start names, if any.
+parentOf :: Envelope -> Maybe RunId
+parentOf started = case started.event of
+    Started start -> case start.principal of
+        ByRole parent _ _ -> Just parent.run
+        ByUser _ -> Nothing
+        ByCaller _ -> Nothing
+    _ -> Nothing
 
 -- | The rows, writable or not.
 rowsOf :: Runs -> Map RunId [Text]

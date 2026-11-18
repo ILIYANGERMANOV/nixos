@@ -15,6 +15,9 @@ module State.Run.Event (
     eventId,
     RunId,
     AgentId (..),
+    TaskNo (..),
+    taskNoText,
+    parseTaskNo,
     parseRunId,
     runIdText,
     SessionId (..),
@@ -74,7 +77,7 @@ import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
 import State.Run.Ask (Above, Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question, Reply (..))
-import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
+import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), TaskNo (..), parseRunId, parseTaskNo, runIdText, taskNoText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Target (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
 
@@ -180,6 +183,14 @@ data Event
       it is at work no more.
       -}
       WorkerReturned AgentRole (Maybe AgentId)
+    | {- | The chief's request in focus waits, at its node, and where it stands
+      in the lead's words: the run opens a new request at its start.
+      -}
+      Suspended TaskNo OneLine
+    | {- | The chief turns to this waiting request, back at its node: the request
+      in focus, untouched since it opened, is dropped.
+      -}
+      Focused TaskNo
     | {- | The line of this seq is void, and why: replay drops it and this
       line, as if neither was logged ("State.Run.Fold").
       -}

@@ -6,6 +6,7 @@ question asked inside it climbs from that flow's rung.
 -}
 module State.Flow.Chief (chief, ChiefS, discussion) where
 
+import State.Category.Effect (Eff (FocusE), Handler (FocusHere))
 import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Label (..), Name (..), Shape (..))
 import State.Category.Fuel (PerFuel (..))
 import State.Category.Meter (AtCap (..), Limit (..))
@@ -19,10 +20,12 @@ import State.Step.Request (RequestStep (..), Sing (..))
 
 {- | Each request sets its own Fuel, then is routed. Each request after the
 first spends one: at the cap the user is asked whether to go on. A whole
-flow's label is its flow's name ('State.FlowName.flowText').
+flow's label is its flow's name ('State.FlowName.flowText'). A request's
+steps raise 'FocusE', the user's attention: its handler suspends the
+request in focus at any state and turns to another ("State.Run.Fold").
 -}
-chief :: Flow (Handled ChiefS) 'Ctx 'Nothing 'Result
-chief = handled (Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend (Step Next)))
+chief :: Flow (Handled (HandleS FocusE ChiefS)) 'Ctx 'Nothing 'Result
+chief = handled . Handle FocusHere $ Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend (Step Next))
   where
     requests =
         branch @"architect" architect

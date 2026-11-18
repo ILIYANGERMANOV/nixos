@@ -9,9 +9,12 @@ module State.Cli.View (
     taskBrief,
     briefOf,
     beginText,
+    cardLines,
+    adviceLine,
 ) where
 
 import Data.Bool (bool)
+import Data.Time (UTCTime, diffUTCTime)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -27,8 +30,9 @@ import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hook
 import State.Role (leads)
 import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, replyText, rulingLine)
 import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText, taskNoText)
 import State.Run.Fan (Fan (..), lookupTask, tries)
+import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), advice, cacheLife)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan, fanAt)
 import State.Show (tshow)
 import State.Step.Artifact (shellPathText, slugChar)
@@ -80,6 +84,28 @@ hookLines steps g =
     ]
 
 -- | One line per open question, oldest first.
+{- | A request's resume card at this time: where it stands, what was
+decided in it, what it still asks, and how to take it up again.
+-}
+cardLines :: UTCTime -> Card -> [Text]
+cardLines now card =
+    headline
+        : ["  decided " <> qidText qid <> " - " <> replyText reply | (qid, reply) <- card.decisions]
+            <> ["  open " <> qidText q.qid <> " " <> kindName q.kind <> ": " <> oneLineText q.text | q <- card.open]
+            <> ["  " <> adviceLine resume | Just resume <- [advice now card]]
+  where
+    headline = case card.standing of
+        InFocus -> taskNoText card.task <> " in focus at " <> stateNameText card.node
+        Paused at summary -> taskNoText card.task <> " paused " <> minutes at <> " at " <> stateNameText card.node <> ": " <> oneLineText summary
+    minutes at = tshow (floor (diffUTCTime now at / 60) :: Integer) <> "m"
+
+adviceLine :: ResumeAdvice -> Text
+adviceLine = \case
+    ResumeAgent agent -> "resume agent " <> agent.agentIdText <> ": paused under " <> life <> ", its cache is warm (SendMessage)"
+    FreshFromCard -> "fresh agent from card: paused " <> life <> " or more, its cache is cold"
+  where
+    life = tshow (round (cacheLife / 60) :: Integer) <> " minutes"
+
 pendingLines :: RunState -> [Text]
 pendingLines state = map line state.pending
   where
