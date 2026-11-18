@@ -100,7 +100,7 @@ spec = describe "State.Protocol.Advice" $ do
             (atChief []).prompt `shouldSatisfy` Text.isInfixOf "`target pr <url>`"
         it "then offers one pick per branch" $
             Set.fromList [option.command | Run options <- [(atChief [fuelSet Balanced]).action], option <- toList options]
-                `shouldBe` Set.fromList ["state record route." <> branch | branch <- ["architect", "engineer", "10x", "blocks", "discussion", "other"]]
+                `shouldBe` Set.fromList ["state record route." <> branch | branch <- ["architect", "engineer", "10x", "blocks", "discussion", "other", "delegate"]]
         it "names the pick a branch the agent picks" $
             (atChief [fuelSet Balanced]).at `shouldBe` "at route: a branch you pick - take one option below, then state next"
         it "tells the agent at the pick to guess the branch and ask the user once only when the request is ambiguous" $
@@ -528,7 +528,7 @@ spec = describe "State.Protocol.Advice" $ do
     draftPr = DraftPr prUrl (Branch "main") (Branch "b")
     userRound = start {principal = ByUser (RoundOn prUrl)}
     parent = runId "p1"
-    child = start {principal = ByRole (Parent parent (AtFan (TaskId "t1"))) OwnPr ChildConfirms, interface = Set.empty}
+    child = start {principal = ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms, interface = Set.empty}
     which = Question (QId run 1) Design (oneLine "which store?")
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"

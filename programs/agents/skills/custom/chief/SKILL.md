@@ -42,6 +42,7 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   | `blocks` | no skill: pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
   | `discussion` | no skill: below |
   | `other` | no skill: do it yourself (`direct`) |
+  | `delegate` | a background engineer or 10x subagent takes the whole request: fill in the brief `state brief engineer` (or `state brief 10x`) prints, then spawn it with that brief. Its `state init --parent <run>` moves this run on to `next`: take the next request at once. The run ends only once each such child finished or stopped; `state tasks` lists each with its last event |
 
 - **Focus.** One request is in focus, the others wait. At any state, one
   step switches: `state focus --summary "<where this one stands>"` opens
@@ -114,7 +115,7 @@ is no arrow: it leaves a request at its state and turns to another.
 | State | Run by | Arrows out |
 |---|---|---|
 | fuel | you | set: route |
-| route | you | 10x: 10x/fuel; architect: architect/fuel; blocks: block; discussion: discussion/discussing; engineer: engineer/fuel; other: direct |
+| route | you | 10x: 10x/fuel; architect: architect/fuel; blocks: block; delegate: spawn_delegates; discussion: discussion/discussing; engineer: engineer/fuel; other: direct |
 | architect/fuel | you | set: architect/architect |
 | architect/architect | you | discuss: architect/discuss; enough: architect/architect/researchers; research: architect/architect/research; ticket: architect/ticket |
 | architect/architect/researchers | await | done: architect/architect/notes; handed_back: architect/architect/researchers |
@@ -205,7 +206,9 @@ is no arrow: it leaves a request at its state and turns to another.
 | discussion/discussing/research | researcher | spawned: discussion/discussing |
 | discussion/discuss | you | asked: discussion/discussing |
 | direct | you | done: next |
-| next | you | done: end; request: fuel |
+| spawn_delegates | fan-out | spawned: next |
+| next | you | done: delegates; request: fuel |
+| delegates | await | done: end; handed_back: delegates |
 
 ## Resume
 

@@ -10,6 +10,7 @@ module State.Cli.View (
     briefOf,
     beginText,
     cardLines,
+    minutesSince,
 ) where
 
 import Data.Bool (bool)
@@ -27,7 +28,7 @@ import State.FlowName (namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
-import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, replyText, rulingLine)
+import State.Run.Ask (ChildTask (..), Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, replyText, rulingLine)
 import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), advice, resumeWindow)
 import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText, taskNoText)
@@ -61,7 +62,8 @@ showRun steps g state =
         [] -> []
         items -> title : map ("  " <>) items
     linkLine = \case
-        AtFan task -> ["task: " <> taskIdText task]
+        InFan (Tasked task) -> ["task: " <> taskIdText task]
+        InFan Untasked -> ["untasked: the parent handed on its request whole"]
         Direct -> []
 
 {- | What the hooks record of the flow's events, so no agent records them
@@ -99,8 +101,11 @@ cardLines now card =
   where
     headline = case card.standing of
         InFocus -> taskNoText card.task <> " in focus at " <> stateNameText card.node
-        Paused at summary -> taskNoText card.task <> " paused " <> minutes at <> " at " <> stateNameText card.node <> ": " <> oneLineText summary
-    minutes at = tshow (floor (diffUTCTime now at / 60) :: Integer) <> "m"
+        Paused at summary -> taskNoText card.task <> " paused " <> minutesSince now at <> " at " <> stateNameText card.node <> ": " <> oneLineText summary
+
+-- | Whole minutes from then to now: @5m@.
+minutesSince :: UTCTime -> UTCTime -> Text
+minutesSince now at = tshow (floor (diffUTCTime now at / 60) :: Integer) <> "m"
 
 adviceLine :: ResumeAdvice -> Text
 adviceLine = \case
@@ -143,11 +148,35 @@ in the task's worktree and notes dir when the breakdown names them; a task
 the breakdown lacks is returned as the failure.
 -}
 brief :: Steps -> OpenGraph -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
-brief steps g state agent task = case (leads agent, task) of
-    -- At no fan-out the child is direct: it names --parent alone.
-    (Just flow, Nothing) -> Right (initLine state flow "<dir>" ("<id>" <$ fanAt state.at))
-    (Just _, Just taskId) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
-    (Nothing, _) -> Right (stepBrief steps g state.at agent)
+brief steps g state agent task = case (leads agent, task, fanAt state.at) of
+    (Just flow, Nothing, Just _) -> Right (initLine state flow "<dir>" (Just "<id>"))
+    -- At no fan-out the child takes no task: it names --parent alone.
+    (Just flow, Nothing, Nothing) -> Right (untaskedBrief state flow)
+    (Just _, Just taskId, _) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
+    (Nothing, _, _) -> Right (stepBrief steps g state.at agent)
+
+{- | A brief for a child that takes no task, to fill in: the fields a task
+would give it, the request in the user's words, the plan it carries out
+and when it is done, then the line that starts its run under this one.
+-}
+untaskedBrief :: RunState -> FlowName -> Text
+untaskedBrief state flow =
+    Text.unlines
+        [ "Fuel: <low|balanced|max>"
+        , "Base: <branch>"
+        , "Branch: <branch>"
+        , ""
+        , "## The user's words"
+        , "<the request, verbatim>"
+        , ""
+        , "## Plan"
+        , "<the confirmed ticket or plan>"
+        , ""
+        , "## Acceptance criteria"
+        , "- <a check the result passes>"
+        , ""
+        ]
+        <> initLine state flow "<dir>" Nothing
 
 {- | A step runner's brief where the run is: the task text of the step the
 run is at, else of the step whose spawn led there, as a researcher's leads

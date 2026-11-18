@@ -95,7 +95,7 @@ genEvent =
         , Answered <$> genQId <*> genReply <*> genAbove
         , QuestionParked <$> genQId <*> genOneLine
         , Spawning <$> genTaskId
-        , Spawned <$> (Child <$> genRunId <*> genTaskId <*> genPath)
+        , Spawned <$> (Child <$> genRunId <*> Gen.choice [Tasked <$> genTaskId, pure Untasked] <*> genPath)
         , Resumed <$> genRunId
         , HandedBack <$> genRunId <*> genSaid
         , TaskMoved <$> genTaskId <*> genTaskState
@@ -201,7 +201,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.choice [AtFan <$> genTaskId, pure Direct]) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
+        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.choice [InFan <$> Gen.choice [Tasked <$> genTaskId, pure Untasked], pure Direct]) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.

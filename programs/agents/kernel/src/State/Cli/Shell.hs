@@ -16,6 +16,7 @@ import Data.Foldable (for_, toList, traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, maybeToList)
 import Data.Set qualified as Set
@@ -65,7 +66,7 @@ import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (ParentRun), Link (..), OneLine, Parent (..), Principal (..), Proposal (..), QId, Question (..), kindName, oneLineText, qidText)
+import State.Run.Ask (Above (ParentRun), ChildTask (..), Link (..), OneLine, Parent (..), Principal (..), Proposal (..), QId, Question (..), kindName, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Card qualified as Card
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, encodeLine, eventType, reasonText, taskIdText)
@@ -77,7 +78,7 @@ import State.Run.Fold (Append (..), Pending (asking, waits), RunState (..), Wait
 import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
-import State.Step.Artifact (PlanCall (ChildConfirms), Shape (..), shellPathText, shellWord)
+import State.Step.Artifact (PlanCall (ChildConfirms, ParentDecided), Shape (..), shellPathText, shellWord)
 import State.Step.Catalog (outcome, termSkips)
 import State.Step.Fuel (Outcome (LevelSet))
 import State.Step.Request (Outcome (NextRequest))
@@ -327,8 +328,9 @@ sessionAgents :: (Environment :> es, RoFileSystem :> es) => SessionId -> Eff es 
 sessionAgents session = maybe (pure []) (fmap slottedAgents . FileSystem.listDirectory . sessionDir) =<< slotFor session Main
 
 {- | An agent ended with no hand-back, logged once: 'AgentEnded' in the child
-run it leads ('ledRun'), when a parent the test takes started it, then the
-agent's return in that parent, when it has the agent at work. An agent
+run it leads ('ledRun'), when a parent the test takes started it, then in
+that parent the child's stop, when the child is untasked, else the agent's
+return, when it has the agent at work ('Fold.agentEndedIn'). An agent
 leading no child run, a plain worker or one in a child run, records
 nothing: a return would fake its hand-back. Nor does a child run whose
 @state next@ hands back now: one over, asking up or awaiting made its
@@ -343,7 +345,7 @@ agentEnded steps session under agent =
                 NoRun -> pure ""
                 Ran (Left failure) -> pure (failureText "stop" failure)
                 Ran (Right Nothing) -> pure ""
-                Ran (Right (Just (parent, role))) -> either (failureText "stop") (const "") <$> onLog (returning role) parent
+                Ran (Right (Just (parent, role))) -> either (failureText "stop") (const "") <$> onLog (returning run role) parent
   where
     sessioned stamp = Stamp stamp.ts stamp.head (Just session)
     noted = Right . (`Plan` (\_ _ -> mempty))
@@ -354,7 +356,7 @@ agentEnded steps session under agent =
         ByRole {} -> ([], Right Nothing)
         ByUser _ -> ([], Right Nothing)
         ByCaller _ -> ([], Right Nothing)
-    returning role stamp run = record (sessioned stamp) run [Hook (digestOf [runIdText run.state.run, agent.agentIdText, "agent_returned"])] (noted (maybeToList (Fold.returnOf run.state role (Just agent))))
+    returning child role stamp run = record (sessioned stamp) run [Hook (digestOf [runIdText run.state.run, agent.agentIdText, "agent_returned"])] (noted (maybeToList (Fold.agentEndedIn run.state child role agent)))
 
 {- | The run the slot's agent leads: the one it is bound to, when its own init
 bound it there. A worker bound to its spawner's run, or a session from before
@@ -641,24 +643,24 @@ focusPlan run target summary = do
     focusLine after = taskNoText after.focus <> " in focus at " <> stateNameText (askedAt after)
 
 {- | @state tasks@: the card of each request of the worktree's run, by the
-clock, then a line per child run in the store. Only a child whose agent
-ended with no hand-back gets resume advice: the store links no other's agent
-to its run.
+clock, then a line per child run in the store, with how long ago it last
+logged an event. Only a child whose agent ended with no hand-back gets
+resume advice: the store links no other's agent to its run.
 -}
 tasks :: (Shell es) => Eff es (Either Failure Text)
 tasks = do
-    at <- Clock.now
+    time <- Clock.now
     onRun (\_ run -> ([], (run.state,) <$> cardsOf run)) >>= \case
         NoRun -> pure (Left noRun)
         Ran (Left failure) -> pure (Left failure)
         Ran (Right (state, requests)) -> do
             children <- Log.children state.run
-            lines' <- traverse (childLine state.start) children
-            pure (Right (Text.unlines (("notes " <> Text.pack state.start.notes) : concatMap (View.cardLines at) requests <> lines')))
+            lines' <- traverse (childLine time state.start) children
+            pure (Right (Text.unlines (("notes " <> Text.pack state.start.notes) : concatMap (View.cardLines time) requests <> lines')))
   where
-    childLine start child = either (\failure -> "child " <> runIdText child <> ": " <> failure.why) id <$> onLog (\_ run -> ([], Right (childText start run.state))) child
-    childText start child =
-        let at = stateNameText (askedAt child)
+    childLine time start child = either (\failure -> "child " <> runIdText child <> ": " <> failure.why) id <$> onLog (\_ run -> ([], Right (childText start (View.minutesSince time (NonEmpty.last run.logged).ts) run.state))) child
+    childText start since child =
+        let at = stateNameText (askedAt child) <> ", last event " <> since <> " ago"
             line = "child " <> runIdText child.run <> " " <> Codec.flowText child.start.flow
          in case (Fold.over child, child.agentEnded) of
                 (True, _) -> line <> " over at " <> at
@@ -991,7 +993,7 @@ handedUp steps up =
             (new, Right _) -> (new, Right ())
     told why = "parent: " <> why <> "\nfix: hand back as printed; the parent's state next catches it\n"
     planned stamp run = case up.parent.link of
-        AtFan _ -> handbackPlan steps stamp.head run.g run.state up.role Nothing (Just up.child) up.text
+        InFan _ -> handbackPlan steps stamp.head run.g run.state up.role Nothing (Just up.child) up.text
         Direct -> directPlan run.state up.child up.text
 
 -- | A direct child's hand-back as its parent records it: its question, if it asks one.
@@ -1158,13 +1160,13 @@ initRun gd args = do
                         -- Eight random hex digits may meet a run of the same id.
                         _ -> ([], Left (Failure Outage ("run id " <> runIdText fresh) "another run in the store has it" "retry the same state init"))
             -- The pointer only once the parent took the child: a refused child has no run here.
-            accepted <- case (result, args.origin) of
-                (Right said@(_, run), FromParent parent) -> case parent.link of
-                    AtFan task -> fmap (const said) <$> spawnedIn parent.run (Child run task worktree)
+            accepted <- case (result, principal) of
+                (Right said@(_, run), ByRole parent _ _) -> case parent.link of
+                    InFan task -> fmap (const said) <$> spawnedIn parent.run (Child run task worktree)
                     -- No fan-out to tell: the store's runs.parent links it.
                     Direct -> pure (Right said)
-                (Right said, FromUser _) -> pure (Right said)
-                (Right said, FromCaller _) -> pure (Right said)
+                (Right said, ByUser _) -> pure (Right said)
+                (Right said, ByCaller _) -> pure (Right said)
                 (Left failure, _) -> pure (Left failure)
             traverse (\(verb, run) -> writePointer gd run $> initLines verb run worktree) accepted
   where
@@ -1324,7 +1326,7 @@ startOf args = case args.origin of
     FromParent parent ->
         parentStarts parent >>= \case
             Left failure -> pure (Left failure)
-            Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.run
+            Right () -> onLog (\_ run -> ([], childStart parent args.flow run.g run.state)) parent.run
   where
     atFixedFuel principal = let flow = fromMaybe defaultFlow args.flow in Begin principal flow (fixedFuel flow)
 
@@ -1347,18 +1349,24 @@ parentStarts parent =
         False -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "no such run in the run store" initLineFix)
 
 {- | The child's principal, its flow and its Fuel. A fan-out's child takes
-its task's shape, flow and Fuel. A direct child, of a parent at no fan-out,
-opens its own PR, runs the flow named (else the default) and settles its
-own plan and Fuel, as a user's run does.
+its task's shape, flow and Fuel. A child with no task, of a parent at the
+fork of @route.delegate@, is handed the request whole: its plan is
+the parent's, so it runs on past confirm. Else it is a direct child, of a
+parent at no fan-out. Either opens its own PR, runs the flow named (else the
+default) and settles its own Fuel; a direct child its plan too, as a user's
+run does.
 -}
-childStart :: Parent -> Maybe FlowName -> RunState -> Either Failure Begin
-childStart parent named state = case (parent.link, Fold.fanAt state.at) of
-    (AtFan taskId, _) -> do
+childStart :: Parent -> Maybe FlowName -> OpenGraph -> RunState -> Either Failure Begin
+childStart parent named g state = case (parent.link, Fold.forkingAt g state, Fold.fanAt state.at) of
+    (InFan (Tasked taskId), _, _) -> do
         task <- childTask parent.run taskId state
         flow <- childFlow named task
         Right (Begin (ByRole parent task.shape task.plan) flow (Just task.fuel))
-    (Direct, Just _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at a fan-out: a child takes one of its tasks" initLineFix)
-    (Direct, Nothing) -> let flow = fromMaybe defaultFlow named in Right (Begin (ByRole parent OwnPr ChildConfirms) flow (fixedFuel flow))
+    (_, Just _, _) -> untasked (InFan Untasked) ParentDecided
+    (_, Nothing, Just _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at a fan-out: a child takes one of its tasks" initLineFix)
+    (_, Nothing, Nothing) -> untasked Direct ChildConfirms
+  where
+    untasked link plan = let flow = fromMaybe defaultFlow named in Right (Begin (ByRole (Parent parent.run link) OwnPr plan) flow (fixedFuel flow))
 
 -- | The parent's task the child runs: the parent must be at a fan-out whose breakdown names it.
 childTask :: RunId -> TaskId -> RunState -> Either Failure Task

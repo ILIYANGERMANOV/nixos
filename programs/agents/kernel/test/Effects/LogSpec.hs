@@ -18,7 +18,7 @@ import Effectful.State.Static.Local (evalState)
 import Effects.Log (Log, exists, firstLine, locked, runLogIO)
 import Effects.Store (Durability (Full), children, withStore)
 import Effects.Store qualified as Store
-import State.Run.Ask (Link (..), Parent (..), Principal (..))
+import State.Run.Ask (ChildTask (..), Link (..), Parent (..), Principal (..))
 import State.Run.Codec (encodeLine)
 import State.Run.Event (Envelope (..), Event (..), FlowName (..), Note (..), RunId, Shape (..), Source (..), Start (..), TaskId (..))
 import State.Run.EventGen (runId)
@@ -127,7 +127,7 @@ started run = envelope run 1 (Started Start {flow = EngineerFlow, notes = "/note
 
 -- | A child's first event, under this parent.
 childOf :: RunId -> RunId -> Envelope
-childOf parent run = envelope run 1 (Started Start {flow = EngineerFlow, notes = "/child", principal = ByRole (Parent parent (AtFan (TaskId "t1"))) OwnPr minBound, interface = Set.empty})
+childOf parent run = envelope run 1 (Started Start {flow = EngineerFlow, notes = "/child", principal = ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr minBound, interface = Set.empty})
 
 -- | An event past the start, at this seq.
 followed :: RunId -> Integer -> Envelope

@@ -60,7 +60,7 @@ import Data.Maybe (isJust, isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import State.Run.Ask (QId)
-import State.Run.Event (Child (..), RunId, Said (..), Shape (..), Stop, Task (..), TaskId, TaskState (..), Tasks, Url, taskList)
+import State.Run.Event (Child (..), ChildTask (..), RunId, Said (..), Shape (..), Stop, Task (..), TaskId, TaskState (..), Tasks, Url, taskList)
 
 data Fan = Fan
     { tasks :: [Task]
@@ -149,20 +149,28 @@ spawning asking task fan = do
         False -> free asking found fan
     Right fan {atWork = Set.insert task fan.atWork}
 
--- | The child's @init@: its task has an agent at work, spawned by the 10x or not.
+{- | The child's @init@: its task has an agent at work, spawned by the 10x or
+not. An untasked child takes none: it runs until it finishes or stops.
+-}
 spawned :: [RunId] -> Child -> Fan -> Either Refusal Fan
-spawned asking child fan = do
-    found <- known child.task fan
-    case find ((== child.run) . (.child.run)) fan.children of
+spawned asking child fan = case child.task of
+    Tasked task -> do
+        found <- known task fan
+        new
+        free asking found fan
+        Right joined {atWork = Set.insert task fan.atWork}
+    Untasked -> joined <$ new
+  where
+    new = case find ((== child.run) . (.child.run)) fan.children of
         Just _ -> Left (SpawnedTwice child.run)
-        Nothing -> free asking found fan
-    Right fan {children = fan.children <> [ChildRun child []], atWork = Set.insert child.task fan.atWork}
+        Nothing -> Right ()
+    joined = fan {children = fan.children <> [ChildRun child []]}
 
 {- | A new child may take the task: no child of it runs on, its last child's
 stop is triaged, and no question of its children is open (@asking@).
 -}
 free :: [RunId] -> Task -> Fan -> Either Refusal ()
-free asking task fan = case (runningOn task.id fan, find ((== task.id) . (.task) . fst) (untriaged fan), askingUp) of
+free asking task fan = case (runningOn task.id fan, find ((== Tasked task.id) . (.task) . fst) (untriaged fan), askingUp) of
     (Just other, _, _) -> Left (StillRunning task.id other.child.run)
     (Nothing, Just (stopped, _), _) -> Left (StopUntriaged stopped.run)
     (Nothing, Nothing, Just run) -> Left (AwaitsUser run)
@@ -176,8 +184,11 @@ resumed run fan = case find ((== run) . (.child.run)) fan.children of
     Nothing -> Left (UnknownChild run)
     Just found
         | not (live found) -> Left (ChildOver run)
-        | Set.member found.child.task fan.atWork -> Left (AtWork found.child.task)
-        | otherwise -> Right fan {atWork = Set.insert found.child.task fan.atWork}
+        | otherwise -> case found.child.task of
+            Tasked task
+                | Set.member task fan.atWork -> Left (AtWork task)
+                | otherwise -> Right fan {atWork = Set.insert task fan.atWork}
+            Untasked -> Right fan
 
 -- | A question the 10x asked from this child: after the child stopped, it triages the stop.
 triaged :: RunId -> Fan -> Fan
@@ -192,12 +203,15 @@ handedBack :: RunId -> Said -> Fan -> Either Refusal Fan
 handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
     Nothing -> Left (UnknownChild run)
     Just found
-        | live found -> Right fan {children = map add fan.children, atWork = Set.delete found.child.task fan.atWork}
+        | live found -> Right fan {children = map add fan.children, atWork = idle found.child.task}
         | otherwise -> Left (ChildOver run)
   where
     add childRun
         | childRun.child.run == run = childRun {said = childRun.said <> [Heard said]}
         | otherwise = childRun
+    idle = \case
+        Tasked task -> Set.delete task fan.atWork
+        Untasked -> fan.atWork
 
 {- | A parked task has no agent at work: parking settles even a lost child.
 Only a round's PR is kept, and only under that PR's own URL. A round makes
@@ -300,7 +314,10 @@ lookupTask fan task = find ((== task) . (.id)) fan.tasks
 
 -- | The breakdown's task the child of this run id took.
 childTask :: Fan -> RunId -> Maybe Task
-childTask fan run = lookupTask fan . (.child.task) =<< find ((== run) . (.child.run)) fan.children
+childTask fan run =
+    find ((== run) . (.child.run)) fan.children >>= \found -> case found.child.task of
+        Tasked task -> lookupTask fan task
+        Untasked -> Nothing
 
 -- | The children not yet finished or stopped, oldest first.
 running :: Fan -> [ChildRun]
@@ -308,11 +325,11 @@ running fan = filter live fan.children
 
 -- | The task's running child, if one runs.
 runningOn :: TaskId -> Fan -> Maybe ChildRun
-runningOn task fan = find ((== task) . (.child.task)) (running fan)
+runningOn task fan = find ((== Tasked task) . (.child.task)) (running fan)
 
 -- | The running children no agent works for: each waits on the 10x.
 waiting :: Fan -> [ChildRun]
-waiting fan = [childRun | childRun <- running fan, Set.notMember childRun.child.task fan.atWork]
+waiting fan = [childRun | childRun <- running fan, Tasked task <- [childRun.child.task], Set.notMember task fan.atWork]
 
 -- | The stopped children whose stop the 10x has yet to triage, oldest first: each its task's latest child.
 untriaged :: Fan -> [(Child, Stop)]
@@ -360,7 +377,7 @@ pullRequest fan task =
 
 -- | The task's children, oldest first.
 childrenOf :: Fan -> TaskId -> [ChildRun]
-childrenOf fan task = [childRun | childRun <- fan.children, childRun.child.task == task]
+childrenOf fan task = [childRun | childRun <- fan.children, childRun.child.task == Tasked task]
 
 {- | Parked, or no child of it runs and its PR is in review, merged or kept,
 or its latest child finished and its PR is unrecorded. A PR in CI waits for
@@ -411,7 +428,7 @@ spawnable asking fan =
     , not (settled fan task.id)
     , not (inCi task.id && finished fan task.id)
     , task.id `notElem` map (.id) (busy fan)
-    , task.id `notElem` map ((.task) . fst) (untriaged fan)
+    , Tasked task.id `notElem` map ((.task) . fst) (untriaged fan)
     , all ((`notElem` asking) . (.child.run)) (childrenOf fan task.id)
     , all (merged fan) task.deps
     ]

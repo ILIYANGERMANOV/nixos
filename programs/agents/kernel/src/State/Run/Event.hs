@@ -65,6 +65,7 @@ module State.Run.Event (
     breakdown,
     taskList,
     Child (..),
+    ChildTask (..),
     Said (..),
     Waiting (..),
     TaskState (..),
@@ -77,7 +78,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
-import State.Run.Ask (Above, Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question, Reply (..))
+import State.Run.Ask (Above, ChildTask (..), Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question, Reply (..))
 import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), TaskNo (..), parseRunId, parseTaskNo, runIdText, taskNoText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Target (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
@@ -244,8 +245,8 @@ data StopReason = Blocked | Failed | Replan | OutOfRounds
 data Note = Note {message :: Text, fix :: Text}
     deriving stock (Eq, Show)
 
--- | A child run of the fan-out: its run id, its task and its worktree.
-data Child = Child {run :: RunId, task :: TaskId, worktree :: FilePath}
+-- | A child run of the fan-out: its run id, what it was spawned for and its worktree.
+data Child = Child {run :: RunId, task :: ChildTask, worktree :: FilePath}
     deriving stock (Eq, Show)
 
 -- | A child's hand-back, typed: only 'AsksUp' and 'Awaits' leave it running.

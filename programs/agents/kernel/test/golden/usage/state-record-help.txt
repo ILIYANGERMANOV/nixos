@@ -75,6 +75,7 @@ Available commands:
   route.blocks             no arguments
   route.discussion         no arguments
   route.other              no arguments
+  route.delegate           no arguments
   block.researching        no arguments
   block.gathering          no arguments
   block.agreeing           no arguments

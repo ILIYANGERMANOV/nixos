@@ -23,6 +23,10 @@ module State.Run.Fold (
     Open (..),
     ledger,
     returnOf,
+    agentEndedIn,
+    forkingAt,
+    childFork,
+    untaskedFan,
     Round (..),
     Problem (..),
     Pending (..),
@@ -96,7 +100,7 @@ import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Reply (..), Ruling, deliver, flattened, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentId, AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Target (..), TaskId, TaskNo (..), TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, taskNoText, tookEvent)
+import State.Run.Event (AgentId (..), AgentRole, Asker (..), Asking (..), Check, Child (..), ChildTask (..), DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Said (Ended), Shape (..), Start (..), StateName (..), Stop, StopReason (Failed), Target (..), TaskId, TaskNo (..), TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, taskNoText, tookEvent)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
@@ -231,8 +235,13 @@ ledger g state =
            , place.scope == scoped.scope
            , place.name == namedState scoped.fan
            , childRun <- Fan.running fan
-           , not (Fan.settled fan childRun.child.task)
+           , unsettled fan childRun.child.task
            ]
+  where
+    -- An untasked child is open while it runs.
+    unsettled fan = \case
+        Tasked task -> not (Fan.settled fan task)
+        Untasked -> True
 
 -- | A forwarded question, the answer that came down for it, and the state the question was asked at.
 data Answer = Answer {about :: Question, given :: Reply, step :: StateName}
@@ -527,9 +536,14 @@ applyEvent g state n = \case
     Answered qid reply by -> going (handle PrincipalAnswers g state (Answers qid reply by))
     QuestionParked qid why -> going (handle PrincipalAnswers g state (Parks qid why))
     Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
-    Spawned child -> going (atAwait g state >> inFan (Fan.spawned (askingChildren state) child))
+    Spawned child -> going $ case child.task of
+        Tasked _ -> atAwait g state >> inFan (Fan.spawned (askingChildren state) child)
+        Untasked -> forked g state child
     Resumed child -> going (inFan (Fan.resumed child))
-    HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
+    -- An untasked child hands back wherever the run is, as an agent child does.
+    HandedBack child said -> going $ case untaskedFan state child of
+        Just fan -> (\changed -> state {fans = Map.insert fan changed state.fans}) <$> Bifunctor.first FanRefused (Fan.handedBack child said (fanIn state.fans fan))
+        Nothing -> atFan g state HandsBack >> inFan (Fan.handedBack child said)
     -- 'Fan.moved' ignores a merged task's later move, so the run skips its effects too.
     TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= if Fan.merged (currentFan state) task then Right else afterMove task moved)
     Held task url -> going (inFan (Fan.held task url))
@@ -591,6 +605,15 @@ returned role agent workers = case break (returning role agent) workers of
     (before, _ : after) -> before <> after
     (before, []) -> before
 
+{- | What the parent records when the agent leading its child run ended with
+no hand-back: an untasked child's stop, which closes it in the 'ledger',
+else the agent's return when it was at work ('returnOf').
+-}
+agentEndedIn :: RunState -> RunId -> AgentRole -> AgentId -> Maybe Event
+agentEndedIn state child role agent = case untaskedFan state child of
+    Just _ -> Just (HandedBack child (Ended (Event.Stop Failed ("agent " <> agent.agentIdText <> " ended with no hand-back"))))
+    Nothing -> returnOf state role (Just agent)
+
 -- | The event saying a worker of this role returned, when it is one at work: none for another.
 returnOf :: RunState -> AgentRole -> Maybe AgentId -> Maybe Event
 returnOf state role agent = WorkerReturned role agent <$ find (returning role agent) state.workers
@@ -624,13 +647,52 @@ joined g state = case state.at of
     At place
         | Just edge <- awaitDone g place
         , awaitedOpen g state place == 0 ->
-            joined g (movedOn edge)
-        | Just edge <- forkPasses g place -> joined g (movedOn edge)
+            joined g (movedOn g edge state)
+        | Just edge <- forkPasses g place -> joined g (movedOn g edge state)
     At _ -> state
     Out -> state
     Exit -> state
-  where
-    movedOn edge = state {at = edge.to, rounds = enter g edge.back state.at edge.to state.rounds, meters = kept g edge.to state.meters, askedHere = []}
+
+-- | The run along an edge no outcome names: an await's done, a fork's spawn.
+movedOn :: OpenGraph -> Edge Node -> RunState -> RunState
+movedOn g edge state = state {at = edge.to, rounds = enter g edge.back state.at edge.to state.rounds, meters = kept g edge.to state.meters, askedHere = []}
+
+{- | An untasked child's @init@: the run is at the 'State.Category.Flow.Fork'
+of a group of child runs ('forkingAt'), and goes on by its @spawned@. The
+child is kept in the fan-out of the group's 'State.Category.Flow.Await',
+where the 'ledger' counts it open until it finishes or stops.
+-}
+forked :: OpenGraph -> RunState -> Child -> Either Refusal RunState
+forked g state child = case forkingAt g state of
+    Just (edge, fan) -> do
+        spawnedIn <- Bifunctor.first FanRefused (Fan.spawned (askingChildren state) child (fanIn state.fans fan))
+        Right (movedOn g edge state {fans = Map.insert fan spawnedIn state.fans})
+    Nothing -> Left (NoEdge state.at (fanEvent Spawns (askedAt state)))
+
+-- | The run is at a fork of child runs ('childFork'): its edge on, and the fan-out its child joins.
+forkingAt :: OpenGraph -> RunState -> Maybe (Edge Node, ScopedFan)
+forkingAt g state = case state.at of
+    At place -> childFork g place
+    Out -> Nothing
+    Exit -> Nothing
+
+{- | A 'State.Category.Flow.Fork' of child runs, its group's runner leading
+a flow: the @spawned@ edge on, which the child's init takes, and the fan-out
+of the group's 'State.Category.Flow.Await' the child joins. A fork of
+agents, the researchers, is none.
+-}
+childFork :: OpenGraph -> Place -> Maybe (Edge Node, ScopedFan)
+childFork g place = case Map.lookup place g.groupStates of
+    Just (Forking group) -> do
+        _ <- Role.leads group.runner
+        edge <- step g place (fanEvent Spawns place.name)
+        (edge,) <$> listToMaybe [ScopedFan awaited.scope (Name name) | (awaited, Awaiting other) <- Map.toList g.groupStates, other == group, StateName name <- [awaited.name]]
+    Just (Awaiting _) -> Nothing
+    Nothing -> Nothing
+
+-- | The fan-out holding this run as an untasked child, if one does.
+untaskedFan :: RunState -> RunId -> Maybe ScopedFan
+untaskedFan state run = listToMaybe [scoped | (scoped, fan) <- Map.toList state.fans, any (\childRun -> childRun.child.run == run && childRun.child.task == Untasked) fan.children]
 
 walked :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
 walked g state scope outcome@(AnyOutcome _ some) = do
@@ -985,7 +1047,7 @@ awaitedOpen g state place = case Map.lookup place g.groupStates of
     Just (Forking _) -> 0
     Nothing -> 0
   where
-    running fan = map (.child.task) (Fan.running fan)
+    running fan = [task | childRun <- Fan.running fan, Tasked task <- [childRun.child.task]]
 
 {- | The capped forks whose budget holds the run: a forked child's
 hand-back is recorded at one, in its scope, wherever the run is in the

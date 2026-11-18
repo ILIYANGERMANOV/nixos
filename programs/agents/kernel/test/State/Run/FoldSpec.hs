@@ -50,10 +50,11 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = describe "State.Run.Fold" $ do
     it "names every edge of the engineer, 10x, architect, legacy architect and chief flows by exactly one kind of outcome" $
-        -- A fan-out's stays are its children's events. A scope's are named bare. An await goes on
-        -- by no event, and a researcher hands back by no edge: wherever the run is.
+        -- A fan-out's stays are its children's events, as is a fork of child runs' spawn: the
+        -- child's init. A scope's are named bare. An await goes on by no event, and a researcher
+        -- hands back by no edge: wherever the run is.
         Set.delete (outcomeEvent (outcome ResearchHandedBack)) outcomeNames
-            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, legacyArchitectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place)]
+            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, legacyArchitectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place), isNothing (childFork flow place)]
 
     describe "the 10x's fan-out" $ do
         let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
@@ -940,7 +941,7 @@ tenXRounds = describe "the 10x's rounds" $ do
   where
     pr = Url "https://pr/1"
     t1 = TaskId "t1"
-    parent = Parent (runId "p1") (AtFan t1)
+    parent = Parent (runId "p1") (InFan (Tasked t1))
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| fuelSet fuel : init happyPath <> [stepTook (ReadySkipped pr)]))
     tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
     agreed = spawnedIn "gather" <> [stepTook ResearchHandedBack] <> planned
@@ -1128,7 +1129,7 @@ accepts: the run state and its log, @started@ first.
 genAskLog :: Gen (RunState, NonEmpty Event)
 genAskLog = do
     flow <- Gen.element [EngineerFlow, TenXFlow]
-    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") (AtFan (TaskId "t1"))) OwnPr ChildConfirms]
+    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms]
     let begun = Started (startOf flow principal)
     first <- either (fail . show) pure (replay g (logOf (begun :| [])))
     tries <- Gen.int (Range.linear 0 60)
@@ -1180,7 +1181,7 @@ genChain =
         <*> Gen.element
             [ [rung "e1" EngineerFlow (ByUser OwnPr)]
             , [rung "x1" TenXFlow (ByUser OwnPr)]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") (AtFan (TaskId "t1"))) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)

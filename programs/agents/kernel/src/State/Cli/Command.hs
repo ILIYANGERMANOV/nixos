@@ -56,7 +56,7 @@ import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
 import State.Role (RoleDef (..), defaultFlow)
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Basis (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), Reply (..), Route (..), kindName, parseOneLine, parseQId, qidText, replyWords)
+import State.Run.Ask (Above (..), Basis (..), ChildTask (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), Reply (..), Route (..), kindName, parseOneLine, parseQId, qidText, replyWords)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, reasonText)
 import State.Run.Codec qualified as Codec
@@ -371,7 +371,7 @@ initArgs =
             (Nothing, Nothing, Nothing) -> Right (mine OwnPr)
             (Just pr, Nothing, Nothing) -> mine . RoundOn <$> roundPr pr
             (Just _, _, _) -> Left (usage "--pr with --parent" "a child run takes its PR from its parent's task")
-            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (AtFan (TaskId task)))) <$> runId run
+            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (InFan (Tasked (TaskId task))))) <$> runId run
             (Nothing, Just run, Nothing) -> (\r -> FromParent (Parent r Direct)) <$> runId run
             (Nothing, Nothing, Just _) -> Left (usage "--task without --parent" "a child run names its parent's run, and its task at a fan-out")
         Right (Init InitArgs {notes, flow, origin})
@@ -595,7 +595,7 @@ closest name events = case (sameStep, events) of
 left ('Fan.retryLeft'): what @state retry@ triages and retries.
 -}
 retryOf :: RunState -> TaskId -> Either Failure (Task, Child, Stop)
-retryOf state task = case (Fan.lookupTask fan task, lookup task [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]) of
+retryOf state task = case (Fan.lookupTask fan task, lookup (Tasked task) [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]) of
     (Nothing, _) -> Left (refused "the breakdown has no such task" "state show")
     (Just _, Nothing) -> Left (refused "no stopped child of it awaits triage" "state next")
     (Just _, Just (child, _))

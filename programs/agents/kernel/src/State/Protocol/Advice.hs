@@ -60,7 +60,7 @@ import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), Route, kindName, oneLineText, otherNote, qidText, questionLine, replyText, replyWords)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), Asking (..), Branch (..), Child (..), ChildTask (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
@@ -533,17 +533,17 @@ data AtOnce = AtOnce
 atOnce :: ScopedFan -> [RunId] -> RunState -> AtOnce
 atOnce at ended state =
     AtOnce
-        { unrecorded = [(c.child.task, Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in"))) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.lookupTask here c.child.task]]
-        , triage = [(child.task, TriageStop child.run (retryable child.task) stop) | (child, stop) <- Fan.untriaged here]
+        { unrecorded = [(task.id, Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in"))) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.childTask here c.child.run]]
+        , triage = [(task, TriageStop child.run (retryable task) stop) | (child, stop) <- Fan.untriaged here, Tasked task <- [child.task]]
         , record = recordsFinished here
-        , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> replyText kind answer)) | (qid, kind, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
+        , resume = [(task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> replyText kind answer)) | (qid, kind, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting, Tasked task <- [c.child.task]] <> lost
         , spawn = [(task.id, Spawn (taskRole task) (Just task.id)) | task <- Fan.spawnable (askingChildren state) here]
         }
   where
     here = fanIn state.fans at
     waiting = Fan.waiting here
     -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
-    lost = [(c.child.task, resumeFresh c.child.run "lost at a restart" (taskRole task) "with its spawn prompt") | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c], Just task <- [Fan.lookupTask here c.child.task]]
+    lost = [(task.id, resumeFresh c.child.run "lost at a restart" (taskRole task) "with its spawn prompt") | c <- waiting, Just task <- [Fan.childTask here c.child.run], not (Fan.settled here task.id), Nothing <- [Fan.latest c]]
     taskRole task = (Role.role task.flow).name
     retryable task = if Fan.retryLeft here task then Just task else Nothing
 

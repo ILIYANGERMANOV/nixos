@@ -286,6 +286,14 @@ spec = describe "state over the doubles" $ do
 
                 recorded moved `shouldBe` ["next.request -> fuel"]
 
+            it "replays a chief whose last request ended it as over, past the await of its children it never had" $ \world -> do
+                _ <- oldLog world "legacy-chief.jsonl" "446e42ac"
+                _ <- succeeded =<< state world ["record", "next.done"]
+
+                done <- succeeded =<< state world ["next"]
+
+                take 2 done `shouldBe` ["DONE https://github.com/ILIYANGERMANOV/nixos/issues/479", "  at the end: the flow is done"]
+
             it "replays a new run under the current flow, though its first lines fit the legacy one too" $ \world -> do
                 _ <- startedIn world ["--flow", "architect"]
                 _ <- succeeded =<< state world ["record", "fuel.set", "low"]
