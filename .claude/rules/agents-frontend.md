@@ -82,8 +82,12 @@ with a law in `LawsSpec`:
   wait for every child of `g`, their results in fork order. A path out of a
   `Fork` that skips its `Await` is refused. `Each f`: `f` once per item.
 - `Scope name f`: its states record `name/step.outcome`.
-- `Handle h f`: `h` answers one effect (Pick, Ask, Focus) that `f`'s steps
-  raise (their layer's `Raises`); a whole flow leaves none unhandled.
+- `Handle h f`: `h` answers one flow effect (Pick, Ask, Focus) that `f`'s
+  steps raise (their layer's `Raises`); a whole flow answers every one. A
+  flow effect is an `Eff` with its `Handler` (`State/Category/Effect.hs`),
+  answered purely in `State/Run/Fold.hs` by `handle` and `applyEvent`. An
+  IO effect is another thing: `src/Effects/*`, run by `runShellIO` in
+  `State/Cli/Shell.hs`, faked in tests by `test/Doubles`.
 
 The library builds the rest from them:
 
@@ -91,9 +95,11 @@ The library builds the rest from them:
   branch by `<name>.<label>`, then the branch runs.
 - `choiceLoop name enough actions`: a `Loop` over a `choice` whose `enough`
   branch ends in `Exit`: actions in any order, then `<name>.enough`.
-- `opt name skips f`: a `skip_<name>` state, `skip` or `run`; Fuel says
-  when `skip` is taken.
-- `par g f` = `Each (Fork g f) :> Await g`: one child per item.
+- `skippable step skips`, `skippableBlock name skips f`: a `skip_<name>`
+  state, `skip` or `run`; Fuel says when `skip` is taken.
+- `parallel g f` = `Each (Fork g f) :> Await g`: one child per item.
+- `upTo n atCap c` = `Capped (always (UpTo n)) atCap c`: the same cap at
+  every Fuel.
 
 How to extend it; the compiler and `parseSteps` name what is missing:
 
@@ -102,7 +108,7 @@ How to extend it; the compiler and `parseSteps` name what is missing:
   arm in `State/Run/Fold.hs`'s match on `Layer` if its outcome carries data.
   A step a lead records by hand also needs an entry in `recordables` in
   `State/Protocol/Record.hs` (the CLI parser). A step a Fuel may skip goes
-  inside an `opt`.
+  inside a `skippable`.
 - **A layer:** its module under `State/Step/`, with its `Raises`, then in `State/Step/Catalog.hs`
   a `Layer` constructor, a `KnownLayer` instance and an entry in `layers`, then
   the arms the compiler asks for.

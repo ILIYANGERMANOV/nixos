@@ -23,6 +23,7 @@ secrets/        - sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 deslop/         - the architecture rules `deslop check .` enforces, and their baseline
 .claude/rules/  - path-scoped detail for agents: each file's `paths:` says when it loads
 ```
+A rule loads only on a Read of a matching path: read code with Read, or Read its rule yourself.
 
 ## Reproducibility
 

@@ -19,3 +19,9 @@ changes confidently when they lead to a better long-term design.**
 - Example: ADR 0019 kept `Choice` and `Route` partly for log and graph
   compatibility. ADR 0020 dropped them for `choice` and `choiceLoop` built
   from `Case`, `Exit` and `Loop`, breaking old logs.
+- `state` keeps a **necessary and sufficient** command set: every command
+  the chief and the flows need, nothing more. Each command's output carries
+  the context to act on it, so an agent drives `state` from its output alone.
+- **Vendor-free**: `state` knows nothing of the harness running the agents
+  (Claude Code, OpenCode, Codex). It is as helpful as its own data allows:
+  run logs, events, timestamps. Harness-specific code lives in a backend.
