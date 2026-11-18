@@ -30,7 +30,7 @@ spec = describe "State.Flow.TenX" $ do
 'graph': 'graph' draws a 'Fork' as one state, and a 'Fork' hides the types
 'graph' needs of its body.
 -}
-parBodies :: Flow i e o -> [(Name, String)]
+parBodies :: Flow s i e o -> [(Name, String)]
 parBodies = \case
     Do _ -> []
     Capped {} -> []
@@ -45,3 +45,4 @@ parBodies = \case
     Await _ -> []
     Catch body -> parBodies body
     Scope scope body -> [(scoped scope fan, shown) | (fan, shown) <- parBodies body]
+    Handle _ body -> parBodies body

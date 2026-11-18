@@ -1,4 +1,5 @@
-{-# OPTIONS_GHC -fdefer-type-errors -Wno-deferred-type-errors #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -fdefer-type-errors -Wno-deferred-type-errors -Wno-partial-type-signatures #-}
 
 {- | Typed gluing and typed outcomes, checked the only way a test can: each term below is
 ill-typed, compiled here with its type error deferred to run time, and the
@@ -50,12 +51,12 @@ spec = describe "State.Category.Flow" $ do
         it "a loop whose body never exits" $
             rejected
                 "Couldn't match type: Nothing with: Just State.Category.Ty.Diff"
-                (Loop "review" (Do Refactor) :: Flow 'State.Category.Ty.Diff 'Nothing 'State.Category.Ty.Diff)
+                (Loop "review" (Do Refactor) :: Flow _ 'State.Category.Ty.Diff 'Nothing 'State.Category.Ty.Diff)
 
         it "a loop whose body ends at another type than its in" $
             rejected
                 "Couldn't match type: State.Category.Ty.Findings with: State.Category.Ty.Plan"
-                (Loop "review" (Do Implement :> Do Review) :: Flow 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff)
+                (Loop "review" (Do Implement :> Do Review) :: Flow _ 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff)
 
         it "capping a step with no meter" $
             rejectedShown
@@ -69,12 +70,12 @@ spec = describe "State.Category.Flow" $ do
         it "a series whose two sides exit with different types" $
             rejected
                 "Both sides of :> exit, with different types: State.Category.Ty.PR and State.Category.Ty.Plan"
-                (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
+                (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow _ ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
 
         it "capping a flow that is neither a step nor a fork of one" $
             rejected
                 "Couldn't match expected type: CapTarget"
-                (Capped (always (UpTo 1)) Stop (Do Fix) :: Flow 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
+                (Capped (always (UpTo 1)) Stop (Do Fix) :: Flow _ 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
 
         it "a case after a step whose out is not a sum" $
             rejected
@@ -126,7 +127,7 @@ where it would fire as the spec is built (the trick of should-not-typecheck).
 The fragment is part of GHC's headline, so an unrelated error does not pass;
 the lines after it quote the call, fragment included, so they are left out.
 -}
-rejected :: String -> ((() ~ ()) => Flow i e o) -> Expectation
+rejected :: String -> ((() ~ ()) => Flow s i e o) -> Expectation
 rejected = rejectedShown
 
 -- | An outcome of this step by this leg, which no constructor need declare: the test never forces it.

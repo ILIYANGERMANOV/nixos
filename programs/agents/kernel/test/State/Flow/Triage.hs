@@ -5,7 +5,7 @@ in no catalog, no @steps.nix@ row and no wire format. Triage sizes a diff:
 a small one is described as it is, a big one is planned again.
 -}
 module State.Flow.Triage (
-    TriageStep,
+    TriageStep (..),
     -- Named, not @(..)@: a data family's @(..)@ would export every layer's constructors in scope here.
     Sing (Triage),
     Outcome (TriageSmall, TriageBig),
@@ -14,8 +14,8 @@ module State.Flow.Triage (
 ) where
 
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Effect (Eff (..))
+import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Sha, headData, headOf)

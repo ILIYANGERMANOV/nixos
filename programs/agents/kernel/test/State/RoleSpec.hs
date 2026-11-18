@@ -6,7 +6,7 @@ import State.Category.Flow (scopeNames)
 import State.Category.Graph (Place (..), graph, placeName, places)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Library (agree)
+import State.Flow.Library (agree, handled)
 import State.Role (AgentRole (..), FlowName (..), RoleDef (..), Rung (..), SomeFlow (..), flowOut, role, rungAt)
 import State.Run.RunGen (chiefGraph, flowGraph)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
@@ -36,7 +36,7 @@ spec = describe "State.Role" $ do
 
     describe "RoleDef" $ do
         it "leads a flow that ends in a plan, not a PR" $ do
-            let planner = RoleDef (AgentRole "planner") (SomeFlow agree) Lead
+            let planner = RoleDef (AgentRole "planner") (SomeFlow (handled agree)) Lead
             flowOut planner.flow `shouldBe` Plan
             case planner.flow of
                 SomeFlow flow -> graph flow `shouldSatisfy` isRight

@@ -7,7 +7,7 @@ import Data.Maybe (listToMaybe)
 import Hedgehog (Gen, assert, evalMaybe, failure, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (Flow (..))
-import State.Category.FlowGen (composes, genFlow, pathTo)
+import State.Category.FlowGen (AnyFlow (..), composes, genFlow, pathTo)
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Path (step, ty)
@@ -50,7 +50,7 @@ genSkip = do
     skip <- Gen.element skips
     pure (g, skip)
   where
-    withSkips flow = do
+    withSkips (AnyFlow flow) = do
         g <- either (const Nothing) Just (graph flow)
         skips <- nonEmpty [(place, event, edge) | ((place, event), edge) <- Map.toList g.edges, event.outcome == OutcomeName "skip"]
         Just (g, skips)
