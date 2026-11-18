@@ -147,12 +147,13 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
             _ <- succeeded =<< state world ["focus", "--summary", "still researching"]
             finishRequest world
 
+            atNext <- succeeded =<< state world ["next"]
             ended <- succeeded =<< state world ["record", "next.done"]
             next <- succeeded =<< state world ["next"]
             tasks <- succeeded =<< state world ["tasks"]
 
-            (recorded ended, take 2 next, filter ("r1 " `Text.isPrefixOf`) tasks)
-                `shouldBe` (["next.done -> out"], ["DONE", "  at the end: the flow is done"], ["r1 paused 0m at architect/fuel: still researching"])
+            (filter ("r1 suspended" `Text.isInfixOf`) atNext, recorded ended, take 2 next, filter ("r1 " `Text.isPrefixOf`) tasks)
+                `shouldBe` (["  r1 suspended at architect/fuel: still researching - resume: state focus r1; next.done ends the run leaving it suspended"], ["next.done -> out"], ["DONE", "  at the end: the flow is done"], ["r1 paused 0m at architect/fuel: still researching"])
 
     describe "a request handed on whole" $ do
         it "at the fork, says to spawn the child with its brief and record nothing, and so does a refused record" $ \world -> do

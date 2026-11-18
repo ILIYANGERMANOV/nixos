@@ -153,6 +153,7 @@ typing = describe "typeHandback" $ do
 tokens :: [(Text, Maybe Token)]
 tokens =
     [ ("READY done in abc", Just (Ready (oneLine "done in abc")))
+    , ("READY: done", Just (Ready (oneLine "done")))
     , ("NEEDS_DECISION Design r7f2:3: which store?", Just (NeedsDecision (Asks (Question (QId run 3) Design (oneLine "which store?")))))
     , ("NEEDS_DECISION stuck: same rows twice", Just (NeedsDecision (StuckOn (oneLine "same rows twice"))))
     , ("NEEDS_DECISION plan wrong: no such table", Just (NeedsDecision (PlanWrong (oneLine "no such table"))))

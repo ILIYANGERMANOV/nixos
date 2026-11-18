@@ -123,6 +123,15 @@ spec = describe "state-hook over the doubles" $ do
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
 
+            it "records a researcher's hand-back at the step it runs beside, the plan simplification" $ \world -> do
+                _ <- drive world (Record ["fuel.set", "balanced"] : gathered <> [Planned])
+                _ <- hook world "bind" (spawnResult "researcher")
+
+                said <- hook world "handback" (handedBack "researcher")
+
+                said.code `shouldBe` 0
+                contextOf said `shouldSatisfy` maybe False ("simplify_plan.done -> confirm" `Text.isInfixOf`)
+
             it "leaves a child run's hand-back in the lead's worktree be" $ \world -> do
                 _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                 before' <- logged world

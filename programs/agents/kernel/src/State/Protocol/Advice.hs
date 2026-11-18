@@ -60,11 +60,11 @@ import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), Route, kindName, oneLineText, otherNote, qidText, questionLine, replyText, replyWords)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), Asking (..), Branch (..), Child (..), ChildTask (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself, Subagent), Asking (..), Branch (..), Child (..), ChildTask (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText, taskNoText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, childFork, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, settledSkips, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp)
+import State.Run.Fold (Answer (..), Budget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Suspension (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, childFork, currentFan, fanIn, fuelOf, given, ledger, nextQId, nodeName, onRound, planSettled, settledSkips, shape, stuck, stuckExits, suspendedAsks, targetsAt, usedUp, waitsAt)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -655,6 +655,8 @@ factLines g facts state =
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
         <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]
+        -- A chief's parked requests, which next.done would leave suspended unsaid.
+        <> [taskNoText task <> " suspended at " <> stateNameText (nodeName (waitsAt suspension)) <> ": " <> oneLineText suspension.summary <> " - resume: state focus " <> taskNoText task <> "; next.done ends the run leaving it suspended" | (task, suspension) <- Map.toList state.suspended]
         -- While the run is still where it asked, a reply that is none of the options says what it asks.
         <> [qidText answer.about.qid <> " answered: " <> replyWords answer.given <> " - " <> note | answer <- state.answers, answer.step == askedAt state, Just note <- [otherNote answer.about.kind answer.given]]
   where

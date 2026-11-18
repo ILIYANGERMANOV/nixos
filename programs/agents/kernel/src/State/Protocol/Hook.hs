@@ -488,14 +488,17 @@ tracked :: Steps -> AgentRole -> Bool
 tracked steps role = role `elem` agentRoles steps
 
 {- | Whether the run records this step runner's hand-back: one also spawned
-beside the advice only while the flow forks its step and the run's 'ledger'
-has a child of its role open, wherever the run is. A child run records its
-own in its parent's run.
+beside the advice while the run is at a step the role runs, or while the flow
+forks its step and the run's 'ledger' has a child of its role open, wherever
+the run is. A child run records its own in its parent's run.
 -}
 followedAt :: Steps -> OpenGraph -> RunState -> AgentRole -> Bool
 followedAt steps g state role =
     role `notElem` beside
-        || (any ((== role) . (.role)) (ledger g state) && or [stepName s == metered.step | metered <- forks g state, AnyStep _ (SomeStep s) <- stepsRunBy steps role])
+        || or [stepName s == place.name | At place <- [state.at], AnyStep _ (SomeStep s) <- runs]
+        || (any ((== role) . (.role)) (ledger g state) && or [stepName s == metered.step | metered <- forks g state, AnyStep _ (SomeStep s) <- runs])
+  where
+    runs = stepsRunBy steps role
 
 {- | What a lead's spawn of this role records: at a fork of the step the
 role runs, the spawn of a child the group then waits for. The spawn hook
