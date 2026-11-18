@@ -13,6 +13,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Category.Fuel (Fuel (..))
+import State.Category.Graph (OpenGraph)
 import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
@@ -204,9 +205,8 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts answered `shouldBe` offering ["state record confirm.confirmed", "state record confirm.adjusted"]
 
     describe "the architect" $ do
-        let architectFrom events = either (error . show) id (replay architectGraph (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
+        let architectFrom = architectOn architectGraph
             architectRun = architectFrom . (knobs Balanced <>)
-            notesFile = "notes/notes.md"
         it "asks the architect's Fuel first, as the engineer's" $
             next noFacts (architectFrom []) `shouldBe` next noFacts (runAt [])
 
@@ -214,18 +214,17 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts (architectRun []) `shouldBe` offering ["state record architect.discuss", "state record architect.enough", "state record architect.research", "state record architect.ticket"]
 
         it "ends with no ticket on enough, naming its notes file" $
-            next noFacts (architectRun (enoughIn "architect")) `shouldBe` Done [notesFile]
+            next noFacts (architectRun (enoughIn "architect")) `shouldBe` Done [architectNotes]
 
         it "ends naming its notes file and the ticket's url it wrote" $
-            next noFacts (architectRun (ticketWritten <> enoughIn "architect")) `shouldBe` Done [notesFile, urlText ticketUrl]
+            next noFacts (architectRun (ticketWritten <> enoughIn "architect")) `shouldBe` Done [architectNotes, urlText ticketUrl]
 
         it "tells the discussion to send its Explain message before each question, in the same turn" $
             (advise steps architectGraph noFacts (architectRun [Took mempty (pickOf "architect" "discuss")])).prompt
                 `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the picker question" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
 
     describe "the legacy architect" $ do
-        let architectFrom events = either (error . show) id (replay legacyArchitectGraph (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
-            architectRun = architectFrom . (knobs Balanced <>)
+        let architectRun = architectOn legacyArchitectGraph . (knobs Balanced <>)
             legacyNext state = commandsOnly (advise steps legacyArchitectGraph noFacts state).action
             atProblem = architectRun (researchedIn "exploring" <> enoughIn "exploring")
             atDesignConfirm = problemUnderstood <> designDiscussed
@@ -252,7 +251,7 @@ spec = describe "State.Protocol.Advice" $ do
             legacyNext (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
 
         it "ends, as the architect, naming its notes file and the confirmed design's ticket url" $
-            legacyNext (architectRun (problemUnderstood <> designConfirmed)) `shouldBe` Done ["notes/notes.md", urlText ticketUrl]
+            legacyNext (architectRun (problemUnderstood <> designConfirmed)) `shouldBe` Done [architectNotes, urlText ticketUrl]
 
     it "names a subagent's role with its article" $
         map (Text.isPrefixOf "at implement: a step an implementer subagent runs") (take 1 (explainedAt (runAt (knobs Balanced <> take 10 happyPath))))
@@ -573,6 +572,14 @@ byRow state kind text = either (error . show) id (ownAsk state ByRow kind text)
 
 knobs :: Fuel -> [Event]
 knobs fuel = [fuelSet fuel]
+
+-- | An architect run of these events, replayed under this graph: the current architect's or the legacy one.
+architectOn :: OpenGraph -> [Event] -> RunState
+architectOn under events = either (error . show) id (replay under (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
+
+-- | The notes file an architect run of 'start' names at its end.
+architectNotes :: Text
+architectNotes = "notes/notes.md"
 
 -- | Whether the commands a 'Run' offers hold.
 offers :: ([Text] -> Bool) -> Action -> Bool

@@ -739,7 +739,11 @@ architectRun = describe "the architect's run" $ do
                     _ -> False
                 )
   where
-    architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
+    architect = architectOn architectGraph
+
+-- | An architect run at Balanced, of these events, replayed under this graph: the current architect's or the legacy one.
+architectOn :: OpenGraph -> [Event] -> Either Fold.Refusal RunState
+architectOn under events = replay under (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
 
 {- | The legacy architect's run, as old logs replay it: research and the
 problem until the user understands it, design rounds until the user confirms
@@ -783,7 +787,7 @@ legacyArchitectRun = describe "the legacy architect's run" $ do
         states <- traverse (evalEither . replay legacyArchitectGraph . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| unconfirmed)))
         for_ states $ \state -> (state.ticket, state.latest) === (Nothing, Nothing)
   where
-    architect events = replay legacyArchitectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
+    architect = architectOn legacyArchitectGraph
     explored = researchedIn "exploring" <> enoughIn "exploring"
     designRound verdict = designDiscussed <> [stepTook verdict]
     confirmed = \case
