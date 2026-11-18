@@ -5,24 +5,27 @@ in no catalog, no @steps.nix@ row and no wire format. Triage sizes a diff:
 a small one is described as it is, a big one is planned again.
 -}
 module State.Flow.Triage (
-    TriageStep,
+    TriageStep (..),
     -- Named, not @(..)@: a data family's @(..)@ would export every layer's constructors in scope here.
     Sing (Triage),
     Outcome (TriageSmall, TriageBig),
     triaged,
+    TriagedS,
 ) where
 
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Flow (Branch (..), Branches (..), Flow (..))
+import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Sha, headData, headOf)
-import State.Step.Build (Sing (..))
-import State.Step.Ship (Sing (..))
+import State.Step.Build (BuildStep (..), Sing (..))
+import State.Step.Ship (ShipStep (..), Sing (..))
 
 type data TriageStep = Triage
 
 instance StepSet TriageStep where
+    type Raises s = '[]
+
     type Sig Triage = '( 'Diff, 'Nothing, 'Sum '[ '("small", 'Diff), '("big", 'Plan)])
 
     data Sing s where
@@ -60,5 +63,7 @@ deriving stock instance Show (Outcome (s :: TriageStep) l)
 deriving stock instance Eq (Outcome (s :: TriageStep) l)
 
 -- | The big branch is scoped: a flow names each state once, and both branches describe.
-triaged :: Flow 'Diff 'Nothing 'PR
+triaged :: Flow TriagedS 'Diff 'Nothing 'PR
 triaged = Do Triage :> Case (#small :-> Do Describe :& #big :-> Scope "big" (Do Implement :> Do Refactor :> Do Describe) :& End)
+
+type TriagedS = DoS Triage :>> CaseS '[DoS Describe, ScopeS (DoS Implement :>> DoS Refactor :>> DoS Describe)]

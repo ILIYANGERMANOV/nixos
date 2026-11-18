@@ -4,7 +4,7 @@
 the design into a ticket once. The lead runs each and changes no code.
 -}
 module State.Step.Ticket (
-    TicketStep,
+    TicketStep (..),
     Sing (..),
     Outcome (..),
 ) where
@@ -18,6 +18,8 @@ import State.Step.Artifact (Url, urlData, urlOf)
 type data TicketStep = Problem | ConfirmDesign
 
 instance StepSet TicketStep where
+    type Raises s = '[]
+
     type Sig Problem = '( 'Ctx, 'Just 'Ctx, 'Ctx)
     type Sig ConfirmDesign = '( 'Ctx, 'Just 'Ticket, 'Ctx)
 

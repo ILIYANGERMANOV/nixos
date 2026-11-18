@@ -2,7 +2,7 @@
 
 -- | The steps that ship the diff as a PR: describe it, simplify it, wait on CI, ready it.
 module State.Step.Ship (
-    ShipStep,
+    ShipStep (..),
     Sing (..),
     Outcome (..),
 ) where
@@ -19,6 +19,8 @@ import State.Step.Artifact (Check (..), Sha, Url, headData, headOf, urlData, url
 type data ShipStep = Describe | SimplifyPR | AwaitCi | FixPR | Ready
 
 instance StepSet ShipStep where
+    type Raises s = '[]
+
     type Sig Describe = '( 'Diff, 'Nothing, 'PR)
     type Sig SimplifyPR = '( 'PR, 'Nothing, 'PR)
     type Sig AwaitCi = '( 'PR, 'Just 'PR, 'PR)

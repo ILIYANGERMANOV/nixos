@@ -35,5 +35,5 @@ spec = describe "State.Cli.Render.Mermaid" $ do
                 , "  fix_pr --> [*]: done"
                 ]
 
-render :: (NotSum i, NotSum o) => Flow i e o -> Text
+render :: (NotSum i, NotSum o) => Flow s i e o -> Text
 render = either (Text.pack . show) mermaid . graph

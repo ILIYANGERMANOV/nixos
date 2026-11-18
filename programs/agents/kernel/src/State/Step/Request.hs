@@ -5,7 +5,7 @@ PR a block starts from, do a request no flow fits, and take the next
 request or end. The lead runs each.
 -}
 module State.Step.Request (
-    RequestStep,
+    RequestStep (..),
     Sing (..),
     Outcome (..),
 ) where
@@ -21,6 +21,8 @@ import State.Step.Artifact (Branch (..), Url, branchText, urlData, urlOf)
 type data RequestStep = OpenPlan | OpenBranch | OpenPr | Direct | Next
 
 instance StepSet RequestStep where
+    type Raises s = '[]
+
     type Sig OpenPlan = '( 'Ctx, 'Nothing, 'Plan)
     type Sig OpenBranch = '( 'Ctx, 'Nothing, 'Diff)
     type Sig OpenPr = '( 'Ctx, 'Nothing, 'PR)

@@ -93,7 +93,7 @@ securityScope :: ScopePath
 securityScope = scopePath "security"
 
 -- | A whole flow run inline, under a scope named after it.
-scopedIn :: (NotSum o) => Name -> Flow 'Ctx 'Nothing o -> OpenGraph
+scopedIn :: (NotSum o) => Name -> Flow s 'Ctx 'Nothing o -> OpenGraph
 scopedIn name flow = either (error . show) id (graph (Scope name flow))
 
 tenXGraph :: OpenGraph

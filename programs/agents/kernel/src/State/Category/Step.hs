@@ -52,6 +52,7 @@ import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable)
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, sameSymbol, symbolVal)
+import State.Category.Effect (Eff)
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..), TyVal, labelledTys)
 
 -- | A step's signature: @(in, exit, continue)@.
@@ -79,6 +80,12 @@ missing arm is an incomplete match.
 -}
 class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
     type Sig (s :: k) :: Sig3
+
+    {- | The effects the step raises besides a question: every step may put
+    one, so 'State.Category.Flow.Effects' adds 'AskE' itself. A pick also
+    picks.
+    -}
+    type Raises (s :: k) :: [Eff]
 
     -- | The value of a step: 'State.Category.Flow.Do' takes it.
     data Sing (s :: k) :: Type
