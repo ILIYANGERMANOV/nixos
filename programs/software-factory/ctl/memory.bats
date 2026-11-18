@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2154,SC2312 # test_helper and check.nix set the variables, and a masked failure fails the assertion around it
+# shellcheck disable=SC2016 # a process's script expands when the process runs
 
 load ../test_helper
 
@@ -97,7 +98,7 @@ start_ready() {
   factory-ctl kill ghcid "$work/repos/my-repo/wt/"
 
   escaped=$(systemd-escape --path "$work/repos/my-repo/wt")
-  called "systemctl --user stop ghcid-$escaped[.]scope ghcid-$escaped-*.scope"
+  called "systemctl --user stop ghcid-${escaped}[.]scope ghcid-$escaped-*.scope"
   [[ $escaped == *my\\x2drepo-wt ]] || fail "a dash in the path is not escaped: $escaped"
 }
 
