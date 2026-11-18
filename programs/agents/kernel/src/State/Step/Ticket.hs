@@ -1,8 +1,7 @@
 {-# LANGUAGE TypeData #-}
 
 {- | The steps that settle a problem and its design with the user, then write
-the design into a ticket once. The lead runs each, in the issue tracker, and
-changes no code.
+the design into a ticket once. The lead runs each and changes no code.
 -}
 module State.Step.Ticket (
     TicketStep,

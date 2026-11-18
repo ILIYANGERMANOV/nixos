@@ -334,13 +334,14 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
     -- One line per action, so one action's task never reads as another's.
     choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (_, Edge {to = At next}) <- shownEdges g place, Just (AnyStep _ (SomeStep s)) <- [stepNamed next.name]]
     confirmText what = what <> ": confirmed, or adjusted?"
+    confirmAsked = Ask.Confirm `elem` state.askedHere
     told :: (StepSet k) => Sing (s :: k) -> Text
     told s = case special s of
         TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
         Ordinary -> ""
         AsksConfirm OnEntry _ -> ""
         AsksConfirm OnUserWord what
-            | Ask.Confirm `elem` state.askedHere -> ""
+            | confirmAsked -> ""
             | otherwise ->
                 "\nDiscuss "
                     <> what
@@ -364,7 +365,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
         AsksConfirm cue what
-            | Ask.Confirm `elem` state.askedHere -> Run records
+            | confirmAsked -> Run records
             | otherwise -> case cue of
                 OnEntry -> Ask Ask.Confirm (confirmText what)
                 -- The user's word, not the step's entry, asks the question: the records stay offered.
