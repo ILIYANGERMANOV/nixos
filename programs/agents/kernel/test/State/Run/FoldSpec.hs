@@ -387,7 +387,6 @@ spec = describe "State.Run.Fold" $ do
             split <- forAll (Gen.int (Range.linear 0 (length events)))
             summary <- forAll genOneLine
             let (prefix, rest) = splitAt split events
-                chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
             before <- evalEither (chief prefix)
             if over before then discard else success
             cover 10 "turned away mid-request" (stage chiefGraph before == Fold.Underway)
@@ -396,18 +395,17 @@ spec = describe "State.Run.Fold" $ do
 
         it "a_turn_away_opens_a_new_request_at_the_start_and_parks_the_waiting_requests_forwarded_question" $ do
             let asking = Asking (Question (QId run 1) Design (oneLine "which store?")) (StateName "fuel") Itself
-                chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
             away <- either (fail . show) pure (chief [fuelSet Balanced, Asked asking, Forwarded (QId run 1) TheUser, Suspended (TaskNo 1) (oneLine "asked the store")])
             (away.focus, away.at, Map.keys away.suspended, (.waits) <$> away.pending)
                 `shouldBe` (TaskNo 2, At chiefGraph.inPort, [TaskNo 1], [ForLater (oneLine "suspended r1")])
 
-        it "refuses a turn to a request that is not waiting, and a turn away from one that recorded work without suspending it" $ do
-            let chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
-            (chief [Focused (TaskNo 1)], chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Focused (TaskNo 1)])
-                `shouldBe` (Left (NotSuspended (TaskNo 1)), Left (FocusRecorded (TaskNo 2)))
+        it "refuses a turn to a request that is not waiting" $
+            chief [Focused (TaskNo 1)] `shouldBe` Left (NotSuspended (TaskNo 1))
+
+        it "refuses a turn away from a request that recorded work without suspending it" $
+            chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Focused (TaskNo 1)] `shouldBe` Left (FocusRecorded (TaskNo 2))
 
         it "drops a finished request, at next, on the turn back to a waiting one" $ do
-            let chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
             back <- either (fail . show) pure (chief [fuelSet Balanced, Suspended (TaskNo 1) (oneLine "x"), fuelSet Max, Took mempty (pickOf "route" "other"), stepTook (DirectDone "done"), Focused (TaskNo 1)])
             (back.focus, nodeName back.at, Map.keys back.suspended) `shouldBe` (TaskNo 1, StateName "route", [])
 
@@ -793,7 +791,6 @@ chiefRequests = describe "the chief's requests" $ do
         map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed `andThen` researched, designed `andThen` shipped, shipped `andThen` designed]
             `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just pr), Right (Just "next", Just ticketUrl)]
   where
-    chief events = replay chiefGraph (logOf (Started (startOf ChiefFlow (ByUser OwnPr)) :| events))
     -- A request: its Fuel, then its pick.
     request branch = [fuelSet Balanced, pick branch]
     pick branch = Took mempty (pickOf "route" branch)
@@ -1022,14 +1019,17 @@ atName state = case state.at of
     Out -> Nothing
     Graph.Exit -> Nothing
 
-{- | A run of this flow under this principal, with no ops.
-| Where a run stands, less the line numbers it holds, which a log with more lines shifts.
--}
+-- | Where a run stands, less the line numbers it holds, which a log with more lines shifts.
 landing :: RunState -> (Node, Map.Map Name (NonEmpty Round), Map.Map Metered Natural, Maybe Fuel, [Pending], [Ask.Kind], TaskNo, Map.Map TaskNo Suspension, Maybe OnTarget, Maybe Stop)
 landing s = (s.at, s.rounds, s.meters, s.fuel, s.pending, s.askedHere, s.focus, s.suspended, s.onTarget, s.stopped)
 
+-- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
 startOf flow principal = Start flow "notes" principal Set.empty
+
+-- | The chief run a user started, replayed over these lines.
+chief :: [Event] -> Either Fold.Refusal RunState
+chief = replay chiefGraph . logOf . (Started (startOf ChiefFlow (ByUser OwnPr)) :|)
 
 {- | Up to 60 tries at an ask event on a run of the engineer or the 10x flow,
 one per rung that rules, under the user or a parent, keeping those the fold

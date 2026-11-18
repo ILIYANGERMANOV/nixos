@@ -79,7 +79,7 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
         it "drops a finished request on the turn back to a waiting one: only the waiting one is left" $ \world -> do
             researching world
             _ <- succeeded =<< state world ["focus", "--summary", "researching the store"]
-            mapM_ (succeeded <=< state world) ([["record", "fuel.set", "balanced"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]])
+            finishRequest world
 
             _ <- succeeded =<< state world ["focus", "r1"]
             tasks <- succeeded =<< state world ["tasks"]
@@ -119,7 +119,11 @@ researching world = do
 finished :: IORef World -> IO ()
 finished world = do
     _ <- startedIn world ["--flow", "chief"]
-    mapM_ (succeeded <=< state world) ([["record", "fuel.set", "balanced"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]])
+    finishRequest world
+
+-- | The request in focus runs its route to its end, at @next@.
+finishRequest :: IORef World -> IO ()
+finishRequest world = mapM_ (succeeded <=< state world) ([["record", "fuel.set", "balanced"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]])
 
 later :: IORef World -> NominalDiffTime -> IO ()
 later world seconds = modifyIORef' world (\w -> w {clock = addUTCTime seconds w.clock})
