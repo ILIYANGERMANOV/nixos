@@ -16,6 +16,7 @@ module Effects.Store (
     exists,
     firstEvent,
     locked,
+    misnumbered,
     children,
 ) where
 
@@ -76,12 +77,13 @@ firstEvent (Store conn) run = fmap fromOnly . listToMaybe <$> query conn "SELECT
 to append. A batch that starts the run (seq 1, @started@) adds its @runs@ row
 first, in the same transaction: its flow, notes and parent come from the
 start. Any other batch for a run never started violates a foreign key and
-throws.
+throws, as does a batch whose seqs do not follow the log's ('misnumbered').
 -}
 locked :: Store -> RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> IO a
 locked (Store conn) run decide = withImmediateTransaction conn $ do
     rows <- query conn "SELECT json FROM events WHERE run = ? ORDER BY seq" (Only (runIdText run))
     let (new, result) = decide (decodeLines (map fromOnly rows))
+    for_ (misnumbered (length rows) new) (throwIO . userError)
     for_ (startOf new) $ \(envelope, start) ->
         execute
             conn
@@ -98,10 +100,22 @@ locked (Store conn) run decide = withImmediateTransaction conn $ do
         ByCaller _ -> Nothing
         ByRole parent _ _ -> Just parent.run
 
--- | The runs started as children of this one, oldest first.
+{- | Why these events cannot follow a log of this many: seqs run densely
+from 1, so a duplicate or a gap is a writer's bug. The primary key alone
+refuses only the duplicate.
+-}
+misnumbered :: Int -> [Envelope] -> Maybe String
+misnumbered logged new = case [(envelope.seq, next) | (envelope, next) <- zip new [fromIntegral logged + 1 ..], envelope.seq /= next] of
+    [] -> Nothing
+    (got, next) : _ -> Just ("seq " <> show got <> " where " <> show next <> " is next: a log's seqs run densely from 1")
+
+{- | The runs started as children of this one, oldest first: in the order
+their starts were written, the rowid's, as two in one second tie on
+@created_at@, whose text drops trailing zeros and so does not sort as time.
+-}
 children :: Store -> RunId -> IO [RunId]
 children (Store conn) parent =
-    query conn "SELECT id FROM runs WHERE parent = ? ORDER BY created_at, id" (Only (runIdText parent))
+    query conn "SELECT id FROM runs WHERE parent = ? ORDER BY rowid" (Only (runIdText parent))
         >>= traverse (\(Only raw) -> maybe (throwIO (userError ("the store holds a run id that does not parse: " <> Text.unpack raw))) pure (parseRunId raw))
 
 -- | Brings the schema to the last migration, each one applied once, in order.

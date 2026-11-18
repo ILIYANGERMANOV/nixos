@@ -79,7 +79,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -131,8 +131,8 @@ data RunState = RunState
     {- ^ What the run spent of each capped step's budget since it entered the
     innermost loop around the step's state, or extended it: none spent is absent.
     -}
-    , askedHere :: [Kind]
-    {- ^ The kinds asked since the run last moved, oldest first: advice asks a step's
+    , askedHere :: [Question]
+    {- ^ The questions asked since the run last moved, oldest first: advice asks a step's
     question once. Also emptied when a question uses up its step's budget, so the
     question whether to go on is asked after that, whatever was asked before.
     -}
@@ -183,7 +183,7 @@ defunctionalised continuation's label and live locals. The run's fields of
 these names, in their order; positional, as a record's update of a field
 two records name is ambiguous.
 -}
-data Position = Position Node (Maybe Fuel) (Map Name (NonEmpty Round)) (Map Metered Natural) [Kind] (Maybe OnTarget) (Maybe Url)
+data Position = Position Node (Maybe Fuel) (Map Name (NonEmpty Round)) (Map Metered Natural) [Question] (Maybe OnTarget) (Maybe Url)
     deriving stock (Eq, Show)
 
 -- | The node a waiting request stands at.
@@ -304,6 +304,10 @@ data Refusal
       NotSuspended TaskNo
     | -- | A turn away from the request in focus, which recorded work: it is suspended first.
       FocusRecorded TaskNo
+    | -- | The user's word recorded where no Confirm was asked since the run came here.
+      ConfirmUnasked
+    | -- | The user's word recorded while the Confirm asked here waits for its answer.
+      ConfirmOpen QId
     deriving stock (Eq, Show)
 
 {- | An id already in the log, or an answer the run holds already, is not
@@ -623,6 +627,7 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     let effect = effects scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
+    if effect.confirmed then confirmedHere state else Right ()
     case (edge.to == At from, awaitedOpen g state from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
@@ -680,6 +685,8 @@ data Effect = Effect
     , written :: Maybe Url
     , anew :: Bool
     -- ^ A new request starts: it has no target until one is named.
+    , confirmed :: Bool
+    -- ^ The outcome is the user's word: the Confirm asked at its step has its answer in the log first.
     , level :: Maybe Fuel
     -- ^ The run's Fuel from here on, as a 'Fuel' step sets it.
     , skip :: Maybe Skipping
@@ -700,13 +707,13 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     BuildLayer -> none {draft = built o}
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url, skip = keeps o}
-    TicketLayer -> none {written = ticketOf o}
+    TicketLayer -> none {written = ticketOf o, confirmed = userWord o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
     PickLayer -> none
     FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, written = Nothing, anew = False, level = Nothing, skip = Nothing}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, written = Nothing, anew = False, confirmed = False, level = Nothing, skip = Nothing}
 
 -- | The level a 'Fuel' step sets; a skip sets none.
 fuelOutcome :: Outcome (s :: FuelStep) l -> Maybe Fuel
@@ -740,6 +747,25 @@ ticketOf = \case
     ConfirmDesignAdjusted -> Nothing
     ProblemUnderstood -> Nothing
     ProblemMore -> Nothing
+
+-- | Leaving the problem or the design loop: the user said so, in answer to the step's Confirm.
+userWord :: Outcome (s :: TicketStep) l -> Bool
+userWord = \case
+    ProblemUnderstood -> True
+    ConfirmDesignConfirmed _ -> True
+    ProblemMore -> False
+    ConfirmDesignAdjusted -> False
+
+{- | A Confirm asked since the run came here has its answer: the gate on an
+outcome that records the user's word, so prose alone never leaves the loop.
+-}
+confirmedHere :: RunState -> Either Refusal ()
+confirmedHere state = case (confirms, filter (isJust . heldAnswer state) confirms) of
+    (_, _ : _) -> Right ()
+    ([], []) -> Left ConfirmUnasked
+    (open : _, []) -> Left (ConfirmOpen open)
+  where
+    confirms = [question.qid | question <- state.askedHere, question.kind == Ask.Confirm]
 
 -- | The PR an @open_pr@ names: a ship from it waits on that PR's CI.
 openedPr :: Outcome (s :: RequestStep) l -> Maybe Url
@@ -875,7 +901,7 @@ asked g state asking
                 { pending = state.pending <> [Pending asking ForTriage]
                 , everAsked = Set.insert qid state.everAsked
                 , meters
-                , askedHere = if spends && any usedUp (spentByAsk g state {meters}) then [] else state.askedHere <> [asking.question.kind]
+                , askedHere = if spends && any usedUp (spentByAsk g state {meters}) then [] else state.askedHere <> [asking.question]
                 , onTarget = (\on -> on {designAsked = on.designAsked || opens asking.question.kind}) <$> state.onTarget
                 }
   where
@@ -1296,7 +1322,7 @@ something outside the run: a stuck CI loop never claims @await_ci.green@.
 stuckExits :: OpenGraph -> RunState -> Place -> [(EventName, Edge Node)]
 stuckExits g state place = case innermost g place of
     Just loop
-        | Ask.Stuck `elem` state.askedHere && loop.entry /= place && not (awaits loop.entry) ->
+        | Ask.Stuck `elem` map (.kind) state.askedHere && loop.entry /= place && not (awaits loop.entry) ->
             [(event, edge) | (event, edge) <- outOf loop.entry g.edges, not (inBody loop edge.to)]
     _ -> []
   where

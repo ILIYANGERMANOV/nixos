@@ -50,7 +50,7 @@ import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, parseByName)
 import State.Category.Graph (Cap (..), Node (..), OpenGraph (..), Place (..), placeName, places)
 import State.Category.Meter (someMeterName)
-import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
+import State.Category.Step (EventName (..), SomeStep (..), Special (AsksConfirm), StepSet (special), confirmText, eventText, handedBackOutcome, stateNameText)
 import State.Flow.Drawn (fuelTakes)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
@@ -66,8 +66,8 @@ import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
-import State.Step.Artifact (Shape (..), ShellPath, parsePrUrl, prUrlRule, shellPath, shellPathRule)
-import State.Step.Catalog (shownEdges)
+import State.Step.Artifact (Shape (..), ShellPath, parsePrUrl, prUrlRule, shellPath, shellPathRule, shellWord)
+import State.Step.Catalog (AnyStep (..), shownEdges, stepNamed)
 import State.Table (Steps, agentRoles)
 import System.FilePath (dropTrailingPathSeparator, normalise)
 import Text.Read (readMaybe)
@@ -529,6 +529,8 @@ explain g fuel at = \case
     NotInFocus task -> refused ("the suspension of " <> taskNoText task) "it is not the request in focus" "state tasks"
     NotSuspended task -> refused ("the focus on " <> taskNoText task) "it is not a waiting request" "state tasks"
     FocusRecorded task -> refused ("the turn away from " <> taskNoText task) "it recorded work: it is suspended first" "state focus [<request>] --summary <where it stands>"
+    ConfirmUnasked -> refused ("leaving " <> atText at) "it is the user's word: no Confirm was asked here yet" (atPlace confirmAsk)
+    ConfirmOpen qid -> refused ("leaving " <> atText at) (qidText qid <> ", the Confirm asked here, has no answer yet") ("state answer " <> qidText qid <> " \"<the user's own words>\"")
     VoidBreaks n refusal ->
         let broken = explain g fuel at refusal
          in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"
@@ -542,6 +544,9 @@ explain g fuel at = \case
         Out -> "state show"
         Exit -> "state show"
     stateNames = map (stateNameText . placeName) (Set.toList (places g))
+    confirmAsk place = case stepNamed place.name of
+        Just (AnyStep _ (SomeStep s)) | AsksConfirm _ what <- special s -> "state ask --kind Confirm " <> shellWord (confirmText s what)
+        _ -> "state next"
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid
 

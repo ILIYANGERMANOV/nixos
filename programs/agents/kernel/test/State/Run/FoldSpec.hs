@@ -34,7 +34,7 @@ import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genRea
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, userConfirms, within)
 import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
@@ -707,8 +707,20 @@ it, design rounds until the user confirms one, and only then the ticket's url.
 architectRun :: Spec
 architectRun = describe "the architect's run" $ do
     it "researches, understands the problem, adjusts the design once, then keeps the confirmed design's ticket url" $
-        (\state -> (state.at, state.ticket)) <$> architect (problemUnderstood <> designRound ConfirmDesignAdjusted <> designRound (ConfirmDesignConfirmed ticketUrl))
+        (\state -> (state.at, state.ticket)) <$> architect (problemUnderstood <> designRound ConfirmDesignAdjusted <> designConfirmed)
             `shouldBe` Right (Out, Just ticketUrl)
+
+    it "refuses the problem understood where no Confirm was asked" $
+        architect (explored <> [stepTook ProblemUnderstood]) `shouldBe` Left ConfirmUnasked
+
+    it "refuses the problem understood while its Confirm waits for the user's answer" $
+        architect (explored <> take 2 (userConfirms 1 (StateName "problem")) <> [stepTook ProblemUnderstood]) `shouldBe` Left (ConfirmOpen (QId run 1))
+
+    it "refuses the problem understood on the answer of an earlier round's Confirm" $
+        architect (explored <> userConfirms 1 (StateName "problem") <> [stepTook ProblemMore] <> explored <> [stepTook ProblemUnderstood]) `shouldBe` Left ConfirmUnasked
+
+    it "refuses the design confirmed where no Confirm was asked" $
+        architect (problemUnderstood <> designDiscussed <> [stepTook (ConfirmDesignConfirmed ticketUrl)]) `shouldBe` Left ConfirmUnasked
 
     it "researches again after the problem needs more" $
         nameAt <$> architect (researchedIn "exploring" <> enoughIn "exploring" <> [stepTook ProblemMore]) `shouldBe` Right (Just "exploring")
@@ -731,6 +743,7 @@ architectRun = describe "the architect's run" $ do
         for_ states $ \state -> (state.ticket, state.latest) === (Nothing, Nothing)
   where
     architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
+    explored = researchedIn "exploring" <> enoughIn "exploring"
     designRound verdict = designDiscussed <> [stepTook verdict]
     confirmed = \case
         Took _ took -> outcomeEvent took == EventName (stepName ConfirmDesign) (OutcomeName "confirmed")
@@ -793,7 +806,7 @@ chiefRequests = describe "the chief's requests" $ do
                 `shouldBe` (Right (OwnPr, True), Left (NotSkippable "engineer/ready"))
 
     it "chains architect, a block and architect again through next, naming the newest url each time" $ do
-        let designed = request "architect" <> within "architect" (fuelSet Balanced : problemUnderstood <> designDiscussed <> [stepTook (ConfirmDesignConfirmed ticketUrl)])
+        let designed = request "architect" <> within "architect" (fuelSet Balanced : problemUnderstood <> designConfirmed)
             researched = request "blocks" <> [Took mempty (pickOf "block" "researching")] <> within "researching" (researchedIn "exploring" <> enoughIn "exploring")
             shipped = request "blocks" <> [Took mempty (pickOf "block" "shipping")] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
             andThen first later = first <> [stepTook NextRequest] <> later
@@ -1029,7 +1042,7 @@ atName state = case state.at of
     Graph.Exit -> Nothing
 
 -- | Where a run stands, less the line numbers it holds, which a log with more lines shifts.
-landing :: RunState -> (Node, Map.Map Name (NonEmpty Round), Map.Map Metered Natural, Maybe Fuel, [Pending], [Ask.Kind], TaskNo, Map.Map TaskNo Suspension, Maybe OnTarget, Maybe Stop)
+landing :: RunState -> (Node, Map.Map Name (NonEmpty Round), Map.Map Metered Natural, Maybe Fuel, [Pending], [Ask.Question], TaskNo, Map.Map TaskNo Suspension, Maybe OnTarget, Maybe Stop)
 landing s = (s.at, s.rounds, s.meters, s.fuel, s.pending, s.askedHere, s.focus, s.suspended, s.onTarget, s.stopped)
 
 -- | A run of this flow under this principal, with no ops.
@@ -1056,9 +1069,13 @@ genAskLog = do
     go :: Int -> RunState -> Natural -> Natural -> Gen (RunState, [Event])
     go 0 state _ _ = pure (state, [])
     go k state n fresh = do
-        -- Each ask takes a fresh id; the rest name any id so far, or the next.
-        let known = QId run <$> Gen.integral (Range.constant 0 fresh)
-            above = Gen.element [TheUser, ParentRun (runId "p1")]
+        {- Each ask takes a fresh id; the rest mostly name an open question,
+        so forwards and answers land, else any id so far, or the next.
+        -}
+        let open = [p.asking.question.qid | p <- state.pending]
+            known = Gen.frequency ((1, QId run <$> Gen.integral (Range.constant 0 fresh)) : [(4, Gen.element open) | not (null open)])
+            -- Whoever started the run: another's forward or answer is refused, which 'NotAbove''s test pins.
+            above = pure (deliver state.start.principal)
             same = fmap (,fresh)
         (event, next) <-
             Gen.frequency
@@ -1155,13 +1172,15 @@ roleGraphs :: [OpenGraph]
 roleGraphs = [g, tenXGraph, architectGraph, chiefGraph]
 
 {- | An accepted log with the graph it replays on: a role's steps and
-picks, or the engineer's questions.
+picks, or the engineer's questions. Picks come from the first only, so it
+is drawn twice as often: a pick in about 60% of logs, far over the 30% its
+cover needs on any seed.
 -}
 genEffectLog :: Gen (OpenGraph, NonEmpty Event)
 genEffectLog =
-    Gen.choice
-        [ Gen.element roleGraphs >>= \flow -> (flow,) . (started :|) <$> genAcceptedOn [] flow
-        , (g,) . snd <$> genAskLog
+    Gen.frequency
+        [ (2, Gen.element roleGraphs >>= \flow -> (flow,) . (started :|) <$> genAcceptedOn [] flow)
+        , (1, (g,) . snd <$> genAskLog)
         ]
 
 -- | Whether the outcome is a choice's pick.

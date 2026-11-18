@@ -9,7 +9,7 @@ import Control.Exception (IOException)
 import Data.Either (isLeft)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Data.Time (UTCTime (..), fromGregorian)
+import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
 import Doubles.Environment (runEnvironmentGiven)
 import Doubles.Log (Runs (..), runLogInMemory)
 import Effectful (Eff, runEff, runPureEff, (:>))
@@ -50,6 +50,15 @@ spec = describe "Effects.Log" $ do
 
                 traverse (children store) [top, child, other] `shouldReturn` [[child], [], []]
 
+        it "lists two children started in one second in the order they started, though their times' text sorts the other way" $
+            withSystemTempDirectory "state-store" $ \dir -> withStore (dir </> "kernel.db") $ \store -> do
+                -- Written as 00:00:00Z and 00:00:00.1Z: '.' sorts before 'Z'.
+                let first = childOf top child
+                    second = (childOf top other) {ts = addUTCTime 0.1 first.ts}
+                mapM_ (\e -> Store.locked store e.run (const ([e], ()))) [started top, first, second]
+
+                children store top `shouldReturn` [child, other]
+
 {- | Runs a program on a log with these runs, each its rows; the program
 gets nothing else.
 -}
@@ -65,7 +74,7 @@ inStore seeded program = withSystemTempDirectory "state-log" $ \dir -> do
 
 inMemory :: Backend
 inMemory seeded program =
-    pure . runPureEff . evalState (Runs Map.empty) . runLogInMemory $ do
+    pure . runPureEff . evalState (Runs []) . runLogInMemory $ do
         mapM_ (\e -> locked e.run (const ([e], ()))) seeded
         program
 
@@ -96,6 +105,16 @@ contract backend = do
         seen <- backend [started top, started other] (locked other (\logged -> ([], map (.run) <$> logged)))
 
         seen `shouldBe` Right [other]
+
+    it "throws on an event whose seq the log holds already" $ do
+        failed <- backend [started top] (try @IOException (locked top ([followed top 1],)))
+
+        failed `shouldSatisfy` isLeft
+
+    it "throws on an event that leaves a gap in the seqs" $ do
+        failed <- backend [started top] (try @IOException (locked top ([followed top 3],)))
+
+        failed `shouldSatisfy` isLeft
 
     it "throws on events for a run never started that do not start it" $ do
         failed <- backend [] (try @IOException (locked top ([followed top 1],)))

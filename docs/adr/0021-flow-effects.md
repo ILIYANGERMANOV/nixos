@@ -123,3 +123,8 @@ flow's, as an unhandled operation goes to the enclosing handler:
   GHC's coercions grew with the whole flow's `Shape`, and `State.Role`,
   where `SomeFlow` reduces `Effects` of whole flows, ran past 8.8G of heap
   (`-M8g` overflow). The flag set builds the library in 24s at 0.6G.
+- **`Raises` as a closed type family.** Rejected: a closed family names
+  every layer in one place, but the pick and Fuel layers import
+  `State.Category.Flow`, which reads `Raises`, so that place cannot import
+  them back. It stays an associated family, as `Sig` is: one equation per
+  layer instance, which a layer cannot leave out.
