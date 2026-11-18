@@ -845,7 +845,7 @@ spec = describe "state over the doubles" $ do
                     take 1 grandAnswered `shouldSatisfy` (not . any ("PARKED" `Text.isPrefixOf`))
                     answersIn world `shouldReturn` [1, 1, 1]
 
-                it "ruling_one_childs_question_changes_no_other_childs_log" $ \_ -> hedgehog $ do
+                it "ruling_one_child_question_changes_no_other_child_log" $ \_ -> hedgehog $ do
                     children <- forAll (Gen.int (Range.linear 2 4))
                     asker <- forAll (Gen.int (Range.linear 1 children))
                     (asked, ruled) <- evalIO $ do

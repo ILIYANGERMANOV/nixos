@@ -29,7 +29,7 @@ import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..),
 import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText)
 import State.Run.Fan (Fan (..), lookupTask, tries)
-import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
+import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan, fanAt)
 import State.Show (tshow)
 import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
@@ -111,7 +111,8 @@ the breakdown lacks is returned as the failure.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state agent task = case (leads agent, task) of
-    (Just flow, Nothing) -> Right (initLine state flow "<dir>" "<id>")
+    -- At no fan-out the child is direct: it names --parent alone.
+    (Just flow, Nothing) -> Right (initLine state flow "<dir>" ("<id>" <$ fanAt state.at))
     (Just _, Just taskId) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
     (Nothing, _) -> Right $ case [text | At place <- [state.at], Right text <- [briefSection steps agent place.name]] of
         [] -> briefOf steps agent
@@ -127,7 +128,7 @@ taskBrief state found = Text.unlines (taskLines found) <> "\n" <> taskInit
     fan = currentFan state
     taskInit =
         maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
-            <> initLine state found.flow (maybe "<dir>" (engineerNotes (Map.findWithDefault 0 found.id fan.rounds) (tries fan found.id) found.branch) found.repo) (taskIdText found.id)
+            <> initLine state found.flow (maybe "<dir>" (engineerNotes (Map.findWithDefault 0 found.id fan.rounds) (tries fan found.id) found.branch) found.repo) (Just (taskIdText found.id))
     taskLines task =
         [ "Task: " <> taskIdText task.id
         , "Fuel: " <> fuelLabel task.fuel
@@ -146,16 +147,15 @@ taskBrief state found = Text.unlines (taskLines found) <> "\n" <> taskInit
         items -> Text.intercalate ", " items
     yesNo = bool "no" "yes"
 
--- | The line that starts a child run under this one: on this flow, in these notes, taking this task.
-initLine :: RunState -> FlowName -> Text -> Text -> Text
+-- | The line that starts a child run under this one: on this flow, in these notes, taking this task, if at a fan-out.
+initLine :: RunState -> FlowName -> Text -> Maybe Text -> Text
 initLine state flow notesText taskText =
     "state init --notes "
         <> notesText
         <> flowFlag
         <> " --parent "
         <> runIdText state.run
-        <> " --task "
-        <> taskText
+        <> foldMap (" --task " <>) taskText
         <> "\n"
   where
     -- The default flow is left out, so an engineer's line reads as it always has.

@@ -748,6 +748,11 @@ spec = describe "the state binary" $ do
                 brief <- succeeded =<< state bin repo ["brief", "engineer", "--task", "t1"]
                 drop 1 (dropWhile (/= "") brief) `shouldBe` ["state init --notes <dir> --parent " <> run <> " --task t1"]
 
+            it "gives a run at no fan-out the line that starts a direct child, with no task" $ \repo -> do
+                parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
+                brief <- succeeded =<< state bin repo ["brief", "engineer"]
+                brief `shouldBe` ["state init --notes <dir> --parent " <> parent]
+
         describe "the hooks" $ do
             it "are silent in a worktree with no run" $ \repo -> do
                 said <- hook hookBin repo "resume" (sessionStart repo)
