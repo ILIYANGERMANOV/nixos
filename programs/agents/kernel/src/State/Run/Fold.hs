@@ -46,6 +46,7 @@ module State.Run.Fold (
     nextQId,
     given,
     heldAnswer,
+    pendingAt,
     parkedFor,
     askingChildren,
     askedAt,
@@ -989,9 +990,17 @@ heldAnswer state qid = (.given) <$> find ((== qid) . (.about.qid)) state.answers
 given :: RunState -> [(QId, Reply)]
 given state = [(ruling.qid, Chose (oneLineText ruling.proposal.answer)) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
 
+-- | The question pending under this id, if one is.
+pendingAt :: RunState -> QId -> Maybe Pending
+pendingAt state qid = find ((== qid) . pendingId) state.pending
+
 -- | Why the question is parked, if it is.
 parkedFor :: RunState -> QId -> Maybe OneLine
-parkedFor state qid = listToMaybe [why | pending <- state.pending, pendingId pending == qid, ForLater why <- [pending.waits]]
+parkedFor state qid =
+    pendingAt state qid >>= \pending -> case pending.waits of
+        ForLater why -> Just why
+        ForTriage -> Nothing
+        ForAnswer -> Nothing
 
 {- | A parked task's children wait on no answer: the questions they asked
 leave the pending ones, as no child of it will read an answer.

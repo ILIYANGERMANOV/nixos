@@ -581,11 +581,11 @@ answerEvents :: RunState -> QId -> Ask.Reply -> Maybe Above -> [Event]
 answerEvents state qid reply by = forwardFirst <> [Answered qid reply (fromMaybe up by)]
   where
     up = Ask.deliver state.start.principal
-    forwardFirst = case [p.waits | p <- state.pending, p.asking.question.qid == qid] of
-        ForTriage : _ -> [Forwarded qid up]
-        ForAnswer : _ -> []
-        ForLater _ : _ -> []
-        [] -> []
+    forwardFirst = case (.waits) <$> Fold.pendingAt state qid of
+        Just ForTriage -> [Forwarded qid up]
+        Just ForAnswer -> []
+        Just (ForLater _) -> []
+        Nothing -> []
 
 {- | The event @state record@ appends: the one its recording names, placed in
 the scope the run is in.
@@ -833,7 +833,7 @@ is neither.
 -}
 downOf :: RunState -> RunState -> QId -> Maybe Down
 downOf before after qid = do
-    asker <- (FanChild . (.child) <$> Fan.askedBy fan qid) <|> listToMaybe [DirectChild run | open <- before.pending, open.asking.question.qid == qid, ChildRun run <- [open.asking.from], run `notElem` map (.child.run) fan.children]
+    asker <- (FanChild . (.child) <$> Fan.askedBy fan qid) <|> listToMaybe [DirectChild run | open <- maybeToList (Fold.pendingAt before qid), ChildRun run <- [open.asking.from], run `notElem` map (.child.run) fan.children]
     sent <- (Replied <$> lookup qid (Fold.given after)) <|> (ParkedFor <$> Fold.parkedFor after qid)
     Just (Down after.run asker qid sent)
   where
