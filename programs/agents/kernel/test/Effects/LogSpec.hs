@@ -15,10 +15,10 @@ import Doubles.Log (Runs (..), runLogInMemory)
 import Effectful (Eff, runEff, runPureEff, (:>))
 import Effectful.Exception (try)
 import Effectful.State.Static.Local (evalState)
-import Effects.Log (Log, exists, firstLine, locked, runLogIO)
+import Effects.Log (Log, exists, firstLine, inNotes, locked, runLogIO)
 import Effects.Store (Durability (Full), children, withStore)
 import Effects.Store qualified as Store
-import State.Run.Ask (Link (..), Parent (..), Principal (..))
+import State.Run.Ask (ChildTask (..), Link (..), Parent (..), Principal (..))
 import State.Run.Codec (encodeLine)
 import State.Run.Event (Envelope (..), Event (..), FlowName (..), Note (..), RunId, Shape (..), Source (..), Start (..), TaskId (..))
 import State.Run.EventGen (runId)
@@ -116,6 +116,11 @@ contract backend = do
 
         failed `shouldSatisfy` isLeft
 
+    it "lists the runs started in a notes dir, oldest first" $ do
+        found <- backend [started top, childOf top child, started other] (traverse inNotes ["/notes", "/child", "/none"])
+
+        found `shouldBe` [[top, other], [child], []]
+
     it "throws on events for a run never started that do not start it" $ do
         failed <- backend [] (try @IOException (locked top ([followed top 1],)))
 
@@ -127,7 +132,7 @@ started run = envelope run 1 (Started Start {flow = EngineerFlow, notes = "/note
 
 -- | A child's first event, under this parent.
 childOf :: RunId -> RunId -> Envelope
-childOf parent run = envelope run 1 (Started Start {flow = EngineerFlow, notes = "/child", principal = ByRole (Parent parent (AtFan (TaskId "t1"))) OwnPr minBound, interface = Set.empty})
+childOf parent run = envelope run 1 (Started Start {flow = EngineerFlow, notes = "/child", principal = ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr minBound, interface = Set.empty})
 
 -- | An event past the start, at this seq.
 followed :: RunId -> Integer -> Envelope

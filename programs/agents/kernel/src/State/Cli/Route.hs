@@ -12,13 +12,16 @@ reader leaves be (a subshell, a substitution, a heredoc, an open quote, a
 
 An agent bound to no run is gated instead (#378): a lead's write waits for
 its run ('gate'), so its record starts before its work does. One bound to a
-run where the architect flow runs writes nothing ('readOnly').
+run where the architect flow runs writes no code ('readOnly').
 -}
 module State.Cli.Route (
     StateCall (..),
+    Reach (..),
+    Target (..),
     stateCalls,
     parentlessInit,
     route,
+    cdThen,
     Lead (..),
     leadOf,
     gate,
@@ -26,34 +29,43 @@ module State.Cli.Route (
     writesNoCode,
 ) where
 
-import Control.Applicative ((<|>))
 import Control.Monad (guard)
 import Data.Char (isDigit, isSpace)
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, stripPrefix)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Flow (unqualify)
-import State.Category.Step (StateName, StepSet (stepName), stateNameText)
-import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (ShowRun), architectInitFix, chiefInitFix, failureText, initFix, parseCommand, tenXInitFix)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), architectInitFix, chiefInitFix, failureText, initFix, parseCommand, tenXInitFix)
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (FlowName (..), leads)
-import State.Run.Event (AgentRole, runIdText)
+import State.Run.Event (AgentRole, RunId, runIdText)
 import State.Step.Artifact (shellPath)
-import State.Step.Ticket (Sing (ConfirmDesign))
 import State.Table (Steps)
-import System.FilePath ((</>))
+import System.FilePath (splitDirectories, (</>))
 
--- | A @state@ call that reads a run: the directory it runs in, its subcommand, and its text as written.
-data StateCall = StateCall {dir :: FilePath, sub :: Text, written :: Text}
+-- | A @state@ call that reads a run: the directory it runs in, its subcommand, its text as written, and whose run it may reach.
+data StateCall = StateCall {dir :: FilePath, sub :: Text, written :: Text, reach :: Reach}
+    deriving stock (Eq, Show)
+
+{- | The runs a bound agent's call may act in: its own run's only, or a
+child run's too, as a parent records its child's awaited CI or answers its
+question there (#479).
+-}
+data Reach = OwnRun | OwnOrChildRun
+    deriving stock (Eq, Show)
+
+{- | The worktree a call's directory is in: its top, and the parent of the
+run it holds, if that run is a child.
+-}
+data Target = Target {top :: FilePath, parent :: Maybe RunId}
     deriving stock (Eq, Show)
 
 {- | The calls of a command run in this directory that read a run, in order.
 @init@, @help@, @render@, @show@ and argv @state@ refuses never route.
 -}
 stateCalls :: Steps -> FilePath -> Text -> [StateCall]
-stateCalls steps cwd command = [StateCall at sub written | (Just at, sub, parsed, written) <- stateCommands steps (Just cwd) command, readsOne parsed]
+stateCalls steps cwd command = [StateCall at sub written (reachOf parsed) | (Just at, sub, parsed, written) <- stateCommands steps (Just cwd) command, readsOne parsed]
   where
     readsOne = \case
         Init _ -> False
@@ -69,6 +81,38 @@ stateCalls steps cwd command = [StateCall at sub written | (Just at, sub, parsed
         -- It opens with the run's id, so it reads another run's state safely (#432).
         OnRun ShowRun -> False
         OnRun _ -> True
+
+{- | Whose run a command may act in. A parent records in its child's run and
+answers its question there, as the child's hand-back prints; every other
+command acts in the agent's own run only.
+-}
+reachOf :: Command -> Reach
+reachOf = \case
+    OnRun on -> case on of
+        Record _ -> OwnOrChildRun
+        Answer {} -> OwnOrChildRun
+        RecordUnknown _ -> OwnRun
+        Brief _ _ -> OwnRun
+        ShowRun -> OwnRun
+        Override _ _ -> OwnRun
+        Void _ _ -> OwnRun
+        AskOwn {} -> OwnRun
+        AskFrom {} -> OwnRun
+        RuleOn {} -> OwnRun
+        Forward _ _ -> OwnRun
+        Retry _ _ -> OwnRun
+        Park _ _ -> OwnRun
+        StopRun _ -> OwnRun
+        Pending -> OwnRun
+    Init _ -> OwnRun
+    HandbackOf _ _ -> OwnRun
+    Next -> OwnRun
+    Render _ _ -> OwnRun
+    Help -> OwnRun
+    Move _ -> OwnRun
+    Dump _ -> OwnRun
+    Focus _ _ -> OwnRun
+    Tasks -> OwnRun
 
 {- | Why a subagent's command is denied: a @state init@ in it starts a user's
 run, which may spawn in the background and ask the user, neither of which a
@@ -110,12 +154,18 @@ stateCommands steps cwd command = maybe [] (walk cwd) (segments command)
         Nothing -> False
 
 {- | Why the first call aimed at another worktree than the bound run's is
-denied, by the top of the worktree each call's directory is in ('Nothing':
-none). Compared whole, never as a prefix: a worktree may sit inside another.
+denied, by the worktree each call's directory is in ('Nothing': none). A
+call that may reach a child run goes on in a worktree whose run is the
+bound run's child. Tops are compared whole, never as a prefix: a worktree
+may sit inside another.
 -}
-route :: Binding -> [(StateCall, Maybe FilePath)] -> Maybe Text
-route bound calls = listToMaybe [denial call top | (call, top) <- calls, top /= Just bound.toplevel]
+route :: Binding -> [(StateCall, Maybe Target)] -> Maybe Text
+route bound calls = listToMaybe [denial call ((.top) <$> target) | (call, target) <- calls, not (maybe False (reaches call.reach) target)]
   where
+    reaches reach target =
+        target.top == bound.toplevel || case reach of
+            OwnRun -> False
+            OwnOrChildRun -> target.parent == Just bound.run
     denial call top =
         failureText
             call.sub
@@ -123,7 +173,7 @@ route bound calls = listToMaybe [denial call top | (call, top) <- calls, top /= 
                 { exit = BadInput
                 , what = maybe (Text.pack call.dir <> " is in no git worktree") (\other -> "the run at " <> Text.pack other <> " is not this agent's") top
                 , why = "this agent is bound to run " <> runIdText bound.run <> " at " <> Text.pack bound.toplevel
-                , fix = "cd " <> shellWord bound.toplevel <> " && " <> call.written
+                , fix = cdThen bound.toplevel call.written
                 }
 
 -- | Whether an agent leads a run, and so where its @state init@ line is.
@@ -169,39 +219,52 @@ gate lead call = case lead of
                 , fix
                 }
 
-{- | Why a call is denied where this flow runs, at this state: the
-architect's design goes into its ticket, so it edits, writes, commits,
-pushes and opens or merges a PR nowhere, and writes the ticket
-(@gh issue create@ or @edit@) only at @confirm_design@. Its researchers
-spawn, and its shell reads, anywhere. Other flows write, the chief where no
-scope runs the architect's.
+{- | Why a call is denied where this flow runs, in a run whose notes dir is
+given: the architect's design goes into its notes and its ticket, so it
+edits and writes only files directly in the notes dir, none below it, and commits, pushes and
+opens or merges a PR nowhere. It writes, edits or comments on the ticket
+(@gh issue create@, @edit@, @comment@) at any state, as its researchers
+spawn and its shell reads. Other flows write, the chief where no scope runs
+the architect's.
 -}
-readOnly :: FlowName -> StateName -> Gate -> Maybe Text
-readOnly flow at call = guard (writesNoCode flow) *> (denial "the architect flow changes no code" <$> codeWrite <|> denial "the ticket is written at confirm_design" <$> earlyTicket)
+readOnly :: FilePath -> FlowName -> Gate -> Maybe Text
+readOnly notes flow call = guard (writesNoCode flow) *> (denial <$> codeWrite)
   where
     codeWrite = case call of
         Spawns -> Nothing
-        Edits -> writeOf call
-        Writes -> writeOf call
+        Edits file -> outsideNotes file
+        Writes file -> outsideNotes file
         RunsShell _ -> writeOf call
-    earlyTicket = case (call, snd (unqualify (stateNameText at)) == stateNameText (stepName ConfirmDesign)) of
-        (RunsShell command, False) -> listToMaybe ["`" <> segment.written <> "`" | segment <- fromMaybe [] (segments command), writesTicket segment.tokens]
-        (RunsShell _, True) -> Nothing
-        (Spawns, _) -> Nothing
-        (Edits, _) -> Nothing
-        (Writes, _) -> Nothing
-    writesTicket = \case
-        "gh" : "issue" : sub : _ -> sub `elem` ["create", "edit"]
-        _ -> False
-    denial because act =
+    outsideNotes file = guard (not (any (directlyIn notes) file)) *> writeOf call
+    denial act =
         failureText
             "architect"
             Failure
                 { exit = BadInput
-                , what = because <> ", so " <> act <> " is denied"
-                , why = "an architect run's one write is its ticket, written once the user confirms the design"
-                , fix = "keep the design in the discussion; only at confirm_design, once the user confirms, write the ticket, once: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
+                , what = "the architect flow changes no code, so " <> act <> " is denied"
+                , why = "an architect run writes only its notes, in " <> Text.pack notes <> ", and its ticket"
+                , fix = "keep the design in the discussion and in " <> Text.pack (notes </> "notes.md") <> ", which Edit and Write may change; write or edit the ticket at any point: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
                 }
+
+{- | Whether an absolute path is a file directly in a directory, read
+lexically: @.@ and @..@ resolved, so @<dir>/../x@ is outside. Nothing
+deeper counts: a worktree may sit below the notes dir, and its code is not
+the notes. Symlinks are not followed: a route reads no disk before every
+edit, and a link in the notes dir is the run's own.
+-}
+directlyIn :: FilePath -> FilePath -> Bool
+directlyIn dir path = case stripPrefix (lexical dir) (lexical path) of
+    Just [_] -> True
+    Just _ -> False
+    Nothing -> False
+  where
+    lexical = reverse . foldl' step [] . splitDirectories
+    step parts part = case (part, parts) of
+        (".", _) -> parts
+        -- The root's parent is the root.
+        ("..", _ : up@(_ : _)) -> up
+        ("..", _) -> parts
+        _ -> part : parts
 
 -- | Whether a flow changes no code, so 'readOnly' denies its writes.
 writesNoCode :: FlowName -> Bool
@@ -214,8 +277,8 @@ writesNoCode = \case
 -- | A write a run must see, as a denial names it; 'Nothing' for any other call.
 writeOf :: Gate -> Maybe Text
 writeOf = \case
-    Edits -> Just "its edit"
-    Writes -> Just "its write"
+    Edits _ -> Just "its edit"
+    Writes _ -> Just "its write"
     Spawns -> Just "its spawn"
     RunsShell command -> listToMaybe ["`" <> segment.written <> "`" | segment <- fromMaybe [] (segments command), recorded segment.tokens]
 
@@ -226,6 +289,10 @@ recorded = \case
     "git" : sub : _ -> sub `elem` ["commit", "push"]
     "gh" : "pr" : sub : _ -> sub `elem` ["create", "merge"]
     _ -> False
+
+-- | A shell line that runs this command in this directory.
+cdThen :: FilePath -> Text -> Text
+cdThen dir command = "cd " <> shellWord dir <> " && " <> command
 
 -- | A path as a shell line reads it back: bare when it can be, else single-quoted.
 shellWord :: FilePath -> Text

@@ -61,11 +61,12 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   name, an unknown event, tool or field is an eval error. A profile lists hook
   module files in its `hooks` field.
 - **A neutral contract.** A hook is a program reading one event as JSON
-  (`event, tool, input, output, cwd, session, agent, source, skill`) and
-  printing one result or nothing (`agent_hook.py`). Each event has its own
+  (`event, tool, input, output, cwd, session, agent, source, skill, running`)
+  and printing one result or nothing (`agent_hook.py`). Each event has its own
   result type: a beforeTool hook prints a verdict (`decision, reason, context,
   updatedInput`); a sessionStart, afterTool, agentStart or promptExpansion
-  hook only a note (`context`), since nothing is left to deny or rewrite.
+  hook only a note (`context`), since nothing is left to deny or rewrite. An
+  agentStop hook's output is dropped: the agent has stopped.
 - **One dispatcher per event, in the frontend.** A backend registers one entry
   per event; its adapter hands the event to `agent_hook.dispatch_verdict` or
   `agent_hook.dispatch_note`, which run the matching hooks in `order` and fold
@@ -74,8 +75,9 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   own hooks in parallel with no defined winner for a rewrite; OpenCode runs
   them in order. The dispatcher makes both the same.
 - **Claude Code is the first backend.** `codegen/hooks.nix` maps the events to
-  `SessionStart`, `PreToolUse`, `PostToolUse`, `SubagentStart` and
-  `UserPromptExpansion`, and the tools to a matcher
+  `SessionStart`, `PreToolUse`, `PostToolUse`, `SubagentStart`,
+  `UserPromptExpansion`, and `agentStop` to both `SubagentStop` and `Stop`,
+  and the tools to a matcher
   through `codegen/tools.nix`, the one tool table roles use too; a tool with no
   Claude name throws. `hooks/adapter` (`agent-hook-claude`) translates Claude's
   JSON to the contract and back. Claude honours `updatedInput` on

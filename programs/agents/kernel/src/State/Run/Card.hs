@@ -23,7 +23,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
-import State.Run.Ask (OneLine, QId, Question (..), Reply)
+import State.Run.Ask (Kind, OneLine, QId, Question (..), Reply)
 import State.Run.Event (AgentId, Asking (..), Envelope (..), StateName, TaskNo)
 import State.Run.Fold (Pending (..), RunState (..), Suspension (..), Worker (..), given, nodeName, waitsAt)
 
@@ -32,7 +32,7 @@ data Card = Card
     { task :: TaskNo
     , standing :: Standing
     , node :: StateName
-    , decisions :: [(QId, Reply)]
+    , decisions :: [(QId, Kind, Reply)]
     , open :: [Question]
     , agent :: Maybe AgentId
     }
@@ -63,7 +63,7 @@ cards logged =
                 { task
                 , standing
                 , node
-                , decisions = [(qid, reply) | (qid, reply) <- given final, qid `elem` here.asked]
+                , decisions = [decision | decision@(qid, _, _) <- given final, qid `elem` here.asked]
                 , open = [p.asking.question | p <- final.pending, p.asking.question.qid `elem` here.asked]
                 , agent = here.lastWorker
                 }

@@ -10,6 +10,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
+import Data.Text.IO qualified as Text
 import Data.Traversable (for)
 import Hedgehog (evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
@@ -261,6 +262,55 @@ spec = describe "state over the doubles" $ do
                 (old.code, old.err)
                     `shouldBe` (2, ["state next: run " <> run <> " event 1 is not read - log version 2, this state reads 4", "fix: state init --notes <a new dir> starts afresh"])
 
+        describe "an old architect's or chief's log" $ do
+            it "replays a finished architect under its legacy flow, ending with its notes and ticket" $ \world -> do
+                _ <- oldLog world "legacy-architect-finished.jsonl" "ffe50d7b"
+
+                done <- succeeded =<< state world ["next"]
+
+                take 1 done `shouldBe` ["DONE /notes/notes.md https://github.com/o/r/issues/1"]
+
+            it "replays a chief stopped mid-way through an architect request, and appends to it under its legacy flow" $ \world -> do
+                -- Up to the problem's Confirm, forwarded to the user: seq 168.
+                run <- oldLogOf world (take 168) "legacy-chief.jsonl" "446e42ac"
+
+                _ <- succeeded =<< state world ["answer", run <> ":12", "understood"]
+                moved <- succeeded =<< state world ["record", "problem.understood"]
+
+                recorded moved `shouldBe` ["architect/problem.understood -> architect/discussing"]
+
+            it "replays a chief with three architect requests, and takes its next request" $ \world -> do
+                _ <- oldLog world "legacy-chief.jsonl" "446e42ac"
+
+                moved <- succeeded =<< state world ["record", "next.request"]
+
+                recorded moved `shouldBe` ["next.request -> fuel"]
+
+            it "replays a chief whose last request ended it as over, past the await of its children it never had" $ \world -> do
+                _ <- oldLog world "legacy-chief.jsonl" "446e42ac"
+                _ <- succeeded =<< state world ["record", "next.done"]
+
+                done <- succeeded =<< state world ["next"]
+
+                take 2 done `shouldBe` ["DONE https://github.com/ILIYANGERMANOV/nixos/issues/479", "  at the end: the flow is done"]
+
+            it "replays a new run under the current flow, though its first lines fit the legacy one too" $ \world -> do
+                _ <- startedIn world ["--flow", "architect"]
+                _ <- succeeded =<< state world ["record", "fuel.set", "low"]
+
+                next <- succeeded =<< state world ["next"]
+
+                next `shouldSatisfy` any ("state record architect.ticket" `Text.isInfixOf`)
+
+            it "names the current flow's refusal of a log that neither flow replays" $ \world -> do
+                run <- oldLog world "legacy-architect-finished.jsonl" "ffe50d7b"
+                editLog world (<> [newOnly run])
+
+                broken <- state world ["next"]
+
+                (broken.code, broken.err)
+                    `shouldBe` (2, ["state next: run " <> run <> " does not replay - exploring.research - no such arrow out of the end", "fix: state dump " <> run <> " prints its events; state init --notes <a new dir> starts afresh"])
+
         describe "record" $ do
             it "refuses an event with no arrow: exit 2, a fix line, the refusal logged, and next warns" $ \world -> do
                 _ <- drive world [Record ["fuel.set", "balanced"]]
@@ -414,6 +464,19 @@ spec = describe "state over the doubles" $ do
 
                 (voided, "step: review" `elem` shown) `shouldBe` (["recorded 3 voided -> fuel"], False)
 
+            it "voids a gap by the seq state show lists it with" $ \world -> do
+                let gapsOf = map Text.strip . takeWhile ("  " `Text.isPrefixOf`) . drop 1 . dropWhile (/= "gaps:")
+                    textOf = Text.drop 1 . Text.dropWhile (/= ' ')
+                _ <- drive world []
+                _ <- succeeded =<< state world ["record", "gap", "one"]
+                _ <- succeeded =<< state world ["record", "gap", "two"]
+                listed <- gapsOf <$> (succeeded =<< state world ["show"])
+
+                _ <- succeeded =<< state world (["void"] <> take 1 (map (Text.takeWhile (/= ' ')) listed) <> ["recorded", "in", "error"])
+                shown <- gapsOf <$> (succeeded =<< state world ["show"])
+
+                (map textOf listed, map textOf shown) `shouldBe` (["one", "two"], ["two"])
+
             it "refuses a seq no line the run replays has, and the started line, which the run needs" $ \world -> do
                 _ <- drive world []
 
@@ -442,6 +505,35 @@ spec = describe "state over the doubles" $ do
                 (moved, old.code, take 1 shown) `shouldBe` (["moved " <> run <> " to /target"], 2, ["run: " <> run <> " (engineer)"])
                 rebound
                     `shouldBe` [Just (encodeUtf8 ("run " <> run <> " /notes /target\n")), Just "run ffff0000 /elsewhere /work\n"]
+
+            it "refuses an init in the worktree a run moved from, naming the cd to where it went" $ \world -> do
+                run <- startedRun world
+                putFile world (sessionBindings </> "main") ("run " <> run <> " /notes /work\n")
+                addWorktree world "/target"
+                _ <- succeeded =<< state world ["move", "/target"]
+
+                again <- state world ["init", "--notes", "/notes"]
+                atWorktree world "/target"
+                resumed <- succeeded =<< state world ["init", "--notes", "/notes"]
+
+                (again.code, again.err)
+                    `shouldBe` (2, ["state init: --notes /notes - unfinished run " <> run <> " keeps them in /target", "fix: cd /target && state init --notes /notes"])
+                take 1 resumed `shouldBe` ["resumed " <> run]
+
+            it "refuses an init in notes an unfinished run keeps in a worktree no binding names, and starts one over a finished run's" $ \world -> do
+                run <- startedRun world
+                addWorktree world "/target"
+                atWorktree world "/target"
+
+                held <- state world ["init", "--notes", "/notes"]
+                atWorktree world "/work"
+                _ <- succeeded =<< state world ["stop", "failed", "no", "access"]
+                atWorktree world "/target"
+                started <- succeeded =<< state world ["init", "--notes", "/notes"]
+
+                (held.code, held.err)
+                    `shouldBe` (2, ["state init: --notes /notes - unfinished run " <> run <> " keeps them in another worktree", "fix: state init --notes /notes, in run " <> run <> "'s worktree"])
+                take 1 started `shouldSatisfy` all ("started " `Text.isPrefixOf`)
 
             it "refuses a target in no worktree, this worktree, and one holding an unfinished run" $ \world -> do
                 run <- startedRun world
@@ -527,16 +619,29 @@ spec = describe "state over the doubles" $ do
             drop 1 asked `shouldBe` ["ASK user"]
             reverse . take 2 . reverse <$> loggedEvents world `shouldReturn` ["asked", "forwarded"]
 
-        it "records a reply none of the options covers, saying it may be a new request" $ \world -> do
+        it "records a reply none of a Pick's options covers, saying it may be a new request" $ \world -> do
             _ <- startedRun world
-            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            asked : _ <- succeeded =<< state world ["ask", "--kind", "Pick", "--to", "user", "which", "store?"]
             let qid = Text.drop (Text.length "asked ") asked
 
             answered <- succeeded =<< state world ["answer", qid, "--other", "add", "a", "CLI", "first"]
             shown <- succeeded =<< state world ["show"]
 
             answered `shouldBe` ["answered " <> qid, Ask.replyNote]
-            shown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - add a CLI first (" <> Ask.replyNote <> ")"]
+            shown `shouldContain` ["answered:", "  " <> qid <> " Pick: which store? - add a CLI first (" <> Ask.replyNote <> ")"]
+
+        for_ ["Design", "Scope"] $ \kind ->
+            it ("records a free-text reply to a " <> Text.unpack kind <> " question as only recorded, no new request") $ \world -> do
+                _ <- startedRun world
+                [asked, _] <- succeeded =<< state world ["ask", "--kind", kind, "which", "store?"]
+                let qid = Text.drop (Text.length "asked ") asked
+
+                answered <- succeeded =<< state world ["answer", qid, "--other", "add", "a", "CLI", "first"]
+                shown <- succeeded =<< state world ["show"]
+                advised <- succeeded =<< state world ["next"]
+
+                (answered, filter (Text.isInfixOf Ask.replyNote) (shown <> advised)) `shouldBe` (["answered " <> qid], [])
+                shown `shouldContain` ["answered:", "  " <> qid <> " " <> kind <> ": which store? - add a CLI first"]
 
         it "refuses to park a question in triage its row must answer itself, as it refuses its answer" $ \world -> do
             _ <- startedRun world
@@ -579,6 +684,18 @@ spec = describe "state over the doubles" $ do
 
             (again.code, again.err) `shouldBe` (2, ["state ask: the question - it is open already as " <> qid, "fix: state next"])
             pending `shouldBe` [qid <> " Design forwarded from this run: which store?"]
+
+        it "refuses a question answered already, printing its answer and logging nothing" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            let qid = Text.drop (Text.length "asked ") asked
+            _ <- succeeded =<< state world ["answer", qid, "postgres"]
+            before' <- loggedEvents world
+
+            again <- state world ["ask", "--kind", "Design", "which", "store?"]
+
+            (again.code, again.err) `shouldBe` (2, ["state ask: the question - it is answered already as " <> qid <> ": postgres", "fix: state next"])
+            loggedEvents world `shouldReturn` before'
 
         describe "the 10x" $ do
             it "spawns the first task, the second waiting on it" $ \world -> do
@@ -784,10 +901,21 @@ spec = describe "state over the doubles" $ do
                 retried <- succeeded =<< state world ["answer", qid, "it's postgres"]
 
                 drop 1 failed `shouldSatisfy` \case
-                    [why, fix] -> ("child " <> grand <> ": ") `Text.isPrefixOf` why && fix == "fix: state answer " <> qid <> " 'it'\\''s postgres' --by " <> mid <> ", in " <> Text.pack grandWorktree
+                    [why, fix] -> ("child " <> grand <> ": ") `Text.isPrefixOf` why && fix == "fix: state answer " <> qid <> " 'it'\\''s postgres' --by " <> mid <> ", in run " <> grand <> "'s worktree"
                     _ -> False
                 retried `shouldBe` ["answered " <> qid]
                 answersIn world `shouldReturn` [1, 1, 1]
+
+            it "names the cd into the asking child's worktree its binding names, for an answer it could not write down" $ \world -> do
+                (_, mid, grand) <- threeLevels world
+                let qid = grand <> ":1"
+                climbed world qid
+                putFile world "/home/.local/state/state/bindings/s1/e1" ("run " <> grand <> " " <> Text.pack grandNotes <> " /grand work\n")
+                editLogIn world grandNotes (<> ["{broken"])
+
+                failed <- succeeded =<< state world ["answer", qid, "postgres"]
+
+                drop 2 failed `shouldBe` ["fix: cd '/grand work' && state answer " <> qid <> " postgres --by " <> mid]
 
             it "takes the same answer again, appending nothing to any run" $ \world -> do
                 (_, _, grand) <- threeLevels world
@@ -1220,3 +1348,24 @@ atReview = [Record ["fuel.set", "balanced"], Override "review"]
 -- | A review back with its rows, and the lead's picks: a loop on this row.
 reviewRound :: Text -> [Text] -> [Act]
 reviewRound label verdicts = [Commit, Handback "review-lead" reviewed, Record (["pick.loop", "--row", label] <> verdicts)]
+
+{- | A real log of an older flow from @test/fixtures@, its private text
+scrubbed, as the worktree's run: a run started here, its rows the fixture's
+under this run's id. Its notes are the world's. The finished architect's was
+written before #468: its answers gained their @reply@ and its problem the
+Confirm #468 asks, as the log that version writes.
+-}
+oldLog :: IORef World -> FilePath -> Text -> IO Text
+oldLog world = oldLogOf world id
+
+-- | 'oldLog' of these of the fixture's rows.
+oldLogOf :: IORef World -> ([Text] -> [Text]) -> FilePath -> Text -> IO Text
+oldLogOf world rowsOf fixture fixtureRun = do
+    run <- startedRun world
+    rows <- rowsOf . Text.lines <$> Text.readFile ("test/fixtures/" <> fixture)
+    editLog world (const (map (Text.replace fixtureRun run) rows))
+    pure run
+
+-- | The finished legacy architect's next line, an event of the current architect's only.
+newOnly :: Text -> Text
+newOnly run = "{\"v\":4,\"id\":\"" <> run <> ":26\",\"seq\":26,\"ts\":\"2026-11-18T10:52:54Z\",\"run\":\"" <> run <> "\",\"head\":null,\"session\":null,\"type\":\"architect.ticket\",\"data\":{}}"

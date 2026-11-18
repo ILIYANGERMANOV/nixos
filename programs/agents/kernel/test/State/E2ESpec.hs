@@ -70,7 +70,7 @@ spec = describe "the state binary" $ do
             asked <- succeeded =<< state bin repo ["next"]
             take 1 asked `shouldSatisfy` all (Text.isInfixOf "confirmed, or adjusted?")
 
-        it "walks a chief's architect request to its ticket, the user's answer logged before the problem is understood" $ \repo -> do
+        it "walks a chief's architect request: its ticket written, then edited, and enough on to next" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
             transcript <-
                 driveOn
@@ -79,41 +79,26 @@ spec = describe "the state binary" $ do
                     [ Record ["fuel.set", "low"]
                     , Record ["route.architect"]
                     , Record ["fuel.set", "low"]
-                    , Record ["exploring.enough"]
-                    , Record ["exploring/notes.done"]
-                    , AskUser "Confirm" ["the problem: understood, or more?"]
-                    , Record ["problem.understood"]
-                    , Record ["discussing.enough"]
-                    , Record ["discussing/notes.done"]
-                    , AskUser "Confirm" ["the design: confirmed, or adjusted?"]
-                    , Record ["confirm_design.confirmed", "https://github.com/o/r/issues/3"]
+                    , Record ["architect.ticket"]
+                    , Record ["ticket.written", "https://github.com/o/r/issues/3"]
+                    , Record ["architect.ticket"]
+                    , Record ["ticket.written", "https://github.com/o/r/issues/3"]
+                    , Record ["architect.enough"]
+                    , Record ["architect/notes.done"]
                     ]
             transcript
                 `shouldBe` [ "fuel.set -> route"
                            , "route.architect -> architect/fuel"
-                           , "architect/fuel.set -> architect/exploring"
-                           , "architect/exploring.enough -> architect/exploring/notes"
-                           , "architect/exploring/notes.done -> architect/problem"
-                           , "architect/problem.understood -> architect/discussing"
-                           , "architect/discussing.enough -> architect/discussing/notes"
-                           , "architect/discussing/notes.done -> architect/confirm_design"
-                           , "architect/confirm_design.confirmed -> next"
+                           , "architect/fuel.set -> architect/architect"
+                           , "architect/architect.ticket -> architect/ticket"
+                           , "architect/ticket.written -> architect/architect"
+                           , "architect/architect.ticket -> architect/ticket"
+                           , "architect/ticket.written -> architect/architect"
+                           , "architect/architect.enough -> architect/architect/notes"
+                           , "architect/architect/notes.done -> next"
                            ]
-            types <- loggedTypes bin repo
-            takeWhile (/= "architect/discussing.enough") (dropWhile (/= "architect/exploring/notes.done") types)
-                `shouldBe` ["architect/exploring/notes.done", "asked", "forwarded", "answered", "architect/problem.understood"]
-
-        it "refuses a chief's problem understood before the user's answer, naming the Confirm to ask" $ \repo -> do
-            _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
-            _ <- driveOn bin repo (map Record [["fuel.set", "low"], ["route.architect"], ["fuel.set", "low"], ["exploring.enough"], ["exploring/notes.done"]])
-            refused <- state bin repo ["record", "problem.understood"]
-            (refused.code, refused.err)
-                `shouldBe` ( 2
-                           ,
-                               [ "state record: leaving architect/problem - it is the user's word: no Confirm was asked here yet"
-                               , "fix: state ask --kind Confirm 'the problem: understood, or more?'"
-                               ]
-                           )
+            atNext <- succeeded =<< state bin repo ["next"]
+            atNext `shouldSatisfy` any (Text.isSuffixOf "The last result: https://github.com/o/r/issues/3")
 
         it "refuses init --pr of no GitHub PR URL in the house format" $ \repo -> do
             refused <- state bin repo ["init", "--notes", repo.notes, "--pr", "https://github.com/o/r/issues/7"]
@@ -782,10 +767,11 @@ spec = describe "the state binary" $ do
                 brief <- succeeded =<< state bin repo ["brief", "engineer", "--task", "t1"]
                 drop 1 (dropWhile (/= "") brief) `shouldBe` ["state init --notes <dir> --parent " <> run <> " --task t1"]
 
-            it "gives a run at no fan-out the line that starts a direct child, with no task" $ \repo -> do
+            it "gives a run at no fan-out a brief to fill in, ending in the line that starts a child with no task" $ \repo -> do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
                 brief <- succeeded =<< state bin repo ["brief", "engineer"]
-                brief `shouldBe` ["state init --notes <dir> --parent " <> parent]
+                (take 3 brief, filter ("## " `Text.isPrefixOf`) brief, take 1 (reverse brief))
+                    `shouldBe` (["Fuel: <low|balanced|max>", "Base: <branch>", "Branch: <branch>"], ["## The user's words", "## Plan", "## Acceptance criteria"], ["state init --notes <dir> --parent " <> parent])
 
         describe "the hooks" $ do
             it "are silent in a worktree with no run" $ \repo -> do
@@ -827,11 +813,11 @@ spec = describe "the state binary" $ do
                 after <- logLines bin repo
                 after `shouldBe` before
 
-            it "are silent on a log they do not read" $ \repo -> do
+            it "name the record by hand on a log of another version, as they record nothing there" $ \repo -> do
                 run <- startedRun bin repo
                 replaceByHand repo run 1 "{\"v\":2,\"ts\":\"t\",\"type\":\"started\"}"
-                said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
-                said `shouldBe` []
+                said <- succeeded =<< hook hookBin repo "spawn" (spawned' repo Null "researcher")
+                replyField "context" said `shouldSatisfy` maybe False ("state handback <role>" `Text.isInfixOf`)
 
             it "tell an event they do not read, as context" $ \repo -> do
                 _ <- drive bin repo []

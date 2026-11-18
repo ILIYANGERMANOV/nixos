@@ -2,386 +2,224 @@
 RUN state record fuel.set <low|balanced|max>
   at fuel: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record fuel.set <low|balanced|max> - on to exploring
+    state record fuel.set <low|balanced|max> - on to architect
   fuel: low
 Fuel: record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
 The Fuel given: low. Record it, unless the request names another.
 
-== exploring
+== architect
 RUN one option below
-  at exploring: a branch you pick - take one option below, then state next
+  at architect: a branch you pick - take one option below, then state next
   options:
-    state record exploring.enough - on to exploring/researchers
-    state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
+    state record architect.discuss - on to discuss
+    state record architect.enough - on to architect/researchers
+    state record architect.research - on to architect/research, which spawns a researcher in the foreground
+    state record architect.ticket - on to ticket
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
+Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Ticket: write the design so far into the ticket, or edit it, at any point and as often as the design changes: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear; `gh issue comment` adds to it. Then record `ticket.written <url>`, back to the discussion's pick. The ticket is optional: `enough` ends the run with or without one.
 
-== exploring/researchers
+== architect/researchers
 RUN end your turn
-  at exploring/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  at architect/researchers: children at work - each runs on its own; do what each unindented line says, then state next
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
 
-== exploring/notes
-RUN state record exploring/notes.done
-  at exploring/notes: a step you run - do the task below, run the option that fits its result, then state next
+== architect/notes
+RUN state record architect/notes.done
+  at architect/notes: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record exploring/notes.done - on to problem
+    state record architect/notes.done - the flow ends
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
-== exploring/research
+== architect/research
 SPAWN researcher background: no
-  at exploring/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at architect/research: a step a researcher subagent runs - spawn it with the task below; its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record architect/research.spawned, or pipe the hand-back into state handback researcher; then state next
   outcomes:
-    exploring/research.spawned - back to exploring, the exploring loop's next round
+    architect/research.spawned - back to architect, the architect loop's next round
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Problem rounds: 0 of 3 used, 3 left
-Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-
-== problem
-RUN one option below
-  at problem: a step you run - do the task below, run the option that fits its result, then state next
-  options:
-    state record problem.understood - on to discussing
-    state record problem.more - back to exploring, the understanding loop's next round
-  fuel: low
-  Problem rounds: 0 of 3 used, 3 left
-Problem: talk the problem through with the user: what hurts, for whom, and why now. No ticket yet. A fact gap is `problem.more`, back to research.
-Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, that message is the answer: state ask --kind Confirm "the problem: understood, or more?", then state answer <qid> "<the user's own words>" at once, with no AskUserQuestion. Then record.
-
-== discussing
-RUN one option below
-  at discussing: a branch you pick - take one option below, then state next
-  options:
-    state record discussing.discuss - on to discuss
-    state record discussing.enough - on to discussing/researchers
-    state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
-  fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
-  Design rounds: 0 of 3 used, 3 left
-Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
-Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-
-== discussing/researchers
-RUN end your turn
-  at discussing/researchers: children at work - each runs on its own; do what each unindented line says, then state next
-  options:
-    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
-  fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
-  Design rounds: 0 of 3 used, 3 left
-
-== discussing/notes
-RUN state record discussing/notes.done
-  at discussing/notes: a step you run - do the task below, run the option that fits its result, then state next
-  options:
-    state record discussing/notes.done - on to confirm_design
-  fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
-  Design rounds: 0 of 3 used, 3 left
-Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
-
-== discussing/research
-SPAWN researcher background: no
-  at discussing/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
-  outcomes:
-    discussing/research.spawned - back to discussing, the discussing loop's next round
-  fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
-  Design rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == discuss
 RUN one option below
   at discuss: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
-    state record discuss.asked - back to discussing, the discussing loop's next round
+    state ask --kind <Design|Scope> <question> - one question to the user, explained first and answered before the next
+    state record discuss.asked - back to architect, the architect loop's next round
   fuel: low
-  Researchers: 0 of 1 used, 1 left
-  Discussion questions: 0 of 15 used, 15 left
-  Design rounds: 0 of 3 used, 3 left
-Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
+Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.
 
-== confirm_design
-ASK Confirm the design: confirmed, or adjusted?
-  at confirm_design: a step you run - do the task below, run the option that fits its result, then state next
-  outcomes:
-    state record confirm_design.adjusted - back to discussing, the design loop's next round
-    state record confirm_design.confirmed <url> - the flow ends
+== ticket
+RUN state record ticket.written <url>
+  at ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record ticket.written <url> - back to architect, the architect loop's next round
   fuel: low
-  Design rounds: 0 of 3 used, 3 left
-Design: first send the agreed design as a summary: its decisions, and a diagram or pseudo-code; then, in the same turn, the one Confirm question. `adjusted` discusses again. Only once it is `confirmed`, write the ticket, once: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear. Then record `confirm_design.confirmed <url>`.
+  Researchers: 0 of 10 used, 10 left
+  Discussion questions: 0 of 50 used, 50 left
+Ticket: write the design so far into the ticket, or edit it, at any point and as often as the design changes: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear; `gh issue comment` adds to it. Then record `ticket.written <url>`, back to the discussion's pick. The ticket is optional: `enough` ends the run with or without one.
 
 
 == fuel
 RUN state record fuel.set <low|balanced|max>
   at fuel: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record fuel.set <low|balanced|max> - on to exploring
+    state record fuel.set <low|balanced|max> - on to architect
   fuel: balanced
 Fuel: record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
 The Fuel given: balanced. Record it, unless the request names another.
 
-== exploring
+== architect
 RUN one option below
-  at exploring: a branch you pick - take one option below, then state next
+  at architect: a branch you pick - take one option below, then state next
   options:
-    state record exploring.enough - on to exploring/researchers
-    state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
+    state record architect.discuss - on to discuss
+    state record architect.enough - on to architect/researchers
+    state record architect.research - on to architect/research, which spawns a researcher in the foreground
+    state record architect.ticket - on to ticket
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
+Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Ticket: write the design so far into the ticket, or edit it, at any point and as often as the design changes: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear; `gh issue comment` adds to it. Then record `ticket.written <url>`, back to the discussion's pick. The ticket is optional: `enough` ends the run with or without one.
 
-== exploring/researchers
+== architect/researchers
 RUN end your turn
-  at exploring/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  at architect/researchers: children at work - each runs on its own; do what each unindented line says, then state next
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
 
-== exploring/notes
-RUN state record exploring/notes.done
-  at exploring/notes: a step you run - do the task below, run the option that fits its result, then state next
+== architect/notes
+RUN state record architect/notes.done
+  at architect/notes: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record exploring/notes.done - on to problem
+    state record architect/notes.done - the flow ends
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
-== exploring/research
+== architect/research
 SPAWN researcher background: no
-  at exploring/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at architect/research: a step a researcher subagent runs - spawn it with the task below; its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record architect/research.spawned, or pipe the hand-back into state handback researcher; then state next
   outcomes:
-    exploring/research.spawned - back to exploring, the exploring loop's next round
+    architect/research.spawned - back to architect, the architect loop's next round
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Problem rounds: 0 of 3 used, 3 left
-Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-
-== problem
-RUN one option below
-  at problem: a step you run - do the task below, run the option that fits its result, then state next
-  options:
-    state record problem.understood - on to discussing
-    state record problem.more - back to exploring, the understanding loop's next round
-  fuel: balanced
-  Problem rounds: 0 of 3 used, 3 left
-Problem: talk the problem through with the user: what hurts, for whom, and why now. No ticket yet. A fact gap is `problem.more`, back to research.
-Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, that message is the answer: state ask --kind Confirm "the problem: understood, or more?", then state answer <qid> "<the user's own words>" at once, with no AskUserQuestion. Then record.
-
-== discussing
-RUN one option below
-  at discussing: a branch you pick - take one option below, then state next
-  options:
-    state record discussing.discuss - on to discuss
-    state record discussing.enough - on to discussing/researchers
-    state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
-  fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
-  Design rounds: 0 of 3 used, 3 left
-Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
-Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-
-== discussing/researchers
-RUN end your turn
-  at discussing/researchers: children at work - each runs on its own; do what each unindented line says, then state next
-  options:
-    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
-  fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
-  Design rounds: 0 of 3 used, 3 left
-
-== discussing/notes
-RUN state record discussing/notes.done
-  at discussing/notes: a step you run - do the task below, run the option that fits its result, then state next
-  options:
-    state record discussing/notes.done - on to confirm_design
-  fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
-  Design rounds: 0 of 3 used, 3 left
-Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
-
-== discussing/research
-SPAWN researcher background: no
-  at discussing/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
-  outcomes:
-    discussing/research.spawned - back to discussing, the discussing loop's next round
-  fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
-  Design rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == discuss
 RUN one option below
   at discuss: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
-    state record discuss.asked - back to discussing, the discussing loop's next round
+    state ask --kind <Design|Scope> <question> - one question to the user, explained first and answered before the next
+    state record discuss.asked - back to architect, the architect loop's next round
   fuel: balanced
-  Researchers: 0 of 5 used, 5 left
-  Discussion questions: 0 of 30 used, 30 left
-  Design rounds: 0 of 3 used, 3 left
-Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
+Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.
 
-== confirm_design
-ASK Confirm the design: confirmed, or adjusted?
-  at confirm_design: a step you run - do the task below, run the option that fits its result, then state next
-  outcomes:
-    state record confirm_design.adjusted - back to discussing, the design loop's next round
-    state record confirm_design.confirmed <url> - the flow ends
+== ticket
+RUN state record ticket.written <url>
+  at ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record ticket.written <url> - back to architect, the architect loop's next round
   fuel: balanced
-  Design rounds: 0 of 3 used, 3 left
-Design: first send the agreed design as a summary: its decisions, and a diagram or pseudo-code; then, in the same turn, the one Confirm question. `adjusted` discusses again. Only once it is `confirmed`, write the ticket, once: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear. Then record `confirm_design.confirmed <url>`.
+  Researchers: 0 of 30 used, 30 left
+  Discussion questions: 0 of 100 used, 100 left
+Ticket: write the design so far into the ticket, or edit it, at any point and as often as the design changes: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear; `gh issue comment` adds to it. Then record `ticket.written <url>`, back to the discussion's pick. The ticket is optional: `enough` ends the run with or without one.
 
 
 == fuel
 RUN state record fuel.set <low|balanced|max>
   at fuel: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record fuel.set <low|balanced|max> - on to exploring
+    state record fuel.set <low|balanced|max> - on to architect
   fuel: max
 Fuel: record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
 The Fuel given: max. Record it, unless the request names another.
 
-== exploring
+== architect
 RUN one option below
-  at exploring: a branch you pick - take one option below, then state next
+  at architect: a branch you pick - take one option below, then state next
   options:
-    state record exploring.enough - on to exploring/researchers
-    state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
+    state record architect.discuss - on to discuss
+    state record architect.enough - on to architect/researchers
+    state record architect.research - on to architect/research, which spawns a researcher in the foreground
+    state record architect.ticket - on to ticket
   fuel: max
-  Researchers: 0 used, one per group
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
+Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Ticket: write the design so far into the ticket, or edit it, at any point and as often as the design changes: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear; `gh issue comment` adds to it. Then record `ticket.written <url>`, back to the discussion's pick. The ticket is optional: `enough` ends the run with or without one.
 
-== exploring/researchers
+== architect/researchers
 RUN end your turn
-  at exploring/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  at architect/researchers: children at work - each runs on its own; do what each unindented line says, then state next
   options:
     end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
   fuel: max
-  Researchers: 0 used, one per group
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
 
-== exploring/notes
-RUN state record exploring/notes.done
-  at exploring/notes: a step you run - do the task below, run the option that fits its result, then state next
+== architect/notes
+RUN state record architect/notes.done
+  at architect/notes: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record exploring/notes.done - on to problem
+    state record architect/notes.done - the flow ends
   fuel: max
-  Researchers: 0 used, one per group
-  Problem rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
 Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
 
-== exploring/research
+== architect/research
 SPAWN researcher background: no
-  at exploring/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at architect/research: a step a researcher subagent runs - spawn it with the task below; its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record architect/research.spawned, or pipe the hand-back into state handback researcher; then state next
   outcomes:
-    exploring/research.spawned - back to exploring, the exploring loop's next round
+    architect/research.spawned - back to architect, the architect loop's next round
   fuel: max
-  Researchers: 0 used, one per group
-  Problem rounds: 0 of 3 used, 3 left
-Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-
-== problem
-RUN one option below
-  at problem: a step you run - do the task below, run the option that fits its result, then state next
-  options:
-    state record problem.understood - on to discussing
-    state record problem.more - back to exploring, the understanding loop's next round
-  fuel: max
-  Problem rounds: 0 of 3 used, 3 left
-Problem: talk the problem through with the user: what hurts, for whom, and why now. No ticket yet. A fact gap is `problem.more`, back to research.
-Discuss the problem with the user free-form: no picker, no question asked yet. Only when the user says design or enough, that message is the answer: state ask --kind Confirm "the problem: understood, or more?", then state answer <qid> "<the user's own words>" at once, with no AskUserQuestion. Then record.
-
-== discussing
-RUN one option below
-  at discussing: a branch you pick - take one option below, then state next
-  options:
-    state record discussing.discuss - on to discuss
-    state record discussing.enough - on to discussing/researchers
-    state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
-  fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
-  Design rounds: 0 of 3 used, 3 left
-Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
-Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
-
-== discussing/researchers
-RUN end your turn
-  at discussing/researchers: children at work - each runs on its own; do what each unindented line says, then state next
-  options:
-    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
-  fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
-  Design rounds: 0 of 3 used, 3 left
-
-== discussing/notes
-RUN state record discussing/notes.done
-  at discussing/notes: a step you run - do the task below, run the option that fits its result, then state next
-  options:
-    state record discussing/notes.done - on to confirm_design
-  fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
-  Design rounds: 0 of 3 used, 3 left
-Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
-
-== discussing/research
-SPAWN researcher background: no
-  at discussing/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
-  outcomes:
-    discussing/research.spawned - back to discussing, the discussing loop's next round
-  fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
-  Design rounds: 0 of 3 used, 3 left
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == discuss
 RUN one option below
   at discuss: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state ask --kind <Design|Scope|Fact> <question> - one question to the user, explained first and answered before the next
-    state record discuss.asked - back to discussing, the discussing loop's next round
+    state ask --kind <Design|Scope> <question> - one question to the user, explained first and answered before the next
+    state record discuss.asked - back to architect, the architect loop's next round
   fuel: max
-  Researchers: 0 used, one per group
-  Discussion questions: 0 of 50 used, 50 left
-  Design rounds: 0 of 3 used, 3 left
-Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
+Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.
 
-== confirm_design
-ASK Confirm the design: confirmed, or adjusted?
-  at confirm_design: a step you run - do the task below, run the option that fits its result, then state next
-  outcomes:
-    state record confirm_design.adjusted - back to discussing, the design loop's next round
-    state record confirm_design.confirmed <url> - the flow ends
+== ticket
+RUN state record ticket.written <url>
+  at ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record ticket.written <url> - back to architect, the architect loop's next round
   fuel: max
-  Design rounds: 0 of 3 used, 3 left
-Design: first send the agreed design as a summary: its decisions, and a diagram or pseudo-code; then, in the same turn, the one Confirm question. `adjusted` discusses again. Only once it is `confirmed`, write the ticket, once: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear. Then record `confirm_design.confirmed <url>`.
+  Researchers: 0 of 60 used, 60 left
+  Discussion questions: 0 of 200 used, 200 left
+Ticket: write the design so far into the ticket, or edit it, at any point and as often as the design changes: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear; `gh issue comment` adds to it. Then record `ticket.written <url>`, back to the discussion's pick. The ticket is optional: `enough` ends the run with or without one.
 
 

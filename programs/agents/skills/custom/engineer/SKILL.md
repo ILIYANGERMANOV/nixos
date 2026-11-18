@@ -73,10 +73,10 @@ who owns each decision.
   each step runs. A run you start stops at `fuel` first: a `Fuel:` line in
   your prompt is `state record fuel.set <level>`. Else ask Fuel in one
   `Confirm` question, Balanced recommended; a re-plan keeps it. A child run
-  (your brief's `state init --parent` line) starts at `gather`, its Fuel
-  already recorded from the brief: record no `fuel.set`. An optional block is a
-  `skip_<block>` state: record `skip` or `run` as `state next` says. At Low,
-  it names the blocks a trivial task may skip.
+  whose `state init` line names `--task` starts at `gather`, its Fuel already
+  recorded: record no `fuel.set`. An optional block is a `skip_<block>`
+  state: record `skip` or `run` as `state next` says. At Low, it names the
+  blocks a trivial task may skip.
 - **One plan text.** The plan exists once, as a file: your brief when it holds
   the plan, a plan file you were given, else `plan.md` in the notes directory.
   Never write a second plan beside one. Every brief and review prompt names
@@ -137,6 +137,10 @@ applies. Every Fuel keeps Confirm, the quick security review, fact-gap
 research and the final fixer.
 
 ## State hooks
+
+**Hooks are best effort.** A hook prints a `recorded` line after a spawn or
+a hand-back. No `recorded` line means it missed: record it yourself,
+`state record <step>.spawned` or `state handback <role>`.
 
 Where hooks reach your session, they record a worker's hand-back and add
 context. Under a parent, your `state` records your own hand-back in the
@@ -265,8 +269,8 @@ and CI runs.
 - On green and simplified, `gh pr ready <n>`, then, in a run with no parent,
   notify, pasting the body's `## What & Why` and optional next
   steps: `/qa <PR>` in a fresh session for a UI or
-  runtime change, `/final-review --requirements <path> <PR>`,
-  `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when others
-  commented. Only the user runs them.
+  runtime change, `/chief feedback for <PR>: ...` for a review or
+  feedback, and `/address-pr-feedback <PR>` when others commented. Only
+  the user runs them.
 - A round leaves its PR as is: `state` records `ready.skipped <url>`;
   never `gh pr ready`.

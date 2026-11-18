@@ -12,9 +12,10 @@
 # so a new host's file is covered without touching this.
 #
 # A lock file holds generated names and hashes, not prose; so do the kernel's
-# golden v4 logs, whose random shas (`DBE`, `Ba`) read as typos, and the live
+# golden v4 logs and its old-log fixtures, whose random shas and ids (`DBE`,
+# `Ba`) read as typos, and the live
 # hook probe's recorded run, whose tool use ids do too.
-extend-exclude = ["/secrets/**/*.yaml", "pnpm-lock.yaml", "/programs/agents/kernel/test/golden/v4-logs/*.jsonl", "/programs/claude-code/hooks/contract/fixtures/live-run.json"]
+extend-exclude = ["/secrets/**/*.yaml", "pnpm-lock.yaml", "/programs/agents/kernel/test/golden/v4-logs/*.jsonl", "/programs/agents/kernel/test/fixtures/*.jsonl", "/programs/claude-code/hooks/contract/fixtures/live-run.json"]
 
 [default.extend-words]
 # The nvim-noice plugin. Lowercase covers `Noice` and `NoiceDismiss` too, since

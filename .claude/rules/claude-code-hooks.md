@@ -23,8 +23,9 @@ one mode that offers `SubagentHandback`. A Claude Code update must run it
 with a 400 naming it: extend `model.py`, not the snapshot.
 
 `just probe-agents-hooks --live` (`live.py`) runs one real haiku session with
-the person's login: a typed skill, a Skill call, a denied Bash call and
-subagents at depth 1 and 2, one in the background. Pure `checks` over the hook
+the person's login: a typed skill, a Skill call, a denied Bash call,
+subagents at depth 1 and 2, one in the background, and a background one the
+lead stops with `TaskStop`. Pure `checks` over the hook
 payloads and the transcripts they name assert the events, their linked ids,
 and that additionalContext and the deny reason reach the model. A transcript
 line counts only through its `message`: the client also logs each hook's raw
@@ -51,6 +52,11 @@ go on.
 | `PostToolUse` | `afterTool` | `additionalContext` |
 | `SubagentStart` (no matcher) | `agentStart`, `agent_type` as the role | `additionalContext` |
 | `UserPromptExpansion` (no matcher) | `promptExpansion`, `command_name` as the skill | `additionalContext` |
+| `SubagentStop` and `Stop` (no matcher) | `agentStop`, the lead's with no agent; `running`: the `background_tasks` of type `subagent` with status `running` | nothing: any context or decision there keeps the agent going |
+
+`TaskStop` is the tool `stopAgent`; its input names the stopped agent as
+`task_id`. A background agent its lead stops with it gets no `SubagentStop`,
+and at a background agent's own `SubagentStop` it is still listed running.
 
 Only documented hook features: no `updatedInput` from any state hook (auto
 mode refuses a rewritten call), and no field outside Claude's hooks docs.

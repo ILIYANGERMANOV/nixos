@@ -6,8 +6,12 @@ module State.Cli.Shell.FocusSpec (spec) where
 import Control.Monad ((<=<))
 import Data.IORef (IORef, modifyIORef')
 import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.Encoding (encodeUtf8)
 import Data.Time (NominalDiffTime, addUTCTime)
 import State.Cli.Shell.World
+import State.Run.Codec (decodeLine, encodeLine)
+import State.Run.Event (Envelope (..))
 import Test.Hspec (Spec, before, describe, it, shouldBe)
 
 spec :: Spec
@@ -110,11 +114,11 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                 `shouldBe` (
                                ( 2
                                ,
-                                   [ "state focus: the spend at next - Requests allows 5 at this Fuel, all spent"
+                                   [ "state focus: the spend at next - Requests allows 50 at this Fuel, all spent"
                                    , "fix: state record extend <why> | state record next.done"
                                    ]
                                )
-                           , ["ASK Stuck Requests: 5 of 5 used, none left: go on?"]
+                           , ["ASK Stuck Requests: 50 of 50 used, none left: go on?"]
                            )
 
         it "turns back to a waiting request at the Requests cap, as a turn back opens no new request" $ \world -> do
@@ -134,6 +138,122 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
 
             (refused.code, refused.err) `shouldBe` (2, ["state focus: the request switch - only a chief run going on switches requests", "fix: state next"])
 
+    describe "the chief's end" $ do
+        it "ends with a request left suspended: suspend r1, run r2, resume r1, suspend it again, run r3 and end" $ \world -> do
+            researching world
+            _ <- succeeded =<< state world ["focus", "--summary", "researching the store"]
+            finishRequest world
+            _ <- succeeded =<< state world ["focus", "r1"]
+            _ <- succeeded =<< state world ["focus", "--summary", "still researching"]
+            finishRequest world
+
+            atNext <- succeeded =<< state world ["next"]
+            ended <- succeeded =<< state world ["record", "next.done"]
+            next <- succeeded =<< state world ["next"]
+            tasks <- succeeded =<< state world ["tasks"]
+
+            (filter ("r1 suspended" `Text.isInfixOf`) atNext, recorded ended, take 2 next, filter ("r1 " `Text.isPrefixOf`) tasks)
+                `shouldBe` (["  r1 suspended at architect/fuel: still researching - resume: state focus r1; next.done ends the run leaving it suspended"], ["next.done -> out"], ["DONE", "  at the end: the flow is done"], ["r1 paused 0m at architect/fuel: still researching"])
+
+    describe "a request handed on whole" $ do
+        it "at the fork, says to spawn the child with its brief and record nothing, and so does a refused record" $ \world -> do
+            _ <- delegating world
+
+            next <- succeeded =<< state world ["next"]
+            refusal <- state world ["record", "spawn_delegates.spawned"]
+
+            (take 1 next, any ("record nothing - the child's state init --parent moves this run on" `Text.isInfixOf`) next, refusal.code, drop 1 refusal.err)
+                `shouldBe` (["RUN state brief engineer"], True, 2, ["fix: state brief engineer"])
+
+        it "briefs an engineer child to record its Fuel line at fuel, and a 10x child that it runs at Balanced" $ \world -> do
+            _ <- delegating world
+
+            engineer <- succeeded =<< state world ["brief", "engineer"]
+            tenX <- succeeded =<< state world ["brief", "10x"]
+
+            (take 1 (drop 3 engineer), take 1 (drop 3 tenX))
+                `shouldBe` (["Your run starts at fuel: record the Fuel line there, state record fuel.set <level>."], ["Your run starts past fuel, at Balanced: record no fuel.set."])
+
+        it "moves the chief on to its next request at the child's init, listing the child with its last event" $ \world -> do
+            chief <- delegating world
+            later world 120
+            child <- untaskedChild world chief
+            later world 60
+            atWorktree world "/work"
+
+            shown <- succeeded =<< state world ["show"]
+            tasks <- succeeded =<< state world ["tasks"]
+
+            filter ("step:" `Text.isPrefixOf`) shown `shouldBe` ["step: next"]
+            tasks `shouldBe` ["notes /notes", "r1 in focus at next", "child " <> child <> " engineer at fuel, last event 1m ago"]
+
+        it "holds the chief's end until the child finishes" $ \world -> do
+            chief <- delegating world
+            child <- untaskedChild world chief
+            atWorktree world "/work"
+
+            waiting <- succeeded =<< state world ["record", "next.done"]
+            _ <- succeeded =<< stateIn world ("READY https://github.com/o/r/pull/1\nRun: " <> encodeUtf8 child) ["handback", "engineer", "--child", child]
+            next <- succeeded =<< state world ["next"]
+
+            (recorded waiting, take 1 next) `shouldBe` (["next.done -> delegates"], ["DONE"])
+
+        it "holds the chief's end until the child's agent stops with no hand-back" $ \world -> do
+            chief <- delegating world
+            child <- untaskedChild world chief
+            _ <- succeeded =<< hook world "bind" (initRan "engineer" "e1" ("started " <> child <> "\nrun " <> child <> " /child " <> Text.pack childWorktree <> "\n"))
+            atWorktree world "/work"
+            _ <- succeeded =<< state world ["record", "next.done"]
+            held <- succeeded =<< state world ["show"]
+
+            _ <- hook world "stop" (agentStop "engineer" "e1" ["e1"])
+            next <- succeeded =<< state world ["next"]
+
+            (filter ("step:" `Text.isPrefixOf`) held, take 1 next) `shouldBe` (["step: delegates"], ["DONE"])
+
+        it "starts the child past its plan's confirm, as the chief decided it" $ \world -> do
+            chief <- delegating world
+            _ <- untaskedChild world chief
+            _ <- succeeded =<< state world ["record", "fuel.set", "balanced"]
+            _ <- succeeded =<< state world ["record", "gather.enough"]
+            _ <- succeeded =<< state world ["record", "gather/notes.done"]
+            putFile world "/child/plan.md" "the plan"
+            planned <- succeeded =<< state world ["record", "plan.done", "/child/plan.md"]
+            advised <- succeeded =<< state world ["next"]
+
+            recorded (planned <> advised) `shouldBe` ["plan.done -> skip_simplify_plan", "skip_simplify_plan.skip -> confirm", "confirm.confirmed -> draft"]
+
+        it "starts a child at any later state of the chief as a direct child, not handed the request" $ \world -> do
+            chief <- delegating world
+            _ <- untaskedChild world chief
+            handed <- succeeded =<< state world ["show"]
+            atWorktree world "/work"
+            _ <- succeeded =<< state world ["record", "next.request"]
+
+            atWorktree world "/other-work"
+            later' <- startedIn world ["--notes", "/other", "--parent", chief]
+            shown <- succeeded =<< state world ["show"]
+            atWorktree world "/work"
+            tasks <- succeeded =<< state world ["tasks"]
+
+            (untasked handed, untasked shown, filter (("child " <> later') `Text.isPrefixOf`) tasks)
+                `shouldBe` (["untasked: the parent handed on its request whole"], [], ["child " <> later' <> " engineer at fuel, last event 0m ago"])
+  where
+    untasked = filter ("untasked" `Text.isPrefixOf`)
+
+-- | A chief run whose first request is routed to a child run: at the fork that hands it on.
+delegating :: IORef World -> IO Text
+delegating world = do
+    chief <- startedIn world ["--flow", "chief"]
+    mapM_ (succeeded <=< state world) ([["record", "fuel.set", "balanced"], ["record", "route.delegate"]] :: [[Text]])
+    pure chief
+
+-- | A child run of the chief that names no task, in 'childWorktree', where later calls run; its id.
+untaskedChild :: IORef World -> Text -> IO Text
+untaskedChild world chief = do
+    atWorktree world childWorktree
+    startedIn world ["--notes", "/child", "--parent", chief]
+
 -- | A chief run in its architect request, a researcher @a7@ at work.
 researching :: IORef World -> IO ()
 researching world = do
@@ -148,17 +268,29 @@ finished world = do
     _ <- startedIn world ["--flow", "chief"]
     finishRequest world
 
-{- | A chief run at Low Fuel whose sixth request ran to its end: the five
+{- | A chief run at Low Fuel whose 51st request ran to its end: the 50
 @next.request@ the Requests cap allows at Low are spent.
 -}
 atCap :: IORef World -> IO ()
 atCap world = startedIn world ["--flow", "chief"] >> spendRequests world
 
--- | The request in focus and five more run to their end at Low Fuel: the Requests cap is spent.
+{- | The request in focus and 50 more run to their end at Low Fuel: the Requests cap is spent.
+The first runs through the CLI and the store holds its rows 49 times more, as
+each call replays the whole log: 200 calls cost seconds.
+-}
 spendRequests :: IORef World -> IO ()
-spendRequests world = mapM_ (succeeded <=< state world) (concat (replicate 5 (request <> [["record", "next.request"]])) <> request)
+spendRequests world = do
+    before' <- length <$> logRows world
+    mapM_ (succeeded <=< state world) (request <> [["record", "next.request"]])
+    spent <- drop before' <$> logRows world
+    editLog world (<> concatMap (\k -> map (renumbered (k * length spent)) spent) [1 .. 49])
+    mapM_ (succeeded <=< state world) request
   where
     request = [["record", "fuel.set", "low"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]]
+
+-- | A logged row moved on by @n@ seqs, its id with it.
+renumbered :: Int -> Text -> Text
+renumbered n row = either (error . show) (\e -> encodeLine e {seq = e.seq + fromIntegral n}) (decodeLine row)
 
 -- | The request in focus runs its route to its end, at @next@.
 finishRequest :: IORef World -> IO ()

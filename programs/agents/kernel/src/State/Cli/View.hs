@@ -10,6 +10,7 @@ module State.Cli.View (
     briefOf,
     beginText,
     cardLines,
+    minutesSince,
 ) where
 
 import Data.Bool (bool)
@@ -20,14 +21,14 @@ import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime)
 import State.Category.Flow (qualifyEvent)
 import State.Category.Fuel (fuelLabel)
-import State.Category.Graph (Node (..), OpenGraph (..), Place (..))
+import State.Category.Graph (Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName (..), SomeStep (..), StateName, eventText, handedBackOutcome, spawnedOutcome, stateNameText, stepName)
 import State.Cli.Render qualified as Render
-import State.FlowName (namedFlowText)
+import State.FlowName (fixedFuel, namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
-import State.Run.Ask (Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, replyText, rulingLine)
+import State.Run.Ask (ChildTask (..), Link (..), Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, replyText, rulingLine)
 import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), advice, resumeWindow)
 import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText, taskNoText)
@@ -53,34 +54,40 @@ showRun steps g state =
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
             <> section "answered:" (map answerLine state.answers)
-            <> section "gaps:" state.gaps
+            <> section "gaps:" [tshow n <> " " <> gap | (n, gap) <- state.gaps]
             <> section "hooks:" (hookLines steps g)
   where
-    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> replyText answered.given
+    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> replyText answered.about.kind answered.given
     section title = \case
         [] -> []
         items -> title : map ("  " <>) items
     linkLine = \case
-        AtFan task -> ["task: " <> taskIdText task]
+        InFan (Tasked task) -> ["task: " <> taskIdText task]
+        InFan Untasked -> ["untasked: the parent handed on its request whole"]
         Direct -> []
 
 {- | What the hooks record of the flow's events, so no agent records them
 by hand: the spawn and the hand-back of each step a subagent runs as a child
 of a choice, the only steps whose spawn a hook sees ('opensChild'), at each
-place this flow takes it, named in its scopes.
+place this flow takes it, named in its scopes. A hook is best effort: the
+last line names the commands that record a missed line by hand.
 -}
 hookLines :: Steps -> OpenGraph -> [Text]
-hookLines steps g =
-    [ line
-    | role <- agentRoles steps
-    , AnyStep l (SomeStep s) <- stepsRunBy steps role
-    , opensChild l s
-    , spawned <- Set.toList (Set.fromList [event | (place, event) <- Map.keys g.edges, place.name == stepName s, event == qualifyEvent place.scope (EventName (stepName s) spawnedOutcome)])
-    , line <-
-        [ eventText spawned <> ": the " <> hookName SpawnHook <> " hook, as the lead spawns a " <> roleText role
-        , eventText spawned {outcome = handedBackOutcome} <> ": the " <> hookName HandbackHook <> " hook, at its hand-back"
+hookLines steps g = case hooked of
+    [] -> []
+    _ -> hooked <> ["best effort: with no recorded line after a spawn or hand-back, run state record <step>.spawned or state handback <role>"]
+  where
+    hooked =
+        [ line
+        | role <- agentRoles steps
+        , AnyStep l (SomeStep s) <- stepsRunBy steps role
+        , opensChild l s
+        , spawned <- Set.toList (Set.fromList [event | (place, event) <- Map.keys g.edges, place.name == stepName s, event == qualifyEvent place.scope (EventName (stepName s) spawnedOutcome)])
+        , line <-
+            [ eventText spawned <> ": the " <> hookName SpawnHook <> " hook, as the lead spawns a " <> roleText role
+            , eventText spawned {outcome = handedBackOutcome} <> ": the " <> hookName HandbackHook <> " hook, at its hand-back"
+            ]
         ]
-    ]
 
 {- | A request's resume card at this time: where it stands, what was
 decided in it, what it still asks, and how to take it up again.
@@ -88,14 +95,17 @@ decided in it, what it still asks, and how to take it up again.
 cardLines :: UTCTime -> Card -> [Text]
 cardLines now card =
     headline
-        : ["  decided " <> qidText qid <> " - " <> replyText reply | (qid, reply) <- card.decisions]
+        : ["  decided " <> qidText qid <> " - " <> replyText kind reply | (qid, kind, reply) <- card.decisions]
             <> ["  open " <> qidText q.qid <> " " <> kindName q.kind <> ": " <> oneLineText q.text | q <- card.open]
             <> ["  " <> adviceLine resume | Just resume <- [advice now card]]
   where
     headline = case card.standing of
         InFocus -> taskNoText card.task <> " in focus at " <> stateNameText card.node
-        Paused at summary -> taskNoText card.task <> " paused " <> minutes at <> " at " <> stateNameText card.node <> ": " <> oneLineText summary
-    minutes at = tshow (floor (diffUTCTime now at / 60) :: Integer) <> "m"
+        Paused at summary -> taskNoText card.task <> " paused " <> minutesSince now at <> " at " <> stateNameText card.node <> ": " <> oneLineText summary
+
+-- | Whole minutes from then to now: @5m@.
+minutesSince :: UTCTime -> UTCTime -> Text
+minutesSince now at = tshow (floor (diffUTCTime now at / 60) :: Integer) <> "m"
 
 adviceLine :: ResumeAdvice -> Text
 adviceLine = \case
@@ -131,21 +141,62 @@ pendingLines state = map line state.pending
         Subagent (AgentRole role) -> role
         ChildRun run -> runIdText run
 
-{- | A role's brief skeleton: the task text of the step the run is at, or,
-when the role runs no step there, of each step it runs; then the rule its
-hand-back follows. A role that leads a flow, a child run, gets its task's
+{- | A role's brief skeleton: its 'stepBrief'; then the rule its hand-back
+follows. A role that leads a flow, a child run, gets its task's
 fields and the line that starts its run under this one, on the task's flow:
 in the task's worktree and notes dir when the breakdown names them; a task
 the breakdown lacks is returned as the failure.
 -}
-brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
-brief steps state agent task = case (leads agent, task) of
-    -- At no fan-out the child is direct: it names --parent alone.
-    (Just flow, Nothing) -> Right (initLine state flow "<dir>" ("<id>" <$ fanAt state.at))
-    (Just _, Just taskId) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
-    (Nothing, _) -> Right $ case [text | At place <- [state.at], Right text <- [briefSection steps agent place.name]] of
-        [] -> briefOf steps agent
-        here : _ -> here
+brief :: Steps -> OpenGraph -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
+brief steps g state agent task = case (leads agent, task, fanAt state.at) of
+    (Just flow, Nothing, Just _) -> Right (initLine state flow "<dir>" (Just "<id>"))
+    -- At no fan-out the child takes no task: it names --parent alone.
+    (Just flow, Nothing, Nothing) -> Right (untaskedBrief state flow)
+    (Just _, Just taskId, _) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
+    (Nothing, _, _) -> Right (stepBrief steps g state.at agent)
+
+{- | A brief for a child that takes no task, to fill in: the fields a task
+would give it, where its run starts as to Fuel, the request in the user's
+words, the plan it carries out and when it is done, then the line that
+starts its run under this one. Unlike a task's child, nothing records its
+Fuel line for it.
+-}
+untaskedBrief :: RunState -> FlowName -> Text
+untaskedBrief state flow =
+    Text.unlines
+        [ "Fuel: <low|balanced|max>"
+        , "Base: <branch>"
+        , "Branch: <branch>"
+        , case fixedFuel flow of
+            Nothing -> "Your run starts at fuel: record the Fuel line there, state record fuel.set <level>."
+            Just fuel -> "Your run starts past fuel, at " <> fuelLabel fuel <> ": record no fuel.set."
+        , ""
+        , "## The user's words"
+        , "<the request, verbatim>"
+        , ""
+        , "## Plan"
+        , "<the confirmed ticket or plan>"
+        , ""
+        , "## Acceptance criteria"
+        , "- <a check the result passes>"
+        , ""
+        ]
+        <> initLine state flow "<dir>" Nothing
+
+{- | A step runner's brief where the run is: the task text of the step the
+run is at, else of the step whose spawn led there, as a researcher's leads
+back to the gather's pick before it starts; else, where the role runs
+neither, of each step it runs.
+-}
+stepBrief :: Steps -> OpenGraph -> Node -> AgentRole -> Text
+stepBrief steps g at agent = case [text | name <- named, Right text <- [briefSection steps agent name]] of
+    [] -> briefOf steps agent
+    here : _ -> here
+  where
+    named = case at of
+        At place -> place.name : [from.name | ((from, event), edge) <- Map.toList g.edges, event.outcome == spawnedOutcome, edge.to == at]
+        Out -> []
+        Exit -> []
 
 {- | A child engineer's brief head: its task's fields, then the line that
 starts its run under this one, on the task's flow: in the task's worktree and
@@ -243,15 +294,16 @@ ruleOf (AgentRole role)
     | otherwise = ""
 
 {- | What a hook tells as work begins (#403): a spawned lead and a lead
-skill how its run starts, a step runner its brief. Stated as facts, as
-imperative text in a hook's context can read as an injected order.
+skill how its run starts, a step runner its brief: at the worktree's run,
+when read, its 'stepBrief'. Stated as facts, as imperative text in a hook's
+context can read as an injected order.
 -}
-beginText :: Steps -> Begin -> Text
-beginText steps = \case
+beginText :: Steps -> Maybe (OpenGraph, RunState) -> Begin -> Text
+beginText steps run = \case
     SpawnedLead ->
         "state: this lead's run is driven by `state`. Its first command is the `state init` line in its prompt, as written; "
             <> "then `state next`, until it prints DONE.\n"
-    SpawnedWorker role -> briefOf steps role
+    SpawnedWorker role -> maybe (briefOf steps role) (\(g, state) -> stepBrief steps g state.at role) run
     TypedSkill _ -> skillBegins
     CalledSkill _ -> skillBegins
   where

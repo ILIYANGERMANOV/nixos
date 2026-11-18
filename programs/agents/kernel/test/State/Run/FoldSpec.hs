@@ -34,7 +34,7 @@ import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genRea
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, userConfirms, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, legacyArchitectGraph, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, ticketWritten, userConfirms, within)
 import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
@@ -49,11 +49,12 @@ import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Run.Fold" $ do
-    it "names every edge of the engineer, 10x, architect and chief flows by exactly one kind of outcome" $
-        -- A fan-out's stays are its children's events. A scope's are named bare. An await goes on
-        -- by no event, and a researcher hands back by no edge: wherever the run is.
+    it "names every edge of the engineer, 10x, architect, legacy architect and chief flows by exactly one kind of outcome" $
+        -- A fan-out's stays are its children's events, as is a fork of child runs' spawn: the
+        -- child's init. A scope's are named bare. An await goes on by no event, and a researcher
+        -- hands back by no edge: wherever the run is.
         Set.delete (outcomeEvent (outcome ResearchHandedBack)) outcomeNames
-            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place)]
+            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, legacyArchitectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place), isNothing (childFork flow place)]
 
     describe "the 10x's fan-out" $ do
         let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
@@ -119,6 +120,15 @@ spec = describe "State.Run.Fold" $ do
             back <- forAll (Gen.shuffle =<< Gen.subsequence ids)
             let left = map fst <$> atWork (map (spawn fixer) ids <> [WorkerReturned fixer (Just (AgentId agent)) | agent <- back])
             fmap (filter (`elem` map AgentId back)) left === Right []
+
+    describe "a child run's agent" $ do
+        let endedAfter events = (.agentEnded) <$> replay g (logOf (Started (startOf EngineerFlow (ByUser OwnPr)) :| events))
+        it "holds the agent that ended with no hand-back" $
+            endedAfter [fuelSet Balanced, AgentEnded (AgentId "e1")] `shouldBe` Right (Just (AgentId "e1"))
+        it "forgets it once a step moves the run again, as a fresh agent resumed it" $
+            endedAfter [AgentEnded (AgentId "e1"), fuelSet Balanced] `shouldBe` Right Nothing
+        it "holds none on a log that never ended an agent, as one written before agents ended" $
+            endedAfter [fuelSet Balanced, WorkerSpawned (AgentRole "implementer") (AgentId "a1")] `shouldBe` Right Nothing
 
     describe "two fan-outs in one flow" $ do
         let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
@@ -294,6 +304,7 @@ spec = describe "State.Run.Fold" $ do
     gatherBudgets
     tenXRounds
     architectRun
+    legacyArchitectRun
     chiefRequests
 
     it "append_is_idempotent_by_id" . hedgehog $ do
@@ -649,10 +660,10 @@ gatherBudgets = describe "the gather's choice" $ do
         let adjusted = spent <> replicate 5 handedBack <> enoughIn "gather" <> [stepTook (PlanDone "p"), Took mempty (runOf "simplify_plan"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted]
         replay g (logOf (started :| fuelSet Balanced : adjusted <> asks 31 30 <> spawns 5)) `shouldSatisfy` isRight
 
-    it "keeps each gap recorded, oldest first, and stays where it is" $ do
+    it "keeps each gap recorded with its line's seq, oldest first, and stays where it is" $ do
         let at = fuelSet Balanced : take 7 happyPath
         fmap (\state -> (state.at, state.gaps)) (replay g (logOf (started :| at <> [Gapped "one", Gapped "two"])))
-            `shouldBe` fmap (\state -> (state.at, ["one", "two"])) (replay g (logOf (started :| at)))
+            `shouldBe` fmap (\state -> (state.at, [(9, "one"), (10, "two")])) (replay g (logOf (started :| at)))
 
     it "refuses extend outside the gather" $
         replay g (logOf (started :| fuelSet Balanced : take 10 happyPath <> [Extended "why"])) `shouldBe` Left NothingToExtend
@@ -701,11 +712,46 @@ gatherBudgets = describe "the gather's choice" $ do
 interviewed :: [Event] -> [Event]
 interviewed asked = Took mempty (pickOf "gather" "interview") : asked <> [stepTook InterviewAsked]
 
-{- | The architect's run: research and the problem until the user understands
-it, design rounds until the user confirms one, and only then the ticket's url.
+{- | The architect's run: one discussion, the agent's pick each round, the
+ticket written or edited at any point, any number of times; @enough@ ends
+it, with or without a ticket.
 -}
 architectRun :: Spec
 architectRun = describe "the architect's run" $ do
+    it "writes the ticket before any research or question, and ends on enough with its url" $
+        (\state -> (state.at, state.ticket)) <$> architect (ticketWritten <> enoughIn "architect")
+            `shouldBe` Right (Out, Just ticketUrl)
+
+    it "edits the ticket after more discussion, keeping the url recorded last" $ do
+        let edited = Url "https://github.com/o/r/issues/2"
+            discussed = [Took mempty (pickOf "architect" "discuss"), stepTook DiscussAsked]
+        (\state -> (nameAt state, state.ticket, state.latest)) <$> architect (ticketWritten <> researchedIn "architect" <> discussed <> ticketWritten <> [Took mempty (pickOf "architect" "ticket"), stepTook (TicketWritten edited)])
+            `shouldBe` Right (Just "architect", Just edited, Just edited)
+
+    it "ends on enough with no ticket" $
+        (\state -> (state.at, state.ticket)) <$> architect (researchedIn "architect" <> enoughIn "architect")
+            `shouldBe` Right (Out, Nothing)
+
+    it "refuses the legacy problem and design steps" $
+        map (\step -> architect [step]) [stepTook ProblemUnderstood, stepTook (ConfirmDesignConfirmed ticketUrl)]
+            `shouldSatisfy` all
+                ( \case
+                    Left (NoEdge _ _) -> True
+                    _ -> False
+                )
+  where
+    architect = architectOn architectGraph
+
+-- | An architect run at Balanced, of these events, replayed under this graph: the current architect's or the legacy one.
+architectOn :: OpenGraph -> [Event] -> Either Fold.Refusal RunState
+architectOn under events = replay under (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
+
+{- | The legacy architect's run, as old logs replay it: research and the
+problem until the user understands it, design rounds until the user confirms
+one, and only then the ticket's url.
+-}
+legacyArchitectRun :: Spec
+legacyArchitectRun = describe "the legacy architect's run" $ do
     it "researches, understands the problem, adjusts the design once, then keeps the confirmed design's ticket url" $
         (\state -> (state.at, state.ticket)) <$> architect (problemUnderstood <> designRound ConfirmDesignAdjusted <> designConfirmed)
             `shouldBe` Right (Out, Just ticketUrl)
@@ -736,13 +782,13 @@ architectRun = describe "the architect's run" $ do
         architect (extended <> [stepTook ConfirmDesignAdjusted]) `shouldSatisfy` isRight
 
     it "records_no_ticket_url_before_the_design_is_confirmed" . hedgehog $ do
-        events <- forAll (genAcceptedOn [] architectGraph)
+        events <- forAll (genAcceptedOn [] legacyArchitectGraph)
         let (unconfirmed, rest) = break confirmed events
         cover 5 "the design confirmed" (not (null rest))
-        states <- traverse (evalEither . replay architectGraph . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| unconfirmed)))
+        states <- traverse (evalEither . replay legacyArchitectGraph . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| unconfirmed)))
         for_ states $ \state -> (state.ticket, state.latest) === (Nothing, Nothing)
   where
-    architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
+    architect = architectOn legacyArchitectGraph
     explored = researchedIn "exploring" <> enoughIn "exploring"
     designRound verdict = designDiscussed <> [stepTook verdict]
     confirmed = \case
@@ -806,15 +852,33 @@ chiefRequests = describe "the chief's requests" $ do
                 `shouldBe` (Right (OwnPr, True), Left (NotSkippable "engineer/ready"))
 
     it "chains architect, a block and architect again through next, naming the newest url each time" $ do
-        let designed = request "architect" <> within "architect" (fuelSet Balanced : problemUnderstood <> designConfirmed)
+        let designed = request "architect" <> within "architect" (fuelSet Balanced : ticketWritten <> enoughIn "architect")
             researched = request "blocks" <> [Took mempty (pickOf "block" "researching")] <> within "researching" (researchedIn "exploring" <> enoughIn "exploring")
             shipped = request "blocks" <> [Took mempty (pickOf "block" "shipping")] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
             andThen first later = first <> [stepTook NextRequest] <> later
         map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed `andThen` researched, designed `andThen` shipped, shipped `andThen` designed]
             `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just pr), Right (Just "next", Just ticketUrl)]
+
+    it "starts a second request with its path's caps unused" $ do
+        let secondRequest = spentDiscussion <> lowRequest "discussion"
+        chief (secondRequest <> discussed 10) `shouldSatisfy` isRight
+        chief (secondRequest <> discussed 11) `shouldSatisfy` outOf "Researchers" 10
+
+    it "counts the Requests guard on across requests" $
+        Map.elems . Map.filterWithKey (\metered _ -> metered.step == StateName "next") . (.meters) <$> chief (spentDiscussion <> spentDiscussion)
+            `shouldBe` Right [2]
+
+    it "gives a suspended request its meters back on the turn back to it" $
+        chief (lowRequest "discussion" <> discussed 10 <> [Suspended (TaskNo 1) (oneLine "researched"), fuelSet Low, pick "other", stepTook (DirectDone "done"), Focused (TaskNo 1)] <> discussed 1)
+            `shouldSatisfy` outOf "Researchers" 10
   where
     -- A request: its Fuel, then its pick.
     request branch = [fuelSet Balanced, pick branch]
+    -- At Low, where a discussion allows 10 researchers.
+    lowRequest branch = [fuelSet Low, pick branch]
+    discussed n = within "discussion" (concat (replicate n (researchedIn "discussing")))
+    -- A Low discussion that spent its 10 researchers, then went on to the next request.
+    spentDiscussion = lowRequest "discussion" <> discussed 10 <> within "discussion" (enoughIn "discussing") <> [stepTook NextRequest]
     pick branch = Took mempty (pickOf "route" branch)
     engineered = within "engineer" (fuelSet Balanced : happyPath)
     pr = Url "https://github.com/o/r/pull/7"
@@ -869,10 +933,15 @@ tenXRounds = describe "the 10x's rounds" $ do
         let added = settled (plainTask "t1" []) (Merged pr) <> [TaskAdded (plainTask "fix" [])]
         atName <$> tenXRun added `shouldBe` Right (Just (StateName "engineers"))
         atName <$> tenXRun (added <> [Spawned (childOf "c2" "fix")]) `shouldBe` Right (Just (StateName "engineers"))
+
+    it "ignores a park of a merged task, keeping its child's question pending" $ do
+        let asks = Question (QId (runId "c1") 1) Design (oneLine "which store?")
+            merged = toEngineers (plainTask "t1" []) <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AsksUp asks.qid), Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1"))), TaskMoved t1 (Merged pr)]
+        map (.asking.question.qid) . (.pending) <$> tenXRun (merged <> [TaskMoved t1 (Parked "out of scope" Nothing)]) `shouldBe` Right [asks.qid]
   where
     pr = Url "https://pr/1"
     t1 = TaskId "t1"
-    parent = Parent (runId "p1") (AtFan t1)
+    parent = Parent (runId "p1") (InFan (Tasked t1))
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| fuelSet fuel : init happyPath <> [stepTook (ReadySkipped pr)]))
     tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
     agreed = spawnedIn "gather" <> [stepTook ResearchHandedBack] <> planned
@@ -1060,7 +1129,7 @@ accepts: the run state and its log, @started@ first.
 genAskLog :: Gen (RunState, NonEmpty Event)
 genAskLog = do
     flow <- Gen.element [EngineerFlow, TenXFlow]
-    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") (AtFan (TaskId "t1"))) OwnPr ChildConfirms]
+    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms]
     let begun = Started (startOf flow principal)
     first <- either (fail . show) pure (replay g (logOf (begun :| [])))
     tries <- Gen.int (Range.linear 0 60)
@@ -1112,7 +1181,7 @@ genChain =
         <*> Gen.element
             [ [rung "e1" EngineerFlow (ByUser OwnPr)]
             , [rung "x1" TenXFlow (ByUser OwnPr)]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") (AtFan (TaskId "t1"))) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)

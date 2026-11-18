@@ -3,8 +3,10 @@ module State.Run.RunGen (
     g,
     tenXGraph,
     architectGraph,
+    legacyArchitectGraph,
     chiefGraph,
     ticketUrl,
+    ticketWritten,
     problemUnderstood,
     designDiscussed,
     designConfirmed,
@@ -63,6 +65,7 @@ import State.Flow.Architect (architect)
 import State.Flow.Chief (chief)
 import State.Flow.Drawn (drawnOutcomes)
 import State.Flow.Engineer (engineer)
+import State.Flow.Legacy (legacyArchitect)
 import State.Flow.Library (review)
 import State.Flow.TenX (tenX)
 import State.Run.Ask (Above (..), Kind (Confirm), QId (..), Question (..))
@@ -105,22 +108,30 @@ tenXGraph = either (error . show) id (graph tenX)
 architectGraph :: OpenGraph
 architectGraph = either (error . show) id (graph architect)
 
+-- | The architect's flow before it became one discussion: old logs replay under it.
+legacyArchitectGraph :: OpenGraph
+legacyArchitectGraph = either (error . show) id (graph legacyArchitect)
+
 chiefGraph :: OpenGraph
 chiefGraph = either (error . show) id (graph chief)
 
--- | The ticket an architect run writes its confirmed design into.
+-- | The ticket an architect run writes its design into.
 ticketUrl :: Url
 ticketUrl = Url "https://github.com/o/r/issues/1"
 
--- | An architect run up to its design: researched, explored enough, the problem understood in the user's word.
+-- | The ticket picked at the architect's discussion and written at 'ticketUrl': the run is back at the pick.
+ticketWritten :: [Event]
+ticketWritten = [Took mempty (pickOf "architect" "ticket"), stepTook (TicketWritten ticketUrl)]
+
+-- | A legacy architect run up to its design: researched, explored enough, the problem understood in the user's word.
 problemUnderstood :: [Event]
 problemUnderstood = researchedIn "exploring" <> enoughIn "exploring" <> userConfirms 101 (StateName "problem") <> [stepTook ProblemUnderstood]
 
--- | A design round up to the user's verdict: discussed enough.
+-- | A legacy design round up to the user's verdict: discussed enough.
 designDiscussed :: [Event]
 designDiscussed = enoughIn "discussing"
 
--- | A design round the user confirms, the ticket written at 'ticketUrl'.
+-- | A legacy design round the user confirms, the ticket written at 'ticketUrl'.
 designConfirmed :: [Event]
 designConfirmed = designDiscussed <> userConfirms 102 (StateName "confirm_design") <> [stepTook (ConfirmDesignConfirmed ticketUrl)]
 
@@ -208,7 +219,7 @@ taskJson task =
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child
-childOf child task = Child (runId child) (TaskId task) (Text.unpack child)
+childOf child task = Child (runId child) (Tasked (TaskId task)) (Text.unpack child)
 
 sha :: Sha
 sha = Sha "abc123"

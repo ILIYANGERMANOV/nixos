@@ -40,8 +40,7 @@ implementation: PR #466.
   - A run's children are listed in the order their starts were written (the
     rowid), oldest first.
 - **Reading out**: `state dump <run>` prints a run's envelopes, one JSON
-  object per line. The self-improve analyzer and `give-feedback` open the
-  database read-only.
+  object per line. The self-improve analyzer opens the database read-only.
 
 ## Considered options
 

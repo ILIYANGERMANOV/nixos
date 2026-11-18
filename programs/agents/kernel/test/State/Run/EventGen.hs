@@ -95,7 +95,7 @@ genEvent =
         , Answered <$> genQId <*> genReply <*> genAbove
         , QuestionParked <$> genQId <*> genOneLine
         , Spawning <$> genTaskId
-        , Spawned <$> (Child <$> genRunId <*> genTaskId <*> genPath)
+        , Spawned <$> (Child <$> genRunId <*> Gen.choice [Tasked <$> genTaskId, pure Untasked] <*> genPath)
         , Resumed <$> genRunId
         , HandedBack <$> genRunId <*> genSaid
         , TaskMoved <$> genTaskId <*> genTaskState
@@ -106,6 +106,7 @@ genEvent =
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
         , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
         , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
+        , AgentEnded . AgentId <$> genText
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo
         , Voided <$> Gen.integral (Range.linear 0 100000) <*> genText
@@ -200,7 +201,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.choice [AtFan <$> genTaskId, pure Direct]) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
+        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.choice [InFan <$> Gen.choice [Tasked <$> genTaskId, pure Untasked], pure Direct]) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -243,6 +244,7 @@ templates =
     , outcome (FixPrDone (Sha ""))
     , outcome (ReadyDone (Url ""))
     , outcome (ReadySkipped (Url ""))
+    , outcome (TicketWritten (Url ""))
     , outcome ProblemUnderstood
     , outcome ProblemMore
     , outcome (ConfirmDesignConfirmed (Url ""))
@@ -301,6 +303,7 @@ likeIn = \case
         ReadyDone _ -> ReadyDone . Url <$> genText
         ReadySkipped _ -> ReadySkipped . Url <$> genText
     TicketLayer -> \case
+        TicketWritten _ -> TicketWritten . Url <$> genText
         ProblemUnderstood -> pure ProblemUnderstood
         ProblemMore -> pure ProblemMore
         ConfirmDesignConfirmed _ -> ConfirmDesignConfirmed . Url <$> genText

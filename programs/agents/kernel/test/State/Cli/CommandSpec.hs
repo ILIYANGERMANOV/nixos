@@ -16,7 +16,7 @@ import State.Category.Step (eventText)
 import State.Cli.Command (BriefPart (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
-import State.Run.Ask (Above (..), Kind (..), Link (..), Parent (..), Proposal (..), Reply (..), Route (..), oneLineText)
+import State.Run.Ask (Above (..), ChildTask (..), Kind (..), Link (..), Parent (..), Proposal (..), Reply (..), Route (..), oneLineText)
 import State.Run.Event (AgentRole (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), RunId, StateName (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
 import State.Run.EventGen (fuelSet, runId)
 import State.Run.Fold (Refusal (..), RunState (..))
@@ -191,7 +191,7 @@ spec = describe "State.Cli.Command" $ do
 
         it "takes a child's parent run and task" $
             case parse ["init", "--notes", "/n", "--parent", "r1", "--task", "t1"] of
-                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") (AtFan (TaskId "t1")))
+                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") (InFan (Tasked (TaskId "t1"))))
                 _ -> expectationFailure "not an init"
 
         it "takes a direct child's parent run, with no task" $

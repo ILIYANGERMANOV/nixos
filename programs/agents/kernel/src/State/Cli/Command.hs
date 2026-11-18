@@ -53,16 +53,16 @@ import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), SomeStep (..), Special (AsksConfirm), StepSet (special), confirmText, eventText, handedBackOutcome, stateNameText)
 import State.Flow.Drawn (fuelTakes)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
-import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
+import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, spawnChildOption, usageOf)
 import State.Role (RoleDef (..), defaultFlow)
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Basis (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), Reply (..), Route (..), kindName, parseOneLine, parseQId, qidText, replyText)
+import State.Run.Ask (Above (..), Basis (..), ChildTask (..), Kind, Link (..), OneLine, Parent (..), Proposal (..), QId, Question (..), Reply (..), Route (..), kindName, parseOneLine, parseQId, qidText, replyWords)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, reasonText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), Task, TaskId (..), TaskNo, TaskState (Kept), parseRunId, parseTaskNo, roleText, runIdText, taskNoText)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Refusal (..), RunState (..))
+import State.Run.Fold (Answer (about, given), Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
@@ -371,7 +371,7 @@ initArgs =
             (Nothing, Nothing, Nothing) -> Right (mine OwnPr)
             (Just pr, Nothing, Nothing) -> mine . RoundOn <$> roundPr pr
             (Just _, _, _) -> Left (usage "--pr with --parent" "a child run takes its PR from its parent's task")
-            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (AtFan (TaskId task)))) <$> runId run
+            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (InFan (Tasked (TaskId task))))) <$> runId run
             (Nothing, Just run, Nothing) -> (\r -> FromParent (Parent r Direct)) <$> runId run
             (Nothing, Nothing, Just _) -> Left (usage "--task without --parent" "a child run names its parent's run, and its task at a fan-out")
         Right (Init InitArgs {notes, flow, origin})
@@ -501,7 +501,7 @@ explain g fuel at = \case
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))
     IsParked qid -> refused (qidText qid) "it is parked: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
-    AnsweredOtherwise qid earlier -> refused ("another answer to " <> qidText qid) ("it was answered already: " <> replyText earlier) "state show"
+    AnsweredOtherwise qid earlier -> refused ("another answer to " <> qidText qid) ("it was answered already: " <> replyWords earlier) "state show"
     NotAllowed refusal -> case refusal of
         Ask.MayNotRule _ kind -> refused ("a ruling on " <> kindName kind) ("this run forwards a " <> kindName kind <> " question") "state forward <qid>"
         Ask.MustAnswer _ kind -> refused ("a forward of " <> kindName kind) ("this run answers a " <> kindName kind <> " question itself") (triage "<qid>")
@@ -560,10 +560,12 @@ atText = \case
 {- | An event the grammar lacks, at a run: refused with the events the run's
 Fuel takes where it is, an @extend@ too where a budget here grants one. A
 hand-back is listed even with no child open: the name is what the reader lacks.
+At a fork of child runs nothing is recorded: the fix is the child's brief.
 -}
 unknownEvent :: OpenGraph -> RunState -> Text -> Failure
-unknownEvent g state name =
-    Failure BadInput ("no event " <> name) ("at " <> atText state.at <> " the run takes " <> listed (map fst events)) (closest name events)
+unknownEvent g state name = case Fold.forkingAt g state of
+    Just _ -> Failure BadInput ("no event " <> name) ("at " <> atText state.at <> ", run " <> spawnChildOption.command <> ", then " <> spawnChildOption.means) spawnChildOption.command
+    Nothing -> Failure BadInput ("no event " <> name) ("at " <> atText state.at <> " the run takes " <> listed (map fst events)) (closest name events)
   where
     events = edgeEvents <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
@@ -595,7 +597,7 @@ closest name events = case (sameStep, events) of
 left ('Fan.retryLeft'): what @state retry@ triages and retries.
 -}
 retryOf :: RunState -> TaskId -> Either Failure (Task, Child, Stop)
-retryOf state task = case (Fan.lookupTask fan task, lookup task [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]) of
+retryOf state task = case (Fan.lookupTask fan task, lookup (Tasked task) [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]) of
     (Nothing, _) -> Left (refused "the breakdown has no such task" "state show")
     (Just _, Nothing) -> Left (refused "no stopped child of it awaits triage" "state next")
     (Just _, Just (child, _))
@@ -606,14 +608,18 @@ retryOf state task = case (Fan.lookupTask fan task, lookup task [(child.task, st
     fan = Fold.currentFan state
     refused = Failure BadInput ("task " <> Codec.taskIdText task)
 
-{- | A question its asker has not open already: the same one again would
-wait twice on one answer. Checked when asked, never in the fold, so a log
-that repeated one still replays.
+{- | A question its asker has not open already, and the run has no answer
+to: the same one again would wait twice on one answer, or again on one
+given. An answer has no asker, so its text alone matches. Checked when
+asked, never in the fold, so a log that repeated one still replays.
 -}
 notOpenYet :: RunState -> Asker -> OneLine -> Either Failure ()
-notOpenYet state from text = case [p.asking.question.qid | p <- state.pending, p.asking.from == from, p.asking.question.text == text] of
-    [] -> Right ()
-    qid : _ -> Left (Failure BadInput "the question" ("it is open already as " <> qidText qid) "state next")
+notOpenYet state from text = case ([p.asking.question.qid | p <- state.pending, p.asking.from == from, p.asking.question.text == text], [answer | answer <- state.answers, answer.about.text == text]) of
+    (qid : _, _) -> Left (refused ("it is open already as " <> qidText qid))
+    ([], answer : _) -> Left (refused ("it is answered already as " <> qidText answer.about.qid <> ": " <> Ask.replyText answer.about.kind answer.given))
+    ([], []) -> Right ()
+  where
+    refused why = Failure BadInput "the question" why "state next"
 
 {- | A question to answer: one open, or one answered already, whose answer
 again the fold judges (the same one is no news).

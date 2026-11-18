@@ -43,6 +43,7 @@ import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, 
 import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, null_, pair, pairs, text)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
+import Data.Functor ((<&>))
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -66,6 +67,7 @@ import State.Run.Event (
     Asker (..),
     Asking (..),
     Child (..),
+    ChildTask (..),
     Envelope (..),
     Event (..),
     EventId (..),
@@ -209,6 +211,7 @@ eventType = \case
     WorkerHandedBack _ _ -> "worker_handed_back"
     WorkerSpawned _ _ -> "worker_spawned"
     WorkerReturned _ _ -> "worker_returned"
+    AgentEnded _ -> "agent_ended"
     Suspended _ _ -> "suspended"
     Focused _ -> "focused"
     Voided _ _ -> "voided"
@@ -246,7 +249,7 @@ eventData = \case
     QuestionParked qid why -> qidData qid <> "why" .= oneLineText why
     Spawned child ->
         "child" .= runIdText child.run
-            <> "task" .= taskIdText child.task
+            <> childTaskData child.task
             <> "worktree" .= child.worktree
     Spawning task -> "task" .= taskIdText task
     Resumed child -> "child" .= runIdText child
@@ -259,6 +262,7 @@ eventData = \case
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
     WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
     WorkerReturned (AgentRole role) agent -> "role" .= role <> "agent" .= fmap (.agentIdText) agent
+    AgentEnded agent -> "agent" .= agent.agentIdText
     Suspended task summary -> "request" .= taskNoText task <> "summary" .= oneLineText summary
     Focused task -> "request" .= taskNoText task
     Voided n why -> "seq" .= n <> "why" .= why
@@ -280,7 +284,7 @@ eventOf kind obj = case kind of
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
     "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= aboveOf)
     "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "why" obj
-    "spawned" -> Spawned <$> (Child <$> childOf obj <*> taskOf obj <*> obj .: "worktree")
+    "spawned" -> Spawned <$> (Child <$> childOf obj <*> (childTaskOf obj >>= maybe (fail "a spawned child names its task or is untasked") pure) <*> obj .: "worktree")
     "spawning" -> Spawning <$> taskOf obj
     "resumed" -> Resumed <$> childOf obj
     "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
@@ -292,6 +296,7 @@ eventOf kind obj = case kind of
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
     "worker_returned" -> WorkerReturned . AgentRole <$> obj .: "role" <*> (fmap AgentId <$> obj .: "agent")
+    "agent_ended" -> AgentEnded . AgentId <$> obj .: "agent"
     "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
     "focused" -> Focused <$> requestOf obj
     "voided" -> Voided <$> obj .: "seq" <*> obj .: "why"
@@ -316,6 +321,20 @@ requestOf obj = obj .: "request" >>= \raw -> maybe (fail (show raw <> " is no re
 
 taskOf :: Object -> Parser TaskId
 taskOf obj = TaskId <$> obj .: "task"
+
+-- | A fan-out's child names its task, or says it has none.
+childTaskData :: ChildTask -> Series
+childTaskData = \case
+    Tasked task -> "task" .= taskIdText task
+    Untasked -> "untasked" .= True
+
+-- | A fan-out's child as 'childTaskData' writes it; neither key, no fan-out's child.
+childTaskOf :: Object -> Parser (Maybe ChildTask)
+childTaskOf obj =
+    (,) <$> obj .:? "task" <*> obj .:? "untasked" <&> \case
+        (Just task, _) -> Just (Tasked (TaskId task))
+        (Nothing, Just True) -> Just Untasked
+        (Nothing, _) -> Nothing
 
 {- | #360's @token@, @ref@ and @qid@: the hand-back's line 1 as the child
 sent it, a stop's as 'stopWire' spells it.
@@ -459,14 +478,14 @@ principalOf = \case
             (Nothing, _) -> ByUser . RoundOn . Url <$> obj .: "pr"
     other -> fail ("a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task?}, not " <> show other)
 
--- | A fan-out's child names its task; a direct child, none.
+-- | A fan-out's child names its task or its delegation; a direct child, neither.
 linkData :: Link -> Series
 linkData = \case
-    AtFan task -> "task" .= taskIdText task
+    InFan task -> childTaskData task
     Direct -> mempty
 
 linkOf :: Object -> Parser Link
-linkOf obj = maybe Direct (AtFan . TaskId) <$> obj .:? "task"
+linkOf obj = maybe Direct InFan <$> childTaskOf obj
 
 askingOf :: Object -> Parser Asking
 askingOf obj = do

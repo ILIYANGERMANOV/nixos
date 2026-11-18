@@ -48,6 +48,7 @@ module State.Run.Ask (
     principalPlan,
     Parent (..),
     Link (..),
+    ChildTask (..),
     Op (..),
     Delivery (..),
     Above (..),
@@ -56,6 +57,8 @@ module State.Run.Ask (
     route,
     Reply (..),
     replyText,
+    replyWords,
+    otherNote,
     replyNote,
     deliver,
     questionLine,
@@ -341,11 +344,18 @@ principalPlan = \case
 data Parent = Parent {run :: RunId, link :: Link}
     deriving stock (Eq, Show)
 
-{- | A child of a fan-out takes a task of its parent's breakdown; a direct
-child, of a parent at no fan-out (the chief delegating one engineer), none.
-Either way its questions go up to the parent.
+{- | A child of a fan-out takes a task of its parent's breakdown, or the
+request its parent handed on whole; a direct child, of a parent at no
+fan-out, none. Either way its questions go up to the parent.
 -}
-data Link = AtFan TaskId | Direct
+data Link = InFan ChildTask | Direct
+    deriving stock (Eq, Show)
+
+{- | What a fan-out's child was spawned for: a task of the 10x's breakdown,
+or a request the chief handed on whole (@route.delegate@), which no
+breakdown names.
+-}
+data ChildTask = Tasked TaskId | Untasked
     deriving stock (Eq, Show)
 
 -- | What the run's interface can do: a subagent cannot ask the user or wait.
@@ -414,13 +424,33 @@ reply that is none of them, which may be a new request.
 data Reply = Chose Text | Other Text
     deriving stock (Eq, Show)
 
--- | The reply's text, an 'Other' marked as none of the options.
-replyText :: Reply -> Text
-replyText = \case
-    Chose answer -> answer
-    Other reply -> reply <> " (" <> replyNote <> ")"
+-- | The reply's text, marked with what it asks of the run that reads it, if anything ('otherNote').
+replyText :: Kind -> Reply -> Text
+replyText kind reply = replyWords reply <> foldMap (\note -> " (" <> note <> ")") (otherNote kind reply)
 
--- | What an 'Other' reply asks of the run that reads it.
+-- | The reply's words alone.
+replyWords :: Reply -> Text
+replyWords = \case
+    Chose answer -> answer
+    Other reply -> reply
+
+{- | What a reply to a question of this kind asks of the run that reads it:
+only an 'Other' to a question that offered options to choose from. A
+free-text reply to a Design or Scope question is the decision itself.
+-}
+otherNote :: Kind -> Reply -> Maybe Text
+otherNote kind = \case
+    Chose _ -> Nothing
+    Other _ -> case kind of
+        Design -> Nothing
+        Scope -> Nothing
+        Fact -> Just replyNote
+        Pick -> Just replyNote
+        Confirm -> Just replyNote
+        Security -> Just replyNote
+        Stuck -> Just replyNote
+
+-- | What an 'Other' reply asks of the run that reads it, where 'otherNote' says it asks anything.
 replyNote :: Text
 replyNote = "none of the options: it may be a new request - re-plan for it, or take it up as one"
 

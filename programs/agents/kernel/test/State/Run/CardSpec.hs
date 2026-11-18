@@ -57,7 +57,7 @@ spec = do
                 suspendedAt = (logged NonEmpty.!! 4).ts
             fmap cards (trace chiefGraph logged)
                 `shouldBe` Right
-                    [ Card (TaskNo 2) InFocus (StateName "route") [(QId run 2, Chose "sqlite")] [] Nothing
+                    [ Card (TaskNo 2) InFocus (StateName "route") [(QId run 2, Pick, Chose "sqlite")] [] Nothing
                     , Card (TaskNo 1) (Paused suspendedAt (oneLine "asked which store")) (StateName "fuel") [] [Question (QId run 1) Design (oneLine "which store?")] (Just agent)
                     ]
   where

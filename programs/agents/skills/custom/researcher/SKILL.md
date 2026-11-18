@@ -18,7 +18,8 @@ agent when no decision depends on the answer. An implementer explores its own
 slice. The prompt holds:
 
 - `Fuel: <level>`, the topic, and `notes`, a unique directory under `/tmp`.
-- `roots`: absolute worktree or clone paths, URLs.
+- `roots`: absolute worktree or clone paths, URLs; code as `roots: <path>
+  at origin/main <sha>`, with the area's rule files.
 - `questions`: each with the decision it feeds.
 - `known`: facts already settled, earlier notes paths.
 
@@ -36,8 +37,10 @@ lookups get their answers in the hand-back, with no notes file.
    shorter. Always add, never dropped: which standard, formal or de facto,
    applies (`None` if none)? Another question that feeds no decision is
    dropped. Done means each is answered, or `Unknown` with what would settle it.
-2. Locate before reading: `rg -n`, `rg --files`, `gh`. Then read ranges, never
-   whole large files. Batch independent calls in one turn.
+2. Locate before reading: `rg -n`, `rg --files`, `gh`. Then Read the range
+   with the Read tool, on a checkout at `origin/main`, never whole large
+   files and never `git show <ref>:<path>` or `sed` for code, so the area's
+   path-scoped rules load. Batch independent calls in one turn.
 3. Every fact has a `path:line` pointer or a URL, and a label: `verified`, you
    read or ran it, or `inferred`.
 4. A cheap read-only probe may settle a claim. No build, no write outside

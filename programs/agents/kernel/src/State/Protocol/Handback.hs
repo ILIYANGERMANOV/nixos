@@ -41,7 +41,7 @@ import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire, w
 import State.Run.Event (AgentId, AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), Waiting (..), parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
-import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, forks, nextQId, returnOf)
+import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, forks, nextQId, returnOf, untaskedFan)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
@@ -151,7 +151,9 @@ parseToken line = case parseByName tokenWordText word of
     Just FailedWord -> Just . Failed <$> line1 payload
     Nothing -> Right Nothing
   where
-    (word, payload) = Text.drop 1 <$> Text.breakOn " " line
+    (written, payload) = Text.drop 1 <$> Text.breakOn " " line
+    -- "READY: done" reads as "READY done": agents often colon the token.
+    word = fromMaybe written (Text.stripSuffix ":" written)
     (what, refs) = Text.drop 1 <$> Text.breakOn " " payload
     line1 = Bifunctor.first Why . oneLine
 
@@ -239,7 +241,7 @@ the run. A worker's hand-back also says it returned, when it was logged at
 work ('returnOf'). The sha is the worktree's HEAD.
 -}
 typeHandback :: Steps -> OpenGraph -> RunState -> Maybe Sha -> AgentRole -> Maybe AgentId -> Handback -> Either Refusal Typed
-typeHandback steps g state worktreeHead agent agentId handback = case [ScopedFan place.scope fan | Just _ <- [leads agent], At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
+typeHandback steps g state worktreeHead agent agentId handback = case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]] <> [ScopedFan place.scope fan | Just _ <- [leads agent], At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
     here : _ -> fromChild state (fanIn state.fans here) handback
     [] -> (\typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}) <$> fromWorker steps g state worktreeHead agent handback
 
@@ -371,6 +373,7 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
             Ship.AwaitCi -> inline s
             Ship.Ready -> inline s
         TicketLayer -> case s of
+            Ticket.WriteTicket -> inline s
             Ticket.Problem -> inline s
             Ticket.ConfirmDesign -> inline s
         RequestLayer -> case s of

@@ -13,7 +13,7 @@ import Hedgehog.Range qualified as Range
 import State.Run.Ask (QId (..))
 import State.Run.Event
 import State.Run.EventGen (genSaid, genTaskAt, genTaskId, genTaskState, genTasks, oneLine, runId, tasksOf)
-import State.Run.Fan
+import State.Run.Fan hiding (merged)
 import State.Run.RunGen (plainTask)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -23,13 +23,13 @@ spec = describe "State.Run.Fan" $ do
     it "spawnable_respects_deps_and_agents" . hedgehog $ do
         fan <- forAll genFan
         let picks = spawnable [] fan
-            busy = [task | task <- fan.tasks, Set.member task.id fan.atWork || task.id `elem` map (.child.task) (running fan)]
+            busy = [task | task <- fan.tasks, Set.member task.id fan.atWork || Tasked task.id `elem` map (.child.task) (running fan)]
         cover 10 "spawns some" (not (null picks))
         for_ picks $ \task -> do
             assert (not (settled fan task.id))
             assert (task.id `notElem` map (.id) busy)
             assert (all (merged fan) task.deps)
-            assert (task.id `notElem` map ((.task) . fst) (untriaged fan))
+            assert (Tasked task.id `notElem` map ((.task) . fst) (untriaged fan))
             assert (not (awaitsCi fan task.id))
 
     it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
@@ -120,6 +120,11 @@ spec = describe "State.Run.Fan" $ do
         map (.id) . spawnable [] <$> reviewed `shouldBe` Right []
         map (.id) . spawnable [] <$> (reviewed >>= moved t1 (Merged (Url "pr"))) `shouldBe` Right [t2]
 
+    it "keeps_a_merged_task_merged_ignoring_any_later_move" . hedgehog $ do
+        later <- forAll genTaskState
+        let merged' = applied [moved t1 (Merged (Url "pr"))]
+        (merged' >>= moved t1 later) === merged'
+
     it "awaits the merge of a dependency in review" $
         mergesAwaited <$> moved t1 (InReview (Url "pr")) twoTasks `shouldBe` Right [t1]
 
@@ -207,7 +212,7 @@ t1 = TaskId "t1"
 t2 = TaskId "t2"
 
 childFor :: Text.Text -> TaskId -> Child
-childFor child taskId = Child (runId child) taskId "worktree"
+childFor child taskId = Child (runId child) (Tasked taskId) "worktree"
 
 -- | A breakdown's fan-out: a first breakdown has no agent at work to refuse it.
 fresh :: Tasks -> Fan

@@ -7,7 +7,7 @@ import Hedgehog.Range qualified as Range
 import State.Cli.Route
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
-import State.Role (FlowName (..))
+import State.Role (FlowName (..), flowAt)
 import State.Run.Event (AgentRole (..), StateName (..))
 import State.Run.EventGen (runId)
 import State.Run.RunGen (loadSteps)
@@ -18,7 +18,7 @@ spec :: Spec
 spec = describe "routing a shell command's state calls" $ do
     steps <- runIO loadSteps
     let calls = stateCalls steps "/work"
-        at = StateCall
+        at dir sub written = StateCall dir sub written OwnRun
 
     describe "the state calls of a command" $ do
         it "finds a call in the hook's directory" $
@@ -69,6 +69,10 @@ spec = describe "routing a shell command's state calls" $ do
             sub <- forAll (Gen.element ["next", "pending"])
             stateCalls steps "/work" ("cd " <> Text.pack dir <> " && state " <> sub) === [at dir sub ("state " <> sub)]
 
+        it "lets a record and an answer reach a child run, no other call" $
+            map (.reach) (calls "state record await_ci.green; state answer q1 postgres; state next; state stop blocked why; state ask --kind Design which")
+                `shouldBe` [OwnOrChildRun, OwnOrChildRun, OwnRun, OwnRun, OwnRun]
+
         it "a_single_quoted_directory_reads_back_whole" . hedgehog $ do
             dir <- forAll (Gen.string (Range.linear 1 20) (Gen.filter (/= '\'') Gen.unicode))
             map (.dir) (stateCalls steps "/" ("cd '/" <> Text.pack dir <> "' && state next")) === ["/" <> dir]
@@ -76,11 +80,33 @@ spec = describe "routing a shell command's state calls" $ do
     describe "the verdict" $ do
         let bound = Binding (runId "0a1b2c3d") "/notes" "/repo/.claude/worktrees/child"
             next = at "/repo" "next" "state next"
+            own = Just (Target "/repo/.claude/worktrees/child" Nothing)
+            other = Just (Target "/repo" Nothing)
+            childOf parent = Just (Target "/repo/.claude/worktrees/grandchild" (Just (runId parent)))
+            parentMay dir sub written = StateCall dir sub written OwnOrChildRun
+            green = parentMay "/repo/.claude/worktrees/grandchild" "record" "state record await_ci.green"
+            answer = parentMay "/repo/.claude/worktrees/grandchild" "answer" "state answer 0e0e0e0e:1 postgres"
         it "allows a call in the bound worktree" $
-            route bound [(next, Just "/repo/.claude/worktrees/child")] `shouldBe` Nothing
+            route bound [(next, own)] `shouldBe` Nothing
+
+        it "allows a record and an answer in the worktree of the bound run's child" $
+            route bound [(green, childOf "0a1b2c3d"), (answer, childOf "0a1b2c3d")] `shouldBe` Nothing
+
+        it "denies a record in the worktree of another run's child, naming the fix" $
+            route bound [(green, childOf "0f0f0f0f")]
+                `shouldBe` Just
+                    ( "state record: the run at /repo/.claude/worktrees/grandchild is not this agent's - this agent is bound to run 0a1b2c3d at /repo/.claude/worktrees/child\n"
+                        <> "fix: cd /repo/.claude/worktrees/child && state record await_ci.green\n"
+                    )
+
+        it "denies a record in a worktree whose run is no child" $
+            route bound [(green, Just (Target "/repo/.claude/worktrees/grandchild" Nothing))] `shouldSatisfy` maybe False ("state record:" `Text.isPrefixOf`)
+
+        it "denies any other call in the worktree of the bound run's child" $
+            route bound [(at "/repo/.claude/worktrees/grandchild" "next" "state next", childOf "0a1b2c3d")] `shouldSatisfy` maybe False ("state next:" `Text.isPrefixOf`)
 
         it "denies a call in another worktree, even the one the bound worktree sits in, naming the fix" $
-            route bound [(next, Just "/repo")]
+            route bound [(next, other)]
                 `shouldBe` Just
                     ( "state next: the run at /repo is not this agent's - this agent is bound to run 0a1b2c3d at /repo/.claude/worktrees/child\n"
                         <> "fix: cd /repo/.claude/worktrees/child && state next\n"
@@ -90,10 +116,10 @@ spec = describe "routing a shell command's state calls" $ do
             route bound [(at "/tmp" "pending" "state pending", Nothing)] `shouldSatisfy` maybe False ("state pending: /tmp is in no git worktree" `Text.isPrefixOf`)
 
         it "denies by the first call at another run" $
-            route bound [(next, Just "/repo/.claude/worktrees/child"), (at "/repo" "pending" "state pending", Just "/repo")] `shouldSatisfy` maybe False ("state pending:" `Text.isPrefixOf`)
+            route bound [(next, own), (at "/repo" "pending" "state pending", other)] `shouldSatisfy` maybe False ("state pending:" `Text.isPrefixOf`)
 
         it "quotes a bound worktree a shell would split" $
-            route bound {toplevel = "/home/me/my repo"} [(next, Just "/repo")] `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
+            route bound {toplevel = "/home/me/my repo"} [(next, other)] `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
 
     gateSpec
     readOnlySpec
@@ -101,10 +127,10 @@ spec = describe "routing a shell command's state calls" $ do
 gateSpec :: Spec
 gateSpec = describe "the gate of an agent bound to no run" $ do
     let denied lead = map (gate lead)
-        writes = [Edits, Writes, Spawns] <> map RunsShell recordedCommands
+        writes = [Edits (Just "/w/a.hs"), Writes (Just "/w/b.md"), Spawns] <> map RunsShell recordedCommands
         initFix = "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>/\n"
     it "denies a typed /engineer's edit, naming the init that starts its run" $
-        gate engineer Edits
+        gate engineer (Edits (Just "/w/a.hs"))
             `shouldBe` Just
                 ( "state init: this lead has no run, so its edit waits - a lead's writes go in its run's record, which `state init` starts\n"
                     <> initFix
@@ -145,25 +171,27 @@ gateSpec = describe "the gate of an agent bound to no run" $ do
 
 readOnlySpec :: Spec
 readOnlySpec = describe "the architect's read-only run" $ do
-    let codeWrites = [Edits, Writes] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
-        ticketWrites = map RunsShell ["gh issue create --repo o/r --title t --body b", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\nbody\nEOF"]
+    let notes = "/tmp/notes"
+        codeWrites = [Edits (Just "/wt/src/a.hs"), Writes (Just "/wt/README.md"), Writes (Just (notes <> "/../x")), Edits (Just (notes <> "/./../notes2/n.md")), Writes Nothing, Edits (Just (notes <> "/worktrees/T1/src/a.hs")), Writes (Just (notes <> "/sub/n.md"))] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
+        ticketWrites = map RunsShell ["gh issue create --repo o/r --title t --body b", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\nbody\nEOF", "gh issue comment 1 --repo o/r --body b"]
+        notesWrites = [Writes (Just (notes <> "/notes.md")), Edits (Just (notes <> "/notes.md")), Writes (Just (notes <> "/./r/../notes.md"))]
         readCalls = [Spawns] <> map RunsShell ["gh issue view 1", "git status", "state next"]
-        confirming = StateName "architect/confirm_design"
-        discussing = StateName "architect/discussing"
-    it "denies an edit, a write, a commit, a push and a PR opened or merged, naming the ticket as the fix" $
-        map (readOnly ArchitectFlow confirming) codeWrites `shouldSatisfy` all (maybe False ("only at confirm_design, once the user confirms, write the ticket" `Text.isInfixOf`))
+        -- Each run where the architect's flow runs: its own states, and the chief's discussion and architect request.
+        architectAt = [(ArchitectFlow, "architect"), (ArchitectFlow, "architect/ticket"), (ArchitectFlow, "design/confirm_design"), (ChiefFlow, "discussion/discussing"), (ChiefFlow, "architect/architect")]
+        deniedAt (flow, at) = readOnly notes (flowAt flow (StateName at))
+    it "denies an edit or write outside the notes dir or below it, a commit, a push and a PR opened or merged at every state, naming the ticket as the write" $
+        [deniedAt place call | place <- architectAt, call <- codeWrites] `shouldSatisfy` all (maybe False ("write or edit the ticket at any point" `Text.isInfixOf`))
 
-    it "denies the ticket's write before confirm_design, naming confirm_design" $
-        map (readOnly ArchitectFlow discussing) ticketWrites `shouldSatisfy` all (maybe False ("the ticket is written at confirm_design" `Text.isInfixOf`))
+    it "lets the ticket be written, edited or commented on, a researcher spawn and reads go on, at every state" $
+        [deniedAt place call | place <- architectAt, call <- ticketWrites <> readCalls] `shouldSatisfy` all (== Nothing)
 
-    it "lets the ticket be written at confirm_design, and a researcher spawn and reads go on anywhere" $
-        [readOnly ArchitectFlow at call | (at, call) <- map (confirming,) (ticketWrites <> readCalls) <> map (discussing,) readCalls] `shouldBe` replicate (length ticketWrites + 2 * length readCalls) Nothing
+    it "lets Edit and Write change the files directly in the notes dir, at every state" $
+        [deniedAt place call | place <- architectAt, call <- notesWrites] `shouldSatisfy` all (== Nothing)
 
     it "never_denies_the_engineer_or_the_10x" . hedgehog $ do
         flow <- forAll (Gen.element [EngineerFlow, TenXFlow])
-        at <- forAll (Gen.element [confirming, discussing])
-        call <- forAll (Gen.element (codeWrites <> ticketWrites <> readCalls))
-        readOnly flow at call === Nothing
+        call <- forAll (Gen.element (codeWrites <> notesWrites <> ticketWrites <> readCalls))
+        readOnly notes flow call === Nothing
 
 -- | An absolute directory of plain path words, which a shell reads as written.
 genDir :: Gen FilePath

@@ -51,8 +51,6 @@ let
     "chief" # /chief - one run per session that routes each request to a flow, a block, a discussion or a direct fix, explicit invocation only
     "engineer" # /engineer - deliver a feature end to end; preloaded by the engineer agent
     "engineering" # coding style and engineering principles, model-invoked on any code work
-    "final-review" # /final-review - independent last review of a ready PR, the user answers the pickers
-    "give-feedback" # /give-feedback - apply quick bulleted feedback to a PR in rounds, explicit invocation only
     "grilling" # fork of mattpocock's grilling, one picker question at a time; grill-me and grill-with-docs delegate to it
     "pr-description" # PR body from the repo template or a default format, model-invoked before gh pr create
     "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
@@ -60,7 +58,6 @@ let
     "refactor" # /refactor - behaviour-preserving cleanup of a diff; preloaded by the refactorer agent
     "researcher" # /researcher - bounded research with a notes file; preloaded by the researcher agent
     "self-improve" # /self-improve - measure past sessions and fix the agent setup's bottlenecks, factory and claude-all only
-    "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
     "ui-coding" # UI-specific rules on top of engineering, model-invoked on UI work
   ];
 

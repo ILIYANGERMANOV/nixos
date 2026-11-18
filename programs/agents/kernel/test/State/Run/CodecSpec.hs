@@ -13,7 +13,7 @@ import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Branch (..), Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Link (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Target (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
+import State.Run.Event (Branch (..), ChildTask (..), Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Link (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Target (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, pickOf, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
@@ -191,7 +191,7 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes and reads an architect run's start by its flow's name, and its ticket by its url" $ do
         let architectStart = reviewRows {event = Started (Start ArchitectFlow "/n" (ByUser OwnPr) Set.empty)}
-            confirmed = reviewRows {event = stepTook (ConfirmDesignConfirmed (Url "https://github.com/o/r/issues/1"))}
+            confirmed = reviewRows {event = stepTook (TicketWritten (Url "https://github.com/o/r/issues/1"))}
         (encodeLine architectStart, encodeLine confirmed) `shouldSatisfy` \(start, ticket) -> "\"flow\":\"architect\"" `Text.isInfixOf` start && "\"url\":\"https://github.com/o/r/issues/1\"" `Text.isInfixOf` ticket
         map (fmap (.event) . decodeLine . encodeLine) [architectStart, confirmed] `shouldBe` map (Right . (.event)) [architectStart, confirmed]
 
@@ -256,7 +256,7 @@ metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"
 
 -- | A started line naming parent run r7f2.
 parentRun :: Envelope
-parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (Parent (runId "r7f2") (AtFan (TaskId "t1"))) OwnPr ChildConfirms) mempty)}
+parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (Parent (runId "r7f2") (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms) mempty)}
 
 -- | Lines in the shape the Python @state@ wrote, its other keys left out.
 pythonV1, pythonV2 :: Text

@@ -4,7 +4,8 @@
     "beforeTool",
     "afterTool",
     "agentStart",
-    "promptExpansion"
+    "promptExpansion",
+    "agentStop"
   ],
   "tools": [
     "shell",
@@ -16,6 +17,7 @@
     "ask",
     "web",
     "skill",
+    "stopAgent",
     "other"
   ],
   "sources": ["startup", "resume", "compact"]

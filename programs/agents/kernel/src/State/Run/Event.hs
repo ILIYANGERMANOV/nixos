@@ -5,7 +5,8 @@ step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A qu
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
 'Resumed', 'Restarted') and its tasks ('TaskAdded', 'TaskMoved', 'Held',
 'ActedOn') as stay events. A lead logs the workers it has at work
-('WorkerSpawned', 'WorkerReturned'), which it hands back after. A line
+('WorkerSpawned', 'WorkerReturned'), which it hands back after; a child
+run, the agent leading it that ended with no hand-back ('AgentEnded'). A line
 logged in error is 'Voided', never edited out: replay drops both lines.
 -}
 module State.Run.Event (
@@ -64,6 +65,7 @@ module State.Run.Event (
     breakdown,
     taskList,
     Child (..),
+    ChildTask (..),
     Said (..),
     Waiting (..),
     TaskState (..),
@@ -76,7 +78,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
-import State.Run.Ask (Above, Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question, Reply (..))
+import State.Run.Ask (Above, ChildTask (..), Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question, Reply (..))
 import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), TaskNo (..), parseRunId, parseTaskNo, runIdText, taskNoText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Target (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
@@ -183,6 +185,10 @@ data Event
       it is at work no more.
       -}
       WorkerReturned AgentRole (Maybe AgentId)
+    | {- | The agent leading this child run stopped before it handed back: a
+      user's stop, its spawner's, a crash (written by the stop hook).
+      -}
+      AgentEnded AgentId
     | {- | The chief's request in focus waits, at its node, and where it stands
       in the lead's words: the run opens a new request at its start.
       -}
@@ -239,8 +245,8 @@ data StopReason = Blocked | Failed | Replan | OutOfRounds
 data Note = Note {message :: Text, fix :: Text}
     deriving stock (Eq, Show)
 
--- | A child run of the fan-out: its run id, its task and its worktree.
-data Child = Child {run :: RunId, task :: TaskId, worktree :: FilePath}
+-- | A child run of the fan-out: its run id, what it was spawned for and its worktree.
+data Child = Child {run :: RunId, task :: ChildTask, worktree :: FilePath}
     deriving stock (Eq, Show)
 
 -- | A child's hand-back, typed: only 'AsksUp' and 'Awaits' leave it running.

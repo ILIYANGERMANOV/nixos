@@ -1513,7 +1513,7 @@ class TestAfterHandback:
         _ = main.bash(10, "gh pr ready 1", 11)
         _ = main.human(20, "why this?")
         _ = main.bash(25, "gh pr ready 1", 26)
-        _ = main.command(30, "final-review").command(40, "give-feedback").reply(50)
+        _ = main.command(30, "address-pr-feedback").command(40, "qa").reply(50)
         home.session("s1", main)
         home.session(
             "s2", Transcript().human(0, "no ready here").human(5, "more").reply(6)
@@ -1526,7 +1526,7 @@ class TestAfterHandback:
             in report
         )
         assert (
-            "human prompts after it: 3: 1 free text, /final-review 1, /give-feedback 1"
+            "human prompts after it: 3: 1 free text, /address-pr-feedback 1, /qa 1"
             in report
         )
 

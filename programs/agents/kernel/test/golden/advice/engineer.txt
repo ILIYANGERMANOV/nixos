@@ -44,7 +44,7 @@ Notes: merge every researcher's hand-back into your notes, each fact once, then 
 
 == gather/research
 SPAWN researcher background: no
-  at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at gather/research: a step a researcher subagent runs - spawn it with the task below; its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record gather/research.spawned, or pipe the hand-back into state handback researcher; then state next
   outcomes:
     gather/research.spawned - back to gather, the gather loop's next round
   fuel: low
@@ -85,7 +85,7 @@ RUN one option below
 
 == simplify_plan
 SPAWN researcher background: no
-  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback researcher; then state next
   outcomes:
     simplify_plan.done - on to confirm
   fuel: low
@@ -112,7 +112,7 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 
 == implement
 SPAWN implementer background: no
-  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback implementer; then state next
   outcomes:
     implement.done - on to skip_refactor
   fuel: low
@@ -129,7 +129,7 @@ RUN one option below
 
 == refactor
 SPAWN refactorer background: no
-  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback refactorer; then state next
+  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback refactorer; then state next
   outcomes:
     refactor.done - on to review
   fuel: low
@@ -137,7 +137,7 @@ Build: one refactorer, briefed with `state brief refactorer`. Refactor the branc
 
 == review
 SPAWN review-lead background: no
-  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback review-lead; then state next
   outcomes:
     review.clean - on to describe
     review.rows - on to pick
@@ -156,7 +156,7 @@ Review: pick the rows to fix and judge each requirement, as `references/review.m
 
 == fix
 SPAWN fixer background: no
-  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     fix.done - on to re_review
   fuel: low
@@ -165,7 +165,7 @@ Review: one fixer for the picked rows, briefed with `state brief fixer`. Fix the
 
 == re_review
 SPAWN review-lead background: no
-  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback review-lead; then state next
   outcomes:
     re_review.clean - on to describe
     re_review.rows - back to pick, the fix loop's next round
@@ -175,7 +175,7 @@ Review: one review-lead for the fix, briefed with `state brief review-lead`. Run
 
 == describe
 SPAWN fixer background: no
-  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     describe.done - on to simplify_pr
   fuel: low
@@ -183,7 +183,7 @@ Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing
 
 == simplify_pr
 SPAWN fixer background: no
-  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     simplify_pr.done - on to await_ci
   fuel: low
@@ -201,7 +201,7 @@ Ship: CI on the PR. `green` when every check passes; `red` names the failing che
 
 == fix_pr
 SPAWN fixer background: no
-  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     fix_pr.done - back to await_ci, the ci loop's next round
   fuel: low
@@ -263,7 +263,7 @@ Notes: merge every researcher's hand-back into your notes, each fact once, then 
 
 == gather/research
 SPAWN researcher background: no
-  at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at gather/research: a step a researcher subagent runs - spawn it with the task below; its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record gather/research.spawned, or pipe the hand-back into state handback researcher; then state next
   outcomes:
     gather/research.spawned - back to gather, the gather loop's next round
   fuel: balanced
@@ -302,7 +302,7 @@ RUN state record skip_simplify_plan.run
 
 == simplify_plan
 SPAWN researcher background: no
-  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback researcher; then state next
   outcomes:
     simplify_plan.done - on to confirm
   fuel: balanced
@@ -329,7 +329,7 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 
 == implement
 SPAWN implementer background: no
-  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback implementer; then state next
   outcomes:
     implement.done - on to skip_refactor
   fuel: balanced
@@ -346,7 +346,7 @@ RUN one option below
 
 == refactor
 SPAWN refactorer background: no
-  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback refactorer; then state next
+  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback refactorer; then state next
   outcomes:
     refactor.done - on to review
   fuel: balanced
@@ -354,7 +354,7 @@ Build: one refactorer, briefed with `state brief refactorer`. Refactor the branc
 
 == review
 SPAWN review-lead background: no
-  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback review-lead; then state next
   outcomes:
     review.clean - on to describe
     review.rows - on to pick
@@ -373,7 +373,7 @@ Review: pick the rows to fix and judge each requirement, as `references/review.m
 
 == fix
 SPAWN fixer background: no
-  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     fix.done - on to re_review
   fuel: balanced
@@ -382,7 +382,7 @@ Review: one fixer for the picked rows, briefed with `state brief fixer`. Fix the
 
 == re_review
 SPAWN review-lead background: no
-  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback review-lead; then state next
   outcomes:
     re_review.clean - on to describe
     re_review.rows - back to pick, the fix loop's next round
@@ -392,7 +392,7 @@ Review: one review-lead for the fix, briefed with `state brief review-lead`. Run
 
 == describe
 SPAWN fixer background: no
-  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     describe.done - on to simplify_pr
   fuel: balanced
@@ -400,7 +400,7 @@ Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing
 
 == simplify_pr
 SPAWN fixer background: no
-  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     simplify_pr.done - on to await_ci
   fuel: balanced
@@ -418,7 +418,7 @@ Ship: CI on the PR. `green` when every check passes; `red` names the failing che
 
 == fix_pr
 SPAWN fixer background: no
-  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     fix_pr.done - back to await_ci, the ci loop's next round
   fuel: balanced
@@ -480,7 +480,7 @@ Notes: merge every researcher's hand-back into your notes, each fact once, then 
 
 == gather/research
 SPAWN researcher background: no
-  at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at gather/research: a step a researcher subagent runs - spawn it with the task below; its spawn and hand-back are recorded by the hooks, best effort: with no recorded line after one, run state record gather/research.spawned, or pipe the hand-back into state handback researcher; then state next
   outcomes:
     gather/research.spawned - back to gather, the gather loop's next round
   fuel: max
@@ -519,7 +519,7 @@ RUN state record skip_simplify_plan.run
 
 == simplify_plan
 SPAWN researcher background: no
-  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback researcher; then state next
   outcomes:
     simplify_plan.done - on to confirm
   fuel: max
@@ -546,7 +546,7 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 
 == implement
 SPAWN implementer background: no
-  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  at implement: a step an implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback implementer; then state next
   outcomes:
     implement.done - on to skip_refactor
   fuel: max
@@ -561,7 +561,7 @@ RUN state record skip_refactor.run
 
 == refactor
 SPAWN refactorer background: no
-  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback refactorer; then state next
+  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback refactorer; then state next
   outcomes:
     refactor.done - on to review
   fuel: max
@@ -569,7 +569,7 @@ Build: one refactorer, briefed with `state brief refactorer`. Refactor the branc
 
 == review
 SPAWN review-lead background: no
-  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback review-lead; then state next
   outcomes:
     review.clean - on to describe
     review.rows - on to pick
@@ -588,7 +588,7 @@ Review: pick the rows to fix and judge each requirement, as `references/review.m
 
 == fix
 SPAWN fixer background: no
-  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     fix.done - on to re_review
   fuel: max
@@ -597,7 +597,7 @@ Review: one fixer for the picked rows, briefed with `state brief fixer`. Fix the
 
 == re_review
 SPAWN review-lead background: no
-  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback review-lead; then state next
   outcomes:
     re_review.clean - on to describe
     re_review.rows - back to pick, the fix loop's next round
@@ -607,7 +607,7 @@ Review: one review-lead for the fix, briefed with `state brief review-lead`. Run
 
 == describe
 SPAWN fixer background: no
-  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     describe.done - on to simplify_pr
   fuel: max
@@ -615,7 +615,7 @@ Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing
 
 == simplify_pr
 SPAWN fixer background: no
-  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     simplify_pr.done - on to await_ci
   fuel: max
@@ -633,7 +633,7 @@ Ship: CI on the PR. `green` when every check passes; `red` names the failing che
 
 == fix_pr
 SPAWN fixer background: no
-  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
     fix_pr.done - back to await_ci, the ci loop's next round
   fuel: max

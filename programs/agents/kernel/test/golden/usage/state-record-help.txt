@@ -38,6 +38,7 @@ Available commands:
   fix_pr.done              no arguments
   ready.done               <url>
   ready.skipped            <url>
+  ticket.written           <url>
   problem.understood       no arguments
   problem.more             no arguments
   confirm_design.confirmed <url>
@@ -64,17 +65,17 @@ Available commands:
   skip_simplify_plan.run   no arguments
   skip_refactor.skip       no arguments
   skip_refactor.run        no arguments
-  exploring.enough         no arguments
-  exploring.research       no arguments
-  discussing.enough        no arguments
-  discussing.research      no arguments
-  discussing.discuss       no arguments
+  architect.enough         no arguments
+  architect.research       no arguments
+  architect.discuss        no arguments
+  architect.ticket         no arguments
   route.architect          no arguments
   route.engineer           no arguments
   route.10x                no arguments
   route.blocks             no arguments
   route.discussion         no arguments
   route.other              no arguments
+  route.delegate           no arguments
   block.researching        no arguments
   block.gathering          no arguments
   block.agreeing           no arguments
@@ -83,5 +84,10 @@ Available commands:
   block.reviewing          no arguments
   block.describing         no arguments
   block.shipping           no arguments
+  exploring.enough         no arguments
+  exploring.research       no arguments
+  discussing.enough        no arguments
+  discussing.research      no arguments
+  discussing.discuss       no arguments
 
 A commit event records HEAD.

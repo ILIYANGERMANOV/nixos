@@ -24,6 +24,9 @@ CONTEXT = "SubagentStart additionalContext reaches the subagent"
 DENY = "PreToolUse deny reason reaches the agent"
 FIELDS = "every event carries the adapter's fields"
 CD = "payload cwd follows a cd in the main session"
+TASK_STOP = "TaskStop of a background child: its PostToolUse names it by task_id"
+NO_STOP = "a child stopped by TaskStop gets no SubagentStop"
+LEAD_STOP = "Stop fires for the lead, with no agent_id and its background_tasks"
 
 
 def test_the_recorded_run_passes_every_check() -> None:
@@ -128,6 +131,26 @@ def no_session_at_expansion(events: list[Payload], transcripts: dict[str, str]) 
     ), transcripts
 
 
+def task_stop_names_no_task_id(
+    events: list[Payload], transcripts: dict[str, str]
+) -> Run:
+    return edited(
+        events, is_tool("PostToolUse", "TaskStop"), lambda e: drop_input(e, "task_id")
+    ), transcripts
+
+
+def stopped_child_gets_subagent_stop(
+    events: list[Payload], transcripts: dict[str, str]
+) -> Run:
+    start = next(event for event in events if is_start("probe-stopped")(event))
+    stop: Payload = {**start, "hook_event_name": "SubagentStop"}
+    return [*events, stop], transcripts
+
+
+def no_lead_stop(events: list[Payload], transcripts: dict[str, str]) -> Run:
+    return [event for event in events if not is_event("Stop")(event)], transcripts
+
+
 @pytest.mark.parametrize(
     ("breakage", "check"),
     [
@@ -144,6 +167,9 @@ def no_session_at_expansion(events: list[Payload], transcripts: dict[str, str]) 
         (no_tool_use_id_at_depth_2, (FIELDS, 2)),
         (no_cwd_at_grandchild_start, (FIELDS, 2)),
         (no_session_at_expansion, (FIELDS, 0)),
+        (task_stop_names_no_task_id, (TASK_STOP, 1)),
+        (stopped_child_gets_subagent_stop, (NO_STOP, 1)),
+        (no_lead_stop, (LEAD_STOP, 0)),
     ],
 )
 def test_a_broken_run_fails_exactly_its_check(

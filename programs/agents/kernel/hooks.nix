@@ -68,5 +68,18 @@ in
       tools = [ "skill" ];
       command = command "begin";
     };
+    # A child run whose agent stopped with no hand-back records it ended
+    # (State.Cli.Shell.agentsEnded): at an agent's stop, its children not
+    # running on too, and after a stop call, as a lead's stop of its child
+    # fires no stop at the child.
+    state-stop = {
+      on = "agentStop";
+      command = command "stop";
+    };
+    state-stop-call = {
+      on = "afterTool";
+      tools = [ "stopAgent" ];
+      command = command "stop";
+    };
   };
 }

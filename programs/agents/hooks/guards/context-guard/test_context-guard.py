@@ -19,6 +19,11 @@ NOTICE_CASES: list[Case[tuple[Agent | None, ContextSize], str]] = [
     ("Context 300k", "the lead warns at 300k", (LEAD, ContextSize(300_600, 298_600))),
     ("over the 400k", "the lead stops at 400k", (LEAD, ContextSize(400_600, 398_600))),
     (
+        "`/chief resume` in a fresh session",
+        "the lead's stop tells the user to resume in a fresh session",
+        (LEAD, ContextSize(400_600, 398_600)),
+    ),
+    (
         "stop now",
         "another 10k past the budget says stop again",
         (LEAD, ContextSize(410_600, 408_600)),
@@ -36,6 +41,11 @@ NOTICE_CASES: list[Case[tuple[Agent | None, ContextSize], str]] = [
     (
         "over the 350k",
         "an engineer stops at 350k",
+        (ENGINEER, ContextSize(350_600, 348_600)),
+    ),
+    (
+        "hand back",
+        "an engineer's stop says hand back",
         (ENGINEER, ContextSize(350_600, 348_600)),
     ),
     (
