@@ -316,7 +316,7 @@ Scope question from a child passed the rule test, so the 10x answered it
 with a why and a cost.
 
 ```json
-{"seq":16,"ts":"11:43:36","type":"ruled","data":{"qid":"6bf4739f:1","answer":"A) Yes, deny AskUserQuestion in settings.base for every flavor","why":"User: text 'should be the default' and 'simple rules without exceptions'; one line, reversible","cost":"..."}}
+{"seq":16,"ts":"11:43:36","type":"ruled","data":{"qid":"6bf4739f:1","answer":"A) Yes, deny AskUserQuestion in settings.base for every flavor","why":"User: text 'should be the default' and 'simple rules without exceptions'; one line, reversible","cost":"...","basis":null}}
 ```
 
 Read: [GUARDRAILS: the stuck rule](GUARDRAILS.md#the-stuck-rule) and
@@ -326,7 +326,8 @@ Read: [GUARDRAILS: the stuck rule](GUARDRAILS.md#the-stuck-rule) and
 
 - Source: `state dump bb43f184` and its children `c2a08b34` (docs),
   `1309d68e` (laws), `fed2656d` (docs-feedback), `837f3cef` (text and
-  voice), `e01679a1` (walkthrough); `state show bb43f184`.
+  voice), `e01679a1` (walkthrough); `state show` run in the chief's
+  worktree.
 - Each event keeps its `seq`, `type` and `data`. The envelope (`v`, `id`,
   `run`, `head`, `session`) is dropped and times are cut to `HH:MM:SS`, all
   on 2026-11-19.
