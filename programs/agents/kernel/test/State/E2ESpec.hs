@@ -427,7 +427,7 @@ spec = describe "the state binary" $ do
                 take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1 <> ": postgres"]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c1]
                 userHolds <- succeeded =<< state bin repo ["next"]
-                take 1 userHolds `shouldSatisfy` all (("ASK Security " <> Text.pack q2 <> ": token in env? - ") `Text.isPrefixOf`)
+                map (("ASK Security " <> Text.pack q2 <> ": token in env? - ") `Text.isPrefixOf`) (take 1 userHolds) `shouldBe` [True]
                 _ <- succeeded =<< state bin repo ["answer", q2, "use", "a", "vault"]
                 second <- succeeded =<< state bin repo ["next"]
                 take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2 <> ": use a vault"]

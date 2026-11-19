@@ -236,8 +236,11 @@ is information, not a blocker.
 
 Two tiers, in this order:
 
-1. **Batch confirm the uncontested.** One question, one lettered option per
-   thread, grouped by proposed outcome, ending "Reply with letters, e.g. A, C".
+1. **Batch confirm the uncontested.** Up to four threads per question,
+   numbered in its context and grouped by proposed outcome. Options:
+   "A) Apply all as proposed (Recommended)" and "B) Apply all except some:
+   reply B with their numbers, e.g. B 2, 4". An excepted thread is then
+   asked about on its own, like a contested one.
 2. **One question each for the contested.** A thread is contested if any of these
    holds, and a contested thread is never batch-confirmed:
    - risk is anything above low
@@ -331,11 +334,13 @@ Draft **every** reply and the summary comment. Then ask one question
 with the drafts verbatim in its context, grouped by outcome, and exactly these
 options:
 
-- A) **Reply + resolve + summary** - post each reply, resolve each thread, then
-  post the summary as one `gh pr comment`.
+- A) **Reply + resolve + summary** (Recommended) - post each reply, resolve
+  each thread, then post the summary as one `gh pr comment`.
 - B) **Reply + resolve** - post each reply and resolve each thread. No summary
   comment, so top-level comments get no answer.
 - C) **Don't comment** - post nothing on GitHub. Threads stay open.
+
+It ends "Reply with a letter or your own words."
 
 The user approved verdicts in phase 3, not words. This question is where they
 approve the words. If they answer with edits instead, post what they wrote.

@@ -35,8 +35,9 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
 
   A `fix:` line names the command that works now: run it.
 - **Explain, then ask.** One question at a time. Each Discuss
-  question comes after an Explain message in the same turn: the context, then
-  pseudo-code, a diagram or a table. A Discuss question is
+  question's final text, after the last tool call, opens with an Explain: the
+  context, then pseudo-code, a diagram or a table, then the question block.
+  A Discuss question is
   `state ask --kind <Design|Scope>`: there is no Discuss kind. The user's
   reply is always `state answer`, never `state rule`.
   The question puts one recommendation first, plus the alternatives worth

@@ -7,7 +7,7 @@ Interview the user relentlessly until you reach a shared understanding. Map this
 
 The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven't heard yet. Pick the most load-bearing question on the frontier - the one that unblocks the most of the tree - and ask it.
 
-Ask **one question at a time**, as plain text that ends your turn, never a batch. The person reads it on a phone and often dictates the reply, so follow the Asking rules in your instructions: context, `Q:`, 2-4 lettered options with your recommendation first marked `(Recommended)`, then "Reply with a letter or your own words."
+Ask **one question at a time**, as plain text that ends your turn, never a batch. The person reads it on a phone and often dictates the reply, so follow the Asking rules in your instructions: notify the user first, then context, `Q:`, 2-4 lettered options with your recommendation first marked `(Recommended)`, then "Reply with a letter or your own words."
 
 - Make each option a distinct, concrete answer. The user's own words cover open answers, so never add an "Other" option yourself.
 
