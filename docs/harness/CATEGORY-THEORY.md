@@ -327,7 +327,7 @@ Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 | P24 | Keep | no Fuel level skips `review` or `describe` | Holds if the flow is engineer or 10x ([EngineerSpec.hs:19][eng19], [TenXSpec.hs:22][tenx22]) |
 | P25 | Keep, full | no level skips the security review, blockers, fact research or the final fixer, in every flow | Needs a Keep test over every flow (#499) |
 | P26 | Bounded | no run spends past a cap; a loop whose body caps no step is refused | Holds ([FoldSpec.hs:228][fold228], [GraphSpec.hs:74][graph74]) |
-| P27 | Stuck | the same problems in a loop's last two rounds in a row stop it | Holds ([FoldSpec.hs:267][fold267]) |
+| P27 | Stuck | the same problems in a loop's last two rounds in a row mark it stuck, and the run asks a `Stuck` question | Holds ([FoldSpec.hs:267][fold267]) |
 | P28 | Log is a fold | replaying a prefix, then the rest, is replaying the whole | Holds ([FoldSpec.hs:458][fold458], [FoldSpec.hs:338][fold338]) |
 | P29 | Append is idempotent | appending a line already logged changes nothing | Holds ([FoldSpec.hs:310][fold310]) |
 | P30 | Void | a voided line replays as if it was never logged | Holds ([FoldSpec.hs:436][fold436]) |

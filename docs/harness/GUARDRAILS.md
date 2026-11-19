@@ -33,7 +33,7 @@ of three things ([`AtCap`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df
 flowchart LR
   spend["a spend past the cap"] --> kind{"the cap's mode"}
   kind -->|"Refuse"| refuse["the event is refused: take another outcome"]
-  kind -->|"Stop"| stop["the run stops: state stop rounds"]
+  kind -->|"Stop"| stop["the run stops (state stop rounds) unless it takes another outcome"]
   kind -->|"Extend"| extend["the user is asked: state record extend grants it again"]
 ```
 

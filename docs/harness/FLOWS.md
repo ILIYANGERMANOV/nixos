@@ -230,9 +230,8 @@ Source: [`blocks` in `Library.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/
 
 ## Where Fuel skips a step
 
-Fuel is the effort level a run is given: `low`, `balanced` (the default) or
-`max`. It picks every cap's size (next section) and decides two skips. The
-run reaches a `skip_*` state; the kernel records `run` or `skip` itself when
+Fuel, the run's effort level ([GUARDRAILS](GUARDRAILS.md#fuel-and-caps)),
+picks every cap's size (next section) and decides two skips. The run reaches a `skip_*` state; the kernel records `run` or `skip` itself when
 the Fuel or the facts decide, and leaves it to the agent only where the
 table says "agent's call".
 
@@ -253,11 +252,9 @@ A run that never set its Fuel counts as Balanced.
 ## The caps
 
 Every loop in a flow holds a capped step, so no run loops forever. Each cap
-counts one thing (a meter) and says what happens when it is used up:
-
-- **Refuse**: the spend is refused; the agent must take another outcome.
-- **Stop**: the run stops (`state stop rounds`) unless it takes another outcome.
-- **Extend**: the user is asked whether to go on; `state record extend` grants the cap again.
+counts one thing (a meter) and, when it is used up, refuses the spend, stops
+the run or asks the user to extend it
+([GUARDRAILS](GUARDRAILS.md#fuel-and-caps) explains the three).
 
 | Meter | Step that spends it | Flow | Low | Balanced | Max | At the cap |
 |---|---|---|---|---|---|---|
@@ -272,8 +269,7 @@ counts one thing (a meter) and says what happens when it is used up:
 | Discussion questions | `discuss` | architect, chief discussion | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L156) |
 
 The chief's request cap guards against a runaway loop; it is not a budget.
-Each request keeps the caps of its own path. How caps, the stuck rule and
-questions work together is in [GUARDRAILS](GUARDRAILS.md).
+Each request keeps the caps of its own path.
 
 ## Chief
 
