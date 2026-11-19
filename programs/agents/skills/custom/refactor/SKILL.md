@@ -80,7 +80,7 @@ Look at the diff, in this order:
    the why, an invariant, a trap. Keep every comment that explains why.
 9. **Good tests** - bring every test the diff adds or changes up to
    `engineering/references/tests.md`, at every layer: unit, property-based,
-   differential, end-to-end and goldens. Refactor the tests, not the
+   differential and end-to-end, goldens included. Refactor the tests, not the
    behaviour they prove:
    - **Through the public interface** - rewrite a test that pins internals
      (the reference's *Black box*) to drive the interface and assert what a
@@ -122,7 +122,7 @@ That is a big item. Skip taste: an item no rule backs is not in the plan. An emp
 Small items are in scope. Delegated, do not ask: every big item is a
 **proposal** in the report, with its scope (files, interfaces) and payoff. Invoked by the user, ask about each **big** item
 on its own, the way your instructions say to ask: options "In scope" and
-"Out of scope", and the item's cost in the option descriptions. Wait for each
+"Out of scope", and the item's cost as each option's trade-off. Wait for each
 answer.
 
 ## 5. Apply

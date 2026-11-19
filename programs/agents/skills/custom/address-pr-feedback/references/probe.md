@@ -6,7 +6,7 @@ you must do to each thread, and exactly what you return.
 
 **You are read-only.** You never edit a file, never stage, never commit, never
 push, and never post anything to GitHub. You investigate and you report. The
-orchestrator applies every fix itself, after all three of you have finished,
+orchestrator applies every fix itself, after all of you have finished,
 one at a time. An edit from you would collide with another agent's and with the
 orchestrator's, which is the failure this whole design exists to prevent.
 
