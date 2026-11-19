@@ -1,84 +1,45 @@
 # The category model of claude-kategory
 
-This document states the mathematics behind the harness: the seven categories
-it uses, the maps between them, and the properties they give, each with its
-test or an honest status. It is for readers who know basic category theory.
-The other docs in this folder explain the same system as engineering:
-[README](README.md), [ARCHITECTURE](ARCHITECTURE.md), [RUN-LOOP](RUN-LOOP.md),
-[FLOWS](FLOWS.md), [GUARDRAILS](GUARDRAILS.md).
+```mermaid
+flowchart TD
+  Mode["Mode: how much work"] -->|"cfg (monotone)"| Flow["Flow: how steps are wired"]
+  Ifc["Ifc: who answers"] -->|"Handle"| Flow
+  Flow -->|"graph (functor)"| Run["Run(F): what happened"]
+  Run -->|"ty"| Cap["Cap: the vocabulary"]
+  Run -->|"ev"| Log["Log: memory"]
+  Log -->|"fold (partial)"| State["run state"]
+  Cap -->|"profile"| Prof["Prof: what an agent is given"]
+```
 
-Ground rules this document keeps:
-
-- The least structure that works. A thing is called a functor only if a test
-  checks that it is one. Here only `graph` is.
-- Every claim is a test, or it is labelled `Needs` or `Assumed`.
-- Verified facts and assumptions are kept apart.
-- Plain words first, symbols second. Each formula has a plain-English twin.
-
-The design lives in [ADR 0018](../adr/0018-category-model-haskell-state.md),
-[ADR 0019](../adr/0019-composable-flows.md),
-[ADR 0020](../adr/0020-flow-core-from-sums-and-elgot.md) and
-[ADR 0021](../adr/0021-flow-effects.md); the event log in
-[ADR 0014](../adr/0014-pure-core-event-sourced-flow.md) and
-[ADR 0022](../adr/0022-sqlite-run-store.md). This document does not repeat
-them. Code paths below are under `programs/agents/kernel` unless they say
-otherwise, pinned to the commit this document was checked against.
-
-**Equality.** A law between two flow terms holds up to graph isomorphism
-(where a state sits in the term does not count), or, where the law copies a
-subterm, up to bisimulation: a run walks the same names and events from the
-start on either side. Terms are never compared as syntax. This is stated at
-the top of [LawsSpec.hs][laws-header].
+Seven categories, the maps between them, and the laws they give, each with
+its test or an honest status. For readers who know basic category theory.
+The same system as engineering: [README](README.md),
+[ARCHITECTURE](ARCHITECTURE.md), [RUN-LOOP](RUN-LOOP.md), [FLOWS](FLOWS.md),
+[GUARDRAILS](GUARDRAILS.md).
 
 ## 0 Model at a glance
 
-| Category | Objects | Arrows | Identity | Composition | Plain words |
+| Category | Plain words | Objects | Arrows | Identity | Composition |
 |---|---|---|---|---|---|
-| `Cap` | artifact types `Ctx`, `Plan`, `Diff`, `Findings`, `PR`, `Ticket`, `Result`, lists, labelled sums | paths of outcome edges `step.outcome : A -> B` | the empty path | concatenation | the vocabulary of work |
-| `Flow` | the same types, as ports | flow terms `Flow s i e o` | `Id` | `:>` (series) | how steps are wired |
-| `Run(F)` | states of the graph of flow `F` | paths, one edge per event | the empty path | concatenation | what happened in one run |
-| `Ifc` | one object: a question | handlers `Question -> Either Refusal Verdict` | `forwardAll` | `andThen` | who answers a question |
-| `Mode` | `Low`, `Balanced`, `Max` | `m <= m'` | `m <= m` | transitivity | how much work |
-| `Log` | one object | lists of log lines | the empty list | concatenation | memory |
-| `Prof` | profiles: sets of tools, skills, operations, prose | inclusion | `P` is included in `P` | transitivity | what an agent is given |
+| `Cap` | the vocabulary of work | artifact types `Ctx`, `Plan`, `Diff`, `Findings`, `PR`, `Ticket`, `Result`, lists, labelled sums | paths of outcome edges `step.outcome : A -> B` | the empty path | concatenation |
+| `Flow` | how steps are wired | the same types, as ports | flow terms `Flow s i e o` | `Id` | `:>` (series) |
+| `Run(F)` | what happened in one run | states of the graph of flow `F` | paths, one edge per event | the empty path | concatenation |
+| `Ifc` | who answers a question | one object: a question | handlers `Question -> Either Refusal Verdict` | `forwardAll` | `andThen` |
+| `Mode` | how much work | `Low`, `Balanced`, `Max` | `m <= m'` | `m <= m` | transitivity |
+| `Log` | memory | one object | lists of log lines | the empty list | concatenation |
+| `Prof` | what an agent is given | profiles: sets of tools, skills, operations, prose | inclusion | `P` is included in `P` | transitivity |
 
-The maps between them:
+The maps, in one line each:
 
-```mermaid
-flowchart LR
-  Flow["Flow"] -->|"graph (functor)"| Run["Run(F)"]
-  Run -->|"ty"| Cap["Cap"]
-  Run -->|"ev"| Log["Log"]
-  Log -->|"fold (partial)"| State["run state"]
-  Mode["Mode"] -->|"cfg (monotone)"| Flow
-  Cap -->|"profile"| Prof["Prof"]
-  Ifc["Ifc"] -->|"Handle"| Flow
-```
-
-In words: `graph` turns a flow term into the state machine a run walks. `ty`
-reads a run back as a path of typed outcomes. `ev` is the run's list of
-events, which the log stores; `fold` replays a log into the run's state.
-`cfg` picks each budget of a flow at a Fuel level. `profile` derives what a
-role is given from the steps it runs. `Handle` puts an `Ifc` handler around a
-flow without changing its graph.
+- `graph`: a flow term to the state machine a run walks.
+- `ty`: a run read back as a path of typed outcomes.
+- `ev`: the run's events, which the log stores; `fold` replays a log into
+  the run's state.
+- `cfg`: each budget of a flow at one Fuel level.
+- `profile`: what a role is given, from the steps it runs.
+- `Handle`: an `Ifc` handler around a flow, with no change to its graph.
 
 ## 1 Cap: the vocabulary
-
-- **Objects.** The artifact types of [`TyOf`][ty39]: `Ctx`, `Plan`, `Diff`,
-  `Findings`, `PR`, `Ticket`, `Result`, `List t` and labelled sums
-  `Sum [(label, t)]`.
-- **Arrows.** Generated by outcome edges, [`OutcomeEdge`][step334]: one
-  outcome of one step, `step.outcome : dom -> cod`. An arrow is a path of such
-  edges where each edge's `cod` is the next one's `dom`
-  ([`composes`][flowgen233]).
-- **Identity.** The empty path at `A`. A skipped step maps to it
-  ([PathSpec.hs:24][path24]).
-- **Composition.** Concatenation of paths. `Cap` is the free category on the
-  outcome edges.
-
-A step's type is its signature, for example `implement : Plan -> Diff` and
-`review : Diff -> Findings` ([Build.hs][build21], [Review.hs][review23]). The diagram shows some of the
-engineer's edges, each labelled by its step.
 
 ```mermaid
 flowchart LR
@@ -90,18 +51,34 @@ flowchart LR
   Diff -->|"describe"| PR["PR"]
 ```
 
+Some of the engineer's edges. A step's type is its signature:
+`implement : Plan -> Diff`, `review : Diff -> Findings`
+([Build.hs][build21], [Review.hs][review23]).
+
+- **Objects.** The artifact types of [`TyOf`][ty39]: `Ctx`, `Plan`, `Diff`,
+  `Findings`, `PR`, `Ticket`, `Result`, `List t` and labelled sums
+  `Sum [(label, t)]`.
+- **Arrows.** Paths of outcome edges, [`OutcomeEdge`][step334]: one outcome
+  of one step, `step.outcome : dom -> cod`, each edge's `cod` the next one's
+  `dom` ([`composes`][flowgen233]).
+- **Identity.** The empty path at `A`. A skipped step maps to it
+  ([PathSpec.hs:24][path24]).
+- **Composition.** Concatenation. `Cap` is the free category on the outcome
+  edges.
+
 ## 2 Flow: how steps are wired
 
-- **Objects.** The types of `Cap`, as a flow's ports.
-- **Arrows.** Terms of the GADT [`Flow s i e o`][flow130]: in port `i`, out
-  port `o`, an optional exit `e :: Maybe Ty`, and the term's shape `s`. A step
-  is [`Do`][flow134].
-- **Identity.** [`Id :: Flow IdS a 'Nothing a`][flow136].
-- **Composition.** Series, [`f :> g`][flow144]: `g` takes `f`'s out. The
-  exit of the whole is [`Join e1 e2`][flow57]: either side's exit, and both
-  must agree in type when both have one.
+```mermaid
+flowchart LR
+  A["a"] -->|"f"| B["b"]
+  B -->|"g"| C["c"]
+  B -.->|"exit of f"| E["exit: Join e1 e2"]
+  C -.->|"exit of g"| E
+```
 
-The rest of the structure, each with its law in [LawsSpec.hs][laws42]:
+`f :> g` feeds `f`'s out into `g`; either side may exit early. A wrong wiring
+does not compile, and a whole flow has no uncaught exit and no unhandled
+effect ([FlowSpec.hs:42][flowspec42]).
 
 | Constructor | Structure | Plain words |
 |---|---|---|
@@ -114,33 +91,18 @@ The rest of the structure, each with its law in [LawsSpec.hs][laws42]:
 | `Scope` | action of the free monoid of names | the same flow placed twice gets distinct state names |
 | `Handle` | removes one effect from the term's effect set | says who answers a pick, a question or a focus wait |
 
-The type checker enforces gluing: `f :> g` does not compile when `f`'s out is
-not `g`'s in, and a whole flow must have no uncaught exit and no unhandled
-effect ([FlowSpec.hs:42][flowspec42]).
+Each has its law in [LawsSpec.hs][laws42].
 
-```mermaid
-flowchart LR
-  A["a"] -->|"f"| B["b"]
-  B -->|"g"| C["c"]
-  B -.->|"exit of f"| E["exit: Join e1 e2"]
-  C -.->|"exit of g"| E
-```
+- **Objects.** The types of `Cap`, as a flow's ports.
+- **Arrows.** Terms of the GADT [`Flow s i e o`][flow130]: in port `i`, out
+  port `o`, an optional exit `e :: Maybe Ty`, and the term's shape `s`. A step
+  is [`Do`][flow134].
+- **Identity.** [`Id :: Flow IdS a 'Nothing a`][flow136].
+- **Composition.** Series, [`f :> g`][flow144]. The exit of the whole is
+  [`Join e1 e2`][flow57]: either side's exit, the same type when both have
+  one.
 
 ## 3 Run(F): what happened
-
-- **Objects.** The states of the graph `graph(F)`: each step's place, plus the
-  in port, the out port and the exit ([Graph.hs][graph100]).
-- **Arrows.** Paths: one edge per event. The graph is a map from
-  `(state, event)` to one edge, so from a state an event names at most one
-  edge ([GraphSpec.hs:62][graph62]).
-- **Identity.** The empty path.
-- **Composition.** Concatenation. `Run(F)` is the free category on the graph
-  of `F` ([Path.hs][path1]).
-
-A run of the engineer flow that reviews, fixes once and re-reviews walks the
-path below, each edge named by its event `state.outcome`; a log names at most
-one such path. The names are the engineer graph's
-([engineer.mmd][golden-engineer]).
 
 ```mermaid
 flowchart LR
@@ -150,21 +112,20 @@ flowchart LR
   ReReview -->|"re_review.clean"| Describe["describe"]
 ```
 
+An engineer run that reviews, fixes once and re-reviews: one edge per event
+`state.outcome`, names from [engineer.mmd][golden-engineer]. A log names at
+most one such path.
+
+- **Objects.** The states of `graph(F)`: each step's place, plus the in port,
+  the out port and the exit ([Graph.hs][graph100]).
+- **Arrows.** Paths, one edge per event. The graph maps `(state, event)` to
+  one edge, so from a state an event names at most one edge
+  ([GraphSpec.hs:62][graph62]).
+- **Identity.** The empty path.
+- **Composition.** Concatenation. `Run(F)` is the free category on the graph
+  of `F` ([Path.hs][path1]).
+
 ## 4 Ifc: who answers
-
-- **Objects.** One object: a question, with its kind `Fact`, `Pick`,
-  `Design`, `Scope`, `Confirm`, `Security` or `Stuck` ([Ask.hs:82][ask82]).
-- **Arrows.** Handlers, [`Question -> Either Refusal Verdict`][ask307]: a
-  rung rules on the question, forwards it, or refuses. These are Kleisli
-  arrows of `Either Refusal`.
-- **Identity.** [`forwardAll`][ask310]: pass every question on as it came.
-- **Composition.** [`andThen`][ask314]: the first rung, then the next one on
-  what the first forwards.
-
-With one object, `Ifc` is a monoid. Which rung may answer which kind is the
-exhaustive table [`authority`][ask122]. In the flow term, the effects a flow
-raises are a type-level set, and [`Handle`][effect32] removes one; a handler
-draws as the flow it handles ([LawsSpec.hs:124][laws124]).
 
 ```mermaid
 flowchart LR
@@ -173,17 +134,22 @@ flowchart LR
   O -->|"forwards"| U["User"]
 ```
 
+A question climbs until a rung may answer it. Which rung may answer which
+kind is the exhaustive table [`authority`][ask122].
+
+- **Objects.** One object: a question, of kind `Fact`, `Pick`, `Design`,
+  `Scope`, `Confirm`, `Security` or `Stuck` ([Ask.hs:82][ask82]).
+- **Arrows.** Handlers, [`Question -> Either Refusal Verdict`][ask307]: a
+  rung rules, forwards or refuses. Kleisli arrows of `Either Refusal`.
+- **Identity.** [`forwardAll`][ask310]: pass every question on as it came.
+- **Composition.** [`andThen`][ask314]: the first rung, then the next on
+  what the first forwards.
+
+With one object, `Ifc` is a monoid. In the flow term, a flow's effects are a
+type-level set; [`Handle`][effect32] removes one, and a handler draws as the
+flow it handles ([LawsSpec.hs:124][laws124]).
+
 ## 5 Mode: how much work
-
-- **Objects.** The Fuel levels `Low`, `Balanced`, `Max`
-  ([Fuel.hs:29][fuel29]).
-- **Arrows.** One arrow `m -> m'` exactly when `m <= m'`, by the derived
-  order `Low < Balanced < Max`.
-- **Identity.** `m <= m`.
-- **Composition.** Transitivity: `m <= m'` and `m' <= m''` give `m <= m''`.
-
-`Mode` is a chain, a total order seen as a category. ADR 0018 drew `Mode` as
-Quality x Size; the code replaced that with this one chain (Note N7).
 
 ```mermaid
 flowchart LR
@@ -191,21 +157,17 @@ flowchart LR
   Balanced -->|"at most"| Max["Max"]
 ```
 
+`Mode` is a chain: a total order seen as a category. ADR 0018 drew it as
+Quality x Size; the code has this one chain (Note N7).
+
+- **Objects.** The Fuel levels `Low`, `Balanced`, `Max`
+  ([Fuel.hs:29][fuel29]).
+- **Arrows.** One arrow `m -> m'` exactly when `m <= m'`, by the derived
+  order `Low < Balanced < Max`.
+- **Identity.** `m <= m`.
+- **Composition.** Transitivity.
+
 ## 6 Log: memory
-
-- **Objects.** One object.
-- **Arrows.** Finite lists of log lines, [`Envelope`][event89], each holding
-  one [`Event`][event114].
-- **Identity.** The empty list.
-- **Composition.** Concatenation: the free monoid on log lines.
-
-Two facts make the stored log more than a free monoid:
-
-- A line logged in error is cancelled by a later `Voided` line; replay drops
-  both ([Event.hs:203][event203]). Lines are never edited out.
-- Appending a line whose id is already logged changes nothing: append is
-  idempotent by id ([FoldSpec.hs:310][fold310]). A hook record that fires
-  twice is logged once.
 
 ```mermaid
 flowchart LR
@@ -215,17 +177,19 @@ flowchart LR
   V --> R["replay: as if line 2 never was"]
 ```
 
+The log only grows. A line logged in error is cancelled by a later `Voided`
+line; replay drops both ([Event.hs:203][event203]). Appending a line whose
+id is already logged changes nothing, so a hook record that fires twice is
+logged once ([FoldSpec.hs:310][fold310]).
+
+- **Objects.** One object.
+- **Arrows.** Finite lists of log lines, [`Envelope`][event89], each holding
+  one [`Event`][event114].
+- **Identity.** The empty list.
+- **Composition.** Concatenation: the free monoid on log lines, up to the
+  two facts above.
+
 ## 7 Prof: what an agent is given
-
-- **Objects.** Profiles: a set of tools, skills, operations and prose
-  fragments.
-- **Arrows.** Inclusion: `P -> Q` exactly when every part of `P` is in `Q`.
-- **Identity.** `P` is included in `P`.
-- **Composition.** Transitivity of inclusion.
-
-`Prof` is a preorder with joins (union). A role's profile is built from the
-profiles of the steps it runs, read from `flows/steps.nix` by
-[`lib/derive.nix`][derive1].
 
 ```mermaid
 flowchart LR
@@ -234,7 +198,24 @@ flowchart LR
   S3["step: describe"] -->|"included in"| R
 ```
 
+A role's profile is built from the profiles of the steps it runs, read from
+`flows/steps.nix` by [`lib/derive.nix`][derive1]. `Prof` is a preorder with
+joins (union).
+
+- **Objects.** Profiles: a set of tools, skills, operations and prose
+  fragments.
+- **Arrows.** Inclusion: `P -> Q` exactly when every part of `P` is in `Q`.
+- **Identity.** `P` is included in `P`.
+- **Composition.** Transitivity of inclusion.
+
 ## 8 Maps between the categories
+
+```mermaid
+flowchart LR
+  term["f :> g"] -->|"graph"| glued["glue(graph f, graph g)"]
+  idterm["Id :> f"] -->|"graph"| gf["graph f"]
+  log["log a, then log b"] -->|"fold"| whole["fold of the whole log"]
+```
 
 | Map | Type | What it is | Evidence |
 |---|---|---|---|
@@ -247,54 +228,63 @@ flowchart LR
 | Mermaid render | `OpenGraph -> Text` | a plain function | golden tests |
 
 **graph.** [`graph`][graph139] turns a term into an `OpenGraph`, or refuses it
-with a `Clash` (two states of one name, a loop with no cap, a fork with no
-await). It sends `Id` to the unit of gluing and `f :> g` to the glue of the
+with a `Clash`: two states of one name, a loop with no cap, a fork with no
+await. It sends `Id` to the unit of gluing and `f :> g` to the glue of the
 two graphs ([`glue`][graph260]):
 
-- `graph(Id :> f) = graph(f) = graph(f :> Id)`: identity draws nothing
-  ([LawsSpec.hs:42][laws42]).
-- `graph(f :> g) = glue(graph f, graph g)`: series draws as the two graphs
-  joined at the middle port ([GraphSpec.hs:35][graph35]).
+- `graph(Id :> f) = graph(f) = graph(f :> Id)` ([LawsSpec.hs:42][laws42]).
+- `graph(f :> g) = glue(graph f, graph g)` ([GraphSpec.hs:35][graph35]).
 
 So `graph` is a functor from `Flow` into the Kleisli category of
-`Either Clash` over graphs up to isomorphism. It is the only map here that
-this document calls a functor.
+`Either Clash` over graphs up to isomorphism, the only map here called a
+functor.
 
 **ty.** [`ty`][path53] walks the events from the in port and returns each
-outcome's edge of `Cap`; `Nothing` when an event has no edge where the run is.
-On the empty walk it returns the empty path. Every log that replay accepts is
-a composable path of `Cap` (P13). A test also shows that on two glued graphs
-`ty` of a joined walk is the join of the two `ty`s ([GraphSpec.hs:40][graph40]).
-A functor-law test over all paths is not written yet (P14).
+outcome's edge of `Cap`, or `Nothing` when an event has no edge where the run
+is. The empty walk gives the empty path. Every log replay accepts is a
+composable path of `Cap` (P13). On two glued graphs, `ty` of a joined walk is
+the join of the two `ty`s ([GraphSpec.hs:40][graph40]). A functor-law test
+over all paths is not written yet (P14).
 
-**ev.** A run's path is a list of events, and the log stores that list with
-envelopes. There is no `ev` function; the log is the path written down.
+**ev.** A run's path is a list of events; the log stores it with envelopes.
+There is no `ev` function: the log is the path written down.
 
-**cfg.** A flow carries its budgets in the term, as [`PerFuel a`][fuel56]
-values, one per level. `cfg(m)` reads every one at level `m` with
+**cfg.** A flow carries its budgets in the term as [`PerFuel a`][fuel56]
+values, one per level; `cfg(m)` reads each at level `m` with
 [`atFuel`][fuel59]. It is monotone when each `PerFuel` is: a higher level
 allows at least the spends, skips no more, and reviews at least the areas in
 full ([`monotone`][fuel72], [`fullReview`][fuel101]). `PerFuel` is a Haskell
 `Functor`, but that is the container, not `cfg`.
 
-**profile.** For a role `r`, `profile(r)` is the union of the tools, skills,
-operations and prose of the steps `r` runs; for a split role, the prose is the
-intersection ([derive.nix:1][derive1]). Nix assertions check the result
-against every role (P31, P32).
+**profile.** `profile(r)` is the union of the tools, skills, operations and
+prose of the steps role `r` runs; for a split role, the prose is the
+intersection ([derive.nix:1][derive1]). Nix assertions check every role
+(P31, P32).
 
 **fold.** [`replay`][fold337] reads a non-empty log that starts with
 `started`; [`fold`][fold378] reads more lines onto a state. Both may refuse
 (`Either Refusal`), so `fold` is a partial monoid action of `Log` on run
-states:
-
-- `fold (a <> b) = fold a >=> fold b`: reading two pieces of a log one after
-  the other is reading the whole ([FoldSpec.hs:458][fold458]).
+states: `fold (a <> b) = fold a >=> fold b` ([FoldSpec.hs:458][fold458]).
 
 **Mermaid render.** [`mermaid`][mermaid18] prints a graph as a Mermaid state
-diagram. It is a plain function, pinned by golden files
-([MermaidSpec.hs:18][mermaidspec18]).
+diagram, pinned by golden files ([MermaidSpec.hs:18][mermaidspec18]).
 
 ## 9 Properties
+
+```mermaid
+flowchart TD
+  Mode["Mode: P21-P25"] -->|"cfg"| Flow["Flow: P1-P9"]
+  Ifc["Ifc: P15-P20"] -->|"Handle"| Flow
+  Flow -->|"graph: P10, P11"| Run["Run(F): P26, P27"]
+  Run -->|"ty: P12-P14"| Cap["Cap"]
+  Run -->|"ev"| Log["Log: P28-P30, P35"]
+  Cap -->|"profile"| Prof["Prof: P31-P34"]
+```
+
+Laws between flow terms hold up to graph isomorphism, or up to bisimulation
+where a law copies a subterm: a run walks the same names and events from the
+start on either side. Terms are never compared as syntax
+([LawsSpec.hs][laws-header]).
 
 Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 `Needs <test> (#499)`, `Assumed`. Ids are stable.
@@ -339,58 +329,53 @@ Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 
 ## 10 Notes
 
-- **N1 (P2 to P10), (verified).** Laws compare graphs, not terms: up to
-  isomorphism, or bisimulation where a law copies a subterm, as the header of
-  [LawsSpec.hs][laws-header] says.
-- **N2 (P3), (verified).** Associativity is tested on generated triples that
-  `graph` accepts; a triple that clashes is filtered out
-  ([LawsSpec.hs:50][laws50]).
-- **N3 (P4), (verified).** Case eta is not expressible: the core has no
-  injection, and a flow out of a sum is already a `Case`
-  ([LawsSpec.hs:58][laws58]).
-- **N4 (P7), (verified).** `parallel g (f :> h) = parallel g f :> parallel g' h`
-  holds of the children's runs, not of a graph, and is not tested as such
-  ([LawsSpec.hs:110][laws110]).
-- **N5 (P10, P14), (verified).** `graph` is partial: it refuses terms with a
-  `Clash` ([GraphSpec.hs:70][graph70]). The comment on `ty` calls it a
-  functor ([Path.hs:47][path47]), but only its behaviour on glued walks and on
-  accepted logs is tested.
-- **N6 (P21, P22), (verified).** The monotone test lists the engineer and 10x
-  flows only ([LawsSpec.hs:157][laws157]).
-- **N7 (P21), (verified).** ADR 0018 drew `Mode` as Quality x Size. The code
-  has one order, `Low < Balanced < Max` ([Fuel.hs:29][fuel29]); ADR 0018's text
-  is stale and #499 fixes it.
-- **N8 (P27), (verified).** Only two rounds in a row count: rounds that
-  alternate A, B, A, B are not stuck, on purpose, and the loop's cap ends them
-  ([Fold.hs:1424][fold1424]).
-- **N9 (P28, P29, P30), (verified).** `fold` is partial, not total: replay
-  needs a non-empty log whose first line is `started`
-  ([FoldSpec.hs:465][fold465]), and an event with no edge where the run is is
-  refused ([Fold.hs:520][fold520]). ADR 0014 states a unit
-  `fold([]) = S0` and a total `apply`; the code does neither, and #499 fixes
-  the ADR.
-- **N10 (P29), (verified).** The idempotence caveat: the log is a free monoid
-  only up to ids. A line whose id is already logged is `AlreadyLogged`, so a
-  hook record that fires twice is logged once ([FoldSpec.hs:317][fold317]).
-- **N11 (P31, P32, P34), (verified).** These are Nix assertions over the real
-  step table and roles, run as checks (`derived-roles` in
-  [`programs/agents/default.nix`][agents248]), not property tests over
-  generated input.
+Each note is verified against the code.
+
+| Note | On | Says |
+|---|---|---|
+| N1 | P2 to P10 | Laws compare graphs, not terms: up to isomorphism, or bisimulation where a law copies a subterm, as the header of [LawsSpec.hs][laws-header] says. |
+| N2 | P3 | Associativity is tested on generated triples that `graph` accepts; a triple that clashes is filtered out ([LawsSpec.hs:50][laws50]). |
+| N3 | P4 | Case eta is not expressible: the core has no injection, and a flow out of a sum is already a `Case` ([LawsSpec.hs:58][laws58]). |
+| N4 | P7 | `parallel g (f :> h) = parallel g f :> parallel g' h` holds of the children's runs, not of a graph, and is not tested as such ([LawsSpec.hs:110][laws110]). |
+| N5 | P10, P14 | `graph` is partial: it refuses terms with a `Clash` ([GraphSpec.hs:70][graph70]). The comment on `ty` calls it a functor ([Path.hs:47][path47]), but only its behaviour on glued walks and on accepted logs is tested. |
+| N6 | P21, P22 | The monotone test lists the engineer and 10x flows only ([LawsSpec.hs:157][laws157]). |
+| N7 | P21 | ADR 0018 drew `Mode` as Quality x Size. The code has one order, `Low < Balanced < Max` ([Fuel.hs:29][fuel29]); ADR 0018's text is stale and #499 fixes it. |
+| N8 | P27 | Only two rounds in a row count: rounds that alternate A, B, A, B are not stuck, on purpose, and the loop's cap ends them ([Fold.hs:1424][fold1424]). |
+| N9 | P28, P29, P30 | `fold` is partial: replay needs a non-empty log whose first line is `started` ([FoldSpec.hs:465][fold465]), and an event with no edge where the run is is refused ([Fold.hs:520][fold520]). ADR 0014 states a unit `fold([]) = S0` and a total `apply`; the code does neither, and #499 fixes the ADR. |
+| N10 | P29 | The log is a free monoid only up to ids. A line whose id is already logged is `AlreadyLogged`, so a hook record that fires twice is logged once ([FoldSpec.hs:317][fold317]). |
+| N11 | P31, P32, P34 | Nix assertions over the real step table and roles, run as checks (`derived-roles` in [`programs/agents/default.nix`][agents248]), not property tests over generated input. |
 
 ## 11 Open in the model
 
-- `ty` as a functor over every path of every flow (P14, #499).
-- `cfg` monotone for every flow, chief and architect included (P22, #499).
-- `profile` as a monotone map (P33, #499).
-- Keep over the full list of #351, in every flow (P25, #499).
-- One writer for the log (P35, #499).
-- `ev` has no code: the log is the path written down. Naming it a map adds
-  nothing until something consumes it.
-- ADR 0018 names `Ifc` "the operations a role may call". The code splits it
-  in two: a type-level effect set that `Handle` discharges, and the runtime
-  handler monoid of section 4.
-- ADR 0014 (fold unit and totality) and ADR 0018 (`Mode`, functor claims)
-  need their text brought in line with the code (#499).
+| Open | Tracked |
+|---|---|
+| `ty` as a functor over every path of every flow | P14, #499 |
+| `cfg` monotone for every flow, chief and architect included | P22, #499 |
+| `profile` as a monotone map | P33, #499 |
+| Keep over the full list of #351, in every flow | P25, #499 |
+| One writer for the log | P35, #499 |
+| `ev` has no code: the log is the path written down. Naming it a map adds nothing until something consumes it | - |
+| ADR 0018 names `Ifc` "the operations a role may call". The code splits it in two: a type-level effect set that `Handle` discharges, and the runtime handler monoid of section 4 | - |
+| ADR 0014 (fold unit and totality) and ADR 0018 (`Mode`, functor claims) need their text brought in line with the code | #499 |
+
+## 12 About this document
+
+Ground rules it keeps:
+
+- The least structure that works. A thing is called a functor only if a test
+  checks that it is one. Here only `graph` is.
+- Every claim is a test, or it is labelled `Needs` or `Assumed`.
+- Verified facts and assumptions are kept apart.
+- Plain words first, symbols second. Each formula has a plain-English twin.
+
+The design lives in [ADR 0018](../adr/0018-category-model-haskell-state.md),
+[ADR 0019](../adr/0019-composable-flows.md),
+[ADR 0020](../adr/0020-flow-core-from-sums-and-elgot.md) and
+[ADR 0021](../adr/0021-flow-effects.md); the event log in
+[ADR 0014](../adr/0014-pure-core-event-sourced-flow.md) and
+[ADR 0022](../adr/0022-sqlite-run-store.md). This document does not repeat
+them. Code paths are under `programs/agents/kernel` unless they say
+otherwise, pinned to the commit this document was checked against.
 
 [laws-header]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/LawsSpec.hs#L1
 [laws42]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/LawsSpec.hs#L42

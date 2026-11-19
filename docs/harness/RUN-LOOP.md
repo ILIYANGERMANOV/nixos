@@ -1,18 +1,5 @@
 # The run loop
 
-Every flow run moves the same way: the lead agent asks the kernel what to do,
-does it, records what happened, and asks again. The kernel is the `state`
-program; it keeps one log per run and decides the next step from that log
-alone. This page shows the loop, the lines `state next` prints, where the
-log lives, and how a run comes back after a crash or a lost context.
-
-The decisions behind it: [ADR 0014](../adr/0014-pure-core-event-sourced-flow.md)
-(pure core, event log), [ADR 0015](../adr/0015-state-program.md) (the `state`
-program), [ADR 0016](../adr/0016-hooks-drive-the-state-record.md) (hooks write
-the derivable records), [ADR 0017](../adr/0017-pr-state-from-github.md) (PR
-facts read from GitHub) and [ADR 0022](../adr/0022-sqlite-run-store.md) (the
-SQLite store). The flows themselves are in [FLOWS](FLOWS.md).
-
 ## The loop
 
 ```mermaid
@@ -40,7 +27,9 @@ sequenceDiagram
   end
 ```
 
-Four things make the loop safe:
+Every run moves the same way: the lead asks `state` what to do, does it,
+records what happened, and asks again. `state` keeps one log per run and
+decides the next step from that log alone. Four things make the loop safe:
 
 - **One step at a time.** `state next` prints one action. The lead never
   decides the order of steps; the flow's graph does.
@@ -59,10 +48,6 @@ Four things make the loop safe:
 
 ## What `state next` prints
 
-The first line of `state next` is one action. Its first word says what kind.
-Each kind is a case of [`Action`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L150), printed
-by [`deliver`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L724).
-
 | Line | Means | The lead then |
 |---|---|---|
 | `SPAWN <role>` | the step is a subagent's | spawns that role with `state brief`'s text |
@@ -75,6 +60,10 @@ by [`deliver`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd
 | `DONE <refs>` | the run reached its end | reports what it names (a PR url, notes) |
 | `HANDBACK <line>` | a child run's own form of ASK, AWAIT, STOP or DONE | hands back to its parent with `<line>` |
 
+The first line of `state next` is one action; its first word says what kind.
+Each kind is a case of [`Action`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L150),
+printed by [`deliver`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L724).
+
 A child run cannot talk to the user, so wherever a top-level run would print
 `ASK`, `AWAIT`, `STOP` or `DONE`, a child prints `HANDBACK` and the
 hand-back token its parent reads: `READY`, `NEEDS_DECISION <Kind>`, `AWAIT`,
@@ -83,10 +72,6 @@ A lead whose worker is still at work never hands back: it is told to wait
 for the worker first ([`heldBy`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L709)).
 
 ## The run store
-
-All runs of a machine user live in one SQLite database,
-`$XDG_STATE_HOME/state/kernel.db` (else `~/.local/state/state/kernel.db`;
-[`runStore`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Binding.hs#L89)).
 
 ```mermaid
 erDiagram
@@ -106,6 +91,10 @@ erDiagram
   }
 ```
 
+All runs of a machine user live in one SQLite database,
+`$XDG_STATE_HOME/state/kernel.db` (else `~/.local/state/state/kernel.db`;
+[`runStore`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Binding.hs#L89)).
+
 | Property | How | Code |
 |---|---|---|
 | Many readers, one writer | WAL mode; a writer waits up to 5 s for another | [`Store.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/Effects/Store.hs#L57) |
@@ -121,16 +110,16 @@ prints where the run is and what it holds.
 
 ## Replay is a fold
 
-A run's state is never stored. It is computed every time by reading the log
-from its first line and applying each event in turn: a fold. A step event
-moves the run along one arrow of the flow's graph, so a log the fold accepts
-is a valid walk through the flow
-([`Fold.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L1)).
-
 ```text
 state = fold apply started [e2, e3, ..., en]
 fold (log1 ++ log2) = fold log1, then fold log2 from where it stopped
 ```
+
+A run's state is never stored. It is computed each time by applying the
+log's events in turn, from the first: a fold. A step event moves the run
+along one arrow of the flow's graph, so a log the fold accepts is a valid
+walk through the flow
+([`Fold.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L1)).
 
 - [`replay`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L337) reads a whole log, less voided lines.
 - [`fold`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L378) continues from a state with more events,
@@ -142,9 +131,6 @@ So the same log always gives the same state, on any machine, at any time.
 The formal statement is in [CATEGORY-THEORY](CATEGORY-THEORY.md).
 
 ## Resume after a crash or a lost context
-
-Because the state is the log, there is nothing to rebuild: a new agent reads
-the log and goes on from the same state.
 
 ```mermaid
 sequenceDiagram
@@ -160,6 +146,9 @@ sequenceDiagram
   New->>State: state next
   State-->>New: the same next action, e.g. SPAWN implementer
 ```
+
+The state is the log, so there is nothing to rebuild: a new agent reads the
+log and goes on from the same state.
 
 - **A crash or a new session.** At session start the
   [`state-resume`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/hooks.nix#L13) hook prints the run's
@@ -177,3 +166,12 @@ sequenceDiagram
 
 What the agent remembers is a convenience; what the log says is the truth.
 The limits that end a run on purpose are in [GUARDRAILS](GUARDRAILS.md).
+
+## Decisions
+
+[ADR 0014](../adr/0014-pure-core-event-sourced-flow.md) (pure core, event
+log), [ADR 0015](../adr/0015-state-program.md) (the `state` program),
+[ADR 0016](../adr/0016-hooks-drive-the-state-record.md) (hooks write the
+derivable records), [ADR 0017](../adr/0017-pr-state-from-github.md) (PR facts
+read from GitHub) and [ADR 0022](../adr/0022-sqlite-run-store.md) (the SQLite
+store). The flows themselves are in [FLOWS](FLOWS.md).

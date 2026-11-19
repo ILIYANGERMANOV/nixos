@@ -1,33 +1,19 @@
 # Guardrails
 
-What keeps a run from looping forever, from deciding what it should not,
-and from wasting its context. Three layers, from strongest to weakest:
-
-| Layer | What | Can it be skipped? |
+| Layer, strongest first | What | Can it be skipped? |
 |---|---|---|
 | Kernel code | Fuel and caps, the stuck rule, who answers which question | no: `state` refuses the event |
 | Hooks | the run's records, the route gate | best effort: they fail open |
 | Guards | secret, read, wait and context guards | best effort: they fail open |
 
-The rule that puts a behaviour on the strongest layer that can hold it is
-the logic ladder ([ADR 0013](../adr/0013-deterministic-programs-over-instructions.md),
-[ARCHITECTURE](ARCHITECTURE.md)). The flows these rules act on are in
-[FLOWS](FLOWS.md); the loop that applies them is in [RUN-LOOP](RUN-LOOP.md).
+What keeps a run from looping forever, deciding what it should not, or
+wasting its context. Each behaviour sits on the strongest layer that can
+hold it: the logic ladder
+([ADR 0013](../adr/0013-deterministic-programs-over-instructions.md),
+[ARCHITECTURE](ARCHITECTURE.md)). The flows: [FLOWS](FLOWS.md); the loop
+that applies the rules: [RUN-LOOP](RUN-LOOP.md).
 
 ## Fuel and caps
-
-Fuel is a run's effort level: `low`, `balanced` (the default) or `max`,
-set by `state record fuel.set <level>` at the run's first step. It decides
-two things:
-
-- **Skips**: which optional steps run (`simplify_plan`, `refactor`).
-- **Caps**: how far each loop may go.
-
-A cap is a **meter** on one step: a count of what that step's outcomes spend
-(each `pick.loop` spends one re-review, each `confirm.adjusted` one plan
-round). Its **limit** is `up to n` or `one per group` of the plan
-([`Limit`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Meter.hs#L48)). At the limit, the cap does one
-of three things ([`AtCap`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Meter.hs#L66)):
 
 ```mermaid
 flowchart LR
@@ -36,6 +22,19 @@ flowchart LR
   kind -->|"Stop"| stop["the run stops (state stop rounds) unless it takes another outcome"]
   kind -->|"Extend"| extend["the user is asked: state record extend grants it again"]
 ```
+
+Fuel is a run's effort level: `low`, `balanced` (the default) or `max`, set
+by `state record fuel.set <level>` at the run's first step. It decides:
+
+- **Skips**: which optional steps run (`simplify_plan`, `refactor`).
+- **Caps**: how far each loop may go.
+
+A cap is a **meter** on one step: what that step's outcomes spend (each
+`pick.loop` one re-review, each `confirm.adjusted` one plan round). Its
+**limit** is `up to n` or `one per group` of the plan
+([`Limit`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Meter.hs#L48)).
+At the limit, the cap does one of three things, by its mode
+([`AtCap`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Meter.hs#L66)):
 
 | Mode | Used where | Why |
 |---|---|---|
@@ -52,8 +51,13 @@ never allows less than a lower one
 
 ## The stuck rule
 
-A cap ends a loop late. The stuck rule ends it early, when the loop is not
-making progress. It is kernel code, not a hook
+```text
+rounds {A, B} then {B, C}   B is in both: stuck
+rounds {A, B} then {C, D}   nothing shared: not stuck
+```
+
+A cap ends a loop late. The stuck rule ends it early, when the loop makes no
+progress. It is kernel code, not a hook
 ([`stuck`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L1428)).
 
 - Each round of a loop (review, CI) finds **problems**: review rows, unmet
@@ -63,22 +67,10 @@ making progress. It is kernel code, not a hook
   loop's exits open from where the run is: a stuck review loop may end with
   `pick.final` at `fix` ([`stuckExits`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L1403)). A
   CI loop never claims CI is green.
-
-```text
-rounds {A, B} then {B, C}   B is in both: stuck
-rounds {A, B} then {C, D}   nothing shared: not stuck
-```
-
-The rule looks only at the last two rounds on purpose. A loop that
-alternates (A, B, A, B) is not caught; its cap ends it.
+- Only the last two rounds count, on purpose: a loop that alternates
+  (A, B, A, B) is not caught; its cap ends it.
 
 ## Who answers which question
-
-A question has a **kind**. Its kind, and where the asking run sits, decide who
-may answer it. Each run's role sits on a rung: workers (subagents), leads
-(engineer, architect, chief), the orchestrator (10x), and the user
-([`Role.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Role.hs#L66)). The table is
-[`authority`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Ask.hs#L122):
 
 | Kind | Worker | Lead | Orchestrator | User |
 |---|---|---|---|---|
@@ -90,6 +82,12 @@ may answer it. Each run's role sits on a rung: workers (subagents), leads
 | Security | forwards | forwards | answers if the user already answered it, or it is obvious | answers |
 | Stuck | forwards | forwards | answers if no retry was spent on it yet | answers |
 
+A question's **kind**, and the rung of the asking run, decide who may answer
+it. The rungs: workers (subagents), leads (engineer, architect, chief), the
+orchestrator (10x), the user
+([`Role.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Role.hs#L66)).
+The table is
+[`authority`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Ask.hs#L122).
 The rule test: the answer is lower-impact, mostly obvious and reversible
 ([`Cond`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Ask.hs#L100)).
 
@@ -128,11 +126,6 @@ run, or the agent that spawned this one
 
 ## Hooks
 
-Hooks let the run's record keep up with what the agents do, without the
-model remembering to record it
-([ADR 0016](../adr/0016-hooks-drive-the-state-record.md)). Each runs
-`state-hook <name>` ([`kernel/hooks.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/hooks.nix#L12)).
-
 | Hook | When | Does |
 |---|---|---|
 | `state-resume` | session start | records `Restarted` if agents were lost; prints `state show` and `state next` |
@@ -144,6 +137,10 @@ model remembering to record it
 | `state-begin-*` | an agent, a typed skill or a skill call starts | tells the agent how its work begins |
 | `state-stop`, `state-stop-call` | an agent stops | records a child run whose agent ended with no hand-back |
 
+Hooks keep the run's record in step with what the agents do, so the model
+need not remember to record it
+([ADR 0016](../adr/0016-hooks-drive-the-state-record.md)). Each runs
+`state-hook <name>` ([`kernel/hooks.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/hooks.nix#L12)).
 `state-route` is the only state hook that denies
 ([`gate`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Cli/Route.hs#L203)). Every record a hook writes is
 idempotent: a hook that fires twice records once (see
@@ -151,16 +148,16 @@ idempotent: a hook that fires twice records once (see
 
 ## Guards
 
-Guards stop common accidents before a tool runs
-([`guards/hooks.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/hooks.nix#L1)). When several deny, each reason is
-told, in this order.
-
 | Guard | When | Denies |
 |---|---|---|
 | [secret](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/secret-guard/secret-guard.py#L1) | before a shell call | a command that names a secret file or its directory, expands a secret variable, or runs `printenv`/`env` inside a substitution |
 | [read](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/read-guard/read-guard.py#L1) | before a shell call or a read | `cat` or `git show` of over 16 KiB to the screen, or an unlimited read of a text file over 16 KiB; skills and instruction files are exempt |
 | [wait](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/wait-guard/wait-guard.py#L1) | before a shell call | a foreground sleep of 10 s or more, a sleep loop, `tail -f`; in a subagent also CI watches and repeated status reads |
 | [context](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/context-guard/context-guard.py#L1) | after every tool | nothing: it only tells the agent its context size |
+
+Guards stop common accidents before a tool runs
+([`guards/hooks.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/hooks.nix#L1)).
+When several deny, each reason is told, in the order above.
 
 The context guard speaks at the warn limit, at the stop limit, then every
 10k tokens past it. Past the stop it tells the agent to commit, push and hand
