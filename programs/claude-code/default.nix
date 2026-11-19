@@ -223,6 +223,8 @@ rec {
   check =
     let
       flavors = packages ++ [ factory.wrapper ];
+      # Each flavor's lead instructions, by flavor name.
+      leads = lib.listToAttrs (map (flavor: lib.nameValuePair flavor.name flavor.instructions) flavors);
     in
     import ./config-check.nix {
       inherit pkgs lib;
@@ -235,11 +237,12 @@ rec {
       flavorSettings = lib.listToAttrs (
         map (flavor: lib.nameValuePair flavor.name flavor.settingsFile) flavors
       );
+      flavorInstructions = leads;
       roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.roles);
       sizes = [
         # A role counts at its largest, the factory's render.
         (agents.budget.sizes {
-          leads = lib.listToAttrs (map (flavor: lib.nameValuePair flavor.name flavor.instructions) flavors);
+          inherit leads;
           roleInstructions = factoryProfile.instructions;
           repoInstructions = ../../CLAUDE.md;
         })

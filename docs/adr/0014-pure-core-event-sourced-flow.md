@@ -11,7 +11,7 @@ laws, and never dead weight for the agent. ADR 0015 is the first instance.
 The preference comes from functional programming and category theory: model
 the domain as algebraic data types, keep the core pure and total, push every
 effect to the edge, and state the laws the core obeys so tests can prove them.
-These are the same principles `engineering` applies to all code here; this ADR
+These are the same principles the engineering instructions apply to all code here; this ADR
 applies them to the flows that drive the agents themselves.
 
 Amended by ADR 0018: the principles hold, and the Haskell kernel is now their

@@ -76,6 +76,16 @@ let
       inherit file;
     };
   topics = {
+    # replaceVars fails the build on a placeholder left over. tests.md is copied
+    # alone, else the path would hold the whole repository's source. A string,
+    # not the derivation: the checks deepSeq every fragment, and deepSeq on a
+    # derivation walks all of nixpkgs.
+    engineering = topic "${pkgs.replaceVars ./instructions/topics/engineering.md {
+      tests = builtins.path {
+        path = ./instructions/topics/engineering/tests.md;
+        name = "engineering-tests.md";
+      };
+    }}";
     fuel = topic ./instructions/topics/fuel.md;
   };
 
@@ -95,6 +105,7 @@ let
       layer = "role";
       file = ./roles/shared/building.md;
     };
+    "topics/engineering.md" = topics.engineering;
     "topics/fuel.md" = topics.fuel;
   };
   roles = import ./roles {

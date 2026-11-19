@@ -1,8 +1,3 @@
----
-name: engineering
-description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers ADT and DDD domain modeling, minimal state, idempotence, data evolution, parsing into narrower types, errors as values, SUM types over nullable fields, nominal typing, pattern-matching, top-down function order, minimal parameters, small and deep modules, comments, a pure core with a thin effect shell, task lifetimes, simplicity and edge-case ROI, DRY and reuse, strict type-safety, bounded file reads, and when to ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, black-box tests through the public interface, realistic fakes over mocks, Given-When-Then structure, and what makes a test meaningless or wrong. Takes precedence over the domain-modeling skill for how to model a domain.
----
-
 # Engineering
 
 Apply to all code you write, modify or review, in any language.
@@ -78,7 +73,8 @@ meet the objective correctly and sanely.
 
 ## Domain modeling
 
-This skill governs how to model a domain.
+These instructions govern how to model a domain, over the `domain-modeling`
+skill.
 
 - Use ADTs and follow DDD (Domain-Driven Design). The domain model must match
   the business reality exactly and have a 1:1 relationship with the real world.
@@ -153,7 +149,7 @@ This skill governs how to model a domain.
 
 Tests exist so we can trust the software without verifying it by hand. Be
 pragmatic: the goal is confidence, not a coverage number. Read
-`${CLAUDE_SKILL_DIR}/references/tests.md` before writing, changing or reviewing
+`@tests@` before writing, changing or reviewing
 a test - it is the detailed statement of every rule below, with examples.
 
 - Black box: test a unit through its public interface and assert what a caller

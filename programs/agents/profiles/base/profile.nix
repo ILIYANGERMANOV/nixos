@@ -1,5 +1,6 @@
 # What every setup gets. agent.md reaches every agent, subagent roles included;
-# lead.md is the lead's own role, and the lead also gets the Fuel topic.
+# lead.md is the lead's own role, and the lead also gets the engineering and
+# Fuel topics.
 {
   mkFragment,
   mkInstructions,
@@ -17,7 +18,6 @@
     "category-theory-doc"
     "chief"
     "engineer"
-    "engineering"
     "grill-with-docs"
     "grilling"
     "domain-modeling"
@@ -42,6 +42,7 @@
         layer = "role";
         file = ../../instructions/lead.md;
       })
+      topics.engineering
       topics.fuel
     ];
   };

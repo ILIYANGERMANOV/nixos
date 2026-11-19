@@ -1,6 +1,6 @@
 ---
 name: address-pr-feedback
-description: Addresses review comments on a PR - probes each thread against the real code, decides FIX NOW, PUSH BACK or FIX LATER, then fixes, replies and resolves. The reviewer carries the burden of proof, so a comment naming no concrete trigger is an opinion and gets pushed back; pushing back is a normal, good outcome, especially for AI and bot reviewers. Judges every proposed fix against the engineering skill, so a technically correct comment whose fix costs more complexity than it buys is pushed back too. Shows a triage table with separate effort and risk estimates, batch-confirms the easy calls and asks one by one about the contested ones. All code changes are made by the orchestrator alone, one fix at a time, self-checked against the comment and verified before a single commit. The orchestrator picks and runs the check itself. Nothing is posted to GitHub until one final question approves the drafted replies. Use when a review has landed on your PR and you want to answer it.
+description: Addresses review comments on a PR - probes each thread against the real code, decides FIX NOW, PUSH BACK or FIX LATER, then fixes, replies and resolves. The reviewer carries the burden of proof, so a comment naming no concrete trigger is an opinion and gets pushed back; pushing back is a normal, good outcome, especially for AI and bot reviewers. Judges every proposed fix against the engineering instructions, so a technically correct comment whose fix costs more complexity than it buys is pushed back too. Shows a triage table with separate effort and risk estimates, batch-confirms the easy calls and asks one by one about the contested ones. All code changes are made by the orchestrator alone, one fix at a time, self-checked against the comment and verified before a single commit. The orchestrator picks and runs the check itself. Nothing is posted to GitHub until one final question approves the drafted replies. Use when a review has landed on your PR and you want to answer it.
 disable-model-invocation: true
 argument-hint: "[tips] [PR number or URL]"
 ---
@@ -60,7 +60,7 @@ GATE 2 - is acting on it net-positive?
   fix costs more complexity than it buys   -> PUSH BACK
 ```
 
-Gate 2 is an `engineering` call, and it is the reason a true comment can still
+Gate 2 is an engineering-instructions call, and it is the reason a true comment can still
 be pushed back. "Extract this into a helper for reusability" can be perfectly
 correct and still lose against the simplicity rule when there is one caller.
 The probe agents own gate 2 and quote the rule they are applying, so you are

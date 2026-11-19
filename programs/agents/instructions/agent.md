@@ -6,10 +6,6 @@ A dictated reply may hold misheard words: infer from context, or ask.
 
 ## Engineering
 
-- When writing, modifying, refactoring, reviewing or designing code, invoke the
-  `engineering` skill and follow it. It carries the coding style and engineering
-  principles for all code work, in any language. A review agent loads it only
-  when its brief says so.
 - Without a Skill tool, invoking a skill means reading
   `~/.claude/skills/<name>/SKILL.md` and following it, with your prompt as its
   input. A skill already in your context is loaded: never read it again.

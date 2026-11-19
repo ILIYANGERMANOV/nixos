@@ -21,5 +21,5 @@ and hand back the note your instructions' `Context budget` lists. Your caller
 spawns a successor.
 
 A brief naming the sha a previous slice started from: first read
-`ctx delta <that sha> HEAD` and fix what breaks an `engineering` rule or
+`ctx delta <that sha> HEAD` and fix what breaks an engineering-instructions rule or
 repeats existing code, then build your slice.

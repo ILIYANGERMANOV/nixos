@@ -1,7 +1,7 @@
 # What a good test is
 
-The canonical statement of how to write, refactor and judge tests. `SKILL.md`
-carries the principles; this file carries the detail. The `refactor` and
+The canonical statement of how to write, refactor and judge tests. The
+engineering instructions carry the principles; this file carries the detail. The `refactor` and
 `pragmatic-review` skills load it too, so a rule written here is the rule all
 three apply.
 

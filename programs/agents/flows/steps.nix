@@ -19,8 +19,19 @@
 # role's. `offFlow` is a `role`'s work outside the flows: it has no types,
 # the kernel never sees it, and only the derivation reads it.
 let
-  # The lead's Fuel table, read at every step it decides to run or skip.
-  leadProse = [ "topics/fuel.md" ];
+  # The engineering instructions, and the Fuel table the lead reads at every
+  # step it decides to run or skip.
+  leadProse = [
+    "topics/engineering.md"
+    "topics/fuel.md"
+  ];
+
+  # A code-writing role's prose: building.md points at the engineering
+  # instructions, so the two travel together.
+  buildingProse = [
+    "shared/building.md"
+    "topics/engineering.md"
+  ];
 
   # The 10x's steps around its engineers' fan-out.
   fanSteps = {
@@ -219,7 +230,10 @@ in
         "web"
       ];
       skills = [ "researcher" ];
-      prose = [ "topics/fuel.md" ];
+      prose = [
+        "topics/engineering.md"
+        "topics/fuel.md"
+      ];
       ops = [ ];
       flows = [
         "engineer"
@@ -277,10 +291,7 @@ in
         "read"
         "edit"
       ];
-      skills = [
-        "engineer"
-        "engineering"
-      ];
+      skills = [ "engineer" ];
       prose = leadProse;
       ops = [ ];
       flows = [
@@ -302,7 +313,10 @@ in
         "web"
       ];
       skills = [ "researcher" ];
-      prose = [ "topics/fuel.md" ];
+      prose = [
+        "topics/engineering.md"
+        "topics/fuel.md"
+      ];
       ops = [ ];
       flows = [
         "engineer"
@@ -354,8 +368,8 @@ in
         "edit"
         "shell"
       ];
-      skills = [ "engineering" ];
-      prose = [ "shared/building.md" ];
+      skills = [ ];
+      prose = buildingProse;
       ops = [ ];
       flows = [ "engineer" ];
     };
@@ -372,14 +386,8 @@ in
         "edit"
         "shell"
       ];
-      skills = [
-        "refactor"
-        "engineering"
-      ];
-      prose = [
-        "shared/building.md"
-        "topics/fuel.md"
-      ];
+      skills = [ "refactor" ];
+      prose = buildingProse ++ [ "topics/fuel.md" ];
       ops = [ ];
       flows = [ "engineer" ];
     };
@@ -433,8 +441,8 @@ in
         "edit"
         "shell"
       ];
-      skills = [ "engineering" ];
-      prose = [ "shared/building.md" ];
+      skills = [ ];
+      prose = buildingProse;
       ops = [ ];
       flows = [ "engineer" ];
     };
@@ -472,8 +480,8 @@ in
         "edit"
         "shell"
       ];
-      skills = [ "engineering" ];
-      prose = [ "shared/building.md" ];
+      skills = [ ];
+      prose = buildingProse;
       ops = [ ];
       flows = [ "engineer" ];
     };
@@ -490,8 +498,8 @@ in
         "edit"
         "shell"
       ];
-      skills = [ "engineering" ];
-      prose = [ "shared/building.md" ];
+      skills = [ ];
+      prose = buildingProse;
       ops = [ ];
       flows = [ "engineer" ];
     };
@@ -524,8 +532,8 @@ in
         "edit"
         "shell"
       ];
-      skills = [ "engineering" ];
-      prose = [ "shared/building.md" ];
+      skills = [ ];
+      prose = buildingProse;
       ops = [ ];
       flows = [ "engineer" ];
     };
@@ -575,7 +583,10 @@ in
         "shell"
       ];
       skills = [ ];
-      prose = [ "topics/fuel.md" ];
+      prose = [
+        "topics/engineering.md"
+        "topics/fuel.md"
+      ];
       ops = [ ];
     };
     # The /qa skill's executor.

@@ -6,7 +6,8 @@
 # with no MCP, only fields that are known, every preload installed, and the
 # factory section in the factory's render alone, and every flavor's settings to
 # running the state hooks and the guards through the adapter, and nothing else,
-# and to denying the picker, as every question is text.
+# and to denying the picker, as every question is text. Every flavor's lead
+# instructions carry the engineering topic.
 #
 # Sizes are programs/agents' budget and budget/'s, each `<ceiling key> <subject>
 # <bytes>` lines, against their ceilings in tokens merged. `.report` prints the table,
@@ -24,6 +25,8 @@
   factoryAgentSources,
   # Each flavor's settings.json as its wrapper writes it, by flavor name.
   flavorSettings,
+  # Each flavor's lead instructions (~/.claude/CLAUDE.md), by flavor name.
+  flavorInstructions,
   # budget-compare, see budget/.
   compare,
   sizes,
@@ -132,6 +135,12 @@ pkgs.runCommand "claude-config-check"
       lib.mapAttrsToList (name: file: ''
         check_hooks ${name} ${file}
       '') flavorSettings
+    )}
+    ${lib.concatStrings (
+      lib.mapAttrsToList (name: file: ''
+        grep -q '^# Engineering$' ${file} ||
+          { echo "${name} instructions: no engineering topic" >&2; exit 1; }
+      '') flavorInstructions
     )}
 
     # Given synthetic byte sizes against token ceilings, each way to break the

@@ -1,7 +1,7 @@
 
 ## Building
 
-The preloaded `engineering` skill is how you work. Before your first edit, read
+The engineering instructions in your context are how you work. Before your first edit, read
 the repository's root `CLAUDE.md` or `AGENTS.md`, if it has one: it holds rules
 your prompt does not. For UI, read `~/.claude/skills/ui-coding/SKILL.md`.
 

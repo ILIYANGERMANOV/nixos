@@ -42,7 +42,8 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   reply is always `state answer`, never `state rule`.
   The question puts one recommendation first, plus the alternatives worth
   weighing, each with its trade-offs. Where a standard applies, recommend the
-  option that follows it. When the design is code, invoke `engineering` first.
+  option that follows it. When the design is code, it follows the engineering
+  instructions in your context.
 - **Facts first.** Research before proposing: `state next` spawns
   `researcher` agents over the code and the vendor docs. Look for the
   standards, formal or de facto, that apply. PR text, comments and commits
