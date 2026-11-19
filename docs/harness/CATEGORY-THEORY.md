@@ -324,7 +324,7 @@ Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 | P21 | Monotone budgets | each Fuel level allows at least the spends and runs of the level below | Holds if the flow is engineer or 10x ([LawsSpec.hs:156][laws156]) |
 | P22 | Monotone budgets, every flow | P21 for chief and architect too | Needs a monotone test over every flow (#499) |
 | P23 | Monotone full review | each level reviews in full at least the areas of the level below | Holds ([FuelSpec.hs:52][fuel52]) |
-| P24 | Keep | no Fuel level skips `review` or `describe` | Holds if the flow is engineer or 10x ([EngineerSpec.hs:19][eng19], [TenXSpec.hs:22][tenx22]) |
+| P24 | Keep | the engineer flow: no Fuel level skips `review` or `describe`. The 10x flow: no level skips `engineers` or `merge`, and each engineer runs the engineer flow | Holds if the flow is engineer or 10x ([EngineerSpec.hs:19][eng19], [TenXSpec.hs:22][tenx22], [TenXSpec.hs:28][tenx28]) |
 | P25 | Keep, full | no level skips the security review, blockers, fact research or the final fixer, in every flow | Needs a Keep test over every flow (#499) |
 | P26 | Bounded | no run spends past a cap; a loop whose body caps no step is refused | Holds ([FoldSpec.hs:228][fold228], [GraphSpec.hs:74][graph74]) |
 | P27 | Stuck | the same problems in a loop's last two rounds in a row mark it stuck, and the run asks a `Stuck` question | Holds ([FoldSpec.hs:267][fold267]) |
@@ -435,6 +435,7 @@ Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 [advice44]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Protocol/AdviceSpec.hs#L44
 [eng19]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Flow/EngineerSpec.hs#L19
 [tenx22]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Flow/TenXSpec.hs#L22
+[tenx28]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Flow/TenXSpec.hs#L28
 [mermaidspec18]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Cli/Render/MermaidSpec.hs#L18
 [ty39]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Ty.hs#L39
 [step334]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Step.hs#L334
