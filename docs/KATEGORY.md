@@ -43,14 +43,14 @@ touched.
 2. Start `claude-kategory` from the `main` branch:
 
    ```sh
-   nix run github:ILIYANGERMANOV/nixos#claude-kategory
+   nix run "github:ILIYANGERMANOV/nixos#claude-kategory"
    ```
 
    The first launch builds it and asks you to log in. To keep it on your
    `PATH` as `claude-kategory`, install it instead:
 
    ```sh
-   nix profile add github:ILIYANGERMANOV/nixos#claude-kategory
+   nix profile add "github:ILIYANGERMANOV/nixos#claude-kategory"
    ```
 
 Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
