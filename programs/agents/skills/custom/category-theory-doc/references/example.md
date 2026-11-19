@@ -26,7 +26,8 @@ graph LR
 ```
 
 Only `perm_w` is a functor: it preserves `≤`. `plan` is a partial function,
-undefined once deleted, and not a functor, because the suspend transition moves a workspace down the chain (section 3).
+undefined once `Deleted`, and not a functor, because the suspend transition
+moves a workspace down the chain (section 3).
 
 ## 1. Env
 
@@ -151,8 +152,9 @@ Preconditions:
   `status ≠ Deleted`.
 
 **Log.** An event is `e = (id, ws, actor, name, at)`. The log of a workspace
-is a word `e₁ e₂ … eₙ` in the free monoid `E*`: concatenation appends, the
-empty word `ε` is a new workspace. The log holds only accepted events, so
+is a word `e₁ e₂ … eₙ` in the free monoid `E*`: concatenation appends, and the
+empty word `ε` folds to `init`, the workspace before `Created`, with no
+members, so P7 holds from the start. The log holds only accepted events, so
 `step` is total on it.
 
 ```text
