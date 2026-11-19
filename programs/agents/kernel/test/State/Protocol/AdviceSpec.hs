@@ -522,8 +522,9 @@ spec = describe "State.Protocol.Advice" $ do
         it "refuses to send the user a question the run's row must answer itself" $
             ownAsk atImplement ToUser Fact (oneLine "which file?") `shouldBe` Left (MustAnswer Lead Fact)
   where
-    -- The user reads the question as the turn's last text, so no tool call may follow it.
-    asText = "notify the user, then write the question as your final text, with no tool call after it"
+    -- The user reads the question as the turn's last text, so no tool call may follow it;
+    -- the line names how to record the answer, under the question's id.
+    asText = "notify the user, then write the question as your final text, with no tool call after it; then state answer r7f2:1 <answer>"
     askUser = "ASK user: " <> asText
     noFacts = Facts Nothing Nothing []
     withPr = noFacts {pr = Just (PullRequest draftPr IsDraft)}

@@ -735,7 +735,7 @@ deliver start = \case
             <> qidText question.qid
             <> " - "
             <> questionLine question
-    AwaitAnswer question -> above ("ASK " <> questionLine question <> " - " <> askUserAsText) (tokenLine (NeedsDecision (Asks question)))
+    AwaitAnswer question -> above ("ASK " <> questionLine question <> " - " <> askUserAsText question.qid) (tokenLine (NeedsDecision (Asks question)))
     OnHold question why -> "PARKED " <> qidText question.qid <> " " <> oneLineText why
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
@@ -809,14 +809,15 @@ ownAsk state how kind text = sent <$> Ask.route how state.start.principal (Role.
             AnswerSelf -> ([], "ANSWER yourself")
             Up above ->
                 ( [Forwarded question.qid above]
-                , upTo above ("ASK user: " <> askUserAsText) (tokenLine (NeedsDecision (Asks question)))
+                , upTo above ("ASK user: " <> askUserAsText question.qid) (tokenLine (NeedsDecision (Asks question)))
                 )
 
 {- | How an agent asks the user: in its own words, the turn's last. No tool
-call follows, so the question is what the user reads.
+call follows, so the question is what the user reads; the answer, once it
+comes, is recorded under the question's id.
 -}
-askUserAsText :: Text
-askUserAsText = "notify the user, then write the question as your final text, with no tool call after it"
+askUserAsText :: QId -> Text
+askUserAsText qid = "notify the user, then write the question as your final text, with no tool call after it; then state answer " <> qidText qid <> " <answer>"
 
 {- | Where the run is, in one plain line: the state, and what it means to
 an agent that knows nothing of the kernel.

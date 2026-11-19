@@ -614,9 +614,10 @@ spec = describe "state over the doubles" $ do
         it "asks a question its row answers of the user in one command, with --to user, as the turn's final text" $ \world -> do
             _ <- startedRun world
 
-            asked <- succeeded =<< state world ["ask", "--kind", "Pick", "--to", "user", "which", "rows?"]
+            askedLine : asked <- succeeded =<< state world ["ask", "--kind", "Pick", "--to", "user", "which", "rows?"]
+            let qid = Text.drop (Text.length "asked ") askedLine
 
-            drop 1 asked `shouldBe` ["ASK user: notify the user, then write the question as your final text, with no tool call after it"]
+            asked `shouldBe` ["ASK user: notify the user, then write the question as your final text, with no tool call after it; then state answer " <> qid <> " <answer>"]
             reverse . take 2 . reverse <$> loggedEvents world `shouldReturn` ["asked", "forwarded"]
 
         it "records a reply none of a Pick's options covers, saying it may be a new request" $ \world -> do
