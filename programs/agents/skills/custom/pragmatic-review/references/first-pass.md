@@ -134,7 +134,7 @@ the same turn:
 
 **Questions:** at most two, each one whose answer flips a named verdict - a
 requirement you cannot turn into a check is the best use of one. Ask it as one
-`AskUserQuestion` picker whose options are the plausible checkable readings,
+question whose options are the plausible checkable readings,
 and wait. Delegated, you cannot ask: pick the likeliest reading and state it as
 an assumption. With no such question, do not wait.
 
@@ -249,7 +249,7 @@ Four exceptions:
   question and are not findings.
 
 **Intent-unclear tests.** Interactive, ask about each before the report, one
-test per `AskUserQuestion`, naming the test and what it asserts, the options the
+test per question, naming the test and what it asserts, the options the
 agent's readings with their severities - outside the two-question limit. Rate it
 from the answer: a reading under which it proves the intent drops it, one under
 which it contradicts the intent makes it a Major row. Delegated, list each under

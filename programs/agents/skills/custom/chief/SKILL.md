@@ -99,12 +99,12 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   tool). `final` goes to `next`, not to a describe: never `final` with
   chosen rows while a Re-review is left, `loop` them to a fixer instead;
   rows still chosen at `final` go in the result for the user.
-- **Ask through `state ask`.** Never call `AskUserQuestion` before
+- **Ask through `state ask`.** Never ask the user before
   `state ask`; then do what it, or the next `state next`, prints:
 
   | Prints | You |
   |---|---|
-  | `ASK user`, `ASK <Kind> <qid>` | one `AskUserQuestion`, or on a long context plain text ending the turn with lettered options; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers or a new request, `--park <why>` to leave it open |
+  | `ASK user`, `ASK <Kind> <qid>` | notify the user, then the question as your final text, as the Asking rules say; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers or a new request, `--park <why>` to leave it open |
   | `ANSWER yourself`, then `RUN state rule \| forward` | settle it yourself: `state rule <qid> --answer <a> --why <w> --cost <c>`; a choice that is the user's (the route of an ambiguous request): ask as for `ASK`, then `state answer <qid> <answer>` forwards and answers in one |
 
   An engineer you spawn as a subagent starts with the init line

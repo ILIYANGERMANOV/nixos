@@ -20,14 +20,14 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
 
 ## Rules
 
-- **Ask through `state ask`.** Never call `AskUserQuestion` before `state
+- **Ask through `state ask`.** Never ask the user before `state
   ask`. The `state next` lines you meet:
 
   | Line | You |
   |---|---|
   | `SPAWN <role> background: yes\|no` | spawn `subagent_type: <role>` as it says; its prompt is `state brief <role>` plus the step's part |
   | `ASK <Kind> <what>` | `state ask --kind <Kind> "<question>"`, then do what it prints |
-  | `ASK user` | one `AskUserQuestion`, or on a long context plain text ending the turn with lettered options; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers, `--park <why>` to leave it open |
+  | `ASK user` | notify the user, then the question as your final text, as the Asking rules say; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers, `--park <why>` to leave it open |
   | `RUN <command>` | do the step, then run the command, placeholders filled |
   | `RUN one option below` | pick the option that fits and run its command |
   | `AWAIT worker <role> <id>` | end the turn: its hand-back wakes you |

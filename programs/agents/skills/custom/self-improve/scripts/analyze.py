@@ -190,7 +190,6 @@ Interval = tuple[float, float]
 StreamPoint = tuple[
     float, int
 ]  # a call's start, then its position among calls sharing that start
-ASK = "AskUserQuestion"
 
 
 @dataclass(frozen=True)
@@ -686,7 +685,7 @@ def load_session(path: Path, until: float | None = None) -> Session | None:
         invocations=main.invocations,
         prompts=main.prompts,
         human_wait=waiting_seconds(
-            main.human_gaps, main.agent, [main.agent, *(s.agent for s in subs)]
+            main.human_gaps, [main.agent, *(s.agent for s in subs)]
         ),
         main=main.agent,
         subagents=[s.agent for s in subs],
@@ -712,34 +711,23 @@ def parse_meta(path: Path) -> SubagentMeta:
     )
 
 
-def question_intervals(agent: Agent) -> list[Interval]:
-    return [
-        (c.start, c.start + c.seconds)
-        for c in agent.calls
-        if c.name == ASK and c.seconds is not None
-    ]
-
-
 def project_name(cwd: str) -> str:
     """The repository or directory a session ran in, without its worktree suffix."""
     return Path(cwd.split("/.claude/worktrees/", maxsplit=1)[0]).name or "?"
 
 
-def waiting_seconds(
-    human_gaps: list[Interval], main: Agent, agents: list[Agent]
-) -> float:
-    """Time spent waiting on the person: every question the main agent left open
-    (a subagent cannot ask), plus each gap before a human prompt in which no
-    tool call of any agent was running."""
-    asks = question_intervals(main)
+def waiting_seconds(human_gaps: list[Interval], agents: list[Agent]) -> float:
+    """Time spent waiting on the person: each gap before a human prompt in which
+    no tool call of any agent was running. A question is text ending a turn, so
+    its wait is such a gap."""
     busy = [
         (c.start, c.start + c.seconds)
         for a in agents
         for c in a.calls
-        if c.name != ASK and c.seconds is not None
+        if c.seconds is not None
     ]
     idle = [part for gap in human_gaps for part in subtract(gap, merge(busy))]
-    return sum(end - start for start, end in merge(asks + idle))
+    return sum(end - start for start, end in merge(idle))
 
 
 def merge(intervals: list[Interval]) -> list[Interval]:
@@ -2856,9 +2844,7 @@ def subject(tool: Tool) -> str:
 def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
     groups: dict[tuple[str, str], list[float]] = defaultdict(list)
     for _, _, c in calls:
-        if (
-            c.seconds is not None and c.name != ASK
-        ):  # waiting on the person is never a bottleneck
+        if c.seconds is not None:
             groups[(c.name, c.mode)].append(c.seconds)
     ranked = sorted(groups.items(), key=lambda kv: -sum(kv[1]))
     rows = [

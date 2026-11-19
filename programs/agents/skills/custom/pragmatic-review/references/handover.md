@@ -1,6 +1,6 @@
 # Hand over
 
-Read this only once the action picker is answered with something to do.
+Read this only once the action question is answered with something to do.
 Selecting no action means nothing: the review is done.
 
 ## The actions
@@ -34,7 +34,7 @@ body. If a comment cannot be anchored - the line is not in the diff - fall back
 to a single `gh pr comment` carrying the table.
 
 **Disclosure** follows your instructions: only text the user did not approve
-carries it. When the user answered the pickers, post no disclosure. When
+carries it. When the user answered the questions, post no disclosure. When
 another agent answered them, no human approved anything: the summary body, or
 the fallback comment, opens with the disclosure line from your instructions,
 once - never on the inline comments.

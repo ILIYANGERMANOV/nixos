@@ -40,7 +40,7 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 - **You never implement.** Research, spikes, engineers, fixers and audits are
   subagents. You plan, triage, ask and merge.
 - **Only you own wakes.** A subagent cannot receive one. `add_repo`,
-  `subscribe_pr_activity`, CI waits, `AskUserQuestion`, `PushNotification` and
+  `subscribe_pr_activity`, CI waits, user questions, `PushNotification` and
   `gh pr merge` stay here.
 - **Under a parent**, your brief's `state init` line naming a `--parent`, or
   `--child` as a subagent: no wakes, no merges, no user questions, Confirm's
@@ -191,7 +191,7 @@ test holds, as a ruling; a real trade-off is the user's.
 
 Confirm once, phone-sized: the breakdown with a file tree of what each task
 adds or changes and, per task, the options with their trade-offs. One
-`AskUserQuestion` ("Yes, start (Recommended)" / "No, adjust"), repeating until
+question ("A) Yes, start (Recommended)" / "B) No, adjust"), repeating until
 clear. No engineer starts before this, a base fix included (Failures).
 
 ### Breakdown
@@ -387,7 +387,7 @@ it. Parked work is never discarded: keep its branch and PR.
 ## Progress
 
 `PushNotification` when a PR is ready, merged or parked, when a base fix
-starts, and on a plain-text question. `AskUserQuestion` notifies by itself.
+starts, and before every question.
 
 ## Resume
 
