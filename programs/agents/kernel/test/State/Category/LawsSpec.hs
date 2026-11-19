@@ -26,12 +26,14 @@ import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit, limitAtMost, meterName)
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Sing, StateName (..), StepSet, stateNameText)
 import State.Category.Ty (NotSum, TyOf (..))
-import State.Flow.Engineer (engineer)
-import State.Flow.Library (choice, choiceLoop, parallel, upTo)
-import State.Flow.TenX (tenX)
+import State.Flow.Library (choice, choiceLoop, nameOf, parallel, upTo)
 import State.Flow.Triage (Sing (..), TriageStep (..))
+import State.Role (RoleDef (..), SomeFlow (..), roles)
 import State.Step.Build (BuildStep (..), Sing (..))
+import State.Step.Catalog (termSkips)
 import State.Step.Fuel (FuelStep, Sing (Fuel, Skip))
+import State.Step.Gather (Sing (Research))
+import State.Step.Review (Sing (ReReview, Review))
 import State.Step.Ship (ShipStep (..), Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -152,9 +154,14 @@ spec = describe "laws" $ do
             (AnyFlow f, AnyFlow g) <- forAll (Gen.filter (\(AnyFlow f, AnyFlow g) -> isRight (graph (f :> Scope "inner" g))) ((,) <$> genExiting diffKit <*> genBranching))
             (stateNames <$> graph (f :> Scope "inner" g)) === liftA2 (<>) (stateNames <$> graph f) (stateNames <$> graph (Scope "inner" g))
 
-    describe "PerFuel" $
-        it "allows each level at least the spends and runs of the level below, in every named flow" $
-            [(flow, name) | (flow, budgets) <- [("engineer" :: String, budgetsOf engineer), ("tenX", budgetsOf tenX)], (name, False) <- budgets]
+    describe "PerFuel" $ do
+        it "allows each level at least the spends and runs of the level below, in every role's flow" $
+            [(r.name, name) | r <- roles, SomeFlow f <- [r.flow], (name, False) <- budgetsOf f]
+                `shouldBe` []
+
+        -- Keep: Fuel skips only what may go; the kept steps run at every level.
+        it "never lets a Fuel level skip a kept step, in every role's flow" $
+            [(r.name, name) | r <- roles, SomeFlow f <- [r.flow], (name, _) <- termSkips f, name `elem` kept]
                 `shouldBe` []
 
 {- | Two actions on a PR, the first after a capped fix, whose choice loop
@@ -276,6 +283,13 @@ renameName f (Name text) = Name (f text)
 
 stateNames :: OpenGraph -> Set.Set StateName
 stateNames = Set.map placeName . places
+
+{- | The steps law Keep never lets Fuel skip: the review that holds the
+security pass, the re-review that holds the blockers, fact research and the
+final fixer, @describe@ and @simplify_pr@.
+-}
+kept :: [Name]
+kept = [nameOf Review, nameOf ReReview, nameOf Research, nameOf Describe, nameOf SimplifyPR]
 
 {- | Each meter's and skip's name, and whether its 'PerFuel' is monotone:
 more Fuel never allows less, nor skips where less Fuel runs.
