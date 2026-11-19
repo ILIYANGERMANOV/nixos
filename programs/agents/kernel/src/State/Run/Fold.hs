@@ -555,7 +555,7 @@ applyEvent g state n = \case
             heldTask task >>= \holder -> do
                 let before = fanIn state.fans holder.fan
                 after <- inFanAt holder.fan (Fan.moved task moved) state
-                if Fan.merged before task then Right after else afterMove holder before task moved after
+                if Fan.merged before task then Right after else afterMove holder.requests before task moved after
     Held task url -> going (inTaskFan task (Fan.held task url))
     ActedOn task url -> going (inTaskFan task (Fan.actedOn task url))
     -- A new task joins the fan-out the run is at: no request holds it yet.
@@ -575,9 +575,9 @@ applyEvent g state n = \case
     {- A round reopens the fan-out of the request in focus only: a waiting
     request's cursor stays where it stood, so its merge, on the turn back,
     is refused until the round's task settles (a rare case, left as is). -}
-    afterMove holder fan task = \case
+    afterMove requests fan task = \case
         Event.Round _
-            | state.focus `elem` holder.requests -> reopened g
+            | state.focus `elem` requests -> reopened g
             | otherwise -> Right
         InCi _ -> Right
         InReview _ -> Right
