@@ -4,7 +4,8 @@
 subagent roles, hooks, guards and the `state` program that drives them. You
 describe a task to `/chief`. It researches, asks you the decisions, builds the
 change through subagents, reviews it and opens a pull request. Everything
-lives in `~/.claude-kategory`, so your own `~/.claude` stays untouched.
+lives in `~/.claude-kategory`, so your own `~/.claude` and `~/.claude.json`
+stay untouched.
 
 > [!WARNING]
 > Experimental and use at your own risk: agents read files, run commands and
