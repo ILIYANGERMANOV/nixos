@@ -98,6 +98,9 @@ let
     # claude-code-remote is not a connector: Remote Control's bridge
     # delivers it, so add_repo and subscribe_pr_activity stay.
     disableClaudeAiConnectors = true;
+    # Every question is plain text, the turn's last (programs/agents), so the
+    # user reads and answers it the same way on a phone; a picker call fails.
+    permissions.deny = [ "AskUserQuestion" ];
     enabledPlugins = {
       "typescript-lsp@claude-plugins-official" = true;
     };

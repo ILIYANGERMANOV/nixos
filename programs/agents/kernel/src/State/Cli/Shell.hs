@@ -62,7 +62,7 @@ import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, ledFile, rebound, renderBinding, resolve, sessionDir, slotOf, slottedAgents, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), areaNames, parseHandback, refusalText, typeDirectHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), End (..), Gate (..), HookName (..), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), End (..), Gate (..), HookName (..), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Option (..), Recording (..))
 import State.Role (RoleDef (..), SomeFlow (..))
@@ -496,7 +496,6 @@ unreadByHook name v = case name of
     SpawnHook -> byHand
     HandbackHook -> byHand
     ResumeHook -> ""
-    AskedHook -> ""
     BindHook -> ""
     RouteHook -> ""
     BeginHook -> ""
@@ -547,7 +546,6 @@ runAnswer steps call bound found want = case want of
                     -- A worker spawned beside the advice returns, its report its spawner's alone.
                     (False, False, Just back) -> said <$> told (Right (Plan [back] (\_ _ -> mempty)))
                     (False, False, Nothing) -> ([], "")
-    AskedUser -> runPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
   where
     -- A run that is over, bound to another branch or whose PR is merged or closed is
     -- silent too; the hook's session stamps its lines, and its text names the run.

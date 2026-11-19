@@ -43,7 +43,7 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; never rewrites the prompt: auto mode refuses a rewritten spawn once, so `state brief` gives a refactorer, review-lead or fixer a `Diff:` line to run `ctx diff` itself |
   | handback | before a worker hands back | records it, and adds what it recorded, or the refusal and `fix:`, as context: auto mode refuses a rewritten report. A child run's own `state` records its hand-back in the parent's run |
   | pr | after `gh pr create`, `gh pr ready` run as a command | records `drafted`, `ready`; removed by ADR 0017 |
-  | asked | after the lead asks, in Ctx | records `asked` |
+  | asked | after the lead asks, in Ctx | records `asked`; removed (#502): questions are plain text, which no hook sees |
   | bind | after a shell call ran `state init`; after a spawn of a flow role | binds the agent to the run init printed; binds the worker to its spawner's run |
   | route | before a shell call, an edit, a write or a spawn | denies a `state` call aimed at another run than the agent is bound to, `fix: cd <its worktree> && state ...`; denies an unbound lead's writes, `fix:` its `state init` |
   | begin | a subagent starts; a typed `/engineer` or `/10x-engineer`, or a Skill call of one | marks a lead that typed or called a lead skill; tells a spawned lead its run starts at its prompt's `state init` line, a worker its `state brief`, a lead skill to begin with `state` |

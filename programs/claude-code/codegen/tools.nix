@@ -12,7 +12,6 @@
   ];
   delegate = [ "Agent" ];
   handback = [ "SubagentHandback" ];
-  ask = [ "AskUserQuestion" ];
   skill = [ "Skill" ];
   stopAgent = [ "TaskStop" ];
 }

@@ -427,7 +427,7 @@ spec = describe "the state binary" $ do
                 take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1 <> ": postgres"]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c1]
                 userHolds <- succeeded =<< state bin repo ["next"]
-                take 1 userHolds `shouldBe` ["ASK Security " <> Text.pack q2 <> ": token in env?"]
+                take 1 userHolds `shouldSatisfy` all (("ASK Security " <> Text.pack q2 <> ": token in env? - ") `Text.isPrefixOf`)
                 _ <- succeeded =<< state bin repo ["answer", q2, "use", "a", "vault"]
                 second <- succeeded =<< state bin repo ["next"]
                 take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2 <> ": use a vault"]
@@ -1032,12 +1032,6 @@ spec = describe "the state binary" $ do
 
                     replyField "context" said `shouldSatisfy` maybe False ("`state init ...`" `Text.isInfixOf`)
 
-            it "tell the lead how to record the answer to a question put to the user" $ \repo -> do
-                _ <- drive bin repo []
-                qid <- askedQid bin repo "Design" ["which", "store?"]
-                said <- succeeded =<< hook hookBin repo "asked" (askedUser repo)
-                said `shouldSatisfy` mentions ("state answer " <> qid <> " <answer>")
-
 -- | One call of the binary: its exit code and its output, line by line.
 data Ran = Ran {code :: Int, out :: [Text], err :: [Text]}
 
@@ -1217,9 +1211,6 @@ replyField :: Aeson.Key -> [Text] -> Maybe Text
 replyField key said = case Aeson.decodeStrictText (Text.concat said) of
     Just (Object fields) | Just (String value) <- KeyMap.lookup key fields -> Just value
     _ -> Nothing
-
-askedUser :: Repo -> String
-askedUser repo = hookEvent repo Null ["event" .= String "afterTool", "tool" .= String "ask", "input" .= object [], "output" .= String "ok", "context" .= Null]
 
 -- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's session in the worktree.
 hookEvent :: Repo -> Value -> [Pair] -> String

@@ -63,7 +63,7 @@ spec = describe "the hooks" $ do
                 `shouldBe` Right (AfterTool (Call (SessionId "s") "/w" (Just reviewLead)) Delegate KeyMap.empty (String "ok"))
 
         it "refuses an afterTool with no output, as the contract requires one" $
-            parseHookEvent (encodeObject (KeyMap.delete "output" (afterToolFields "ask"))) `shouldSatisfy` isLeft
+            parseHookEvent (encodeObject (KeyMap.delete "output" (afterToolFields "shell"))) `shouldSatisfy` isLeft
 
         it "names the events, tools and sources of vocabulary.json, in its order" $ do
             map (\name -> eventOf <$> parseHookEvent (event name)) (vocabulary Map.! "events") `shouldBe` map Right ["sessionStart", "beforeTool", "afterTool", "agentStart", "promptExpansion", "agentStop"]
@@ -75,11 +75,9 @@ spec = describe "the hooks" $ do
             map (\agent -> wants steps ResumeHook (SessionStart (Call (SessionId "s") "/w" agent) Startup)) [Nothing, Just (Agent Nothing (Just (AgentRole "engineer")))]
                 `shouldBe` [Right (Just (Asks (ResumeRun Startup))), Right (Just (Asks (ResumeRun Startup)))]
 
-        it "ignores a subagent's spawn and question" $
-            [ wants steps SpawnHook (BeforeTool (Call (SessionId "s") "/w" (Just reviewLead)) Delegate KeyMap.empty)
-            , wants steps AskedHook (AfterTool (Call (SessionId "s") "/w" (Just reviewLead)) Ask KeyMap.empty (String "ok"))
-            ]
-                `shouldBe` [Right Nothing, Right Nothing]
+        it "ignores a subagent's spawn" $
+            wants steps SpawnHook (BeforeTool (Call (SessionId "s") "/w" (Just reviewLead)) Delegate KeyMap.empty)
+                `shouldBe` Right Nothing
 
         it "reads the role the lead spawns" $
             wants steps SpawnHook (BeforeTool (Call (SessionId "s") "/w" Nothing) Delegate (KeyMap.fromList [("subagent_type", String "implementer")]))
@@ -119,7 +117,7 @@ spec = describe "the hooks" $ do
                 `shouldBe` map (Right . Just . Routes) [Edits (Just "/w/a/notes.md"), Writes (Just "/n/notes.md")]
 
         it "routes no read, research or other call" $
-            map (\tool -> shell Nothing tool "state next") [Read, Web, Ask, Skill, Other] `shouldBe` replicate 5 (Right Nothing)
+            map (\tool -> shell Nothing tool "state next") [Read, Web, Skill, Other] `shouldBe` replicate 4 (Right Nothing)
 
     describe "how work begins" $ do
         let startOf role = wants steps BeginHook (AgentStart (Call (SessionId "s") "/w" (Just (Agent (Just (AgentId "a1")) (AgentRole <$> role)))))
@@ -170,7 +168,7 @@ spec = describe "the hooks" $ do
             delivery handedBack worker Nothing Nothing `shouldBe` ToRun
 
         it "never stashes a want that is no hand-back" $
-            [delivery want worker slot Nothing | want <- [ResumeRun Startup, SpawnRole Nothing, AskedUser]] `shouldBe` [ToRun, ToRun, ToRun]
+            [delivery want worker slot Nothing | want <- [ResumeRun Startup, SpawnRole Nothing]] `shouldBe` [ToRun, ToRun]
 
     describe "silence" $ do
         let drafted = stepTook (DraftDone (DraftPr (Url "https://github.com/o/r/pull/1") (Branch "main") (Branch "feat")))
@@ -267,8 +265,8 @@ spec = describe "the hooks" $ do
                            , Right (object ["decision" .= ("allow" :: Text), "context" .= ("state: begins" :: Text)])
                            ]
 
-        it "gives sessionStart and afterTool context alone" $
-            decoded (replyOf (Asks AskedUser) "state: record the user's answer") `shouldBe` Right (object ["context" .= ("state: record the user's answer" :: Text)])
+        it "gives sessionStart context alone" $
+            decoded (replyOf (Asks (ResumeRun Startup)) "state: resumed") `shouldBe` Right (object ["context" .= ("state: resumed" :: Text)])
   where
     decoded reply = maybe (Left "nothing printed") eitherDecode (encodeReply reply) :: Either String Value
 
