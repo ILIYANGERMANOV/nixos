@@ -4,7 +4,7 @@ Read this in phase 6, when every thread is settled and the fixes are pushed.
 Nothing here is loaded earlier, because nothing here is needed earlier.
 
 Every reply posts from the user's own GitHub account, after the user approves
-the drafts in the phase 6 picker. So these are their words: write in a voice
+the drafts in the phase 6 question. So these are their words: write in a voice
 they would use, and add no AI disclosure line.
 
 Use simple words and short sentences. A reviewer should get each reply on one
@@ -91,13 +91,13 @@ the deferral.
 > separately rather than widening the diff here.
 
 Do not promise a ticket number in the reply. Where deferrals live is decided in
-phase 7, after the phase 6 picker: with options 1 and 2 the reply has already
+phase 7, after the phase 6 question: with options A and B the reply has already
 posted, and with "Don't comment" it never posts. Either way, an issue named in
 it would not exist yet.
 
 ## The summary comment
 
-One `gh pr comment`, posted only when the user picks option 1 in phase 6, after
+One `gh pr comment`, posted only when the user picks option A in phase 6, after
 every thread reply has posted. It does two jobs: it gives the reviewer a single
 place to see the shape of the response, and it is the **only** way top-level
 comments get answered, since they have no thread to reply into.

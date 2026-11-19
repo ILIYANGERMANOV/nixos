@@ -55,9 +55,9 @@ is `engineer`. `Security` is above every other kind: raise a question to it
 | A reply no option covers, or a new request | `state answer <qid> --other <text>` |
 | No answer yet, on purpose | `state answer <qid> --park <why>`: the question stays open, the asker's `state next` prints `PARKED`, a later `state answer` closes it |
 
-`ASK user` is one `AskUserQuestion`, or, when the context is long (a phone),
-plain text that ends the turn with lettered options. A parent answers, parks
-or rules a child run's qid from its own run; only that child resumes.
+`ASK user` is one question as your final text, as the Asking rules say. A
+parent answers, parks or rules a child run's qid from its own run; only that
+child resumes.
 
 ## Triage
 

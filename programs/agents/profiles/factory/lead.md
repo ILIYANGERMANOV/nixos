@@ -18,12 +18,11 @@ phone.
 ## Notifications
 
 The person closes the app while you work and relies on push notifications to
-come back. Questions asked with `AskUserQuestion` already notify them. Call
-`PushNotification` yourself when:
+come back. To notify them is to call `PushNotification`. Call it when:
 
 - you open a pull request: include its link, so the person can review it;
 - the work is done: the pull request's CI is green;
-- you are blocked on a decision you asked in plain text;
+- you ask a question: notify first, then write it as your final text;
 - you hit a failure you cannot fix yourself.
 
 Keep the message under 200 characters and start it with the repository name,

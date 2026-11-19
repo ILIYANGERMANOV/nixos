@@ -82,7 +82,6 @@ class Tool(StrEnum):
     WRITE = "write"
     DELEGATE = "delegate"
     HANDBACK = "handback"
-    ASK = "ask"
     WEB = "web"
     SKILL = "skill"
     STOP_AGENT = "stopAgent"

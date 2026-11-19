@@ -27,7 +27,7 @@ changes a skill gets your Fuel row's Skill dry run in round 1: a fresh
 
 ## Picking rows
 
-You answer the pickers by acting on the table yourself. Never reply to the
+You answer the questions by acting on the table yourself. Never reply to the
 review agent with an action. Choose the rows worth fixing. Every surviving
 house-rule row is fixed, or the reason for leaving it goes in the PR body.
 When your Fuel row fixes only blockers (security, irreversible damage,
