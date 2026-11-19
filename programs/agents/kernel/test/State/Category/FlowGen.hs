@@ -14,6 +14,7 @@ module State.Category.FlowGen (
     genScopePath,
     series,
     builds,
+    graphOf,
     pathTo,
     skipsKept,
     composes,
@@ -23,7 +24,6 @@ module State.Category.FlowGen (
     threeWayPick,
 ) where
 
-import Data.Either (isRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
@@ -63,7 +63,11 @@ series (AnyFlow f) (AnyFlow g) = AnyFlow (f :> g)
 
 -- | The term's graph builds: no clash refuses it.
 builds :: (NotSum i, NotSum o) => AnyFlow i e o -> Bool
-builds (AnyFlow f) = isRight (graph f)
+builds = isJust . graphOf
+
+-- | The term's graph, when it builds.
+graphOf :: (NotSum i, NotSum o) => AnyFlow i e o -> Maybe OpenGraph
+graphOf (AnyFlow f) = either (const Nothing) Just (graph f)
 
 {- | The steps of one type that a generated flow chains, with and without an
 exit. Each exiting one caps a step, so a loop over it is bounded.

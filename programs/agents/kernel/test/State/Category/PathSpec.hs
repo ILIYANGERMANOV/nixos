@@ -9,7 +9,7 @@ import Hedgehog (Gen, assert, evalMaybe, failure, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (Flow (..))
-import State.Category.FlowGen (AnyFlow (..), composes, genFlow, genWalk, pathTo)
+import State.Category.FlowGen (composes, genFlow, genWalk, graphOf, pathTo)
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Path (step, ty)
@@ -63,7 +63,7 @@ spec = describe "State.Category.Path" $ do
 
 -- | The graph of a generated flow that builds.
 genGraph :: Gen OpenGraph
-genGraph = Gen.mapMaybe (\(AnyFlow flow) -> either (const Nothing) Just (graph flow)) genFlow
+genGraph = Gen.mapMaybe graphOf genFlow
 
 -- | A built flow and one of its skip edges.
 genSkip :: Gen (OpenGraph, (Place, EventName, Edge Node))
@@ -72,8 +72,8 @@ genSkip = do
     skip <- Gen.element skips
     pure (g, skip)
   where
-    withSkips (AnyFlow flow) = do
-        g <- either (const Nothing) Just (graph flow)
+    withSkips flow = do
+        g <- graphOf flow
         skips <- nonEmpty [(place, event, edge) | ((place, event), edge) <- Map.toList g.edges, event.outcome == OutcomeName "skip"]
         Just (g, skips)
 
