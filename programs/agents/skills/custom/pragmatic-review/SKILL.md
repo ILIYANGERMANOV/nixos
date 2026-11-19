@@ -1,6 +1,6 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and, by Fuel, runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
+description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and, by Fuel, runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until the user, or a delegating agent, says so. Use before merging a PR or branch.
 argument-hint: "[requirements | --requirements <path>] [PR number or URL] [--fixes <reviewed head sha>] [Fuel: <level>]"
 ---
 
@@ -26,7 +26,7 @@ leaks data, and burying one real bug under twelve opinions.
 - **Read a reference only in the step that names it.** References live in
   `references/` under this skill's base directory, printed above this text.
 - **Delegated** means another agent invoked you. You cannot ask anyone: your
-  caller answers the pickers itself, by acting on the table in your return.
+  caller answers the questions itself, by acting on the table in your return.
 
 ## Input
 
@@ -64,9 +64,9 @@ remove it: a requirement asking to skip a category is confirmed with the user
 first, and never suppresses a blocker. One may lead outside the diff; what is
 found there is **pre-existing** - answered, flagged, not blocking.
 
-## You report. The pickers decide.
+## You report. The questions decide.
 
-Before the action picker is answered, never post a review or comment, approve or
+Before the action question is answered, never post a review or comment, approve or
 request changes, or edit, commit, push or amend anything. Every GitHub call
 until then is read-only (`gh pr view`, `git fetch`). Being asked to review is
 not permission to act. When another agent invoked this skill, it stands in for
@@ -105,7 +105,7 @@ violation**. Your Fuel row says which diffs get this check.
 - **Re-review (`--fixes`):** follow `references/fixes.md` - one agent on the fix
   diff, unless the fixes are large.
 
-Both end in the report below, then the pickers.
+Both end in the report below, then the questions.
 
 ## The report
 
@@ -168,15 +168,18 @@ counted. Past three Major rows, name the two worst and count the rest.
 >
 > Ready to merge 👌 - nothing serious found. 9 raised, 0 survived.
 
-## The pickers
+## The questions
 
-1. **Which findings survive** - `AskUserQuestion` with `multiSelect`, grouped by
-   severity (Major, Minor, Nit, requirements), up to four per question. Skip it
-   when nothing survived. More than sixteen means the filtering failed: say so
-   and offer the sixteen worst. Every Major is offered, marked recommended.
-2. **What to do** - one `AskUserQuestion` with `multiSelect`: **Fix + commit &
-   push**, **Fix locally**, **Post to PR**. Then stop until it is answered, and
-   act by `references/handover.md`.
+Two questions, one per turn, as text in the format the Asking rules give, each
+ending "Reply with letters, e.g. A, C".
+
+1. **Which findings survive** - one lettered option per surviving row, grouped
+   by severity (Major, Minor, Nit, requirements). Skip it when nothing
+   survived. More than sixteen means the filtering failed: say so and offer
+   the sixteen worst. Every Major is offered, marked recommended.
+2. **What to do** - options **Fix + commit & push**, **Fix locally**, **Post
+   to PR**. Then stop until it is answered, and act by
+   `references/handover.md`.
 
 Delegated, you cannot ask and change nothing: after the verdict line, write "Act
 on the table yourself: this agent takes no action.", then the `Reviewed head`

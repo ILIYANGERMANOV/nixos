@@ -220,7 +220,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "tells the discussion to send its Explain message before each question, in the same turn" $
             (advise steps architectGraph noFacts (architectRun [Took mempty (pickOf "architect" "discuss")])).prompt
-                `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the picker question" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
+                `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the question as text" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
 
     describe "the legacy architect" $ do
         let architectRun = architectOn legacyArchitectGraph . (knobs Balanced <>)
@@ -233,7 +233,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "offers the problem's records without asking, and tells the agent to discuss free-form until the user says design" $ do
             let advice = advise steps legacyArchitectGraph noFacts atProblem
             commandsOnly advice.action `shouldBe` offering ["state record problem.understood", "state record problem.more"]
-            advice.prompt `shouldSatisfy` \prompt -> all (`Text.isInfixOf` prompt) ["free-form: no picker", "Only when the user says design or enough", "state ask --kind Confirm \"the problem: understood, or more?\"", "the user's own words"]
+            advice.prompt `shouldSatisfy` \prompt -> all (`Text.isInfixOf` prompt) ["free-form, no question asked yet", "Only when the user says design or enough", "state ask --kind Confirm \"the problem: understood, or more?\"", "the user's own words"]
 
         it "drops the line on when to ask once the problem's Confirm was asked and answered" $ do
             let (question, asked, _) = byRow atProblem Confirm (oneLine "the problem: understood, or more?")
@@ -429,7 +429,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "asks the user a forwarded question, or hands it back to a parent run" $
             map (`deliver` AwaitAnswer which) [start, child]
-                `shouldBe` ["ASK Design r7f2:1: which store?", "HANDBACK NEEDS_DECISION Design r7f2:1: which store?"]
+                `shouldBe` ["ASK Design r7f2:1: which store? - " <> asText, "HANDBACK NEEDS_DECISION Design r7f2:1: which store?"]
 
         it "names the task an engineer is spawned for" $
             deliver start {interface = Set.fromList [Background]} (Spawn (AgentRole "engineer") (Just (TaskId "t1"))) `shouldBe` "SPAWN engineer --task t1 background: yes"
@@ -491,7 +491,7 @@ spec = describe "State.Protocol.Advice" $ do
 
     describe "ownAsk" $ do
         it "forwards a Design question to the user" $
-            byRow atImplement Design (oneLine "which store?") `shouldBe` askedUp "ASK user" TheUser
+            byRow atImplement Design (oneLine "which store?") `shouldBe` askedUp askUser TheUser
 
         it "hands a Design question back to a parent run" $
             byRow (runUnder child (knobs Balanced <> take 10 happyPath)) Design (oneLine "which store?")
@@ -503,11 +503,11 @@ spec = describe "State.Protocol.Advice" $ do
             , from <- [start, child]
             , let (_, _, line) = byRow (runUnder from (knobs fuel <> take 8 happyPath)) Confirm (oneLine "the plan holds?")
             ]
-                `shouldBe` concat (replicate 3 ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"])
+                `shouldBe` concat (replicate 3 [askUser, "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"])
 
         it "answers a Design question itself inside a 10x scope, where the unscoped run forwards it" $
             [line | state <- [atImplement, inTenXScope], let (_, _, line) = byRow state Design (oneLine "which store?")]
-                `shouldBe` ["ASK user", "ANSWER yourself"]
+                `shouldBe` [askUser, "ANSWER yourself"]
 
         it "leaves a Pick question to the run itself" $
             byRow atImplement Pick (oneLine "which rows?")
@@ -515,13 +515,17 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "sends a question its row answers to the user at once, asked and forwarded: up to a parent from a child" $
             [ownAsk state ToUser Pick (oneLine "which rows?") | state <- [atImplement, runUnder child (knobs Balanced <> take 10 happyPath)]]
-                `shouldBe` [ Right (askedPick "ASK user" TheUser)
+                `shouldBe` [ Right (askedPick askUser TheUser)
                            , Right (askedPick "HANDBACK NEEDS_DECISION Pick r7f2:1: which rows?" (ParentRun parent))
                            ]
 
         it "refuses to send the user a question the run's row must answer itself" $
             ownAsk atImplement ToUser Fact (oneLine "which file?") `shouldBe` Left (MustAnswer Lead Fact)
   where
+    -- The user reads the question as the turn's last text, so no tool call may follow it;
+    -- the line names how to record the answer, under the question's id.
+    asText = "notify the user, then write the question as your final text, with no tool call after it; then state answer r7f2:1 <answer>"
+    askUser = "ASK user: " <> asText
     noFacts = Facts Nothing Nothing []
     withPr = noFacts {pr = Just (PullRequest draftPr IsDraft)}
     prUrl = Url "https://pr/1"

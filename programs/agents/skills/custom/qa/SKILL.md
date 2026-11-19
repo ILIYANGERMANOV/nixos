@@ -17,10 +17,10 @@ owns the decisions.
   are `QA.md` files, and only after the user approves the diff. The one
   exception is a draft host PR the user chose in step 3, which an agent writes.
 - **Fuel changes nothing here.** QA runs only when the user asks, at any Fuel.
-- **One question per `AskUserQuestion`.** Never batch blockers. Never ask what
+- **One question per turn, as text.** Never batch blockers. Never ask what
   a tool, the code or `QA.md` can answer.
 - **The user always approves the plan** before any plan item runs, even when
-  nothing is blocked. That approval goes through `AskUserQuestion`, so QA runs
+  nothing is blocked. That approval is a question to the user, so QA runs
   in the session that can ask, never in a delegated subagent.
 - **Headless always.** The one exception is a manual login on a Mac, which the
   user does in a headed window (see Login state).
@@ -119,7 +119,7 @@ All outside any checkout, so nothing is committed by accident.
 
 ### 0. Gate
 
-If the user did not ask for QA, or `AskUserQuestion` is unavailable, stop and
+If the user did not ask for QA, or this session cannot ask the user, stop and
 touch nothing: no run directory, worktree, app or question. Say why in one line.
 If this session already carries other work, say once that a fresh session
 costs far less, with the `/qa ...` line to paste, and go on unless the user
@@ -194,7 +194,7 @@ code, check a URL on the app step 1 started) before your first question, each a
 `subagent_type: researcher` agent. It stays read-only, so it never starts or
 builds the app. When the
 instructions only name what to QA, the topics are yours to plan. Ask the rest
-one per `AskUserQuestion`, with concrete options. A missing `QA.md`, the PR
+one at a time, with concrete options. A missing `QA.md`, the PR
 repo's or a host's, is a blocker: show the draft, ask about each gap it lists
 one at a time, then ask whether to commit it (close-out says where). Fold the
 answers into `<run>/plan.md`.
@@ -303,8 +303,8 @@ never `#<n>` (that resolves to this repo) or shorthand.
   named. First list the improvements and ask the user which to make and
   which not. Sort the approved ones by the repo whose code each is
   about, one diff per repo, and scan each for secrets and sensitive data
-  (`qa-md.md` lists what never goes in) before showing it. Then ask with
-  `AskUserQuestion` whether to commit each diff: it may hold sensitive or
+  (`qa-md.md` lists what never goes in) before showing it. Then ask
+  whether to commit each diff: it may hold sensitive or
   non-engineering details, or a wrong assumption about the product, that
   only the user can spot. Commit each approved diff in its repo on the
   branch already in use there: the PR branch for the subject, the draft

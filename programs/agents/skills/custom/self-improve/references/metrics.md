@@ -19,9 +19,9 @@ and pass the copy as `--root DIR`.
 - `k`/`M` are thousands and millions, `m` minutes, `s` seconds; sizes in
   chars, or tokens as chars / 4. Session ids are the first 8 characters.
 - **Wall** is wall clock; **work** is wall minus **waiting on the person**
-  (an open `AskUserQuestion`, or a gap before a human prompt with no tool
-  call running). Waiting is never a bottleneck. Parallel sessions and agents
-  overlap: never add them up as machine time.
+  (a gap before a human prompt with no tool call running). Waiting is never
+  a bottleneck. Parallel sessions and agents overlap: never add them up as
+  machine time.
 
 ## Sections
 

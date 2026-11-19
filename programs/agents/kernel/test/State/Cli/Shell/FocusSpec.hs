@@ -12,6 +12,8 @@ import Data.Time (NominalDiffTime, addUTCTime)
 import State.Cli.Shell.World
 import State.Run.Codec (decodeLine, encodeLine)
 import State.Run.Event (Envelope (..))
+import State.Run.RunGen (breakdownJson, plainTask)
+import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, shouldBe)
 
 spec :: Spec
@@ -137,6 +139,20 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
             refused <- state world ["focus"]
 
             (refused.code, refused.err) `shouldBe` (2, ["state focus: the request switch - only a chief run going on switches requests", "fix: state next"])
+
+    describe "a waiting 10x request's task" $
+        it "takes a child of the task and the task's merge while another request has focus" $ \world -> do
+            chief <- startedIn world ["--flow", "chief"]
+            putFile world (notes </> "tasks.json") (breakdownJson [plainTask "t1" []])
+            mapM_ (succeeded <=< state world) ([["record", "fuel.set", "balanced"], ["record", "route.10x"], ["override", "10x/breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")], ["focus", "--summary", "engineers at work"]] :: [[Text]])
+
+            atWorktree world childWorktree
+            child <- state world ["init", "--notes", "/child", "--parent", chief, "--task", "t1"]
+            atWorktree world "/work"
+            merged <- state world ["record", "task", "t1", "merged", "https://github.com/o/r/pull/1"]
+            tasks <- succeeded =<< state world ["tasks"]
+
+            (child.code, child.err, merged.code, merged.err, take 2 tasks) `shouldBe` (0, [], 0, [], ["notes /notes", "r2 in focus at fuel"])
 
     describe "the chief's end" $ do
         it "ends with a request left suspended: suspend r1, run r2, resume r1, suspend it again, run r3 and end" $ \world -> do

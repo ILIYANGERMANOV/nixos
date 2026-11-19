@@ -20,14 +20,14 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
 
 ## Rules
 
-- **Ask through `state ask`.** Never call `AskUserQuestion` before `state
+- **Ask through `state ask`.** Never ask the user before `state
   ask`. The `state next` lines you meet:
 
   | Line | You |
   |---|---|
   | `SPAWN <role> background: yes\|no` | spawn `subagent_type: <role>` as it says; its prompt is `state brief <role>` plus the step's part |
   | `ASK <Kind> <what>` | `state ask --kind <Kind> "<question>"`, then do what it prints |
-  | `ASK user` | one `AskUserQuestion`, or on a long context plain text ending the turn with lettered options; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers, `--park <why>` to leave it open |
+  | `ASK user` | notify the user, then the question as your final text, as the Asking rules say; then `state answer <qid> <answer>`, `--other <text>` for a reply no option covers, `--park <why>` to leave it open |
   | `RUN <command>` | do the step, then run the command, placeholders filled |
   | `RUN one option below` | pick the option that fits and run its command |
   | `AWAIT worker <role> <id>` | end the turn: its hand-back wakes you |
@@ -35,8 +35,9 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
 
   A `fix:` line names the command that works now: run it.
 - **Explain, then ask.** One question at a time. Each Discuss
-  question comes after an Explain message in the same turn: the context, then
-  pseudo-code, a diagram or a table. A Discuss question is
+  question's final text, after the last tool call, opens with an Explain: the
+  context, then pseudo-code, a diagram or a table, then the question block.
+  A Discuss question is
   `state ask --kind <Design|Scope>`: there is no Discuss kind. The user's
   reply is always `state answer`, never `state rule`.
   The question puts one recommendation first, plus the alternatives worth
@@ -93,9 +94,8 @@ the format of `${CLAUDE_SKILL_DIR}/references/issue.md`.
   no backticks or `$(...)` in it). Then `state record ticket.written
   <url>`, the same url again after an edit.
 - **Enough** (`state record architect.enough`) ends the run, with or
-  without a ticket: it waits for every researcher, then `notes` merges
-  their hand-backs into `<notes>/notes.md` with Edit or Write. End your
-  last message with the notes path and the ticket's URL, if any.
+  without a ticket, as States says. End your last message with the notes
+  path and the ticket's URL, if any.
 - **Question cap**: at either budget's end (researchers and questions),
   `ASK Stuck` asks whether to go on: yes is `state record extend <why>`;
   no is `state record architect.enough`.

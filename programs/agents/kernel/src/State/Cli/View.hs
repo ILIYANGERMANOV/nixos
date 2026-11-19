@@ -13,6 +13,7 @@ module State.Cli.View (
     minutesSince,
 ) where
 
+import Data.Bifunctor qualified as Bifunctor
 import Data.Bool (bool)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -32,8 +33,8 @@ import State.Run.Ask (ChildTask (..), Link (..), Parent (..), Principal (ByRole)
 import State.Run.Card (Card (..), ResumeAdvice (..), Standing (..), advice, resumeWindow)
 import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText, taskNoText)
-import State.Run.Fan (Fan (..), lookupTask, tries)
-import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan, fanAt)
+import State.Run.Fan (Fan (..), tries)
+import State.Run.Fold (Answer (..), Holder (..), Pending (..), RunState (..), Waits (..), askedAt, fanAt, fanIn, taskHolder)
 import State.Show (tshow)
 import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
@@ -152,7 +153,7 @@ brief steps g state agent task = case (leads agent, task, fanAt state.at) of
     (Just flow, Nothing, Just _) -> Right (initLine state flow "<dir>" (Just "<id>"))
     -- At no fan-out the child takes no task: it names --parent alone.
     (Just flow, Nothing, Nothing) -> Right (untaskedBrief state flow)
-    (Just _, Just taskId, _) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
+    (Just _, Just taskId, _) -> Bifunctor.bimap (const taskId) (\holder -> taskBrief state (fanIn state.fans holder.fan) holder.held) (taskHolder state taskId)
     (Nothing, _, _) -> Right (stepBrief steps g state.at agent)
 
 {- | A brief for a child that takes no task, to fill in: the fields a task
@@ -202,10 +203,9 @@ stepBrief steps g at agent = case [text | name <- named, Right text <- [briefSec
 starts its run under this one, on the task's flow: in the task's worktree and
 notes dir when the breakdown names them.
 -}
-taskBrief :: RunState -> Task -> Text
-taskBrief state found = Text.unlines (taskLines found) <> "\n" <> taskInit
+taskBrief :: RunState -> Fan -> Task -> Text
+taskBrief state fan found = Text.unlines (taskLines found) <> "\n" <> taskInit
   where
-    fan = currentFan state
     taskInit =
         maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
             <> initLine state found.flow (maybe "<dir>" (engineerNotes (Map.findWithDefault 0 found.id fan.rounds) (tries fan found.id) found.branch) found.repo) (Just (taskIdText found.id))

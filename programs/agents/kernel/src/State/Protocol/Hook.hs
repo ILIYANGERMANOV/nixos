@@ -6,7 +6,6 @@ remembering to (#360's hooks contract): the neutral hook event in
 resume    sessionStart          a fresh or resumed session records restarted; context: show and next
 spawn     beforeTool delegate   context: next, and a warning off the advice
 handback  beforeTool handback   records a worker's hand-back; context: what it recorded
-asked     afterTool ask         the answer lines of questions awaiting the user
 bind      afterTool shell       binds the agent to the run its @state init@ started or resumed
           afterTool delegate    binds a worker spawned to its spawner's run; records a hand-back it made first
 route     beforeTool shell      denies a @state@ command aimed at another run than the agent's
@@ -69,7 +68,6 @@ module State.Protocol.Hook (
     replyOf,
     toldOf,
     encodeReply,
-    awaitingUser,
 ) where
 
 import Control.Monad (guard)
@@ -90,10 +88,9 @@ import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingIn)
 import State.Role (leads)
-import State.Run.Ask (Principal (..), Question (..), qidText)
-import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), roleText, runIdText, tookIn)
+import State.Run.Event (AgentRole (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
-import State.Run.Fold (Open (..), Pending (..), RunState (..), Waits (..), forks, ledger, over, unvoided)
+import State.Run.Fold (Open (..), RunState (..), forks, ledger, over, unvoided)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
@@ -102,7 +99,7 @@ import State.Step.Gather qualified as Gather
 import State.Table (Steps, agentRoles, stepsRunBy)
 import System.FilePath ((</>))
 
-data HookName = ResumeHook | SpawnHook | HandbackHook | AskedHook | BindHook | RouteHook | BeginHook | StopHook
+data HookName = ResumeHook | SpawnHook | HandbackHook | BindHook | RouteHook | BeginHook | StopHook
     deriving stock (Eq, Show, Enum, Bounded)
 
 -- | As @kernel/hooks.nix@ names them on the command line.
@@ -111,7 +108,6 @@ hookName = \case
     ResumeHook -> "resume"
     SpawnHook -> "spawn"
     HandbackHook -> "handback"
-    AskedHook -> "asked"
     BindHook -> "bind"
     RouteHook -> "route"
     BeginHook -> "begin"
@@ -123,7 +119,6 @@ hookPurpose = \case
     ResumeHook -> "At session start: prints the run and its next action"
     SpawnHook -> "Before a delegate: next, and a warning off the advice"
     HandbackHook -> "Before a hand-back: records it, printing the record"
-    AskedHook -> "After an ask: answer lines of questions to the user"
     BindHook -> "After a shell or delegate: binds the agent to its run"
     RouteHook -> "Denies a state call off its run, a write before init"
     BeginHook -> "At a spawn or a lead skill: how its work begins"
@@ -162,7 +157,7 @@ data Agent = Agent {agentId :: Maybe AgentId, role :: Maybe AgentRole}
     deriving stock (Eq, Show)
 
 -- | @vocabulary.json@'s tools, in its order.
-data Tool = Shell | Read | Edit | Write | Delegate | HandbackTool | Ask | Web | Skill | StopAgent | Other
+data Tool = Shell | Read | Edit | Write | Delegate | HandbackTool | Web | Skill | StopAgent | Other
     deriving stock (Eq, Show, Enum, Bounded)
 
 -- | Why a session started: @vocabulary.json@'s sources, in its order.
@@ -203,7 +198,6 @@ toolName = \case
     Write -> "write"
     Delegate -> "delegate"
     HandbackTool -> "handback"
-    Ask -> "ask"
     Web -> "web"
     Skill -> "skill"
     StopAgent -> "stopAgent"
@@ -236,7 +230,6 @@ data Want
       SpawnRole (Maybe AgentRole)
     | -- | A flow role's hand-back: its message, and who sent it.
       HandedBack Text Agent AgentRole
-    | AskedUser
     deriving stock (Eq, Show)
 
 data Bind
@@ -300,13 +293,6 @@ wants steps hook event = case hook of
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
         AgentStop _ _ -> undeclared
-    AskedHook -> case event of
-        AfterTool call _ _ _ -> Right (lead call AskedUser)
-        SessionStart {} -> undeclared
-        BeforeTool {} -> undeclared
-        AgentStart _ -> undeclared
-        PromptExpansion _ _ -> undeclared
-        AgentStop _ _ -> undeclared
     BindHook -> case event of
         AfterTool _ tool input output -> Right (Binds <$> bindOf steps tool input output)
         SessionStart {} -> undeclared
@@ -324,7 +310,6 @@ wants steps hook event = case hook of
                     Delegate -> Just Spawns
                     Read -> Nothing
                     HandbackTool -> Nothing
-                    Ask -> Nothing
                     Web -> Nothing
                     Skill -> Nothing
                     StopAgent -> Nothing
@@ -412,7 +397,6 @@ bindOf steps tool input output = case tool of
     Edit -> Nothing
     Write -> Nothing
     HandbackTool -> Nothing
-    Ask -> Nothing
     Web -> Nothing
     Skill -> Nothing
     StopAgent -> Nothing
@@ -446,7 +430,6 @@ delivery want key slot bound = case want of
         (Main, _) -> ToRun
     ResumeRun _ -> ToRun
     SpawnRole _ -> ToRun
-    AskedUser -> ToRun
 
 -- | A hook's text, naming the run it acted on; nothing said is nothing.
 aboutRun :: RunId -> Text -> Text
@@ -624,7 +607,6 @@ replyOf job said
 toldOf :: Job -> Text -> Reply
 toldOf job said = case job of
     Asks (ResumeRun _) -> Note said
-    Asks AskedUser -> Note said
     Asks (SpawnRole _) -> Allow said
     Asks (HandedBack {}) -> Allow said
     Binds _ -> Note said
@@ -644,12 +626,3 @@ encodeReply = \case
     Allow context -> Just (encode (object ["decision" .= ("allow" :: Text), "context" .= context]))
     Deny reason -> Just (encode (object ["decision" .= ("deny" :: Text), "reason" .= reason]))
     Note context -> Just (encode (object ["context" .= context]))
-
-{- | After the lead put a question to the user: the line recording each answer
-still awaited. A run started by a parent or a caller asks it, not the user.
--}
-awaitingUser :: RunState -> [Text]
-awaitingUser state = case state.start.principal of
-    ByUser _ -> ["state: record the user's answer: state answer " <> qidText p.asking.question.qid <> " <answer>" | p <- state.pending, p.waits == ForAnswer]
-    ByRole {} -> []
-    ByCaller _ -> []

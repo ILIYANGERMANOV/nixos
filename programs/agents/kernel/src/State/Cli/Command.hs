@@ -524,6 +524,9 @@ explain g fuel at = \case
         Fan.NotItsRound task url -> refused ("task " <> Codec.taskIdText task <> " kept") ("its round is on " <> Codec.urlText url <> ": only that PR is kept") ("state record task " <> Codec.taskIdText task <> " " <> Codec.taskStateArgs (Kept url))
         Fan.TaskExists task -> refused ("task " <> Codec.taskIdText task) "the fan-out has a task of that id already" "state show"
     NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText at <> ", no fan-out's state") "state show"
+    NotOneHolder task requests -> case requests of
+        [] -> refused ("task " <> Codec.taskIdText task) "no request's breakdown has such a task" "state show"
+        holding -> refused ("task " <> Codec.taskIdText task) ("requests " <> Text.unwords (map taskNoText holding) <> " each have such a task in their breakdown") "state tasks"
     NotVoidable n -> refused ("seq " <> tshow n) "no line the run replays has it: none does, it is voided, or it is a void" "state void <the seq of an event state dump prints> <why>"
     NoFocus -> refused "the request switch" "only a chief run going on switches requests" "state next"
     NotInFocus task -> refused ("the suspension of " <> taskNoText task) "it is not the request in focus" "state tasks"

@@ -40,7 +40,6 @@ module State.Cli.Shell.World (
     sessionStart,
     sessionStartIn,
     handedBack,
-    askedUser,
     spawned,
     agentStarted,
     stateCall,
@@ -335,9 +334,6 @@ handedBack role =
     hookEvent
         (object ["id" .= String "a1", "role" .= role])
         ["event" .= String "beforeTool", "tool" .= String "handback", "input" .= object ["message" .= String "READY\nDone.\n"], "history" .= ([] :: [Text])]
-
-askedUser :: LBS.ByteString
-askedUser = hookEvent Null ["event" .= String "afterTool", "tool" .= String "ask", "input" .= object [], "output" .= String "ok", "context" .= Null]
 
 -- | The lead spawns a subagent of this role.
 spawned :: Text -> LBS.ByteString

@@ -24,11 +24,6 @@ in
       tools = [ "handback" ];
       command = command "handback";
     };
-    state-asked = {
-      on = "afterTool";
-      tools = [ "ask" ];
-      command = command "asked";
-    };
     # Binds the agent to its run: after a shell that ran `state init`, and after
     # a spawn, which binds the worker (State.Protocol.Binding).
     state-bind = {

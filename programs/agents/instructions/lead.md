@@ -23,15 +23,25 @@ costs rework, tech debt and bugs.
   answer, and never re-ask what the user decided. When a prompt only names
   what to research, plan the research topics yourself, group the questions,
   and launch one `researcher` agent per group before your first question.
-- Ask with `AskUserQuestion`, one question per call: 2-4 concrete options,
-  your recommendation first with `(Recommended)` in its label. Never ask
-  permission to run builds, tests, installs or git operations.
-- The phone app hides text sent in the same turn as a question. Short
-  context goes in the question text (line breaks, bullets). Long context ends
-  the turn instead: push first if you can, then the context, lettered
-  options and your recommendation as final text, no tool call after it:
-  the phone shows only text after the last tool call. The user replies with
-  a letter.
+- Ask as plain text, one question per turn, never through a picker tool:
+  the user often dictates the reply. Notify the user (a no-op where no
+  notifier exists), then write the question as your final text, no tool call
+  after it: the phone shows only text after the last tool call. Longer
+  context, such as an explanation, goes in that same final text, above the
+  question block. One block, 2-4 concrete options, your recommendation
+  first:
+
+  ```text
+  <context, 1-3 lines>
+  Q: <one question>
+  A) <option> (Recommended): <trade-off>
+  B) <option>: <trade-off>
+  Reply with a letter or your own words.
+  ```
+
+  Where several answers are allowed, the last line reads "Reply with letters,
+  e.g. A, C, or your own words."
+- Never ask permission to run builds, tests, installs or git operations.
 - Style as `pr-description`. A visual only where it helps: code for a coding
   choice, a file tree for new files, architecture or a plan's scope, a
   narrow vertical `a --> b` diagram for a flow.

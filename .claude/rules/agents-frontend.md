@@ -167,9 +167,9 @@ its second reader, never in anticipation, and back out when one is left.
 
 ### Size budget
 
-**`budget.json` holds ceilings, in bytes, on what every agent carries**, named
+**`budget.json` holds ceilings, in tokens, on what every agent carries**, named
 by no vendor: each flavor's instructions, each role's instructions with what it
-preloads and reads, and this repo's root `CLAUDE.md`. `checks.claude-config`
+preloads and reads, and this repo's root `CLAUDE.md`. A token is ceil(bytes / 4). `checks.claude-config`
 fails above them; `just skill-budget` prints the table. Raising a ceiling is
 allowed, and is the visible diff that makes the cost a decision. Keep root
 `CLAUDE.md` small: detail belongs in a `.claude/rules/` file.

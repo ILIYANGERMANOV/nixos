@@ -67,12 +67,12 @@ spec = describe "state-hook over the doubles" $ do
                 said.code `shouldBe` 0
                 contextOf said `shouldSatisfy` maybe False ("state hook resume: " `Text.isPrefixOf`)
 
-            it "names the run of the session's own worktree in what resume, spawn and asked tell" $ \world -> do
+            it "names the run of the session's own worktree in what resume and spawn tell" $ \world -> do
                 _ <- drive world [Record ["fuel.set", "balanced"]]
                 run <- runOf world
                 _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
 
-                said <- traverse (uncurry (hook world)) [("resume", sessionStart), ("spawn", spawned "researcher"), ("asked", askedUser)]
+                said <- traverse (uncurry (hook world)) [("resume", sessionStart), ("spawn", spawned "researcher")]
 
                 map contextOf said `shouldSatisfy` all (maybe False (("run " <> run <> ": ") `Text.isPrefixOf`))
 
@@ -535,16 +535,6 @@ spec = describe "state-hook over the doubles" $ do
 
                 said `shouldBe` []
 
-        describe "asked" $ do
-            it "tells the lead how to record the answer to a question put to the user" $ \world -> do
-                _ <- drive world [Record ["fuel.set", "balanced"]]
-                [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
-                let qid = Text.drop (Text.length "asked ") asked
-
-                said <- hook world "asked" askedUser
-
-                contextOf said `shouldSatisfy` maybe False (("state answer " <> qid <> " <answer>") `Text.isInfixOf`)
-
         describe "stop" $ do
             it "records a child run's agent ended with no hand-back once, at its stop and its spawner's stop call, saying nothing" $ \world -> do
                 _ <- engineerAtWork world
@@ -648,7 +638,7 @@ spec = describe "state-hook over the doubles" $ do
                 said.err `shouldSatisfy` elem "Usage: state-hook COMMAND"
 
             it "exits 2 at an event its hook does not run at" $ \world -> do
-                said <- hook world "resume" askedUser
+                said <- hook world "resume" (stopCall "e1")
 
                 (said.code, said.err) `shouldBe` (2, ["state-hook resume does not run at afterTool"])
 

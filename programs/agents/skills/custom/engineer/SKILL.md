@@ -23,8 +23,8 @@ who owns each decision.
   goes through `state ask --kind <K> "<question>"`; kinds, who answers each
   and answer forms: `${CLAUDE_SKILL_DIR}/references/blockers.md`. Then do as
   it prints:
-  - `ASK user`: `AskUserQuestion`, or on a long context plain text ending the
-    turn with lettered options; then `state answer <qid> <answer>`.
+  - `ASK user`: notify the user, then the question as your final text, as
+    the Asking rules say; then `state answer <qid> <answer>`.
   - `ANSWER yourself` or `RUN state rule ...`: when your row in the kinds
     table answers, `state rule <qid> --answer <a> --why <w> --cost <c>`; else
     `state forward <qid>`, and do what that prints.
@@ -86,8 +86,8 @@ who owns each decision.
   row>"`. It covers the review loop, the CI fix, refactor in this PR and a
   blocker resume. A fixer that hands back `READY` while the check stays red
   counts as a round. A re-plan's new run starts it afresh.
-- **You answer the skills you invoke.** `pragmatic-review`'s pickers (which
-  findings survive, what to do) and its open questions are `Pick` questions;
+- **You answer the skills you invoke.** `pragmatic-review`'s two questions
+  (which findings survive, what to do) and its open questions are `Pick` questions;
   a product, scope or design answer among them is its own kind. `refactor`'s
   big items come back as proposals: Build says what to do with them.
 - **Simplicity over completeness**, as `engineering` says. A rare edge case you

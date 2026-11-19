@@ -46,7 +46,7 @@ let
   target = mkTarget {
     inherit name profile;
     settings = lib.recursiveUpdate (removeAttrs settings userKeys) {
-      permissions.deny = deny ++ denyHere;
+      permissions.deny = settings.permissions.deny ++ deny ++ denyHere;
     };
   };
 

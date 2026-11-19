@@ -73,7 +73,7 @@ let
       exit = null;
       outcomes = [ "asked" ];
       runner = "inline";
-      task = "Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.";
+      task = "Discuss: this round's design questions one at a time, each through `state ask` and answered before the next, never two at once. First send the Explain message: the context, and pseudo-code or a diagram; then the question as text, your recommendation first, in the same turn, for each question. Once the round's last question is answered, record `discuss.asked`, back to the discussion's pick. There `research` spawns a researcher for any fact an answer opens, and `enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.";
       tools = [
         "read"
         "web"

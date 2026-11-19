@@ -2,6 +2,8 @@
 
 Base instructions for every agent.
 
+A dictated reply may hold misheard words: infer from context, or ask.
+
 ## Engineering
 
 - When writing, modifying, refactoring, reviewing or designing code, invoke the

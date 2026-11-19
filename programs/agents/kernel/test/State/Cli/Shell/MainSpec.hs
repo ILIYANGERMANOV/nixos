@@ -207,8 +207,8 @@ spec = describe "state over the doubles" $ do
                     _ : confirm <- succeeded =<< state world ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
 
                     let said = concat outs
-                    (filter ("skip it when the task is trivial" `Text.isInfixOf`) said, filter ("ASK Confirm" `Text.isPrefixOf`) said, confirm)
-                        `shouldBe` (skips, ["ASK Confirm the simplified plan: confirmed, or adjusted?"], ["ASK user"])
+                    (filter ("skip it when the task is trivial" `Text.isInfixOf`) said, filter ("ASK Confirm" `Text.isPrefixOf`) said, map ("ASK user" `Text.isPrefixOf`) confirm)
+                        `shouldBe` (skips, ["ASK Confirm the simplified plan: confirmed, or adjusted?"], [True])
 
             it "prints each record it advises with its arguments" $ \world -> do
                 _ <- drive world (Record ["fuel.set", "balanced"] : gathered)
@@ -597,7 +597,7 @@ spec = describe "state over the doubles" $ do
             again <- succeeded =<< state world ["next"]
 
             map (take 1) [drop 1 asked, again] `shouldSatisfy` all (all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`))
-            filter (== "ASK user") (asked <> again) `shouldBe` []
+            filter ("ASK user" `Text.isPrefixOf`) (asked <> again) `shouldBe` []
 
         it "tells a --child run resumed with its caller's answer how to record it, as no parent log does" $ \world -> do
             _ <- startedIn world ["--child"]
@@ -611,12 +611,13 @@ spec = describe "state over the doubles" $ do
             waiting `shouldContain` ["  resumed with the answer: state answer " <> qid <> " <answer>"]
             filter ("HANDBACK " `Text.isPrefixOf`) (take 1 answered) `shouldBe` []
 
-        it "asks a question its row answers of the user in one command, with --to user" $ \world -> do
+        it "asks a question its row answers of the user in one command, with --to user, as the turn's final text" $ \world -> do
             _ <- startedRun world
 
-            asked <- succeeded =<< state world ["ask", "--kind", "Pick", "--to", "user", "which", "rows?"]
+            askedLine : asked <- succeeded =<< state world ["ask", "--kind", "Pick", "--to", "user", "which", "rows?"]
+            let qid = Text.drop (Text.length "asked ") askedLine
 
-            drop 1 asked `shouldBe` ["ASK user"]
+            asked `shouldBe` ["ASK user: notify the user, then write the question as your final text, with no tool call after it; then state answer " <> qid <> " <answer>"]
             reverse . take 2 . reverse <$> loggedEvents world `shouldReturn` ["asked", "forwarded"]
 
         it "records a reply none of a Pick's options covers, saying it may be a new request" $ \world -> do
@@ -793,7 +794,7 @@ spec = describe "state over the doubles" $ do
                 refused <- state world ["init", "--notes", "/child", "--parent", parent, "--task", "t9"]
 
                 (refused.code, refused.err)
-                    `shouldBe` (2, ["state init: --task t9 - the parent's breakdown has no such task", "fix: state brief engineer, in the parent's worktree, prints the init line"])
+                    `shouldBe` (2, ["state init: --task t9 - no request's breakdown has such a task", "fix: state brief engineer, in the parent's worktree, prints the init line"])
                 filter (== "spawned") <$> loggedEvents world `shouldReturn` []
 
             it "refuses a child its parent cannot take, leaving its worktree no run" $ \world -> do

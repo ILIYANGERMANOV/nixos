@@ -88,8 +88,9 @@ brief cannot argue you out of a miss.
 A diff does not qualify when any of these holds:
 
 - over about 100 changed lines, generated lockfiles aside;
-- the tier is `sensitive`, or a topic of the never-list shows on a changed line:
-  a deleted auth check counts as much as an added one;
+- the tier is `sensitive`, or a topic the trivial rule names (auth, CI,
+  database, secrets, deploy) shows on a changed line: a deleted auth check
+  counts as much as an added one;
 - it changes the data model: a schema, stored or wire data, a type other modules
   share. Local UI state is not the data model;
 - it changes a skill or instructions file beyond a typo.
@@ -134,7 +135,7 @@ the same turn:
 
 **Questions:** at most two, each one whose answer flips a named verdict - a
 requirement you cannot turn into a check is the best use of one. Ask it as one
-`AskUserQuestion` picker whose options are the plausible checkable readings,
+question whose options are the plausible checkable readings,
 and wait. Delegated, you cannot ask: pick the likeliest reading and state it as
 an assumption. With no such question, do not wait.
 
@@ -162,7 +163,7 @@ every tier, requirement agents as usual.
 diff changes types, a schema or a piece of state, so another diff gets no
 house-rule or DRY check. If you spawn no agent at all, you run the bar's
 always-check list over `$D/diff` yourself, rows in the report, as the Low
-sweep does. Tests runs only when it changes tests or the mutation report lists
+sweep does. Tests runs only when the diff changes tests or the mutation report lists
 a mutant. Phase 2 makes
 at most 2 requirement groups. At `code` and `sensitive` no regressions agent
 runs while a group exists: the first group's prompt names
@@ -170,8 +171,6 @@ runs while a group exists: the first group's prompt names
 not requirement findings: no 🔍, and Phase 4's step 2 applies. With no tests
 agent, the regressions brief also asks: does a bug fix come with a test that was
 red before it?
-
-**Low row.** The Low sweep, and a diff it does not take gets the Balanced row.
 
 **Spawn with `subagent_type: reviewer`, in the foreground**,
 `run_in_background: false`, staggered so siblings
@@ -249,7 +248,7 @@ Four exceptions:
   question and are not findings.
 
 **Intent-unclear tests.** Interactive, ask about each before the report, one
-test per `AskUserQuestion`, naming the test and what it asserts, the options the
+test per question, naming the test and what it asserts, the options the
 agent's readings with their severities - outside the two-question limit. Rate it
 from the answer: a reading under which it proves the intent drops it, one under
 which it contradicts the intent makes it a Major row. Delegated, list each under

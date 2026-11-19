@@ -27,6 +27,8 @@ module State.Run.Fold (
     forkingAt,
     childFork,
     untaskedFan,
+    Holder (..),
+    taskHolder,
     Round (..),
     Problem (..),
     Pending (..),
@@ -77,7 +79,7 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
-import Data.Foldable (for_)
+import Data.Foldable (for_, toList)
 import Data.Functor ((<&>))
 import Data.List (find, genericLength, isSuffixOf, partition)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -100,7 +102,7 @@ import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Reply (..), Ruling, deliver, flattened, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentId (..), AgentRole, Asker (..), Asking (..), Check, Child (..), ChildTask (..), DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Said (Ended), Shape (..), Start (..), StateName (..), Stop, StopReason (Failed), Target (..), TaskId, TaskNo (..), TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, taskNoText, tookEvent)
+import State.Run.Event (AgentId (..), AgentRole, Asker (..), Asking (..), Check, Child (..), ChildTask (..), DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Said (Ended), Shape (..), Start (..), StateName (..), Stop, StopReason (Failed), Target (..), Task, TaskId, TaskNo (..), TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, taskNoText, tookEvent)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
@@ -306,6 +308,8 @@ data Refusal
     | FanRefused Fan.Refusal
     | -- | A child's or a task's event where the run is at no fan-out's breakdown, own state or merge.
       NotAtFan
+    | -- | A task's event no request's fan-out holds, or more than one: the requests that hold it.
+      NotOneHolder TaskId [TaskNo]
     | -- | A void naming no line the run replays: no such seq, a line voided already, or a void.
       NotVoidable Natural
     | -- | A void of this seq leaves a log that does not replay, for this refusal.
@@ -512,7 +516,8 @@ pick g state scope some = do
 -- | A question asked from a stopped child is its stop, triaged; from a worker, its oldest hand-back.
 fromChild :: Asker -> RunState -> RunState
 fromChild from after = case from of
-    ChildRun child -> after {fans = maybe id (Map.adjust (Fan.triaged child)) (fanAt after.at) after.fans}
+    -- A run id is its child's alone: whichever request's fan-out holds it, only it is marked.
+    ChildRun child -> after {fans = Map.map (Fan.triaged child) after.fans}
     Itself -> after
     Subagent role -> after {untriaged = triagedBy role after.untriaged}
 
@@ -535,20 +540,26 @@ applyEvent g state n = \case
     Forwarded qid to -> going (handle PrincipalAnswers g state (Forwards qid to))
     Answered qid reply by -> going (handle PrincipalAnswers g state (Answers qid reply by))
     QuestionParked qid why -> going (handle PrincipalAnswers g state (Parks qid why))
-    Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
+    Spawning task -> going (inTaskFan task (Fan.spawning (askingChildren state) task))
     Spawned child -> going $ case child.task of
-        Tasked _ -> atAwait g state >> inFan (Fan.spawned (askingChildren state) child)
+        Tasked task -> heldTask task >>= \holder -> atAwait g holder.at >> inFanAt holder.fan (Fan.spawned (askingChildren state) child) state
         Untasked -> forked g state child
-    Resumed child -> going (inFan (Fan.resumed child))
+    Resumed child -> going (inFanOf (snd (childAt child)) (Fan.resumed child))
     -- An untasked child hands back wherever the run is, as an agent child does.
     HandedBack child said -> going $ case untaskedFan state child of
         Just fan -> inFanAt fan (Fan.handedBack child said) state
-        Nothing -> atFan g state HandsBack >> inFan (Fan.handedBack child said)
+        Nothing -> let (at, fan) = childAt child in atFan g at HandsBack >> inFanOf fan (Fan.handedBack child said)
     -- 'Fan.moved' ignores a merged task's later move, so the run skips its effects too.
-    TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= if Fan.merged (currentFan state) task then Right else afterMove task moved)
-    Held task url -> going (inFan (Fan.held task url))
-    ActedOn task url -> going (inFan (Fan.actedOn task url))
-    TaskAdded task -> going (inFan (Fan.added task) >>= reopened g)
+    TaskMoved task moved ->
+        going $
+            heldTask task >>= \holder -> do
+                let before = fanIn state.fans holder.fan
+                after <- inFanAt holder.fan (Fan.moved task moved) state
+                if Fan.merged before task then Right after else afterMove holder.requests before task moved after
+    Held task url -> going (inTaskFan task (Fan.held task url))
+    ActedOn task url -> going (inTaskFan task (Fan.actedOn task url))
+    -- A new task joins the fan-out the run is at: no request holds it yet.
+    TaskAdded task -> going (inFanOf (fanAt state.at) (Fan.added task) >>= reopened g)
     -- The lead's session started afresh: every agent it had at work is gone.
     Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
@@ -561,15 +572,25 @@ applyEvent g state n = \case
     Voided target _ -> Left (NotVoidable target)
   where
     working after = after {agentEnded = Nothing}
-    afterMove task = \case
-        Event.Round _ -> reopened g
+    {- A round reopens the fan-out of the request in focus only: a waiting
+    request's cursor stays where it stood, so its merge, on the turn back,
+    is refused until the round's task settles (a rare case, left as is). -}
+    afterMove requests fan task = \case
+        Event.Round _
+            | state.focus `elem` requests -> reopened g
+            | otherwise -> Right
         InCi _ -> Right
         InReview _ -> Right
         Merged _ -> Right
         Kept _ -> Right
-        Parked _ _ -> Right . unaskedBy task
-    -- A child's or a task's event names no fan-out: it is the one the run is at.
-    inFan change = case fanAt state.at of
+        Parked _ _ -> Right . unaskedBy fan task
+    -- A task's event goes to the one request's fan-out that holds the task, whichever has focus.
+    heldTask task = Bifunctor.first (NotOneHolder task) (taskHolder state task)
+    inTaskFan task change = heldTask task >>= \holder -> inFanAt holder.fan change state
+    {- A tasked child's event goes to the request's fan-out that holds it; any
+    other, to the fan-out the run is at, which refuses a child it lacks. -}
+    childAt child = maybe (state.at, fanAt state.at) (\holder -> (holder.at, Just holder.fan)) (childHolder state child)
+    inFanOf scoped change = case scoped of
         Just fan -> inFanAt fan change state
         Nothing -> Left NotAtFan
     -- After any event, a state that goes on by itself does ('joined').
@@ -691,6 +712,36 @@ childFork g place = case Map.lookup place g.groupStates of
         (edge,) <$> listToMaybe [ScopedFan awaited.scope (Name name) | (awaited, Awaiting other) <- Map.toList g.groupStates, other == group, StateName name <- [awaited.name]]
     Just (Awaiting _) -> Nothing
     Nothing -> Nothing
+
+{- | A fan-out of the run's requests, the one in focus or a waiting one, with
+what it holds of an event: two requests at one fan-out share it. The node
+is where its first request stands, the one in focus when it is one of them.
+-}
+data Holder a = Holder {requests :: NonEmpty TaskNo, at :: Node, fan :: ScopedFan, held :: a}
+
+-- | The one request's fan-out whose breakdown names the task, else the requests whose do: none or several.
+taskHolder :: RunState -> TaskId -> Either [TaskNo] (Holder Task)
+taskHolder state task = case holders (`Fan.lookupTask` task) state of
+    [one] -> Right one
+    several -> Left (concatMap (toList . (.requests)) several)
+
+{- | The request's fan-out holding this tasked child. A run id is its child's
+alone, so no two hold it.
+-}
+childHolder :: RunState -> RunId -> Maybe (Holder Task)
+childHolder state run = listToMaybe (holders (`Fan.childTask` run) state)
+
+-- | Each fan-out the run's requests stand at whose state @holds@ finds something in, with the requests there.
+holders :: (Fan -> Maybe a) -> RunState -> [Holder a]
+holders holds state =
+    [ Holder (fst <$> standing) (snd (NonEmpty.head standing)) scoped found
+    | (scoped, standing) <- Map.toList (Map.fromListWith (flip (<>)) [(scoped, (request, at) :| []) | (request, at) <- requestsAt state, Just scoped <- [fanAt at]])
+    , Just found <- [holds (fanIn state.fans scoped)]
+    ]
+
+-- | Where each request stands: the one in focus first, then the waiting ones.
+requestsAt :: RunState -> [(TaskNo, Node)]
+requestsAt state = (state.focus, state.at) : [(request, waitsAt suspension) | (request, suspension) <- Map.toList state.suspended]
 
 -- | The fan-out holding this run as an untasked child, if one does.
 untaskedFan :: RunState -> RunId -> Maybe ScopedFan
@@ -956,18 +1007,18 @@ currentFan state = maybe emptyFan (fanIn state.fans) (fanAt state.at)
 for its group, at its 'State.Category.Flow.Await': the 10x spawns an
 engineer once its task's dependencies merged.
 -}
-atAwait :: OpenGraph -> RunState -> Either Refusal ()
-atAwait g state = case state.at of
+atAwait :: OpenGraph -> Node -> Either Refusal ()
+atAwait g at = case at of
     At place | Just (Awaiting _) <- Map.lookup place g.groupStates -> Right ()
-    _ -> Left (NoEdge state.at (fanEvent Spawns (askedAt state)))
+    _ -> Left (NoEdge at (fanEvent Spawns (nodeName at)))
 
 -- | A child's hand-back stays where the graph has that fan-out event: at the fan-out.
-atFan :: OpenGraph -> RunState -> FanEvent -> Either Refusal ()
-atFan g state event = case state.at of
+atFan :: OpenGraph -> Node -> FanEvent -> Either Refusal ()
+atFan g at event = case at of
     At place | Just Edge {arrow = Stay} <- step g place name -> Right ()
-    _ -> Left (NoEdge state.at name)
+    _ -> Left (NoEdge at name)
   where
-    name = fanEvent event (askedAt state)
+    name = fanEvent event (nodeName at)
 
 {- | A question the run asks: its own question at a capped step, as the
 interview's, spends the step's meter. Asking whether to go on spends none.
@@ -1185,10 +1236,10 @@ parkedFor state qid =
 {- | A parked task's children wait on no answer: the questions they asked
 leave the pending ones, as no child of it will read an answer.
 -}
-unaskedBy :: TaskId -> RunState -> RunState
-unaskedBy task state = state {pending = filter (not . byChild . (.asking.from)) state.pending}
+unaskedBy :: Fan -> TaskId -> RunState -> RunState
+unaskedBy fan task state = state {pending = filter (not . byChild . (.asking.from)) state.pending}
   where
-    children = map (.child.run) (Fan.childrenOf (currentFan state) task)
+    children = map (.child.run) (Fan.childrenOf fan task)
     byChild = \case
         ChildRun run -> run `elem` children
         Itself -> False

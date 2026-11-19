@@ -791,17 +791,14 @@ class TestWallTime:
     def test_waiting_on_the_person_is_split_from_work(self, home: Home) -> None:
         # Given: a 10 min gap before the person's second prompt and a 2 min question
         main = Transcript().human(0, "go").reply(60)
-        _ = main.human(660, "next")
-        _ = main.tool(700, "AskUserQuestion", 820)
-        _ = main.reply(3600)
+        _ = main.human(660, "next").reply(700)
+        _ = main.human(820, "A").reply(3600)
         home.session("s1", main)
         # When
         report = home.report()
         # Then: 12 of the 60 minutes are waiting
         assert "wall 1.0h = work 0.8h + waiting on the person 0.2h" in report
         assert row(report, "sessions", "s1")[3:5] == ["60m", "12m"]
-        # And: the question is not ranked as a tool bottleneck
-        assert "AskUserQuestion" not in section(report, "tool-times")
 
     def test_a_human_gap_with_background_work_running_is_work(self, home: Home) -> None:
         # Given: a background agent works 20 min into a 30 min silence in the main transcript,

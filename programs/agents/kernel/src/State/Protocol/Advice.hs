@@ -375,9 +375,9 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
             | otherwise ->
                 "\nDiscuss "
                     <> what
-                    <> " with the user free-form: no picker, no question asked yet. Only when the user says design or enough, that message is the answer: state ask --kind Confirm \""
+                    <> " with the user free-form, no question asked yet. Only when the user says design or enough, that message is the answer: state ask --kind Confirm \""
                     <> confirmText s what
-                    <> "\", then state answer <qid> \"<the user's own words>\" at once, with no AskUserQuestion. Then record."
+                    <> "\", then state answer <qid> \"<the user's own words>\" at once, asking nothing more. Then record."
         Step.AwaitsCi -> ""
         AwaitsMerge -> ""
         Discusses -> ""
@@ -735,7 +735,7 @@ deliver start = \case
             <> qidText question.qid
             <> " - "
             <> questionLine question
-    AwaitAnswer question -> above ("ASK " <> questionLine question) (tokenLine (NeedsDecision (Asks question)))
+    AwaitAnswer question -> above ("ASK " <> questionLine question <> " - " <> askUserAsText question.qid) (tokenLine (NeedsDecision (Asks question)))
     OnHold question why -> "PARKED " <> qidText question.qid <> " " <> oneLineText why
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
@@ -809,8 +809,15 @@ ownAsk state how kind text = sent <$> Ask.route how state.start.principal (Role.
             AnswerSelf -> ([], "ANSWER yourself")
             Up above ->
                 ( [Forwarded question.qid above]
-                , upTo above "ASK user" (tokenLine (NeedsDecision (Asks question)))
+                , upTo above ("ASK user: " <> askUserAsText question.qid) (tokenLine (NeedsDecision (Asks question)))
                 )
+
+{- | How an agent asks the user: in its own words, the turn's last. No tool
+call follows, so the question is what the user reads; the answer, once it
+comes, is recorded under the question's id.
+-}
+askUserAsText :: QId -> Text
+askUserAsText qid = "notify the user, then write the question as your final text, with no tool call after it; then state answer " <> qidText qid <> " <answer>"
 
 {- | Where the run is, in one plain line: the state, and what it means to
 an agent that knows nothing of the kernel.

@@ -31,3 +31,5 @@ nd = "nd"
 # GHC's `GHC.TypeLits` module, which the kernel imports. Allowed as the whole
 # identifier, not the word `Lits`, so a real `Lits` -> `List` typo still fails.
 TypeLits = "TypeLits"
+# `Data.Bifunctor.bimap` from base, which the kernel uses.
+bimap = "bimap"

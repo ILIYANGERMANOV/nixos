@@ -224,7 +224,7 @@ and better.
 - **Harness.** Where the repo has `just mutation-diff`, run it once near the
   end of a slice, on the final diff. It mutates only the changed lines, prints
   a short report and never fails the build. A run expected to take long goes
-  to a fresh small check agent, as the Checks rules say.
+  to a fresh `checker` agent, as the Checks rules say.
 - **Survivors.** A `survived` mutant is a change on a changed line that no test
   caught; `uncovered` means no test runs the line at all; `timedOut` counts as
   caught. Decide each: add or sharpen an assertion when the mutant changes

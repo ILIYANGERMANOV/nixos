@@ -151,7 +151,8 @@ state help
   input mid-run, no shell in the script, stripped from subagents so it cannot
   nest under `/10x-engineer`, and vendor-specific.
 - **An Agent SDK outer loop.** Rejected: full determinism, but it loses the
-  phone, Remote Control and `AskUserQuestion`.
+  phone, Remote Control and `AskUserQuestion`. (Since #502 the agent asks
+  the user as plain text, not through `AskUserQuestion`.)
 - **Steps 4 to 10 only.** Rejected: the record would start late and the notes
   directory drift would continue.
 - **`flow` as the name.** Rejected by the user: `state`.
