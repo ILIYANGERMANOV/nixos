@@ -6,7 +6,7 @@
 # with no MCP, only fields that are known, every preload installed, and the
 # factory section in the factory's render alone, and every flavor's settings to
 # running the state hooks and the guards through the adapter, and nothing else,
-# and the factory's to denying the picker, as every question is text.
+# and to denying the picker, as every question is text.
 #
 # Sizes are programs/agents' budget and budget/'s, each `<ceiling key> <subject>
 # <bytes>` lines, against their ceilings in tokens merged. `.report` prints the table,
@@ -124,16 +124,15 @@ pkgs.runCommand "claude-config-check"
       [ "$(jq -c 'map_values(map(.name))' "$(cut -d' ' -f3 <<<"$commands")")" = \
         '{"afterTool":["context-guard","state-bind","state-stop-call"],"agentStart":["state-begin-agent"],"agentStop":["state-stop"],"beforeTool":["state-begin-skill","state-handback","state-route","state-spawn",'"$secret"'"read-guard","wait-guard"],"promptExpansion":["state-begin-prompt"],"sessionStart":["state-resume"]}' ] ||
         { echo "$1 settings: the hooks differ" >&2; exit 1; }
+      # Every question is text: no flavor may call the picker.
+      jq -e '.permissions.deny | index("AskUserQuestion")' "$2" >/dev/null ||
+        { echo "$1 settings: AskUserQuestion is not denied" >&2; exit 1; }
     }
     ${lib.concatStrings (
       lib.mapAttrsToList (name: file: ''
         check_hooks ${name} ${file}
       '') flavorSettings
     )}
-
-    # The factory asks every question as text: its settings deny the picker.
-    jq -e '.permissions.deny | index("AskUserQuestion")' ${flavorSettings.claude-factory} >/dev/null ||
-      { echo "claude-factory settings: AskUserQuestion is not denied" >&2; exit 1; }
 
     # Given synthetic byte sizes against token ceilings, each way to break the
     # budget must fail. 40 bytes is 10 tokens, 41 rounds up to 11.

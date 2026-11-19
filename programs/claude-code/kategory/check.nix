@@ -1,7 +1,7 @@
 # claude-kategory builds, so its relocated files name no ~/.claude path
 # (relocate.sh) and its wrapper passes shellcheck, and its `--settings` denies
 # reading the login in both ~/.claude and ~/.claude-kategory, and the picker
-# the factory denies.
+# every flavor denies.
 { pkgs, claude-kategory }:
 
 pkgs.runCommand "kategory-check" { nativeBuildInputs = [ pkgs.jq ]; } ''

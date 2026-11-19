@@ -22,6 +22,9 @@ let
     inherit effortLevel model;
     modelSettings.${model} = { inherit effortLevel; };
     theme = "auto";
+    # Every question is plain text, the turn's last (programs/agents), so the
+    # user reads and answers it the same way on any host; a picker call fails.
+    permissions.deny = [ "AskUserQuestion" ];
   };
 
   # Settings that keep a session from accidentally reading the secret files it
