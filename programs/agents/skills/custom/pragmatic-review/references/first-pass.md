@@ -192,7 +192,7 @@ agents returned.
 angle with their line ranges in `diff`, and for a brief file the absolute path
 of this skill's `references/` directory. The tests agent also gets
 `/tmp/mutation-$HEAD_SHA/mutation-diff.json` or `no mutant data: <stale|missing>`;
-the tests reference its engineering instructions name is in its context. The
+the engineering instructions in its context name the tests reference. The
 breaker gets that mutation input too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
 
 A prompt names a brief file, the requirements file and the review files by

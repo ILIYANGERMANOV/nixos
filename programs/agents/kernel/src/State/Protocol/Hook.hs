@@ -361,8 +361,7 @@ and the chief's.
 
 Typed here, as no source names them apart: the step table's @skills@ (which
 the kernel does not read) puts them on the leads' inline steps, and a flow's
-name is not its skill's
-(the @10x@ flow runs under @10x-engineer@).
+name is not its skill's (the @10x@ flow runs under @10x-engineer@).
 -}
 data LeadSkill = EngineerSkill | TenXSkill | ArchitectSkill | ChiefSkill
     deriving stock (Eq, Show, Enum, Bounded)
