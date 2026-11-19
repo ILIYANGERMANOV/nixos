@@ -48,6 +48,7 @@ let
     "android" # Android and Kotlin Multiplatform builds on the factory's global toolchain, factory only
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
     "architect" # /architect - read-only design partner on the state kernel, writes a design ticket /engineer plans from; the chief loads it
+    "category-theory-doc" # Category Theory model of a design, model-invoked when asked for one
     "chief" # /chief - one run per session that routes each request to a flow, a block, a discussion or a direct fix, explicit invocation only
     "engineer" # /engineer - deliver a feature end to end; preloaded by the engineer agent
     "engineering" # coding style and engineering principles, model-invoked on any code work
