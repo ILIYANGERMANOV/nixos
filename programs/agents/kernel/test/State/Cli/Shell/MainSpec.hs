@@ -793,7 +793,7 @@ spec = describe "state over the doubles" $ do
                 refused <- state world ["init", "--notes", "/child", "--parent", parent, "--task", "t9"]
 
                 (refused.code, refused.err)
-                    `shouldBe` (2, ["state init: --task t9 - the parent's breakdown has no such task", "fix: state brief engineer, in the parent's worktree, prints the init line"])
+                    `shouldBe` (2, ["state init: --task t9 - no request's breakdown has such a task", "fix: state brief engineer, in the parent's worktree, prints the init line"])
                 filter (== "spawned") <$> loggedEvents world `shouldReturn` []
 
             it "refuses a child its parent cannot take, leaving its worktree no run" $ \world -> do

@@ -62,8 +62,8 @@ spec = describe "State.Run.Fold" $ do
             toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
             rePlan = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone engineers (tasksOf (plainTask "t2" [] :| [])))]
-        it "refuses a child's spawn outside the fan-out" $
-            tenXRun [Spawned child] `shouldSatisfy` \case
+        it "refuses a child's spawn off the fan-out's await, at its merge" $
+            tenXRun (toEngineers <> [Overridden (StateName "merge") "to the merge", Spawned child]) `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
                 _ -> False
         it "logs a child's spawn and hand-back at the fan-out, staying there" $
@@ -78,7 +78,7 @@ spec = describe "State.Run.Fold" $ do
             atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))])
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
-            tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")]) `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
+            tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")]) `shouldBe` Left (NotOneHolder (TaskId "t9") [])
         it "takes a stop at the merge once every task is parked" $ do
             let allParked = Stop Blocked "all tasks parked"
             (.stopped) <$> tenXRun (toEngineers <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), Stopped allParked])
@@ -146,7 +146,7 @@ spec = describe "State.Run.Fold" $ do
         it "credits a task's move at a merge to that merge's fan-out" $
             (.at) <$> twoFansRun (bothDone <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr"))]) `shouldBe` Right Graph.Exit
         it "refuses a task's move off every fan-out's state" $
-            twoFansRun (bothDone <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
+            twoFansRun (bothDone <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left (NotOneHolder t1 [])
 
     describe "a flow with a scoped copy" $ do
         let securityRun events = replay securityGraph (logOf (started :| events))
@@ -306,6 +306,7 @@ spec = describe "State.Run.Fold" $ do
     architectRun
     legacyArchitectRun
     chiefRequests
+    waitingFanOuts
 
     it "append_is_idempotent_by_id" . hedgehog $ do
         events <- forAll genAccepted
@@ -885,6 +886,33 @@ chiefRequests = describe "the chief's requests" $ do
     firstRequest = [fuelSet Max, pick "other", stepTook (DirectDone "done")]
     toReadySkipped = request "engineer" <> within "engineer" (fuelSet Balanced : init happyPath <> [stepTook (ReadySkipped pr)])
     askIn kind = Asked (Asking (Question (QId run 1) kind (oneLine "a question")) (StateName "engineer/gather") Itself)
+
+{- | A task's events while another request has focus: they reach the
+waiting request's fan-out that holds the task, the focus staying put.
+-}
+waitingFanOuts :: Spec
+waitingFanOuts = describe "a waiting request's fan-out" $ do
+    it "ties a child to its task while another request has focus" $
+        (\state -> (state.focus, nameAt state, childTasks state)) <$> chief (waiting <> [Spawned (childOf "c1" "t1")])
+            `shouldBe` Right (TaskNo 2, Just "fuel", [Just t1])
+
+    it "records the child's resume and the task's merge while another request has focus" $
+        mergedIn <$> chief (waiting <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1)), Resumed (runId "c1"), TaskMoved t1 (Merged pr)])
+            `shouldBe` Right [True]
+
+    it "refuses a task no request's fan-out holds" $
+        chief (waiting <> [TaskMoved (TaskId "t9") (Merged pr)]) `shouldBe` Left (NotOneHolder (TaskId "t9") [])
+
+    it "refuses a task two requests' fan-outs hold, naming both" $
+        replay scopedFans (logOf (Started (startOf ChiefFlow (ByUser OwnPr)) :| within "a" [stepTook broken] <> [Suspended (TaskNo 1) (oneLine "a at work"), Overridden (StateName "b/breakdown") "to b"] <> within "b" [stepTook broken] <> [Held t1 pr]))
+            `shouldBe` Left (NotOneHolder t1 [TaskNo 1, TaskNo 2])
+  where
+    t1 = TaskId "t1"
+    pr = Url "https://github.com/o/r/pull/1"
+    broken = BreakdownDone engineers (tasksOf (plainTask "t1" [] :| []))
+    waiting = [fuelSet Balanced, Took mempty (pickOf "route" "10x"), Overridden (StateName "10x/breakdown") "the plan is agreed"] <> within "10x" [stepTook broken] <> [Suspended (TaskNo 1) (oneLine "engineers at work")]
+    childTasks state = [(.id) <$> Fan.childTask fan (runId "c1") | fan <- Map.elems state.fans]
+    mergedIn state = [Fan.merged fan t1 | fan <- Map.elems state.fans]
 
 {- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
 or loops back to gather for the next round, with fresh budgets.
