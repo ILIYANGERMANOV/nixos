@@ -7,7 +7,8 @@ roles as named flows, and every rule a law with a test. This ADR records that
 model in brief and replaces ADR 0015's choice of Python for `state` with
 Haskell. Design: #351; implementation plan: #360.
 
-Supersedes ADR 0015's choice of Python. Its JSONL log stays.
+Supersedes ADR 0015's choice of Python. Its JSONL log stayed until ADR 0022
+moved the log to one SQLite database.
 
 ## The model
 
@@ -17,15 +18,31 @@ Supersedes ADR 0015's choice of Python. Its JSONL log stays.
 | `Flow` | typed ports | terms: `;`, `+`, `loop_n`, `opt`, `par_k` | how steps are wired |
 | `Run(F)` | states of flow `F` | paths | what happened |
 | `Ifc` | the operations a role may call | handlers | who answers |
-| `Mode` | Quality x Size | `<=` | how much work |
+| `Mode` | Fuel: `Low`, `Balanced`, `Max` | `<=`, a chain | how much work |
 | `Log` | one object | lists of events | memory |
 | `Prof` | tools, prose, operations | inclusion | what an agent is given |
 
-Functors link them: `graph` turns a flow term into its state machine, `ty`
+Maps link them: `graph` turns a flow term into its state machine, `ty`
 maps a run back to the vocabulary, `ev` maps a run to its log, `cfg` maps a
 mode to its skips, fuel, fan-out and full-review areas, and `profile` derives
 a role's tools and prose from its steps. A handler, such as a 10x answering
 for its engineers, wraps a flow without changing it.
+
+Not every map is a functor, and the tests check only what holds:
+
+- `ty` always walks from the flow's in port, so `ty (p ++ q) = ty p ; ty q`
+  does not typecheck: `q` starts mid-flow. `ty` is a plain function from
+  walks to `Cap` paths that keeps the empty walk (`ty [] = []`) and
+  prefixes (`ty p` is a prefix of `ty (p ++ q)`). `PathSpec` tests both.
+- `cfg` is monotone: a higher Fuel allows each meter at least the spends of
+  the level below and skips no more (`LawsSpec`, over every flow in
+  `State.Role.roles`).
+- `profile` is `derive` in `programs/agents/lib/derive.nix`. Tools, skills
+  and operations are unions over a role's steps, so a step more never yields
+  fewer: `derived_role_grows_with_its_steps` checks it for the table less any
+  one row, and union makes any smaller table follow. Prose is not monotone:
+  a split role (engineer, review-lead) is given the prose every step needs,
+  an intersection, so a step more may give less prose.
 
 ## Decisions
 
@@ -39,14 +56,14 @@ for its engineers, wraps a flow without changing it.
   it. A question goes to the parent, which answers it or passes it up; with no
   parent, or when it needs the user, it reaches the user. A role may raise a
   question to `Security`, never lower it.
-- **Modes skip, they never rewire.** Quality x Size picks which optional steps
+- **Modes skip, they never rewire.** The mode (Fuel, once Quality x Size) picks which optional steps
   collapse to identity, each loop's fuel, each fan-out and the full-review
   areas. A higher mode skips less and grows the rest (Monotone).
 - **Bounded loops.** Every loop has fuel, and the same problem two rounds in a
   row stops it.
 - **The log is the memory.** A run is a path through its flow; events go to
-  one append-only JSONL log, and state, pending questions and resume are folds
-  over it.
+  one append-only log, a SQLite database since ADR 0022, and state, pending
+  questions and resume are folds over it.
 - **Every law is a test.** Typed gluing, Skip is endo, Trace soundness,
   Deterministic, Keep, Monotone, Principal-blind, Ceiling, Total, Bounded, Log,
   Sufficient, Lean and Budget: #351 states each.
@@ -123,6 +140,20 @@ PR #383 replaced the two knobs; the model above holds.
   review agents only for a trivial diff; CI, auth, database, secrets, deploy,
   the data model or over about 100 changed lines get the full review as at
   Balanced, DEEP where the tier says.
+
+## Amendment: each law names its test
+
+#499 checked each law against the code. A law is a test, or it says
+Assumed and why.
+
+| Law | Backed by |
+|---|---|
+| Monotone | `LawsSpec` PerFuel, over every flow in `State.Role.roles`; `derived_role_grows_with_its_steps` for tools, skills and operations, not prose |
+| Keep | `LawsSpec`: no Fuel skip (`termSkips`) of any role's flow names `review`, `re_review`, `research`, `describe` or `simplify_pr`. A flow without one of these steps holds it vacuously |
+| Log | Replay: `FoldSpec` `replaying_a_prefix_then_appending_the_rest_is_replaying_the_whole` and `live_appends_reach_the_run_the_log_replays`. One writer: Assumed. Only `Effects.Store` inserts events, but nothing stops an agent writing the database with `sqlite3` |
+| Sufficient | `derived_role_holds_every_step_need`, in `checks.agents` (`derived-roles`) |
+| Lean | `derived_role_holds_nothing_else`, in `checks.agents` (`derived-roles`) |
+| Budget | `budget-compare` over every size and ceiling, which fails `checks.claude-config` (`programs/claude-code/config-check.nix`) |
 
 ## Considered options
 

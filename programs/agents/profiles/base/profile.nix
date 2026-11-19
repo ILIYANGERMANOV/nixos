@@ -14,6 +14,7 @@
   skills = [
     "address-pr-feedback"
     "architect"
+    "category-theory-doc"
     "chief"
     "engineer"
     "engineering"

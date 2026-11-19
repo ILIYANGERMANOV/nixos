@@ -51,7 +51,9 @@ append, read git, print           effect
   fold step and `S0` its unit, so the fold is a monoid action of the event
   sequence on states: an empty log gives `S0`, and folding a concatenation is
   folding one then the other. Replaying the log on any machine gives the same
-  state.
+  state. In the kernel, `replay` (`State.Run.Fold`) takes a non-empty log
+  whose first line is `started`, which builds `S0`; a log that starts
+  otherwise is refused (`NotStarted`).
 - **Advice is a function.** `next(state, facts)` returns advice: what the flow
   suggests the agent do now, with the mechanical payload filled in. `facts` are
   the few values the shell reads from the world, such as the head commit or
@@ -67,9 +69,9 @@ A program built on this ADR proves these, each as a test:
 | Law | Statement |
 |---|---|
 | replay | `fold(events)` is deterministic; the same log gives the same state anywhere |
-| unit | `fold([]) = S0`; `fold(a ++ b) = fold'(fold(a), b)` |
+| unit | the `started` line alone gives `S0`; replaying `a ++ b` is replaying `a`, then appending `b` (`replay` on a non-empty log, `FoldSpec` `replaying_a_prefix_then_appending_the_rest_is_replaying_the_whole`) |
 | append-only | the shell only appends; `seq` is dense from 1 |
-| total | `apply` and `next` are defined on every (state, event) |
+| total | `applyEvent` and `advise` (the kernel's `next`) are defined on every (state, event): `applyEvent` returns `Either Refusal`, so a pair with no edge is a `Refusal` value, never a throw; `-Wall -Werror` refuses a missed case |
 | advisory | `next` never returns a refusal; only a `Stuck` value names a problem |
 | monotone knobs | a knob set once stays; a knob that may change only moves one way |
 | fixed targets | an event's target state is a function of the table, except an explicit override |

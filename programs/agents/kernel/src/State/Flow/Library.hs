@@ -10,6 +10,7 @@ module State.Flow.Library (
     skippable,
     skippableBlock,
     SkippableS,
+    nameOf,
     upTo,
     researchers,
     parallel,
