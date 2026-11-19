@@ -33,7 +33,9 @@ domain.
 
 ## Section order
 
-Each section builds only on the ones above it.
+Each section builds only on the ones above it. A section that does not
+apply keeps its heading and one line saying why it is empty (for example,
+no natural rank); never invent structure to fill it.
 
 ```text
 0. Model at a glance   -> what structures exist, how they connect
@@ -101,7 +103,10 @@ Each section builds only on the ones above it.
 - Property is a short English name; Statement is the claim in the model's
   terms, one or two lines.
 - Status is `Holds`, `Holds (how verified)`, `Holds if <condition>`,
-  `Needs <change>` or `Assumed`.
+  `Needs <change>` or `Assumed`. `Holds if X` means it holds today and
+  future code must keep `X`.
+- Every non-trivial status names its backing: a Note, a test, or the
+  construction (`Holds (derived in section 2)`).
 
 ### 7. Notes
 

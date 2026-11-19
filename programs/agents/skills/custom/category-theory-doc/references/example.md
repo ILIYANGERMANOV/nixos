@@ -25,8 +25,8 @@ graph LR
   Log -->|fold| V[Views]
 ```
 
-Only `perm_w` is a functor: it preserves `≤`. `plan` is a plain function,
-because the suspend transition moves a workspace down the chain (section 3).
+Only `perm_w` is a functor: it preserves `≤`. `plan` is a partial function,
+undefined once deleted, and not a functor, because the suspend transition moves a workspace down the chain (section 3).
 
 ## 1. Env
 
@@ -39,7 +39,7 @@ The whole model is defined per region. Nothing crosses regions.
 
 - A `WorkspaceId` is unique only inside one region. The model cannot tell
   `w` in `eu` from the same id in `us`: every set below is per region.
-- That two regions never mix is an **assumption**, checked by P8.
+- That two regions never mix is an **assumption**, stated as P8.
 
 ## 2. Objects and the operation lattice
 
@@ -98,7 +98,8 @@ pro adds public links.
 are paths of transitions. A functor into `(Plan, ≤)` would need every
 transition `s → t` to give `plan(s) ≤ plan(t)`. The `Suspended` transition
 takes `pro` to `suspended`, and `pro ≤ suspended` is false. So `plan` is a
-plain function on states, and access may shrink over time.
+partial function on states (undefined once `Deleted`, section 4), and access
+may shrink over time.
 
 ## 4. Lifecycle and log
 
@@ -169,7 +170,7 @@ event:
 | View | On one event |
 |---|---|
 | audit trail | append `(at, actor, name)` |
-| member count | `+1` on `MemberAdded`, `-1` on `MemberRemoved` |
+| member count | `+1` on `Created` (the owner) and `MemberAdded`, `-1` on `MemberRemoved` |
 | notifications | send one email on `MemberAdded` |
 
 **What freeness does not give.** Views agree only if they read the same
@@ -244,15 +245,22 @@ monotone function of `plan(s)`. The key holds the key id, never the secret.
 
 - P1, P10: the role and key checks intersect with one table of kinds, and
   each operation has one kind (verified).
+- P2: the access check calls `plan`, never `tier`, so a suspended
+  workspace meets `G(suspended) = Reads ∪ Manage` (verified).
+- P3: `Upgraded` only goes `Free → Pro`, and a test replays one and
+  compares `access` before and after (verified).
 - P4: the key check joins the workspace row and compares generations in the
   same query, on the primary, with no cache in front (verified).
 - P5: the tier is written only by the billing webhook handler (verified).
 - P6: events have a primary key on `(ws, id)`, but upgrades get a fresh id,
   not the invoice id (verified). Hence `Needs`.
-- P7: the email sender and the member count both upsert on event id
-  (verified). A new view must do the same.
+- P7: `Created` seeds the one owner and counts `+1`, so the count starts
+  at `1` like `members`. The email sender and the member count both upsert
+  on event id (verified). A new view must do the same.
 - P8: the test checks the key prefix only; the two regions share no
   database, but nothing tests a forged prefix (verified).
+- P9: `step` rejects every event once `status = Deleted`, and `access` is
+  `∅` there by its definition (verified).
 
 ## 8. Open in the model
 
