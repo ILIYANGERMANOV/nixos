@@ -1,0 +1,17 @@
+stateDiagram-v2
+  direction TB
+  state "architect/researchers" as architect__researchers
+  state "architect/notes" as architect__notes
+  state "architect/research" as architect__research
+  [*] --> fuel
+  fuel --> architect: set
+  architect --> discuss: discuss
+  architect --> architect__researchers: enough
+  architect --> architect__research: research
+  architect --> ticket: ticket
+  architect__researchers --> architect__notes: done
+  architect__researchers --> architect__researchers: handed_back
+  architect__notes --> [*]: done
+  architect__research --> architect: spawned
+  discuss --> architect: asked
+  ticket --> architect: written

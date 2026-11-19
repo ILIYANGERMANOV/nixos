@@ -6,6 +6,8 @@ import State.Category.Flow (Flow (..))
 import State.Category.Graph (graph)
 import State.Category.Ty (NotSum)
 import State.Cli.Render.Mermaid (mermaid)
+import State.Flow.Architect (architect)
+import State.Flow.Chief (chief)
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (triaged)
@@ -21,6 +23,12 @@ spec = describe "State.Cli.Render.Mermaid" $ do
     it "draws the 10x flow" $
         golden "10x.mmd" (render tenX)
 
+    it "draws the architect flow" $
+        golden "architect.mmd" (render architect)
+
+    it "draws the chief flow" $
+        golden "chief.mmd" (render chief)
+
     it "draws a flow that branches, one edge per summand" $
         golden "triage.mmd" (render triaged)
 
@@ -28,7 +36,7 @@ spec = describe "State.Cli.Render.Mermaid" $ do
         render (Scope "s" (Do SimplifyPR) :> Do FixPR)
             `shouldBe` Text.unlines
                 [ "stateDiagram-v2"
-                , "  direction LR"
+                , "  direction TB"
                 , "  state \"s/simplify_pr\" as s__simplify_pr"
                 , "  [*] --> s__simplify_pr"
                 , "  s__simplify_pr --> fix_pr: done"

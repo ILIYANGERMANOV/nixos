@@ -96,9 +96,28 @@ let
         ++ missing record.operations operations
         ++ missing record.instructions (own ++ fragments (field "prose"));
 
+      # Monotone: the table less any one row derives no tool, skill or op
+      # the whole table does not. Union makes any smaller table follow.
+      # Prose is left out: a split role's prose is an intersection, so a
+      # step fewer may add prose. A removal that leaves the role no row is
+      # skipped, as derive refuses it.
+      shrinks =
+        role: _:
+        lib.concatMap (
+          smaller:
+          lib.optionals (stepsOf smaller role != [ ]) (
+            lib.concatMap (field: missing (derive smaller role).${field} (derive table role).${field}) [
+              "capabilities"
+              "skills"
+              "operations"
+            ]
+          )
+        ) (withoutEachRow table);
+
       failing = law: lib.attrNames (lib.filterAttrs (role: record: law role record != [ ]) roles);
       sufficient = failing needs;
       lean = failing extras;
+      shrinking = failing shrinks;
       drifted = lib.attrNames (
         lib.filterAttrs (role: _: derive table role != golden.${role} or null) roles
       );
@@ -112,7 +131,17 @@ let
     assert lib.assertMsg (
       drifted == [ ] && lib.attrNames golden == lib.attrNames roles
     ) "derived_equals_recorded_golden: ${toString drifted} differ from roles/golden.nix";
+    assert lib.assertMsg (shrinking == [ ])
+      "derived_role_grows_with_its_steps: ${toString shrinking} derive more from a table with a row fewer";
     pkgs.writeText "derive-check" "";
+
+  # The table once per row, less that row.
+  withoutEachRow =
+    table:
+    map (name: table // { steps = removeAttrs table.steps [ name ]; }) (lib.attrNames table.steps)
+    ++ map (name: table // { offFlow = removeAttrs table.offFlow [ name ]; }) (
+      lib.attrNames table.offFlow
+    );
 
   stepsOf =
     table: role:

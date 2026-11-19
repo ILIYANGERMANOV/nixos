@@ -24,7 +24,8 @@ Personal nix-darwin / NixOS configuration for macOS-first development. Primary m
 `claude-kategory` is Claude Code with this repo's agent harness: give
 `/chief` a task and it plans, asks you the decisions, builds and opens a
 pull request. One `nix run`, nothing to clone. Install, update and the
-disclaimer: [docs/KATEGORY.md](docs/KATEGORY.md).
+disclaimer: [docs/KATEGORY.md](docs/KATEGORY.md). How it works and why:
+[docs/harness/README.md](docs/harness/README.md).
 
 ---
 

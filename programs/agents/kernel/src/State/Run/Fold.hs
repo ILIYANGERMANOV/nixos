@@ -1,7 +1,7 @@
 {- | What a run knows is a fold over its log (#351 section 7). A step event
 moves the run along one edge of the flow's graph, found by "State.Category.Path", so a
 log the fold accepts is a path of @Run(F)@ (law Trace soundness). Every loop
-holds a capped step whose meter bounds it, and the stuck guard short-circuits
+holds a capped step whose meter bounds it, and the stuck rule short-circuits
 it (law Bounded).
 
 A question stays pending until this run rules on it, the answer comes down
@@ -260,7 +260,7 @@ data Waits
       ForLater OneLine
     deriving stock (Eq, Show)
 
--- | What went wrong in one round of a loop, which the stuck guard compares two of.
+-- | What went wrong in one round of a loop, which the stuck rule compares two of.
 newtype Round = Round {found :: Set Problem}
     deriving stock (Eq, Show)
 
@@ -1332,7 +1332,7 @@ suspendedAsks state = [qid | suspension <- Map.elems state.suspended, (qid, _) <
 {- | The rounds after a move from one node to another. A loop's own back
 edge starts its next round; one entered from outside, or restarted by an
 enclosing loop's next round, starts at round one; one left is closed. The
-rounds bound nothing: they are the history the stuck guard reads.
+rounds bound nothing: they are the history the stuck rule reads.
 -}
 enter :: OpenGraph -> Maybe Name -> Node -> Node -> Map Name (NonEmpty Round) -> Map Name (NonEmpty Round)
 enter g back from to current = Map.mapMaybeWithKey around g.loops
