@@ -27,9 +27,11 @@ keeps everything in `~/.claude-kategory`: your own `~/.claude` and
 `~/.claude.json` are never touched. Read the disclaimer and install steps in
 [docs/KATEGORY.md](docs/KATEGORY.md) first.
 
+Install it, or try it once:
+
 ```sh
-nix profile add github:ILIYANGERMANOV/nixos#claude-kategory   # install
-nix run github:ILIYANGERMANOV/nixos#claude-kategory            # try once
+nix profile add "github:ILIYANGERMANOV/nixos#claude-kategory"
+nix run "github:ILIYANGERMANOV/nixos#claude-kategory"
 ```
 
 The skills, roles and `CLAUDE.md` are rewritten on every launch. Everything
