@@ -10,8 +10,21 @@ argument-hint: "[rollback]"
 
 1. Run `factory-ctl status`. If repositories have live sessions, say how many
    and that step 4 ends them. Do not block on it.
-2. Run `factory-ctl deploy`. It waits for the GitHub workflow, which refuses
-   unless CI passed on main's tip; on failure it prints why and a link.
+2. Check CI on main's tip before deploying:
+   - Get the sha with `gh api repos/ILIYANGERMANOV/nixos/commits/main --jq
+     .sha`, then its Check run with `gh run list --repo
+     ILIYANGERMANOV/nixos --workflow check.yml --commit <sha> --json
+     databaseId,status,conclusion,url`.
+   - Still running: run `gh run watch <id> --repo ILIYANGERMANOV/nixos
+     --exit-status` in the background (`run_in_background`), with no sleep
+     or polling loop, and go on when it ends.
+   - Failed: report the failure with the run's link and stop. Exception:
+     when the only failed job is `tech` (see `gh run view <id> --repo
+     ILIYANGERMANOV/nixos --json jobs`), deploy anyway; it does not gate
+     deploys.
+   - Passed: run `factory-ctl deploy`. It waits for the GitHub workflow,
+     which refuses unless CI passed on main's tip; on failure it prints why
+     and a link.
 3. The server picks the deployment up within a minute and builds it, which can
    take several minutes. Check `factory-ctl status` every minute or two until
    the last deploy shows `success` or `failure` for the new commit.
