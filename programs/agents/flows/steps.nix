@@ -19,9 +19,17 @@
 # role's. `offFlow` is a `role`'s work outside the flows: it has no types,
 # the kernel never sees it, and only the derivation reads it.
 let
-  # The engineering instructions, and the Fuel table the lead reads at every
-  # step it decides to run or skip.
+  # The engineering instructions, and the Fuel table and its run rules the
+  # lead reads at every step it decides to run or skip.
   leadProse = [
+    "topics/engineering.md"
+    "topics/fuel.md"
+    "topics/fuel-lead.md"
+  ];
+
+  # The review lead varies by Fuel but runs no flow: the table, not its run
+  # rules.
+  reviewProse = [
     "topics/engineering.md"
     "topics/fuel.md"
   ];
@@ -408,7 +416,7 @@ in
         "shell"
       ];
       skills = [ "pragmatic-review" ];
-      prose = leadProse;
+      prose = reviewProse;
       ops = [ "spawn:reviewer" ];
       flows = [ "engineer" ];
     };
@@ -463,7 +471,7 @@ in
         "shell"
       ];
       skills = [ "pragmatic-review" ];
-      prose = leadProse;
+      prose = reviewProse;
       ops = [ "spawn:reviewer" ];
       flows = [ "engineer" ];
     };
@@ -599,7 +607,7 @@ in
         "web"
       ];
       skills = [ ];
-      prose = [ ];
+      prose = [ "topics/engineering.md" ];
       ops = [ ];
     };
   };

@@ -1,4 +1,3 @@
-
 # Reviewer
 
 You check work against your prompt and return findings: one review agent under

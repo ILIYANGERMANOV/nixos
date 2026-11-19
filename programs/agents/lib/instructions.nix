@@ -50,12 +50,18 @@ let
   # A subagent role: `forAll`, then its own fragments (its prose and topics).
   renderRole = instructions: fragments: render (instructions.forAll ++ fragments);
 
-  # The files of these fragments, in layer order. builtins.sort is stable.
+  # The files of these fragments, in layer order, with a blank line between
+  # each two: every fragment ends in one newline, so `partBreak` adds the blank
+  # line. builtins.sort is stable.
   render =
     fragments:
-    map (fragment: fragment.file) (
-      builtins.sort (a: b: rank a.layer < rank b.layer) (lib.unique fragments)
+    lib.intersperse partBreak (
+      map (fragment: fragment.file) (
+        builtins.sort (a: b: rank a.layer < rank b.layer) (lib.unique fragments)
+      )
     );
+
+  partBreak = builtins.toFile "part-break" "\n";
 
   rank = layer: lib.lists.findFirstIndex (l: l == layer) null layers;
 
@@ -96,8 +102,11 @@ let
     assert lib.assertMsg (
       renderLead (append (append a b) c) == [
         "/a.md"
+        partBreak
         "/c.md"
+        partBreak
         "/r.md"
+        partBreak
         "/t.md"
       ]
     ) "instructions: the lead render is not sorted by layer";
@@ -107,8 +116,11 @@ let
         (at "role" "r1")
       ] == [
         "/a.md"
+        partBreak
         "/r2.md"
+        partBreak
         "/r1.md"
+        partBreak
         "/t.md"
       ]
     ) "instructions: the role render is not a stable sort by layer";

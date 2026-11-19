@@ -92,7 +92,7 @@ skill.
   `ship(PaidOrder): ShippedOrder`, not `ship(Order)` with a status check.
 - If you are unsure about the real-world domain model, ask questions and
   interview the user until everything about the domain is crystal-clear. Do this
-  before writing code.
+  before writing code. A subagent hands the question back to its caller.
 
 ## Coding style
 
@@ -202,8 +202,9 @@ its caller instead.
 
 Every line you read is carried, and paid for, on every later call.
 
-- Find, then read: `rg -n`, then only that range with `sed -n`. Never `cat`
-  a large file or `git show <ref>:<file>` in full. Small files together are
+- Find, then read: `rg -n`, then only that range with Read (offset, limit),
+  so path-scoped rules load. Never `cat` a large file or
+  `git show <ref>:<file>` in full. Small files together are
   fine up to 16KB combined; a hook blocks more where it is installed. Skills
   and instruction files are read in full.
 - Diffs: `ctx diff <base>`, then its `index`, then ranges of its `diff`. When

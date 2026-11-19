@@ -16,13 +16,9 @@ by Fuel: a skill reads its row for what, its text how.
 | Large fix widens on | rewritten history | rewritten history | history, size, file count |
 | DEEP security | where tier or requirement says | where tier or requirement says | where tier or requirement says |
 
-Researchers and questions count from zero each time the run gathers; at
-either cap the user says whether to go on (`extend` grants both again).
-
-Every Fuel asks Confirm and ends merge-ready. A task is trivial when it is
-clear, a revert undoes it, it is about 100 changed lines, and it touches no
-auth, CI, database, secrets, deploy, data model, or skill and instruction
-beyond a typo. Skip a step only then, by the record `state next` prints.
+A task is trivial when it is clear, a revert undoes it, it is about 100
+changed lines, and it touches no auth, CI, database, secrets, deploy, data
+model, or skill and instruction beyond a typo.
 
 Changed lines are additions plus deletions (`gh pr view --json
 additions,deletions`), generated lockfiles aside.

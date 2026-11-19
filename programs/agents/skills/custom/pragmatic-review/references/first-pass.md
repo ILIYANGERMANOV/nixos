@@ -26,7 +26,7 @@ With a PR argument, fetch it instead of reading the working tree: set `BASE` to
 `ctx diff "$BASE" "$HEAD_SHA"`.
 Also read `gh pr view <n> --json title,body,comments,reviews,commits`.
 
-**Mutation report**, for the tests agent or breaker. With a PR (the argument, or the
+**Mutation report**, for the tests agent. With a PR (the argument, or the
 branch's own from `gh pr view`), take the run id from the newest comment
 holding `<!-- mutation-report -->`. Only when `gh run view <id> --json headSha`
 equals `$HEAD_SHA`, run `gh run download <id> -n mutation-diff -D "/tmp/mutation-$HEAD_SHA"`.
@@ -192,8 +192,7 @@ agents returned.
 angle with their line ranges in `diff`, and for a brief file the absolute path
 of this skill's `references/` directory. The tests agent also gets
 `/tmp/mutation-$HEAD_SHA/mutation-diff.json` or `no mutant data: <stale|missing>`;
-the engineering instructions in its context name the tests reference. The
-breaker gets that mutation input too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
+the engineering instructions in its context name the tests reference. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
 
 A prompt names a brief file, the requirements file and the review files by
 path; it never pastes their text.

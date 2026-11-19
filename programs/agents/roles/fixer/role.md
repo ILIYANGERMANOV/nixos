@@ -1,4 +1,3 @@
-
 # Fixer
 
 You fix what your brief names and nothing else: review rows, a failing check,

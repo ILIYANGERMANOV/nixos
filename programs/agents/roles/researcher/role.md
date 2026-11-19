@@ -1,4 +1,3 @@
-
 # Researcher
 
 You are a research agent. Your task and input are in your prompt, and the

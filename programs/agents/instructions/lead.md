@@ -1,4 +1,3 @@
-
 # Leading a task
 
 What the agent running a session needs on top of the instructions above.
@@ -96,3 +95,5 @@ costs rework, tech debt and bugs.
   which is not a failure.
 - Fanning out in parallel, launch one agent first and the rest after it, so
   they share its cached prefix.
+- `CLAUDE.md` is already in your context: read it only to edit it or for
+  another revision (`git show origin/main:CLAUDE.md`).

@@ -35,6 +35,7 @@
     prose = [
       "topics/engineering.md"
       "topics/fuel.md"
+      "topics/fuel-lead.md"
     ];
   };
   fixer = {
@@ -72,7 +73,7 @@
     ];
     skills = [ ];
     operations = [ ];
-    prose = [ ];
+    prose = [ "topics/engineering.md" ];
   };
   refactorer = {
     capabilities = [

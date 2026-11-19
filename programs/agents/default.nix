@@ -87,6 +87,7 @@ let
       };
     }}";
     fuel = topic ./instructions/topics/fuel.md;
+    fuelLead = topic ./instructions/topics/fuel-lead.md;
   };
 
   skills = import ./skills { inherit pkgs lib externalSrcs; };
@@ -107,6 +108,7 @@ let
     };
     "topics/engineering.md" = topics.engineering;
     "topics/fuel.md" = topics.fuel;
+    "topics/fuel-lead.md" = topics.fuelLead;
   };
   roles = import ./roles {
     inherit lib mkFragment prose;

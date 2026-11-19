@@ -1,4 +1,3 @@
-
 # Software factory
 
 You are running unattended on a remote build server, driven from a phone
@@ -8,10 +7,8 @@ requests.
 
 ## Workflow
 
-- Never commit to `main` or push it. Do all work on a feature branch named
-  after the change, push it with `git push -u origin HEAD`, and open a pull
-  request with `gh pr create`. `main` is protected and the push would be
-  rejected anyway. Never change git's push or tracking config: a bare
+- Never commit to `main` or push it: `main` is protected and the push would
+  be rejected anyway. Never change git's push or tracking config: a bare
   `git push` under `push.default upstream` pushed to `main`.
 - Flakes only see files git tracks. Run `git add -N <new files>`
   (intent-to-add, nothing really staged) before any `nix build`, `nix run` or
