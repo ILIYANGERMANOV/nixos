@@ -39,26 +39,26 @@ sequenceDiagram
 Architect and 10x run inline in the chief's run, one request each. Each
 engineer is a child run with its own log.
 
-How to read the steps:
+Each step shows two blocks:
 
-- **`state next`**: the line the kernel prints at that state. The log does
-  not store these lines, so they are rebuilt from the events.
-- **Log**: real events from `state dump`, trimmed to `seq`, time, `type`
-  and `data`. Long values are cut with `...`.
+- **`state next`**: the line the kernel prints there, rebuilt from the
+  events (the log does not store it).
+- **Log**: real events from `state dump`, trimmed as in
+  [About the excerpts](#about-the-excerpts).
 
-| # | Time (UTC) | Step | Read |
-|---|---|---|---|
-| 1 | 10:32 | Start and route | [FLOWS](FLOWS.md#the-chief-routes-requests) |
-| 2 | 10:33 | Research | [FLOWS](FLOWS.md#architect) |
-| 3 | 10:33 | Interview | [GUARDRAILS](GUARDRAILS.md#who-answers-which-question) |
-| 4 | 10:41 | Tickets | [FLOWS](FLOWS.md#architect) |
-| 5 | 10:42 | 10x plan and Confirm | [FLOWS](FLOWS.md#10x) |
-| 6 | 10:46 | Breakdown and spawn | [RUN-LOOP](RUN-LOOP.md#what-state-next-prints) |
-| 7 | 10:46 | An engineer child | [FLOWS](FLOWS.md#engineer) |
-| 8 | 10:53 | A second request | [FLOWS](FLOWS.md#the-chief-routes-requests) |
-| 9 | 11:27 | A forwarded Confirm | [GUARDRAILS](GUARDRAILS.md#who-answers-which-question) |
-| 10 | 11:29 | Delegate an epic | [FLOWS](FLOWS.md#the-chief-routes-requests) |
-| 11 | 12:03 | Merge, spawn the next | [GUARDRAILS](GUARDRAILS.md#fuel-and-caps) |
+| # | Time (UTC) | Step |
+|---|---|---|
+| 1 | 10:32 | [Start and route](#1-start-and-route) |
+| 2 | 10:33 | [Research](#2-research) |
+| 3 | 10:33 | [Interview](#3-interview) |
+| 4 | 10:41 | [Tickets](#4-tickets) |
+| 5 | 10:42 | [10x plan and Confirm](#5-10x-plan-and-confirm) |
+| 6 | 10:46 | [Breakdown and spawn](#6-breakdown-and-spawn) |
+| 7 | 10:46 | [An engineer child](#7-an-engineer-child) |
+| 8 | 10:53 | [A second request](#8-a-second-request) |
+| 9 | 11:27 | [A forwarded Confirm](#9-a-forwarded-confirm) |
+| 10 | 11:29 | [Delegate an epic](#10-delegate-an-epic) |
+| 11 | 12:03 | [Merge, spawn the next](#11-merge-spawn-the-next) |
 
 ## 1 Start and route
 
@@ -67,8 +67,8 @@ state next:  RUN state record fuel.set <low|balanced|max>
 state next:  RUN one option below    (picked: state record route.architect)
 ```
 
-The user asks to plan docs for the harness. The chief sets the Fuel and
-routes the request to the architect.
+The user asks to plan the harness docs. The chief sets the Fuel and routes
+to the architect.
 
 ```json
 {"seq":1,"ts":"10:32:51","type":"started","data":{"flow":"chief","notes":"...","principal":"user","interface":["ask_user","await","notify","hooks","background"]}}
@@ -104,8 +104,8 @@ lead:        state ask --kind Scope "Which doc set for docs/harness/?"
 state next:  ASK user
 ```
 
-A Scope question is the user's to answer, so the kernel forwards it. Six
-questions, one at a time.
+A Scope question is the user's, so the kernel forwards it. Six questions,
+one at a time.
 
 ```json
 {"seq":15,"ts":"10:33:55","type":"asked","data":{"qid":"bb43f184:1","kind":"Scope","question":"Which doc set for docs/harness/?","step":"architect/discuss","from":"self"}}
@@ -201,9 +201,9 @@ Read: [FLOWS: engineer](FLOWS.md#engineer),
 state next:  RUN one option below    (picked: state record route.architect)
 ```
 
-While docs builds, the user brings a new request: text questions and
-voice. The chief parks r2 with a summary and routes r3. Later it switches
-back to take docs' hand-back.
+While docs builds, a new request comes: text questions and voice. The
+chief parks r2 with a summary, routes r3, and later switches back for
+docs' hand-back.
 
 ```json
 {"seq":68,"ts":"10:53:04","type":"suspended","data":{"request":"r2","summary":"10x epic harness-docs: docs engineer running (#498); laws (#499), walkthrough (#500) queued"}}
@@ -280,12 +280,11 @@ Read: [GUARDRAILS: Fuel and caps](GUARDRAILS.md#fuel-and-caps),
 
 ## Friction
 
-Not everything went smoothly. The run recorded its own gaps.
+The run recorded its own gaps.
 
 | What | Where | Effect |
 |---|---|---|
-| Child started untied | gap 137, [#511](https://github.com/ILIYANGERMANOV/nixos/issues/511) | laws began while focus was on r3, so it named no task |
-| Confirm forwarded | step 9 | untied, its Confirm could not be ruled by the breakdown; the user was asked |
+| Child started untied | gap 137, [#511](https://github.com/ILIYANGERMANOV/nixos/issues/511) | laws began while focus was on r3, so it named no task; its Confirm could not be ruled by the breakdown, so the user was asked (step 9) |
 | Hand-back refused twice | seq 162, 164 | the chief had no record of spawning laws |
 | Hooks gate by focus | gap 153 | a merge for r2 was denied while r3 had focus |
 | Hand-backs reach the top | gap 159 | a nested engineer's workers handed back to the chief |
