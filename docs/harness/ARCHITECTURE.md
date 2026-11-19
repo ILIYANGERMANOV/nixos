@@ -1,17 +1,17 @@
 # Architecture
 
-How the harness is built: where each rule lives, how the kernel is layered,
-and how one vendor-free agent config becomes Claude Code's files. The
-decisions behind it are in the ADRs linked below; this page does not repeat
-them.
+| Part | In one line |
+|---|---|
+| [The logic ladder](#the-logic-ladder) | each rule lives on the most testable rung that can hold it |
+| [Kernel layers](#kernel-layers) | `state` in layers; only the shell does IO |
+| [The agent compiler](#the-agent-compiler) | one vendor-free config compiles to Claude Code's files |
+| [Roles derived from the step table](#roles-derived-from-the-step-table) | no role's tools are written by hand |
+| [The ADRs](#the-adrs) | the decisions behind it; this page does not repeat them |
 
 ## The logic ladder
 
-Every agent behaviour lives on the first rung that can hold it. Each rung to
-the right is less deterministic and harder to test.
-
 ```mermaid
-flowchart LR
+flowchart TD
   kernel["Pure kernel: decides from the log and arguments"]
   shell["Effect shell: git, files, GitHub, clock"]
   hooks["Hooks: the moment only the client sees"]
@@ -20,6 +20,9 @@ flowchart LR
   shell -->|"needs the client's moment"| hooks
   hooks -->|"needs judgment"| prose
 ```
+
+Each behaviour lives on the first rung that can hold it. Each rung down is
+less deterministic and harder to test.
 
 | Rung | Where | How it is tested | Example |
 |---|---|---|---|
@@ -41,11 +44,6 @@ refining [ADR 0013](../adr/0013-deterministic-programs-over-instructions.md).
 
 ## Kernel layers
 
-The kernel is the `state` program and its hook entry point `state-hook`
-(`programs/agents/kernel`). Its modules sit in layers; a module imports only
-its own layer or one below, and a test holds it ([layers test][archlayers],
-[`layers`][layers]).
-
 ```mermaid
 flowchart BT
   cat["Category and Step: types, steps, flow terms, graph, Fuel, meters"]
@@ -59,6 +57,10 @@ flowchart BT
   protocol --> cli
 ```
 
+The kernel is `state` and its hook entry point `state-hook`
+(`programs/agents/kernel`). A module imports only its own layer or one below;
+a test holds it ([layers test][archlayers], [`layers`][layers]).
+
 | Layer | Holds | Start reading |
 |---|---|---|
 | `Category` | the model: artifact types, typed steps, the `Flow` term, its graph, Fuel, meters | [`Flow.hs`][flowhs], [CATEGORY-THEORY](CATEGORY-THEORY.md) |
@@ -68,21 +70,14 @@ flowchart BT
 | `Protocol` | what a run says to its agents: the next action, the record grammar, hand-backs, hooks | [`Advice.hs`][advice] |
 | `Cli` | the command line, the effect shell, the Mermaid render | [`Command.hs`][command] |
 
-Only the shell and `Effects/` (store, git, GitHub, clock, files) do IO; every
-other module decides in pure code, and a test holds that too
-([IO test][archio]). The run store is one SQLite file
-([ADR 0022](../adr/0022-sqlite-run-store.md)).
+Only the shell and `Effects/` (store, git, GitHub, clock, files) do IO;
+the rest is pure, and a test holds that too ([IO test][archio]). The run
+store is one SQLite file ([ADR 0022](../adr/0022-sqlite-run-store.md)).
 
 ## The agent compiler
 
-The agent config is built like a compiler
-([ADR 0011](../adr/0011-agent-compiler.md), refining
-[ADR 0002](../adr/0002-agent-agnostic-configuration.md)). `programs/agents` is
-the vendor-free source and frontend; each `programs/<vendor>` only translates
-and installs.
-
 ```mermaid
-flowchart LR
+flowchart TD
   src["programs/agents: roles, profiles, skills, instructions, flows, kernel"]
   fold["fold the profiles into one checked profile"]
   codegen["programs/claude-code codegen: profile to Claude Code files"]
@@ -93,6 +88,12 @@ flowchart LR
   codegen --> link
   link --> load
 ```
+
+The agent config is built like a compiler
+([ADR 0011](../adr/0011-agent-compiler.md), refining
+[ADR 0002](../adr/0002-agent-agnostic-configuration.md)). `programs/agents` is
+the vendor-free frontend; each `programs/<vendor>` only translates and
+installs.
 
 - **Vendor-free frontend.** Nothing under `programs/agents` may reach a
   vendor backend, even through another program; Deslop enforces it
@@ -118,12 +119,6 @@ never read or written. Install and update: [docs/KATEGORY.md](../KATEGORY.md).
 
 ## Roles derived from the step table
 
-No role's tools are written by hand. One step table,
-[`flows/steps.nix`][steps], has a row per kernel step: its types, outcomes,
-who runs it (the lead inline, or a subagent role), and the tools, skills,
-operations and prose it needs. [`lib/derive.nix`][derive] makes each role's
-profile from the rows it runs.
-
 ```mermaid
 flowchart LR
   steps["flows/steps.nix: one row per step"]
@@ -136,6 +131,11 @@ flowchart LR
   derive --> role
   role -->|"equal"| golden
 ```
+
+No role's tools are written by hand. [`flows/steps.nix`][steps] has one row
+per kernel step: its types, outcomes, runner (the lead, or a subagent role)
+and the tools, skills, operations and prose it needs.
+[`lib/derive.nix`][derive] builds each role's profile from the rows it runs.
 
 | Check | Holds |
 |---|---|

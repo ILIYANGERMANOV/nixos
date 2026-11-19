@@ -1,17 +1,34 @@
 # How the claude-kategory harness works
 
-claude-kategory is Claude Code plus a small program, `state`, that holds each
-task as a run with an append-only log and tells the agents the next step.
-Skills and roles carry the judgment; `state` holds the rules that must not
-bend: caps, waits, who answers what, and what happens next.
+```mermaid
+flowchart TD
+  lead["Lead agent: Claude Code"]
+  state["state: the kernel"]
+  log[("one append-only log per run")]
+  worker["Subagents: narrow roles"]
+  lead -->|"state next"| state
+  state -->|"one next action"| lead
+  lead -->|"spawn"| worker
+  worker -->|"hand-back"| lead
+  lead -->|"state record"| state
+  state --> log
+```
+
+claude-kategory is Claude Code plus a small program, `state`.
+
+- `state` holds each task as a run with an append-only log.
+- It tells the agents the next step.
+- Skills and roles carry the judgment.
+- `state` holds the rules that must not bend: caps, waits, who answers
+  what, and what happens next.
 
 Install and quickstart: [docs/KATEGORY.md](../KATEGORY.md).
 
 ## What it guarantees
 
 Six properties from the [vision](../../programs/agents/VISION.md#properties-draft).
-Each holds whatever model drives the flow: a weaker model lowers the quality
-of the judgment steps, never these.
+They hold whatever the model. A weaker model lowers the quality of the
+judgment steps, never these.
 
 | Property | In one line | Read |
 |---|---|---|
