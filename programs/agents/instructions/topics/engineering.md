@@ -204,9 +204,9 @@ Every line you read is carried, and paid for, on every later call.
 
 - Find, then read: `rg -n`, then only that range with Read (offset, limit),
   so path-scoped rules load. Never `cat` a large file or
-  `git show <ref>:<file>` in full. Small files together are
-  fine up to 16KB combined; a hook blocks more where it is installed. Skills
-  and instruction files are read in full.
+  `git show <ref>:<file>` in full. Small files together are fine up to 16KB
+  combined; a hook blocks more where it is installed. Skills and instruction
+  files are read in full.
 - Diffs: `ctx diff <base>`, then its `index`, then ranges of its `diff`. When
   rebasing, read `git diff <ref> -- <file>`, never both versions.
 - Never read back output that was spilled to a file: `rg` it, or rerun the

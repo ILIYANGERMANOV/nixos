@@ -21,15 +21,10 @@
 let
   # The engineering instructions, and the Fuel table and its run rules the
   # lead reads at every step it decides to run or skip.
-  leadProse = [
-    "topics/engineering.md"
-    "topics/fuel.md"
-    "topics/fuel-lead.md"
-  ];
+  leadProse = fuelProse ++ [ "topics/fuel-lead.md" ];
 
-  # The review lead varies by Fuel but runs no flow: the table, not its run
-  # rules.
-  reviewProse = [
+  # A role that varies by Fuel but runs no flow: the table, not its run rules.
+  fuelProse = [
     "topics/engineering.md"
     "topics/fuel.md"
   ];
@@ -238,10 +233,7 @@ in
         "web"
       ];
       skills = [ "researcher" ];
-      prose = [
-        "topics/engineering.md"
-        "topics/fuel.md"
-      ];
+      prose = fuelProse;
       ops = [ ];
       flows = [
         "engineer"
@@ -321,10 +313,7 @@ in
         "web"
       ];
       skills = [ "researcher" ];
-      prose = [
-        "topics/engineering.md"
-        "topics/fuel.md"
-      ];
+      prose = fuelProse;
       ops = [ ];
       flows = [
         "engineer"
@@ -416,7 +405,7 @@ in
         "shell"
       ];
       skills = [ "pragmatic-review" ];
-      prose = reviewProse;
+      prose = fuelProse;
       ops = [ "spawn:reviewer" ];
       flows = [ "engineer" ];
     };
@@ -471,7 +460,7 @@ in
         "shell"
       ];
       skills = [ "pragmatic-review" ];
-      prose = reviewProse;
+      prose = fuelProse;
       ops = [ "spawn:reviewer" ];
       flows = [ "engineer" ];
     };
@@ -591,10 +580,7 @@ in
         "shell"
       ];
       skills = [ ];
-      prose = [
-        "topics/engineering.md"
-        "topics/fuel.md"
-      ];
+      prose = fuelProse;
       ops = [ ];
     };
     # The /qa skill's executor.

@@ -12,8 +12,8 @@ secret name) and `hooks` (hook module files, `agents-frontend.md`). Profiles are
 flavor lists the ones it gets. `mkProfile` and `append` are in `agents-lib.md`.
 
 - `base` - every flavor: the shared skills, `agent.md`, `lead.md`,
-  `fuel.md`, `fuel-lead.md`, `runtime` (`programs/playwright`'s `qa`, `ctx` and `state`),
-  `secretFiles` and the state hooks (`kernel/hooks.nix`).
+  `fuel.md`, `fuel-lead.md`, `runtime` (`programs/playwright`'s `qa`, `ctx`
+  and `state`), `secretFiles` and the state hooks (`kernel/hooks.nix`).
 - `web-ui` - figma.
 - `pm` - `self-improve`, amplitude, linear.
 - `local` - `10x-engineer` and its `lead.md` for the lead only: every
