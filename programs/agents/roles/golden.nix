@@ -20,10 +20,7 @@
       "delegate"
       "skill"
     ];
-    skills = [
-      "engineer"
-      "engineering"
-    ];
+    skills = [ "engineer" ];
     operations = [
       "ask"
       "await"
@@ -36,6 +33,7 @@
       "spawn:review-lead"
     ];
     prose = [
+      "topics/engineering.md"
       "topics/fuel.md"
     ];
   };
@@ -45,9 +43,12 @@
       "edit"
       "shell"
     ];
-    skills = [ "engineering" ];
+    skills = [ ];
     operations = [ ];
-    prose = [ "shared/building.md" ];
+    prose = [
+      "shared/building.md"
+      "topics/engineering.md"
+    ];
   };
   implementer = {
     capabilities = [
@@ -55,9 +56,12 @@
       "edit"
       "shell"
     ];
-    skills = [ "engineering" ];
+    skills = [ ];
     operations = [ ];
-    prose = [ "shared/building.md" ];
+    prose = [
+      "shared/building.md"
+      "topics/engineering.md"
+    ];
   };
   qa-runner = {
     capabilities = [
@@ -76,13 +80,11 @@
       "edit"
       "shell"
     ];
-    skills = [
-      "refactor"
-      "engineering"
-    ];
+    skills = [ "refactor" ];
     operations = [ ];
     prose = [
       "shared/building.md"
+      "topics/engineering.md"
       "topics/fuel.md"
     ];
   };
@@ -94,7 +96,10 @@
     ];
     skills = [ "researcher" ];
     operations = [ ];
-    prose = [ "topics/fuel.md" ];
+    prose = [
+      "topics/engineering.md"
+      "topics/fuel.md"
+    ];
   };
   reviewer = {
     capabilities = [
@@ -103,7 +108,10 @@
     ];
     skills = [ ];
     operations = [ ];
-    prose = [ "topics/fuel.md" ];
+    prose = [
+      "topics/engineering.md"
+      "topics/fuel.md"
+    ];
   };
   review-lead = {
     capabilities = [
@@ -114,6 +122,7 @@
     skills = [ "pragmatic-review" ];
     operations = [ "spawn:reviewer" ];
     prose = [
+      "topics/engineering.md"
       "topics/fuel.md"
     ];
   };

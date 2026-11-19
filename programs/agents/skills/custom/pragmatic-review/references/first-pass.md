@@ -190,12 +190,10 @@ agents returned.
 
 **Then the part that differs:** the agent's role, depth and brief, its files by
 angle with their line ranges in `diff`, and for a brief file the absolute path
-of this skill's `references/` directory. The tests agent also gets the
-absolute path of `engineering`'s `references/tests.md`: this skill's base
-directory with `pragmatic-review` replaced by `engineering`, never a `..`
-path, which does not resolve between installed skills, and
-`/tmp/mutation-$HEAD_SHA/mutation-diff.json` or `no mutant data: <stale|missing>`. The
-breaker gets that `tests.md` path and mutation input too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
+of this skill's `references/` directory. The tests agent also gets
+`/tmp/mutation-$HEAD_SHA/mutation-diff.json` or `no mutant data: <stale|missing>`;
+the tests reference its engineering instructions name is in its context. The
+breaker gets that mutation input too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
 
 A prompt names a brief file, the requirements file and the review files by
 path; it never pastes their text.
@@ -208,7 +206,8 @@ path; it never pastes their text.
 > job, unless this prompt adds another, and inside their scope the bar is
 > lower: a real answer the user might dispute is still worth returning. Follow
 > a requirement outside the diff if it leads there; what you find there is `pre-existing`. A requirement about
-> the house rules: load `engineering`, and `ui-coding` for UI.
+> the house rules: the engineering instructions in your context, and
+> `ui-coding` for UI.
 
 ## Phase 4 - judge, do not re-review
 

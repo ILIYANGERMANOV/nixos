@@ -1,6 +1,6 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and, by Fuel, runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until the user, or a delegating agent, says so. Use before merging a PR or branch.
+description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and, by Fuel, runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering-instructions and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until the user, or a delegating agent, says so. Use before merging a PR or branch.
 argument-hint: "[requirements | --requirements <path>] [PR number or URL] [--fixes <reviewed head sha>] [Fuel: <level>]"
 ---
 
@@ -94,7 +94,7 @@ database, secrets) plus common attacks. A `security-sensitive: <topics>`
 requirement forces DEEP and those topics.
 
 **House rules are not taste.** A diff that plainly contradicts a rule written in
-`engineering` or `ui-coding`, DRY included, is a finding, judged on the rule
+the engineering instructions or `ui-coding`, DRY included, is a finding, judged on the rule
 quoted verbatim. It is Minor, unless the bar makes it a Major **data-model
 violation**. Your Fuel row says which diffs get this check.
 
@@ -118,7 +118,7 @@ whole return aims for 350 words and never passes 400, and its last line is
 **The table.** Skip it entirely when nothing survived - no empty table, no
 placeholder. Otherwise number the rows and sort by severity, Major then Minor
 then Nit. Mark a row from a requirement 🔍: it cleared a lower bar. A
-house-rule row names its rule - "`engineering`: prefer SUM types over nullable
+house-rule row names its rule - "engineering: prefer SUM types over nullable
 fields". A row rated from an answer to an intent question says so.
 
 | # | Severity | What | Impact | Fix |

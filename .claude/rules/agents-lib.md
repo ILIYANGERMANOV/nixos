@@ -12,6 +12,10 @@ paths:
   `lead.md` and `topics/fuel.md` are for the agent leading a session, with
   `fuel.md` also in the roles that vary by Fuel: `engineer`, `researcher`,
   `refactorer`, `review-lead`, `reviewer`. Plain committed markdown.
+- `topics/engineering.md` - the coding style and engineering principles, in
+  the lead and every role that writes, reviews or researches code (all but
+  `checker` and `qa-runner`). Its `@tests@` becomes the store path of
+  `topics/engineering/tests.md` through `replaceVars`.
 - `topics/fuel.md`'s Fuel table is the only place a Fuel changes a step;
   skills and roles read their row. Its trivial rule keeps skill and
   instruction edits beyond a typo out of Low's skips, so a change here never

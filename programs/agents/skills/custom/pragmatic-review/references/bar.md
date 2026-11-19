@@ -12,8 +12,8 @@ nothing; an invented finding costs the author more than silence.
 wrong, at once. Test each finding: if the author said "that's fine", would I be
 obviously right, or would we argue? An argument means drop it. Two overrides:
 a **blocker** (security, irreversible damage) is reported even when unsure, and
-a plain contradiction of a rule written in the `engineering` or `ui-coding`
-skill is a finding, quoted verbatim - the house settled that argument.
+a plain contradiction of a rule written in the engineering instructions or the
+`ui-coding` skill is a finding, quoted verbatim - the house settled that argument.
 
 **Severity**, exactly one per finding:
 
@@ -22,7 +22,7 @@ skill is a finding, quoted verbatim - the house settled that argument.
   code, accidental TEMP, WIP or debug commits and leftover debug code, and a
   **fake proof**: a test that contradicts the intent, can never fail, or a bug
   fix with no test that was red before it. Also a **data-model violation**, a
-  plain contradiction of a written `engineering` rule by a schema, type or
+  plain contradiction of a written engineering-instructions rule by a schema, type or
   piece of state, DB schemas above all because they are expensive to fix later,
   that admits contradictory records, stores a derivable value (a copy of state
   another owner holds is one: `useState(props.user)` copying a prop), has no

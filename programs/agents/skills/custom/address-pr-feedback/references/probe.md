@@ -10,11 +10,11 @@ orchestrator applies every fix itself, after all of you have finished,
 one at a time. An edit from you would collide with another agent's and with the
 orchestrator's, which is the failure this whole design exists to prevent.
 
-## Load the house rules first
+## The house rules
 
-Load the `engineering` skill before you start. You need it for gate 2 below,
-and you are the only place that judgement can honestly be made, because you are
-the only one with the real code loaded. The orchestrator is not permitted to
+The engineering instructions in your context are the house rules. You need
+them for gate 2 below, and you are the only place that judgement can honestly
+be made, because you are the only one with the real code loaded. The orchestrator is not permitted to
 reopen the code, so it judges on the rule you **quote**, not on your summary of
 it. A paraphrased rule is treated as unverified and dropped.
 
@@ -85,7 +85,7 @@ worth acting on:
 - Does it trade a clear thing for a clever thing?
 - Does it force churn on code the diff never touched?
 
-If the fix loses against a rule written in `engineering`, the outcome is
+If the fix loses against a rule written in the engineering instructions, the outcome is
 `PUSH BACK` even though the claim is true, and you **quote the rule verbatim**
 in `rule`. If the fix is right but risky or expensive, the outcome is
 `FIX LATER`. Otherwise `FIX NOW`.
@@ -140,7 +140,7 @@ verdict      CONFIRMED | REFUTED | UNSETTLED
 trigger      concrete input or state -> the wrong outcome, or NONE
 probe        what you actually read and what you tried, in one or two lines
 outcome      FIX NOW | PUSH BACK | FIX LATER
-rule         verbatim quote from `engineering`, only when a rule decides it
+rule         verbatim quote from the engineering instructions, only when a rule decides it
 effort       files and rough line count
 risk         low | medium | high, and the reason in a few words
 sketch       the minimal change, naming every file it touches

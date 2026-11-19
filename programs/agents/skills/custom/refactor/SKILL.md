@@ -21,11 +21,10 @@ step 3's items 1-3, item 3 as one read of the diff, without
 
 ## 1. Load the rules
 
-Invoke the `engineering` skill, and `ui-coding` when the diff touches UI, with
-the Skill tool, unless already loaded. They are the yardstick; nothing else
-is. When the diff touches tests, also read `references/tests.md` from
-`engineering`'s base directory - the detailed test rules. It is not in this skill's
-directory, and a `..` path does not resolve between installed skills.
+The engineering instructions in your context, and the `ui-coding` skill when
+the diff touches UI (invoke it with the Skill tool, unless already loaded),
+are the yardstick; nothing else is. When the diff touches tests, also read the
+tests reference those instructions name - the detailed test rules.
 
 ## 2. Read the diff
 
@@ -60,7 +59,7 @@ Look at the diff, in this order:
    represent. Removing a stored field or changing a schema changes persisted
    data, so it is a **big** item whatever its size.
 3. **Rule violations** - anything in the diff that plainly contradicts a rule
-   written in `engineering` or `ui-coding`. Check the diff against all of those
+   written in the engineering instructions or `ui-coding`. Check the diff against all of those
    rules, not only the ones this list names.
 4. **Deep modules** - shallow pass-throughs to inline, behaviour that belongs
    behind a smaller interface.
@@ -79,7 +78,7 @@ Look at the diff, in this order:
    commented-out code. Shorten a useful one to the part the code cannot say:
    the why, an invariant, a trap. Keep every comment that explains why.
 9. **Good tests** - bring every test the diff adds or changes up to
-   `engineering/references/tests.md`, at every layer: unit, property-based,
+   the tests reference, at every layer: unit, property-based,
    differential and end-to-end, goldens included. Refactor the tests, not the
    behaviour they prove:
    - **Through the public interface** - rewrite a test that pins internals

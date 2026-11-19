@@ -1,9 +1,9 @@
 # House-rules agent - wrong approach, house rules
 
-The bar in your prompt applies. Your first step: read
-`~/.claude/skills/engineering/SKILL.md`, `~/.claude/skills/ui-coding/SKILL.md`
-too if the diff touches UI, and the repository's root `CLAUDE.md` or `AGENTS.md`
-if it has one. Those are the house rules; this brief does not restate them, and
+The bar in your prompt applies. The engineering instructions in your context
+are house rules. Your first step: read `~/.claude/skills/ui-coding/SKILL.md` if
+the diff touches UI, and the repository's root `CLAUDE.md` or `AGENTS.md` if it
+has one. Those are the house rules too; this brief does not restate them, and
 you judge none without them loaded. Tests belong to the tests agent: leave them alone.
 
 This is a fast pass from the patch, inside the bar's budget. `rg` to settle
@@ -29,8 +29,8 @@ consequence: what breaks, for whom, when.
 
 ## Job 2 - the house rules
 
-A finding only when both hold: the rule is **written** in `engineering` or
-`ui-coding`, and the diff **plainly** contradicts it. DRY is the rule diffs break
+A finding only when both hold: the rule is **written** in the engineering
+instructions or `ui-coding`, and the diff **plainly** contradicts it. DRY is the rule diffs break
 most: the same concept implemented again, a helper written where one exists, or
 knowledge duplicated so two places must be kept in sync by hand. Grep for the
 existing one and name it in the fix. A house-rule violation is **minor**,
@@ -66,7 +66,7 @@ when you have one), next to the offending lines. The orchestrator never loads
 the rules: it judges on your quote alone and drops a paraphrase.
 
 ```
-evidence    engineering/SKILL.md "DRY: do not repeat yourself."
+evidence    engineering instructions "DRY: do not repeat yourself."
             vs src/report.ts:40-58, the third copy of the same formatter.
 ```
 

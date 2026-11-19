@@ -5,9 +5,9 @@ description: How to build UI - reuse existing components before writing new ones
 
 # UI Coding
 
-Applies on top of the `engineering` skill, which still governs code structure,
-typing, domain modeling and coding style. This skill adds what is specific to
-UI.
+Applies on top of the engineering instructions in your context, which still
+govern code structure, typing, domain modeling and coding style. This skill
+adds what is specific to UI.
 
 Examples use React and Tailwind because those are the primary stack. The
 principles are not tied to them - apply the same rules in any UI framework,
@@ -22,7 +22,7 @@ new shared primitive only after asking the user.
 
 ## Structure
 
-Follow the code structure rules from `engineering`:
+Follow the code structure rules from the engineering instructions:
 
 - Feature-specific components live with their feature and are never shared.
 - Shared components must be feature-agnostic and re-usable.

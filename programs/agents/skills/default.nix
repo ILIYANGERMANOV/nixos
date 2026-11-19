@@ -51,7 +51,6 @@ let
     "category-theory-doc" # Category Theory model of a design, model-invoked when asked for one
     "chief" # /chief - one run per session that routes each request to a flow, a block, a discussion or a direct fix, explicit invocation only
     "engineer" # /engineer - deliver a feature end to end; preloaded by the engineer agent
-    "engineering" # coding style and engineering principles, model-invoked on any code work
     "grilling" # fork of mattpocock's grilling, one text question at a time; grill-me and grill-with-docs delegate to it
     "pr-description" # PR body from the repo template or a default format, model-invoked before gh pr create
     "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
@@ -59,7 +58,7 @@ let
     "refactor" # /refactor - behaviour-preserving cleanup of a diff; preloaded by the refactorer agent
     "researcher" # /researcher - bounded research with a notes file; preloaded by the researcher agent
     "self-improve" # /self-improve - measure past sessions and fix the agent setup's bottlenecks, factory and claude-all only
-    "ui-coding" # UI-specific rules on top of engineering, model-invoked on UI work
+    "ui-coding" # UI-specific rules on top of the engineering instructions, model-invoked on UI work
   ];
 
   # Custom skills go through the same resolution as external sources so they get

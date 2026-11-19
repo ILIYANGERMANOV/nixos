@@ -1,9 +1,8 @@
 # Tests agent - is the proof real
 
-The bar in your prompt applies. First read `engineering`'s
-`references/tests.md` at the absolute path in your prompt; do not load the
-`engineering` skill for it. That file is the canonical statement of what a
-good test is; this brief does not restate it.
+The bar in your prompt applies. First read the tests reference the
+engineering instructions in your context name. That file is the canonical
+statement of what a good test is; this brief does not restate it.
 
 This is a fast pass from the patch, inside the bar's budget. Read your hunks
 from the diff file; open the code a test exercises only to see what it calls and
@@ -81,14 +80,13 @@ from `parse` - unproven, the test asserts only the length"), the intended
 behaviour it rejects, the old code it passes on, or the behaviour-preserving
 refactor that turns it red.
 
-Its `evidence` quotes **the rule from `engineering/references/tests.md`
-verbatim**, its line when you have it, next to the offending test lines. For an
+Its `evidence` quotes **the rule from the tests reference verbatim**, its line when you have it, next to the offending test lines. For an
 intent contradiction, quote the source of the intent - commit subject, changed
 production line, doc - next to the assertion. The orchestrator never loads the
 rules: it judges on your quote alone and drops a paraphrase.
 
 ```
-evidence    engineering/references/tests.md:71 "Never double our own domain
+evidence    tests.md:71 "Never double our own domain
             code." vs test/cancel.spec.ts:12, `mock<OrderRepo>()`.
 ```
 
