@@ -81,6 +81,18 @@ PR-activity wake-ups.
 - **Set by Nix on every launch:** the harness skills, roles and `CLAUDE.md`
   (rewritten on disk), and its hooks and guards (passed from the Nix store).
 
+## Update
+
+New commits land on `main` often. One command takes the latest:
+
+| You use | Update with |
+|---|---|
+| Install for good | `nix profile upgrade --refresh claude-kategory` |
+| Quickstart | `nix run --refresh "github:ILIYANGERMANOV/nixos#claude-kategory"` |
+
+`--refresh` makes Nix check GitHub again. Without it Nix may reuse a cached
+copy for up to an hour and stay on an old version.
+
 ## Disclaimer
 
 > [!WARNING]
@@ -104,15 +116,3 @@ PR-activity wake-ups.
 >     repositories.
 >
 > By running it you accept these terms.
-
-## Update
-
-New commits land on `main` often. One command takes the latest:
-
-| You use | Update with |
-|---|---|
-| Install for good | `nix profile upgrade --refresh claude-kategory` |
-| Quickstart | `nix run --refresh "github:ILIYANGERMANOV/nixos#claude-kategory"` |
-
-`--refresh` makes Nix check GitHub again. Without it Nix may reuse a cached
-copy for up to an hour and stay on an old version.
