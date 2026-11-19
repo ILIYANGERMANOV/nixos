@@ -21,20 +21,10 @@ Personal nix-darwin / NixOS configuration for macOS-first development. Primary m
 
 ## Try the harness
 
-`claude-kategory` is Claude Code with the software factory's skills, roles,
-hooks and guards. It needs only Nix (macOS on Apple silicon, or Linux) and
-keeps everything in `~/.claude-kategory`: your own `~/.claude` and
-`~/.claude.json` are never touched. Read the disclaimer and install steps in
-[docs/KATEGORY.md](docs/KATEGORY.md) first.
-
-```sh
-nix profile add github:ILIYANGERMANOV/nixos#claude-kategory   # install
-nix run github:ILIYANGERMANOV/nixos#claude-kategory            # try once
-```
-
-The skills, roles and `CLAUDE.md` are rewritten on every launch. Everything
-else is yours and survives a relaunch: your login, `settings.json` (`/model`,
-`/config`), plugins and MCP servers (`claude-kategory mcp add ...`).
+`claude-kategory` is Claude Code with this repo's agent harness: give
+`/chief` a task and it plans, asks you the decisions, builds and opens a
+pull request. One `nix run`, nothing to clone. Install, update and the
+disclaimer: [docs/KATEGORY.md](docs/KATEGORY.md).
 
 ---
 
@@ -111,8 +101,8 @@ just mutation-diff
 just mutation
 
 # Rebuild and switch (macOS)
-darwin-rebuild switch --flake .#macos-main
+darwin-rebuild switch --flake ".#macos-main"
 
 # Rebuild and switch (NixOS)
-nixos-rebuild switch --flake .#lenovo-old
+nixos-rebuild switch --flake ".#lenovo-old"
 ```

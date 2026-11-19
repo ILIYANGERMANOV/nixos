@@ -1,13 +1,104 @@
 # claude-kategory
 
-Claude Code with this repository's agent harness: the skills, subagent roles,
-hooks and guards of the software factory. It keeps everything in
-`~/.claude-kategory`, so your own `~/.claude` and `~/.claude.json` are never
-touched.
+`claude-kategory` is Claude Code with this repository's agent harness: skills,
+subagent roles, hooks, guards and the `state` program that drives them. You
+describe a task to `/chief`. It researches, asks you the decisions, builds the
+change through subagents, reviews it and opens a pull request. Everything
+lives in `~/.claude-kategory`, so your own `~/.claude` and `~/.claude.json`
+stay untouched.
 
 > [!WARNING]
-> ## Disclaimer
->
+> Experimental and use at your own risk: agents read files, run commands and
+> can send what they read to Anthropic, GitHub and MCP servers. Read the
+> [Disclaimer](#disclaimer) first.
+
+Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
+
+## Prerequisites
+
+- **Nix.** Already installed? Skip this. Otherwise install it with the
+  [Determinate Nix installer](https://docs.determinate.systems/), then open a
+  new terminal:
+
+  ```sh
+  curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+  ```
+
+- **GitHub login**, so the agents can open pull requests. Already logged in
+  with any `gh` (from Nix, Homebrew or elsewhere)? Skip this: every `gh` shares
+  the same stored login. Otherwise log in, no `gh` install needed:
+
+  ```sh
+  nix run "nixpkgs#gh" -- auth login
+  ```
+
+## Quickstart: try it
+
+1. Start it from your own project, the git repository you want the agents to
+   work on. One line, nothing to clone: Nix fetches and builds it from GitHub.
+   The first launch asks you to log in to Claude:
+
+   ```sh
+   nix run "github:ILIYANGERMANOV/nixos#claude-kategory"
+   ```
+
+   Keep the quotes: zsh, the macOS shell, treats `#` as a special character.
+
+2. Ask `/chief` for anything:
+
+   ```text
+   /chief <prompt: anything you want>
+   ```
+
+   It picks the right flow, asks you each decision as a question and hands
+   back a pull request. Stopped halfway? `/chief resume` picks it up.
+
+## Install for good
+
+Liked it? Put `claude-kategory` on your `PATH`, then start it from any
+project:
+
+```sh
+nix profile add "github:ILIYANGERMANOV/nixos#claude-kategory"
+claude-kategory
+```
+
+To remove it: `nix profile remove claude-kategory`.
+
+## What you get
+
+- `/chief <prompt>` - the entry point. Routes each request to the flows below.
+- `/engineer` - a task end to end: plan, build, review, ready PR with green CI.
+- `/architect` - a read-only design talk that can end in a GitHub issue.
+- `/qa <PR>` - drives the app in a headless browser and posts the proof.
+- `/refactor`, `/pragmatic-review` - clean up or review a branch or PR.
+
+It is built for the author's headless "software factory" server. On a laptop
+the factory-only parts do not apply: `/10x-engineer`, push notifications and
+PR-activity wake-ups.
+
+## What you can change
+
+- **Yours, kept across launches:** login, `settings.json` (`/model`,
+  `/config`), plugins and MCP servers (`/mcp`, `claude-kategory mcp add ...`).
+- **Set by Nix on every launch:** the harness skills, roles and `CLAUDE.md`
+  (rewritten on disk), and its hooks and guards (passed from the Nix store).
+
+## Update
+
+New commits land on `main` often. One command takes the latest:
+
+| You use | Update with |
+|---|---|
+| Install for good | `nix profile upgrade --refresh claude-kategory` |
+| Quickstart | `nix run --refresh "github:ILIYANGERMANOV/nixos#claude-kategory"` |
+
+`--refresh` makes Nix check GitHub again. Without it Nix may reuse a cached
+copy for up to an hour and stay on an old version.
+
+## Disclaimer
+
+> [!WARNING]
 > - **Use at your own risk.** This is a personal, experimental setup, provided
 >   "as is", with no warranty of any kind. See the [LICENSE](../LICENSE).
 > - **No liability.** The authors are not liable for any damage, data loss,
@@ -28,36 +119,3 @@ touched.
 >     repositories.
 >
 > By running it you accept these terms.
-
-## Install
-
-1. Install Nix, if you do not have it yet, with the
-   [Determinate Nix installer](https://docs.determinate.systems/):
-
-   ```sh
-   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
-   ```
-
-   Open a new terminal afterwards.
-
-2. Start `claude-kategory` from the `main` branch:
-
-   ```sh
-   nix run "github:ILIYANGERMANOV/nixos#claude-kategory"
-   ```
-
-   The first launch builds it and asks you to log in. To keep it on your
-   `PATH` as `claude-kategory`, install it instead:
-
-   ```sh
-   nix profile add "github:ILIYANGERMANOV/nixos#claude-kategory"
-   ```
-
-Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
-
-## What you can change
-
-- **Yours, kept across launches:** login, `settings.json` (`/model`,
-  `/config`), plugins and MCP servers (`/mcp`, `claude-kategory mcp add ...`).
-- **Set by Nix on every launch:** the harness skills, roles and `CLAUDE.md`
-  (rewritten on disk), and its hooks and guards (passed from the Nix store).
