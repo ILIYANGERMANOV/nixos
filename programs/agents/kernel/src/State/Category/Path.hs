@@ -44,11 +44,12 @@ forkPasses g place = case Map.lookup place g.groupStates of
 unrecorded :: OpenGraph -> Place -> Maybe (Edge Node)
 unrecorded g place = awaitDone g place <|> forkPasses g place
 
-{- | The functor @ty@ on the path the events walk from the in port: each
+{- | @ty@ on the path the events walk from the in port: each
 outcome to its edge of @Cap@, a child's hand-back at an await to the
 identity, which a path of @Cap@ leaves out. An event past an await or a
 parallel's fork walks its 'unrecorded' edge first. 'Nothing' when an event is not an edge where the path
-has got to.
+has got to. Not a functor: it always walks from the in port, so a walk from
+mid-flow has no @ty@. It keeps the empty walk and prefixes.
 -}
 ty :: OpenGraph -> [EventName] -> Maybe [OutcomeEdge]
 ty g = go (At g.inPort)
