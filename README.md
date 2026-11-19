@@ -101,8 +101,8 @@ just mutation-diff
 just mutation
 
 # Rebuild and switch (macOS)
-darwin-rebuild switch --flake .#macos-main
+darwin-rebuild switch --flake ".#macos-main"
 
 # Rebuild and switch (NixOS)
-nixos-rebuild switch --flake .#lenovo-old
+nixos-rebuild switch --flake ".#lenovo-old"
 ```

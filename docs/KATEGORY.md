@@ -28,7 +28,7 @@ Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
    `gh auth status` already says you are logged in:
 
    ```sh
-   nix run nixpkgs#gh -- auth login
+   nix run "nixpkgs#gh" -- auth login
    ```
 
 3. Start it from your own project, the git repository you want the agents to
