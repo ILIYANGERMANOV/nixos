@@ -59,7 +59,6 @@ let
         file = ./skills/custom/pragmatic-review/references/first-pass.md;
         labels = [
           "**Balanced row.**"
-          "**Low row.**"
         ];
       }
     ];
