@@ -18,7 +18,7 @@ A scoped state, whose id is not its name, is declared first, labelled with its n
 mermaid :: OpenGraph -> Text
 mermaid g =
     Text.unlines $
-        ["stateDiagram-v2", "  direction LR"]
+        ["stateDiagram-v2", "  direction TB"]
             <> ["  state \"" <> name <> "\" as " <> ident place | place <- Set.toList (places g), let StateName name = placeName place, ident place /= name]
             <> ["  [*] --> " <> ident g.inPort]
             <> [ "  " <> ident from <> " --> " <> node edge.to <> ": " <> eventLabel from event

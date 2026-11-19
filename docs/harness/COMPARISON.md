@@ -27,6 +27,8 @@ Every claude-kategory cell links the code or the test behind it.
 
 | Property | claude-kategory | Prose-only Claude | Bare Claude Code |
 |---|---|---|---|
+| Follows the predefined flow | Agents follow the flow more often: the `state` binary and hooks push them to it. A lead's write (an edit, a commit, a push, a PR, a spawn) before `state init` is denied by the `state-route` hook ([hook][routehook], [`gate`][gate]). So every lead talks to `state` at least once. Then `state next` prints the next action, and the agent treats it as the authority ([`advise`][advise], [`deliver`][deliverline]). Hooks are best effort: a client that skips a hook skips its push. | A skill lists the steps. The model may skip or reorder them; nothing notices. | No flow. The model picks each step. |
+| Context for the agent | On a fresh, resumed or compacted session, the `state-resume` hook prints `state show` and `state next` as context ([hook][resumehook], [`ResumeHook`][resumehookhs], [output][resumeanswer]). In general, each command's output says what to do next: an action line, or a refusal as `what - why` then `fix:` ([`failureText`][failuretext]). The resume hook is best effort too. | Context is what the model wrote down and the next one finds. | The conversation, or its compacted summary. |
 | Resume after context loss | The run is its log. A fresh agent reads `state show` and `state next` and goes on; a session that lost its agents records `Restarted` and sends them again ([`restartOf`][restartOf], [test][hookspec231]). The context guard asks for a commit and hand-back before the limit ([limits][ctxlimits]). | A skill can ask the agent to keep a progress file. Recovery works if the model wrote it and the next one reads it. | `--resume` and `--continue` restore the conversation; auto-compaction summarises it. What the summary drops is lost. |
 | Bounded loops | Each loop holds a capped step, with a limit per Fuel level; past it the kernel refuses, stops or asks ([`Limit`][limit], [`AtCap`][atcap]). A loop with no cap is refused when the flow is built ([test][graph74]); no run spends past a cap ([test][fold228]). | "At most 3 review rounds" in a skill. The model counts; nothing checks. | No loop budget. The user interrupts, or a headless run's turn limit ends it. |
 | Named waits | Every wait is a line: `AWAIT` on CI, a merge, a worker or children, or `HANDBACK` to the run above ([`deliver`][deliver], [test][advice439]). The wait guard denies blind sleeps and polling ([guard][waitguard], [tests][waittest]). | "Do not poll; wait for the notification." Usually obeyed. | The model may sleep, poll or end its turn with no reason given. Background tasks can notify it. |
@@ -99,3 +101,11 @@ Fair to the other columns:
 [derive106]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L106
 [derive109]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L109
 [route]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Cli/Route.hs#L1
+[routehook]: ../../programs/agents/kernel/hooks.nix#L42-L53
+[gate]: ../../programs/agents/kernel/src/State/Cli/Route.hs#L196-L218
+[advise]: ../../programs/agents/kernel/src/State/Protocol/Advice.hs#L262-L263
+[deliverline]: ../../programs/agents/kernel/src/State/Protocol/Advice.hs#L721-L724
+[resumehook]: ../../programs/agents/kernel/hooks.nix#L13-L16
+[resumehookhs]: ../../programs/agents/kernel/src/State/Protocol/Hook.hs#L5-L6
+[resumeanswer]: ../../programs/agents/kernel/src/State/Cli/Shell.hs#L512-L522
+[failuretext]: ../../programs/agents/kernel/src/State/Cli/Command.hs#L148-L159

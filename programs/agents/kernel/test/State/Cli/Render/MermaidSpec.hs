@@ -28,7 +28,7 @@ spec = describe "State.Cli.Render.Mermaid" $ do
         render (Scope "s" (Do SimplifyPR) :> Do FixPR)
             `shouldBe` Text.unlines
                 [ "stateDiagram-v2"
-                , "  direction LR"
+                , "  direction TB"
                 , "  state \"s/simplify_pr\" as s__simplify_pr"
                 , "  [*] --> s__simplify_pr"
                 , "  s__simplify_pr --> fix_pr: done"

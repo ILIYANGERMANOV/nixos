@@ -89,7 +89,7 @@ built from the blocks in [`Library.hs`](https://github.com/ILIYANGERMANOV/nixos/
 ```mermaid
 
 stateDiagram-v2
-  direction LR
+  direction TB
   state "gather/researchers" as gather__researchers
   state "gather/notes" as gather__notes
   state "gather/research" as gather__research
@@ -146,7 +146,7 @@ Source: [`TenX.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc
 ```mermaid
 
 stateDiagram-v2
-  direction LR
+  direction TB
   state "gather/researchers" as gather__researchers
   state "gather/notes" as gather__notes
   state "gather/research" as gather__research
@@ -190,7 +190,7 @@ Source: [`Architect.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c
 ```mermaid
 
 stateDiagram-v2
-  direction LR
+  direction TB
   state "architect/researchers" as architect__researchers
   state "architect/notes" as architect__notes
   state "architect/research" as architect__research
@@ -282,7 +282,7 @@ whole flow and block inlined under its route's name.
 ```mermaid
 
 stateDiagram-v2
-  direction LR
+  direction TB
   state "architect/fuel" as architect__fuel
   state "architect/architect" as architect__architect
   state "architect/architect/researchers" as architect__architect__researchers
