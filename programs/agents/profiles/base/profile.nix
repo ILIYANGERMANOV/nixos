@@ -44,6 +44,7 @@
       })
       topics.engineering
       topics.fuel
+      topics.fuelLead
     ];
   };
   # On PATH in every session, whatever the project: /qa's `qa-node` (Playwright,

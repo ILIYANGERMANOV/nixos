@@ -1,4 +1,4 @@
-## 10x-engineer on this machine
+# 10x-engineer on this machine
 
 - This machine has no `add_repo` or `PushNotification`: skip them.
 - Never run `gh pr merge` and never push to `epic/*`. The user merges. Their

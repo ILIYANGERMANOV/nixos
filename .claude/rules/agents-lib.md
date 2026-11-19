@@ -9,12 +9,14 @@ paths:
 ### Instructions
 
 - `instructions/agent.md` - what every agent gets, subagent roles included.
-  `lead.md` and `topics/fuel.md` are for the agent leading a session, with
-  `fuel.md` also in the roles that vary by Fuel: `engineer`, `researcher`,
-  `refactorer`, `review-lead`, `reviewer`. Plain committed markdown.
+  `lead.md`, `topics/fuel.md` and `topics/fuel-lead.md` are for the agent
+  leading a session, with `fuel.md` also in the roles that vary by Fuel:
+  `engineer`, `researcher`, `refactorer`, `review-lead`, `reviewer`, and
+  `fuel-lead.md` (the run rules: Confirm, skips, `extend`) also in `engineer`,
+  which runs a flow. Plain committed markdown.
 - `topics/engineering.md` - the coding style and engineering principles, in
   the lead and every role that writes, reviews or researches code (all but
-  `checker` and `qa-runner`). Its `@tests@` becomes the store path of
+  `checker`). Its `@tests@` becomes the store path of
   `topics/engineering/tests.md` through `replaceVars`.
 - `topics/fuel.md`'s Fuel table is the only place a Fuel changes a step;
   skills and roles read their row. Its trivial rule keeps skill and

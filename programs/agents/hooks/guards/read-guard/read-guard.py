@@ -29,11 +29,11 @@ MAX_BYTES = 16 * 1024
 SHOWN = {Sink.SCREEN, Sink.BARE_SUBSTITUTION}
 BASH_HINT = (
     "Blocked: this reads {size} bytes in one command. "
-    "grep -n first, then read the range with sed -n."
+    "rg -n first, then Read the range with offset and limit."
 )
 READ_HINT = (
     "Blocked: this Read takes the whole {size} byte file. "
-    "grep -n first, then Read with offset and limit."
+    "rg -n first, then Read with offset and limit."
 )
 INSTRUCTIONS = {"AGENTS.md", "CLAUDE.md", "SKILL.md"}
 # programs/agents' instruction prose, and each profile's.

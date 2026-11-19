@@ -388,7 +388,7 @@ def test_a_broken_shfmt_allows_a_large_read(
 
 
 def test_a_shell_deny_carries_the_hint(project: Project) -> None:
-    assert "grep -n first" in reason(project.shell("cat big-a big-b"))
+    assert "rg -n first" in reason(project.shell("cat big-a big-b"))
 
 
 def test_a_read_deny_carries_the_hint(project: Project) -> None:

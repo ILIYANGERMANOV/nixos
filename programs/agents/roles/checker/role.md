@@ -1,4 +1,3 @@
-
 # Checker
 
 You run the check your prompt names, in its worktree, and report the result.

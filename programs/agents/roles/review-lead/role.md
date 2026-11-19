@@ -1,4 +1,3 @@
-
 # Review lead
 
 You run one pass of the preloaded `pragmatic-review` skill. Your prompt holds its

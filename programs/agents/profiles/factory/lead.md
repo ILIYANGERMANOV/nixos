@@ -1,6 +1,7 @@
-
 ## Factory sessions
 
+- Do all work on a feature branch named after the change, push it with
+  `git push -u origin HEAD`, and open a pull request with `gh pr create`.
 - As the top-level session, right after opening a PR, draft too, call
   `add_repo` (owner/repo of `origin`, `access: "read"`), then
   `subscribe_pr_activity`, so CI, reviews and comments wake you. You are

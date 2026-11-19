@@ -19,9 +19,13 @@
 # role's. `offFlow` is a `role`'s work outside the flows: it has no types,
 # the kernel never sees it, and only the derivation reads it.
 let
-  # The engineering instructions, and the Fuel table the lead reads at every
-  # step it decides to run or skip.
-  leadProse = [
+  # The engineering instructions, and the Fuel table and its run rules the
+  # lead reads at every step it decides to run or skip.
+  leadProse = engProse ++ [ "topics/fuel-lead.md" ];
+
+  # The engineering instructions and the Fuel table, without its run rules: a
+  # role that varies by Fuel but runs no flow.
+  engProse = [
     "topics/engineering.md"
     "topics/fuel.md"
   ];
@@ -230,10 +234,7 @@ in
         "web"
       ];
       skills = [ "researcher" ];
-      prose = [
-        "topics/engineering.md"
-        "topics/fuel.md"
-      ];
+      prose = engProse;
       ops = [ ];
       flows = [
         "engineer"
@@ -313,10 +314,7 @@ in
         "web"
       ];
       skills = [ "researcher" ];
-      prose = [
-        "topics/engineering.md"
-        "topics/fuel.md"
-      ];
+      prose = engProse;
       ops = [ ];
       flows = [
         "engineer"
@@ -408,7 +406,7 @@ in
         "shell"
       ];
       skills = [ "pragmatic-review" ];
-      prose = leadProse;
+      prose = engProse;
       ops = [ "spawn:reviewer" ];
       flows = [ "engineer" ];
     };
@@ -463,7 +461,7 @@ in
         "shell"
       ];
       skills = [ "pragmatic-review" ];
-      prose = leadProse;
+      prose = engProse;
       ops = [ "spawn:reviewer" ];
       flows = [ "engineer" ];
     };
@@ -583,10 +581,7 @@ in
         "shell"
       ];
       skills = [ ];
-      prose = [
-        "topics/engineering.md"
-        "topics/fuel.md"
-      ];
+      prose = engProse;
       ops = [ ];
     };
     # The /qa skill's executor.
@@ -599,7 +594,7 @@ in
         "web"
       ];
       skills = [ ];
-      prose = [ ];
+      prose = [ "topics/engineering.md" ];
       ops = [ ];
     };
   };

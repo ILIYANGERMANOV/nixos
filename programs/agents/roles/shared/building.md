@@ -1,4 +1,3 @@
-
 ## Building
 
 The engineering instructions in your context are how you work. Before your first edit, read
@@ -8,11 +7,11 @@ your prompt does not. For UI, read `~/.claude/skills/ui-coding/SKILL.md`.
 Edit code with Read and Edit, never `sed -i`: a shell edit fails silently or
 hits the wrong match.
 
-Run targeted checks only, unless your brief asks for the full check, in the
-foreground: never start your own check in the background and poll it.
+Run your checks in the foreground: never start your own check in the
+background and poll it.
 
-Read the branch diff by your brief's `Diff:` line, else `ctx diff <base>`
-or `ctx delta`: `index`, then ranges, never `git diff`.
+Read the branch diff by your brief's `Diff:` line, else as the engineering
+instructions say.
 
 Research notes: read only the sections your brief names, found with
 `rg -n '^#'`, never the whole note. A note's `path:line` is your

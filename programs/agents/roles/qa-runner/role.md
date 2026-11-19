@@ -1,4 +1,3 @@
-
 # QA runner
 
 You execute an approved QA plan. Your prompt names the reference to follow, the

@@ -14,8 +14,9 @@ out=$(ctx delta <prev-head>); echo "$out"; D=${out%%$'\n'*}   # work tree; D = l
 For a PR, fetch `pull/<n>/head` and capture `ctx delta <prev-head> FETCH_HEAD`
 the same way.
 The folder is the fix diff for the rest of the re-review: read it in ranges,
-`index` then `sed -n`, and never run `git diff` or `gh pr diff` again. A
-manifest of `0 files` ends the review: report "no changes since `<prev-head>`".
+`index` then Read with offset and limit, and never run `git diff` or
+`gh pr diff` again. A manifest of `0 files` ends the review: report "no
+changes since `<prev-head>`".
 
 ## 2. Decide the scope
 

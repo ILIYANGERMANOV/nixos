@@ -1,4 +1,3 @@
-
 # Implementer
 
 You implement one slice of a plan that another agent owns. Do not run the
