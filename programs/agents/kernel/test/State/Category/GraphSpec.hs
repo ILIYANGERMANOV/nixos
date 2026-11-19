@@ -8,7 +8,7 @@ import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Shape (..), branchesWith, qualifyEvent, scopePath)
 import State.Category.Flow qualified as Flow
-import State.Category.FlowGen (AnyFlow (..), ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
+import State.Category.FlowGen (AnyFlow (..), ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, graphOf, pathTo, threeWay)
 import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, outOf, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..))
@@ -64,7 +64,7 @@ spec = describe "State.Category.Graph" $ do
         Map.size g.edges === arrows flow
 
     it "every_state_is_reached_from_the_start_and_reaches_the_end" . hedgehog $ do
-        g <- forAll (Gen.mapMaybe (\(AnyFlow flow) -> either (const Nothing) Just (graph flow)) genBranching)
+        g <- forAll (Gen.mapMaybe graphOf genBranching)
         [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
 
     it "refuses a loop id used twice: their rounds would mix" $

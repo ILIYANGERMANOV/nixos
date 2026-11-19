@@ -226,10 +226,10 @@ flowchart LR
 | Map | Type | What it is | Evidence |
 |---|---|---|---|
 | `graph` | `Flow -> Either Clash OpenGraph` | a partial functor into graphs up to isomorphism | P2, P10 |
-| `ty` | `[EventName] -> Maybe [OutcomeEdge]` | a partial map from `Run(F)` to `Cap` | P12, P13; functor law P14 open |
+| `ty` | `[EventName] -> Maybe [OutcomeEdge]` | a partial map from `Run(F)` to `Cap` that keeps the empty walk and prefixes; not a functor | P12, P13, P14 |
 | `ev` | a run to its log | not a function in the code | Open |
-| `cfg` | `Fuel` to the flow's budgets | a monotone map | P21, P23; all flows P22 open |
-| `profile` | steps to a role profile | a plain function, checked by Nix | P31, P32; P33 open |
+| `cfg` | `Fuel` to the flow's budgets | a monotone map | P21, P22, P23 |
+| `profile` | steps to a role profile | a plain function, checked by Nix; monotone on tools, skills and operations, not prose | P31, P32, P33 |
 | `fold` | `Log -> run state` | a partial monoid action | P27, P28, P30 |
 | Mermaid render | `OpenGraph -> Text` | a plain function | golden tests |
 
@@ -249,8 +249,12 @@ functor.
 outcome's edge of `Cap`, or `Nothing` when an event has no edge where the run
 is. The empty walk gives the empty path. Every log replay accepts is a
 composable path of `Cap` (P13). On two glued graphs, `ty` of a joined walk is
-the join of the two `ty`s ([GraphSpec.hs:40][graph40]). A functor-law test
-over all paths is not written yet (P14).
+the join of the two `ty`s ([GraphSpec.hs:40][graph40]). It is not a functor:
+it always walks from the in port, so a walk that starts mid-flow has no `ty`,
+and `ty (p ++ q) = ty p ; ty q` does not typecheck. What holds, for every
+generated flow, is that the empty walk maps to the empty path
+([PathSpec.hs:42][path42]) and a prefix of a walk to a prefix of its path
+([PathSpec.hs:46][path46]).
 
 **ev.** A run's path is a list of events; the log stores it with envelopes.
 There is no `ev` function: the log is the path written down.
@@ -265,7 +269,11 @@ full ([`monotone`][fuel72], [`fullReview`][fuel101]). `PerFuel` is a Haskell
 **profile.** `profile(r)` is the union of the tools, skills, operations and
 prose of the steps role `r` runs; for a split role, the prose is the
 intersection ([derive.nix:1][derive1]). Nix assertions check every role
-(P31, P32).
+(P31, P32). Tools, skills and operations are unions, so a step more never
+gives fewer: the check removes each row of the table in turn and finds nothing
+new ([derive.nix:134][derive134]), and union makes any smaller table follow
+(P33). Prose is not monotone: a split role is given only the prose every step
+needs, so a step more may give less.
 
 **fold.** [`replay`][fold337] reads a non-empty log that starts with
 `started`; [`fold`][fold378] reads more lines onto a state. Both may refuse
@@ -309,19 +317,19 @@ Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 | P10 | graph preserves series | `graph(f :> g)` is the glue of `graph f` and `graph g` | Holds ([GraphSpec.hs:35][graph35]) |
 | P11 | Deterministic | from a state, an event names at most one edge | Holds ([GraphSpec.hs:62][graph62]) |
 | P12 | Skip is endo | a skipped step maps to the identity of `Cap` | Holds ([PathSpec.hs:24][path24]) |
-| P13 | Trace soundness | every log replay accepts is a composable path of `Cap` | Holds ([FoldSpec.hs:203][fold203]) |
-| P14 | ty is a functor | `ty` sends the empty path to the identity and a joined path to the joined `Cap` path, for every flow | Needs a functor-law test (#499) |
+| P13 | Trace soundness | every log replay accepts is a composable path of `Cap` | Holds if the flow is engineer ([FoldSpec.hs:203][fold203]); a walk through a fork may not compose (N12) |
+| P14 | ty keeps unit and prefixes | `ty [] = Just []`, and `ty p` is a prefix of `ty (p ++ q)`, for every generated flow. Not a functor law: `ty` walks from the in port (N5) | Holds ([PathSpec.hs:42][path42], [PathSpec.hs:46][path46]) |
 | P15 | Forward is identity | `forwardAll andThen h = h = h andThen forwardAll` | Holds ([AskSpec.hs:22][askspec22]) |
 | P16 | Handlers associate | `(a andThen b) andThen c = a andThen (b andThen c)` | Holds ([AskSpec.hs:43][askspec43]) |
 | P17 | Chain | the parent rules on what the child forwards, raised to the child's reading | Holds ([AskSpec.hs:32][askspec32]) |
 | P18 | Ceiling | no event lowers a `Security` question; a `Security` ruling names its basis | Holds ([AskSpec.hs:49][askspec49], [AskSpec.hs:57][askspec57]) |
 | P19 | Total asks | every question ends answered or stopped | Holds ([FoldSpec.hs:1059][fold1059]) |
 | P20 | Principal-blind | the advice is the same whoever started the run, up to delivery | Holds ([AdviceSpec.hs:44][advice44]) |
-| P21 | Monotone budgets | each Fuel level allows at least the spends and runs of the level below | Holds if the flow is engineer or 10x ([LawsSpec.hs:156][laws156]) |
-| P22 | Monotone budgets, every flow | P21 for chief and architect too | Needs a monotone test over every flow (#499) |
+| P21 | Monotone budgets | each Fuel level allows at least the spends and runs of the level below | Holds ([LawsSpec.hs:158][laws158]) |
+| P22 | Monotone budgets, every flow | P21 for every flow in `State.Role.roles`: engineer, 10x, architect and chief, and any flow added there | Holds ([LawsSpec.hs:158][laws158]) |
 | P23 | Monotone full review | each level reviews in full at least the areas of the level below | Holds ([FuelSpec.hs:52][fuel52]) |
-| P24 | Keep | the engineer flow: no Fuel level skips `review` or `describe`. The 10x flow: no level skips `engineers` or `merge`, and each engineer runs the engineer flow | Holds if the flow is engineer or 10x ([EngineerSpec.hs:19][eng19], [TenXSpec.hs:22][tenx22], [TenXSpec.hs:28][tenx28]) |
-| P25 | Keep, full | no level skips the security review, blockers, fact research or the final fixer, in every flow | Needs a Keep test over every flow (#499) |
+| P24 | Keep | the engineer flow: no Fuel level skips `review` or `describe`. The 10x flow: no level skips `engineers` or `merge`, and each engineer runs the engineer flow | Holds ([EngineerSpec.hs:19][eng19], [TenXSpec.hs:22][tenx22], [TenXSpec.hs:28][tenx28]) |
+| P25 | Keep, full | in every flow of `State.Role.roles`, no Fuel skip names `review` (where the security review runs), `re_review` (blockers), `research` (fact research), `describe` or `simplify_pr` (the final fixer). A flow without one of these steps holds it vacuously | Holds ([LawsSpec.hs:163][laws163]) |
 | P26 | Bounded | no run spends past a cap; a loop whose body caps no step is refused | Holds ([FoldSpec.hs:228][fold228], [GraphSpec.hs:74][graph74]) |
 | P27 | Stuck | the same problems in a loop's last two rounds in a row mark it stuck, and the run asks a `Stuck` question | Holds ([FoldSpec.hs:267][fold267]) |
 | P28 | Log is a fold | replaying a prefix, then the rest, is replaying the whole | Holds ([FoldSpec.hs:458][fold458], [FoldSpec.hs:338][fold338]) |
@@ -329,15 +337,15 @@ Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 | P30 | Void | a voided line replays as if it was never logged | Holds ([FoldSpec.hs:436][fold436]) |
 | P31 | Sufficient | a role holds every tool, skill, operation and prose its steps need | Holds ([derive.nix:106][derive106]) |
 | P32 | Lean | a role holds nothing its steps do not need | Holds ([derive.nix:109][derive109]) |
-| P33 | profile is monotone | more steps never give a role less | Needs a monotone test of `profile` (#499) |
-| P34 | Budget | each role's preloaded prose stays under its ceiling | Holds ([budget/default.nix:16][budget16]) |
-| P35 | One writer | only the kernel appends to a run's log | Needs a one-writer test (#499) |
+| P33 | profile is monotone | more steps never give a role fewer tools, skills or operations; prose is excluded, as a split role's prose is an intersection | Holds ([derive.nix:134][derive134]) |
+| P34 | Budget | each role's preloaded prose stays under its ceiling | Holds ([config-check.nix:148][configcheck148], `budget-compare` from [budget/default.nix:16][budget16]) |
+| P35 | One writer | only the kernel appends to a run's log | Assumed: only `Effects.Store` inserts events ([Store.hs:93][store93]), but nothing stops another writer, such as `sqlite3` on the database (N13) |
 
 ## 10 Notes
 
 ```mermaid
 flowchart LR
-  P["Property row (section 9)"] -->|"caveat"| N["Note N1 to N11"]
+  P["Property row (section 9)"] -->|"caveat"| N["Note N1 to N13"]
   N -->|"verified against"| C["code line"]
 ```
 
@@ -349,26 +357,25 @@ Each note is verified against the code.
 | N2 | P3 | Associativity is tested on generated triples that `graph` accepts; a triple that clashes is filtered out ([LawsSpec.hs:50][laws50]). |
 | N3 | P4 | Case eta is not expressible: the core has no injection, and a flow out of a sum is already a `Case` ([LawsSpec.hs:58][laws58]). |
 | N4 | P7 | `parallel g (f :> h) = parallel g f :> parallel g' h` holds of the children's runs, not of a graph, and is not tested as such ([LawsSpec.hs:110][laws110]). |
-| N5 | P10, P14 | `graph` is partial: it refuses terms with a `Clash` ([GraphSpec.hs:70][graph70]). The comment on `ty` calls it a functor ([Path.hs:47][path47]), but only its behaviour on glued walks and on accepted logs is tested. |
-| N6 | P21, P22 | The monotone test lists the engineer and 10x flows only ([LawsSpec.hs:157][laws157]). |
-| N7 | P21 | ADR 0018 drew `Mode` as Quality x Size. The code has one order, `Low < Balanced < Max` ([Fuel.hs:29][fuel29]); ADR 0018's text is stale and #499 fixes it. |
+| N5 | P10, P14 | `graph` is partial: it refuses terms with a `Clash` ([GraphSpec.hs:70][graph70]). `ty` is not a functor: it walks from the in port, so only walks from the start have a `ty`. Its tests pin the empty walk, prefixes, glued walks and accepted logs. |
+| N6 | P21, P22 | The monotone test reads every flow in `State.Role.roles`, one per `FlowName`, so a new flow is covered with no edit ([LawsSpec.hs:159][laws159]). |
+| N7 | P21 | ADR 0018 drew `Mode` as Quality x Size. The code has one order, `Low < Balanced < Max` ([Fuel.hs:29][fuel29]); ADR 0018's text said so until #499, which drew `Mode` as this chain. |
 | N8 | P27 | Only two rounds in a row count: rounds that alternate A, B, A, B are not stuck, on purpose, and the loop's cap ends them ([Fold.hs:1424][fold1424]). |
-| N9 | P28, P29, P30 | `fold` is partial: replay needs a non-empty log whose first line is `started` ([FoldSpec.hs:465][fold465]), and an event with no edge where the run is is refused ([Fold.hs:520][fold520]). ADR 0014 states a unit `fold([]) = S0` and a total `apply`; the code does neither, and #499 fixes the ADR. |
+| N9 | P28, P29, P30 | `fold` is partial, not total: replay needs a non-empty log whose first line is `started` ([FoldSpec.hs:465][fold465]), and an event with no edge where the run is is refused ([Fold.hs:520][fold520]). Since #499, ADR 0014 states the unit as the `started` line and totality as `applyEvent` returning a `Refusal` value, never a throw. |
 | N10 | P29 | The log is a free monoid only up to ids. A line whose id is already logged is `AlreadyLogged`, so a hook record that fires twice is logged once ([FoldSpec.hs:317][fold317]). |
 | N11 | P31, P32, P34 | Nix assertions over the real step table and roles, run as checks (`derived-roles` in [`programs/agents/default.nix`][agents248]), not property tests over generated input. |
+| N12 | P13, P14 | The prefix property's walks can pass a fork: there `ty` returns the spawn edge typed by one child (`Ctx -> Ctx`) between the fan-out's `List` edges, so that path does not compose. P13 is tested on the engineer flow ([FoldSpec.hs:203][fold203]), and the prefix test does not assert composition. |
+| N13 | P35 | The log is one SQLite database (ADR 0022). The kernel writes it through one insert ([Store.hs:93][store93]); no hook, permission or architecture rule stops an agent writing it another way. |
 
 ## 11 Open in the model
 
 | Open | Tracked |
 |---|---|
-| `ty` as a functor over every path of every flow | P14, #499 |
-| `cfg` monotone for every flow, chief and architect included | P22, #499 |
-| `profile` as a monotone map | P33, #499 |
-| Keep over the full list of #351, in every flow | P25, #499 |
-| One writer for the log | P35, #499 |
+| One writer for the log is assumed, not enforced | P35, N13 |
+| `ty` composes only on walks with no fork | P13, N12 |
+| `profile`'s prose is not monotone for split roles | P33 |
 | `ev` has no code: the log is the path written down. Naming it a map adds nothing until something consumes it | - |
 | ADR 0018 names `Ifc` "the operations a role may call". The code splits it in two: a type-level effect set that `Handle` discharges, and the runtime handler monoid of section 4 | - |
-| ADR 0014 (fold unit and totality) and ADR 0018 (`Mode`, functor claims) need their text brought in line with the code | #499 |
 
 ## 12 About this document
 
@@ -403,13 +410,16 @@ otherwise, pinned to the commit this document was checked against.
 [laws124]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/LawsSpec.hs#L124
 [laws134]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/LawsSpec.hs#L134
 [laws147]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/LawsSpec.hs#L147
-[laws156]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/LawsSpec.hs#L156
-[laws157]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/LawsSpec.hs#L157
+[laws158]: https://github.com/ILIYANGERMANOV/nixos/blob/3fe6539055130b7cecd72052b8f083347e0b8f49/programs/agents/kernel/test/State/Category/LawsSpec.hs#L158
+[laws159]: https://github.com/ILIYANGERMANOV/nixos/blob/3fe6539055130b7cecd72052b8f083347e0b8f49/programs/agents/kernel/test/State/Category/LawsSpec.hs#L159
+[laws163]: https://github.com/ILIYANGERMANOV/nixos/blob/3fe6539055130b7cecd72052b8f083347e0b8f49/programs/agents/kernel/test/State/Category/LawsSpec.hs#L163
 [graph35]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/GraphSpec.hs#L35
 [graph40]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/GraphSpec.hs#L40
 [graph62]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/GraphSpec.hs#L62
 [graph70]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/GraphSpec.hs#L70
 [graph74]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/GraphSpec.hs#L74
+[path42]: https://github.com/ILIYANGERMANOV/nixos/blob/3fe6539055130b7cecd72052b8f083347e0b8f49/programs/agents/kernel/test/State/Category/PathSpec.hs#L42
+[path46]: https://github.com/ILIYANGERMANOV/nixos/blob/3fe6539055130b7cecd72052b8f083347e0b8f49/programs/agents/kernel/test/State/Category/PathSpec.hs#L46
 [path24]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/PathSpec.hs#L24
 [flowspec42]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/FlowSpec.hs#L42
 [fuel52]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/FuelSpec.hs#L52
@@ -448,7 +458,6 @@ otherwise, pinned to the commit this document was checked against.
 [graph139]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Graph.hs#L139
 [graph260]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Graph.hs#L260
 [path1]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Path.hs#L1
-[path47]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Path.hs#L47
 [path53]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Path.hs#L53
 [fuel29]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Fuel.hs#L29
 [fuel56]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Fuel.hs#L56
@@ -470,7 +479,10 @@ otherwise, pinned to the commit this document was checked against.
 [mermaid18]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Cli/Render/Mermaid.hs#L18
 [derive1]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L1
 [derive106]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L106
+[derive134]: https://github.com/ILIYANGERMANOV/nixos/blob/3fe6539055130b7cecd72052b8f083347e0b8f49/programs/agents/lib/derive.nix#L134
 [derive109]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L109
 [agents248]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/default.nix#L248
+[configcheck148]: https://github.com/ILIYANGERMANOV/nixos/blob/3fe6539055130b7cecd72052b8f083347e0b8f49/programs/claude-code/config-check.nix#L148
+[store93]: https://github.com/ILIYANGERMANOV/nixos/blob/3fe6539055130b7cecd72052b8f083347e0b8f49/programs/agents/kernel/src/Effects/Store.hs#L93
 [budget16]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/claude-code/budget/default.nix#L16
 [golden-engineer]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/golden/engineer.mmd
