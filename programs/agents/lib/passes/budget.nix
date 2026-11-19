@@ -1,7 +1,8 @@
-# The size budget every agent program shares, in bytes of what the repository
-# controls: the lead's instructions, and `loads`, what one kind of agent reads for
-# its work - its role's instructions, the SKILL.md of each skill it preloads and
-# the references it reads - plus the repository's own instructions. A vendor
+# The size budget every agent program shares, in tokens of what the repository
+# controls, measured here in bytes that budget-compare converts: the lead's
+# instructions, and `loads`, what one kind of agent reads for its work - its
+# role's instructions, the SKILL.md of each skill it preloads and the references
+# it reads - plus the repository's own instructions. A vendor
 # measures what only its format adds, appends those lines, and holds both to
 # `ceilings` and its own.
 #

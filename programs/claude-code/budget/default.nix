@@ -1,6 +1,6 @@
 # Sizes only Claude Code's format adds to the budget programs/agents measures
 # (lib/passes/budget.nix): the skill listing a flavor sends on every call, and
-# each rendered subagent's frontmatter. Ceilings in budget.json. And
+# each rendered subagent's frontmatter. Ceilings in budget.json, in tokens. And
 # skillOverrides, which keeps the listing small.
 {
   pkgs,
@@ -13,8 +13,9 @@ let
   shellCheck = import ../../shell-check { inherit pkgs; };
 in
 {
-  # budget-compare <sizes> <ceilings.json>: prints sizes as a table and fails on
-  # one over its ceiling. Sizes are `<ceiling key> <subject> <bytes>` lines. A
+  # budget-compare <sizes> <ceilings.json>: prints sizes in tokens as a table and
+  # fails on one over its ceiling, in tokens. Sizes are `<ceiling key> <subject>
+  # <bytes>` lines; tokens = ceil(bytes / 4). A
   # size with no ceiling, or a ceiling with no size, fails too, so every number
   # is checked and none is stale.
   compare = shellCheck.writeShellApplication {

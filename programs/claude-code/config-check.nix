@@ -8,7 +8,7 @@
 # running the state hooks and the guards through the adapter, and nothing else.
 #
 # Sizes are programs/agents' budget and budget/'s, each `<ceiling key> <subject>
-# <bytes>` lines, against their ceilings merged. `.report` prints the table,
+# <bytes>` lines, against their ceilings in tokens merged. `.report` prints the table,
 # passing or not (`just skill-budget`).
 {
   pkgs,
@@ -130,7 +130,8 @@ pkgs.runCommand "claude-config-check"
       '') flavorSettings
     )}
 
-    # Given synthetic sizes, each way to break the budget must fail.
+    # Given synthetic byte sizes against token ceilings, each way to break the
+    # budget must fail. 40 bytes is 10 tokens, 41 rounds up to 11.
     echo '{"a": 10, "b": 10}' >ceilings.json
     rejects() {
       printf '%s' "$1" >bad-sizes
@@ -139,10 +140,10 @@ pkgs.runCommand "claude-config-check"
         exit 1
       fi
     }
-    rejects $'a x 11\nb x 10\n'
-    rejects $'a x 10\nb x 10\nc x 1\n'
-    rejects $'a x 10\n'
-    printf 'a x 10\nb x 10\n' >good-sizes
+    rejects $'a x 41\nb x 40\n'
+    rejects $'a x 40\nb x 40\nc x 1\n'
+    rejects $'a x 40\n'
+    printf 'a x 40\nb x 40\n' >good-sizes
     budget-compare good-sizes ceilings.json >/dev/null
 
     budget-compare ${allSizes} ${allCeilings} >"$out"
