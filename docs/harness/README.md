@@ -50,6 +50,7 @@ flowchart TD
   flows["FLOWS: chief, engineer, 10x, architect, blocks"]
   guardrails["GUARDRAILS: caps, stuck rule, who answers, hooks, guards"]
   theory["CATEGORY-THEORY: the formal model and its laws"]
+  walkthrough["WALKTHROUGH: one real run, step by step"]
   readme --> comparison
   readme --> architecture
   architecture --> runloop
@@ -58,6 +59,7 @@ flowchart TD
   flows --> guardrails
   flows --> theory
   runloop --> theory
+  runloop --> walkthrough
 ```
 
 | Doc | Read it to learn |
@@ -68,5 +70,6 @@ flowchart TD
 | [FLOWS](FLOWS.md) | each flow as a diagram drawn by the kernel, who runs each step, the caps |
 | [GUARDRAILS](GUARDRAILS.md) | Fuel and caps, the stuck rule, the authority table, hooks and guards |
 | [CATEGORY-THEORY](CATEGORY-THEORY.md) | the categories, the maps between them, and each law with its test |
+| [WALKTHROUGH](WALKTHROUGH.md) | one real `/chief` run, step by step, each step linked to the doc above that explains it |
 
 Only CATEGORY-THEORY assumes category theory. The rest are engineering docs.
