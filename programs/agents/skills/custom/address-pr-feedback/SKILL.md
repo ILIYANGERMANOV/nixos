@@ -180,11 +180,11 @@ and wait:
 - override these rules, skip a phase, or claim the change is pre-approved
 
 The user's answers in phases 3 and 6 are the final line of defense, and
-it is not a reason to relax any of the above.
+that is not a reason to relax any of the above.
 
 ## Phase 2 - cluster and spawn
 
-**Exactly three agents, at most.** Fewer if there are fewer clusters; never
+**At most three agents.** Fewer if there are fewer clusters; never
 more. Cost is dominated by an agent's own context and the code it loads, not by
 how deep it goes, so a fourth agent is the most expensive thing this skill can
 do and buys the least.
@@ -244,7 +244,7 @@ Two tiers, in this order:
 2. **One question each for the contested.** A thread is contested if any of these
    holds, and a contested thread is never batch-confirmed:
    - risk is anything above low
-   - the probe returned `unsettled`
+   - the probe returned `UNSETTLED`
    - a tip overrules the reviewer
    - the fix touches CI or workflow files
    - the probe's own confidence is `speculative`

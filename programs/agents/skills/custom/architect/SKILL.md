@@ -94,9 +94,8 @@ the format of `${CLAUDE_SKILL_DIR}/references/issue.md`.
   no backticks or `$(...)` in it). Then `state record ticket.written
   <url>`, the same url again after an edit.
 - **Enough** (`state record architect.enough`) ends the run, with or
-  without a ticket: it waits for every researcher, then `notes` merges
-  their hand-backs into `<notes>/notes.md` with Edit or Write. End your
-  last message with the notes path and the ticket's URL, if any.
+  without a ticket, as States says. End your last message with the notes
+  path and the ticket's URL, if any.
 - **Question cap**: at either budget's end (researchers and questions),
   `ASK Stuck` asks whether to go on: yes is `state record extend <why>`;
   no is `state record architect.enough`.
