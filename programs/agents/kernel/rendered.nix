@@ -17,6 +17,8 @@
   architect,
   chief,
   fuel,
+  # The harness docs' flow page, which embeds each flow's diagram.
+  flows,
 }:
 pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
   fail() { echo "$1 drifted from \`state render $2\`; paste this:" >&2; cat "$3" >&2; exit 1; }
@@ -56,5 +58,9 @@ pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
   inline ${architect}/SKILL.md "init --flow architect"
   block ${chief}/SKILL.md "states --flow chief"
   inline ${chief}/SKILL.md "init --flow chief"
+  block ${flows} "mermaid --flow engineer"
+  block ${flows} "mermaid --flow 10x"
+  block ${flows} "mermaid --flow architect"
+  block ${flows} "mermaid --flow chief"
   touch "$out"
 ''

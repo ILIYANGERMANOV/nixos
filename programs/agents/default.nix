@@ -261,6 +261,7 @@ in
         architect = ./skills/custom/architect;
         chief = ./skills/custom/chief;
         fuel = ./instructions/topics/fuel.md;
+        flows = ../../docs/harness/FLOWS.md;
       };
     }
     {
