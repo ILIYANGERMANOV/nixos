@@ -16,7 +16,7 @@ Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
 
 ## Prerequisites
 
-- **Nix.** Install it with the
+- **Nix.** Already installed? Skip this. Otherwise install it with the
   [Determinate Nix installer](https://docs.determinate.systems/), then open a
   new terminal:
 
@@ -24,8 +24,9 @@ Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
   ```
 
-- **GitHub login**, so the agents can open pull requests. Works without `gh`
-  installed: Nix fetches it. Already logged in to `gh`? Skip it:
+- **GitHub login**, so the agents can open pull requests. Already logged in
+  with any `gh` (from Nix, Homebrew or elsewhere)? Skip this: every `gh` shares
+  the same stored login. Otherwise log in, no `gh` install needed:
 
   ```sh
   nix run "nixpkgs#gh" -- auth login
