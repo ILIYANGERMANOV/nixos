@@ -265,8 +265,9 @@ spec = describe "the hooks" $ do
                            , Right (object ["decision" .= ("allow" :: Text), "context" .= ("state: begins" :: Text)])
                            ]
 
-        it "gives sessionStart context alone" $
-            decoded (replyOf (Asks (ResumeRun Startup)) "state: resumed") `shouldBe` Right (object ["context" .= ("state: resumed" :: Text)])
+        it "gives sessionStart and afterTool context alone" $
+            map (\job -> decoded (replyOf job "state: noted")) [Asks (ResumeRun Startup), Binds (BindChild (AgentId "a1") (AgentRole "researcher"))]
+                `shouldBe` replicate 2 (Right (object ["context" .= ("state: noted" :: Text)]))
   where
     decoded reply = maybe (Left "nothing printed") eitherDecode (encodeReply reply) :: Either String Value
 
