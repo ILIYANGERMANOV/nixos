@@ -41,10 +41,10 @@ Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
 
    Keep the quotes: zsh, the macOS shell, treats `#` as a special character.
 
-4. Give `/chief` a task:
+4. Ask `/chief` for anything:
 
    ```text
-   /chief Add a --json flag to the list command
+   /chief <prompt: anything you want>
    ```
 
    It picks the right flow, asks you each decision as a question and hands
@@ -64,7 +64,7 @@ To remove it: `nix profile remove claude-kategory`.
 
 ## What you get
 
-- `/chief <task>` - the entry point. Routes each request to the flows below.
+- `/chief <prompt>` - the entry point. Routes each request to the flows below.
 - `/engineer` - a task end to end: plan, build, review, ready PR with green CI.
 - `/architect` - a read-only design talk that can end in a GitHub issue.
 - `/qa <PR>` - drives the app in a headless browser and posts the proof.
