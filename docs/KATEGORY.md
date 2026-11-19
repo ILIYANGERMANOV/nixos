@@ -14,24 +14,26 @@ stay untouched.
 
 Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
 
+## Prerequisites
+
+- **Nix.** Install it with the
+  [Determinate Nix installer](https://docs.determinate.systems/), then open a
+  new terminal:
+
+  ```sh
+  curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+  ```
+
+- **GitHub login**, so the agents can open pull requests. Works without `gh`
+  installed: Nix fetches it. Already logged in to `gh`? Skip it:
+
+  ```sh
+  nix run "nixpkgs#gh" -- auth login
+  ```
+
 ## Quickstart: try it
 
-1. Install Nix with the
-   [Determinate Nix installer](https://docs.determinate.systems/), then open a
-   new terminal:
-
-   ```sh
-   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
-   ```
-
-2. Log in to GitHub, so the agents can open pull requests. Skip it if
-   `gh auth status` already says you are logged in:
-
-   ```sh
-   nix run "nixpkgs#gh" -- auth login
-   ```
-
-3. Start it from your own project, the git repository you want the agents to
+1. Start it from your own project, the git repository you want the agents to
    work on. One line, nothing to clone: Nix fetches and builds it from GitHub.
    The first launch asks you to log in to Claude:
 
@@ -41,7 +43,7 @@ Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
 
    Keep the quotes: zsh, the macOS shell, treats `#` as a special character.
 
-4. Ask `/chief` for anything:
+2. Ask `/chief` for anything:
 
    ```text
    /chief <prompt: anything you want>
