@@ -747,7 +747,7 @@ planOf steps worktreeHead file g state = \case
                 ruling = Proposal (Ask.flattened "retry") why (Ask.flattened "another child run on the task") Nothing
              in Plan
                     [Asked (Asking question (askedAt state) (ChildRun child.run)), RuledOn question.qid ruling]
-                    (\after _ -> asked question <> printed ("ruled " <> qidText question.qid <> " retry\n\n" <> taskBrief after found))
+                    (\after _ -> asked question <> printed ("ruled " <> qidText question.qid <> " retry\n\n" <> taskBrief after (Fold.currentFan after) found))
     Forward raw raise ->
         open raw >>= \qid -> Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
@@ -1421,7 +1421,7 @@ run does.
 childStart :: Parent -> Maybe FlowName -> OpenGraph -> RunState -> Either Failure Begin
 childStart parent named g state = case parent.link of
     InFan (Tasked taskId) -> do
-        task <- childTask parent.run taskId state
+        task <- childTask g taskId state
         flow <- childFlow named task
         Right (Begin (ByRole parent task.shape task.plan) flow (Just task.fuel))
     InFan Untasked -> taskless
@@ -1434,12 +1434,13 @@ childStart parent named g state = case parent.link of
         (Nothing, Nothing) -> untasked Direct ChildConfirms
     untasked link plan = let flow = fromMaybe defaultFlow named in Right (Begin (ByRole (Parent parent.run link) OwnPr plan) flow (fixedFuel flow))
 
--- | The parent's task the child runs: the parent must be at a fan-out whose breakdown names it.
-childTask :: RunId -> TaskId -> RunState -> Either Failure Task
-childTask parent taskId state = case (Fold.fanAt state.at, Fan.lookupTask (Fold.currentFan state) taskId) of
-    (Nothing, _) -> Left (Failure BadInput ("--task " <> taskIdText taskId) ("run " <> runIdText parent <> " is at no fan-out: a direct child names --parent alone") "state show, in the parent's worktree")
-    (Just _, Nothing) -> Left (Failure BadInput ("--task " <> taskIdText taskId) "the parent's breakdown has no such task" initLineFix)
-    (Just _, Just task) -> Right task
+{- | The parent's task the child runs: one of the parent's requests, in focus
+or waiting, must have it in its breakdown.
+-}
+childTask :: OpenGraph -> TaskId -> RunState -> Either Failure Task
+childTask g taskId state = Bifunctor.bimap notOne (.held) (Fold.taskHolder state taskId)
+  where
+    notOne requests = Failure BadInput ("--task " <> taskIdText taskId) (explain g (Fold.fuelOf state) state.at (Fold.NotOneHolder taskId requests)).why initLineFix
 
 -- | The task's flow; a @--flow@ named must be that one.
 childFlow :: Maybe FlowName -> Task -> Either Failure FlowName
