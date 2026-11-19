@@ -23,8 +23,8 @@ domain.
   assumption: label it one.
 - **Derive, do not store.** A value that is a function of state is defined as
   that function, never as a field.
-- **Separate verified from assumed.** Each status is `Holds`, `Holds if X`,
-  `Needs X` or `Assumed`.
+- **Separate verified from assumed.** Each property carries one of the
+  statuses in section 6.
 - **Plain words first, symbols second.** Each formula sits next to a sentence
   or a table row that says it in English. Short sentences, tables, small
   diagrams.
@@ -75,11 +75,10 @@ Each section builds only on the ones above it.
   a set `G(l)` that grows with the rank.
 - State the consequence (`G` grows, so the map is monotone) and which
   inclusions are strict.
-- A map that does not preserve the order is a plain function: say so.
 
 ### 4. Lifecycle + log
 
-- State holds stored fields only. Derived values are small equations. Draw
+- A table of stored fields, then derived values as small equations. Draw
   the state diagram with the actor on each edge, and list preconditions.
 - Events form a free monoid, each with an actor and an id. State is the fold
   of transitions over the log; views are folds over the same log.
@@ -89,8 +88,8 @@ Each section builds only on the ones above it.
 
 ### 5. Principals
 
-- Edge `X →a Y`: actor `a` can turn `X` into `Y`. A holder follows only edges
-  whose actor is itself. A table of principals, then the graph.
+- A table of principals, then the graph, with each edge labelled by the actor
+  that can take it.
 - Say which actions are not edges, and define `allowed(principal)` from the
   order map and state.
 - Say what keys such as rate limits are a function of, and what they must not

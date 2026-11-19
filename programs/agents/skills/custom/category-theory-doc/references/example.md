@@ -1,8 +1,5 @@
 # Example: a Category Theory model of a shared-notes app
 
-A complete model in a made-up domain. It shows the shape of each section;
-copy the shapes, never the domain.
-
 The app: people keep notes in **workspaces**. A workspace has members with a
 role, API keys for scripts, and a plan that billing sets. Support staff can
 suspend a workspace. Every change is an event in an append-only log.
@@ -119,6 +116,7 @@ Derived, never stored:
 ```text
 plan(s)   = tier(s)               if status(s) = Active
           = suspended             if status(s) = Suspended
+                                  (undefined once Deleted)
 access(s) = perm_w(plan(s))       if status(s) ≠ Deleted
           = ∅                     if status(s) = Deleted
 ```
@@ -151,7 +149,7 @@ Preconditions:
   `KeyIssued`, `KeysRotated`) keep `status`; they apply only when
   `status ≠ Deleted`.
 
-**Log.** An event is `e = (id, ws, actor, kind, at)`. The log of a workspace
+**Log.** An event is `e = (id, ws, actor, name, at)`. The log of a workspace
 is a word `e₁ e₂ … eₙ` in the free monoid `E*`: concatenation appends, the
 empty word `ε` is a new workspace. The log holds only accepted events, so
 `step` is total on it.
@@ -170,7 +168,7 @@ event:
 
 | View | On one event |
 |---|---|
-| audit trail | append `(at, actor, kind)` |
+| audit trail | append `(at, actor, name)` |
 | member count | `+1` on `MemberAdded`, `-1` on `MemberRemoved` |
 | notifications | send one email on `MemberAdded` |
 
@@ -196,7 +194,7 @@ edges whose actor is itself.
 ```mermaid
 graph LR
   None["(none)"] -->|Owner| Invite
-  Invite -->|Invitee| Viewer
+  Invite -->|self| Viewer
   Viewer -->|Owner| Editor
   Editor -->|Owner| Viewer
   Viewer -->|"Owner, self"| Gone
@@ -231,16 +229,16 @@ monotone function of `plan(s)`. The key holds the key id, never the secret.
 
 | # | Property | Statement | Status |
 |---|---|---|---|
-| P1 | Viewers never write | `allowed(viewer, s) ⊆ R(viewer)` and `R(viewer) ∩ Writes = ∅` | Holds (derived in section 2) |
+| P1 | Viewers never write | `role(u) = viewer ⇒ allowed(u, s) ⊆ R(viewer)`, and `R(viewer) ∩ Writes = ∅` | Holds (derived in section 2) |
 | P2 | Suspended is read and manage only | `status(s) = Suspended ⇒ access(s) ⊆ Reads ∪ Manage` | Holds |
 | P3 | Upgrading never loses access | `Upgraded: s → t ⇒ access(s) ⊆ access(t)`, as `free ≤ pro` and `perm_w` is monotone | Holds |
 | P4 | Rotation kills old keys | after `KeysRotated`, `gen(k) < keyGen(s) ⇒ allowed(k, s) = ∅` | Holds if every check reads `keyGen` from the primary, not a replica or cache |
 | P5 | Only billing changes the tier | every `Upgraded` and `Downgraded` event has actor `Billing` | Holds |
-| P6 | An invoice upgrades once | replaying `Upgraded` with the same id leaves the state unchanged | Needs a unique constraint on event id |
+| P6 | An invoice upgrades once | no two `Upgraded` events carry the same invoice id | Needs a unique constraint on invoice id |
 | P7 | Views agree with state | member count `= size(members(state(log)))` | Holds if each projection is idempotent per event id |
 | P8 | Regions do not mix | an `nk_us_` key is rejected in `eu` | Assumed |
 | P9 | Deleted is final | no transition leaves `Deleted`, and `access = ∅` there | Holds |
-| P10 | Keys never share or manage | `allowed(key, s) ⊆ Keys`, and `Keys ∩ (Shares ∪ Manage) = ∅` | Holds |
+| P10 | Keys never share or manage | `allowed(k, s) ⊆ Keys`, and `Keys ∩ (Shares ∪ Manage) = ∅` | Holds |
 
 ## 7. Notes
 
