@@ -39,8 +39,9 @@ that gap.
 - **Authority as code.** Who answers each kind of question is a table in the
   kernel (`State/Run/Ask.hs`), not a sentence in a prompt.
 - **Nothing waits silently.** Every wait is named: `state next` prints
-  `AWAIT` or `HANDBACK` (`State/Protocol/Advice.hs`), the stuck guard turns a
-  repeat into a question, and the wait guard denies blind sleeps
+  `AWAIT` or `HANDBACK` (`State/Protocol/Advice.hs`), the kernel's stuck rule
+  turns the same problems two rounds in a row into a question
+  (`State/Run/Fold.hs`), and the wait guard denies blind sleeps
   (`hooks/guards/wait-guard/`).
 - **Replayable.** What a run knows is a pure fold over its log. Same log, same
   state (ADR 0014, `State/Run/Fold.hs`).

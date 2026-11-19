@@ -1,0 +1,101 @@
+# claude-kategory compared
+
+Three ways to run Claude on real work:
+
+- **claude-kategory**: Claude Code with this repo's harness: skills, roles,
+  hooks, guards and the `state` kernel that holds each run.
+- **Prose-only Claude**: Claude Code with good skills, a shared `CLAUDE.md`
+  and subagents, but no program that holds the rules.
+- **Bare Claude Code**: Claude Code as installed.
+
+The difference is where a rule lives. In prose, a rule holds while the model
+reads and obeys it. In claude-kategory, the rules below are code: the kernel
+refuses an event that breaks them, and a test pins each one.
+
+```mermaid
+flowchart LR
+  bare["Bare Claude Code: the model decides each step"]
+  prose["Prose-only: instructions ask the model to follow rules"]
+  kat["claude-kategory: the kernel holds the rules, prose holds the judgment"]
+  bare -->|"add skills and CLAUDE.md"| prose
+  prose -->|"move the rules into code"| kat
+```
+
+## Side by side
+
+Every claude-kategory cell links the code or the test behind it.
+
+| Property | claude-kategory | Prose-only Claude | Bare Claude Code |
+|---|---|---|---|
+| Resume after context loss | The run is its log. A fresh agent reads `state show` and `state next` and goes on; a session that lost its agents records `Restarted` and sends them again ([`restartOf`][restartOf], [test][hookspec231]). The context guard asks for a commit and hand-back before the limit ([limits][ctxlimits]). | A skill can ask the agent to keep a progress file. Recovery works if the model wrote it and the next one reads it. | `--resume` and `--continue` restore the conversation; auto-compaction summarises it. What the summary drops is lost. |
+| Bounded loops | Each loop holds a capped step, with a limit per Fuel level; past it the kernel refuses, stops or asks ([`Limit`][limit], [`AtCap`][atcap]). A loop with no cap is refused when the flow is built ([test][graph74]); no run spends past a cap ([test][fold228]). | "At most 3 review rounds" in a skill. The model counts; nothing checks. | No loop budget. The user interrupts, or a headless run's turn limit ends it. |
+| Named waits | Every wait is a line: `AWAIT` on CI, a merge, a worker or children, or `HANDBACK` to the run above ([`deliver`][deliver], [test][advice439]). The wait guard denies blind sleeps and polling ([guard][waitguard], [tests][waittest]). | "Do not poll; wait for the notification." Usually obeyed. | The model may sleep, poll or end its turn with no reason given. Background tasks can notify it. |
+| Who answers which question | A question has a kind (Fact, Pick, Design, Scope, Confirm, Security, Stuck); a kernel table says which rung may answer it ([`authority`][authority]). A parent rules on what a child forwards ([test][askspec32]); nothing lowers a Security question ([test][askspec49]). | `CLAUDE.md` says "ask before design changes". The model judges what counts. | The model decides when to ask. Tool permission prompts are the fixed check. |
+| Replay from a log | What a run knows is a pure fold over its log. Replaying a prefix, then the rest, equals replaying the whole ([test][fold458]); a voided line replays as if never logged ([test][fold436]). | Transcripts exist, but the state is in the model's context; reading them back is a new judgment. | Sessions are saved as transcripts and can be resumed, not folded into a state. |
+| Typed flow composition | Flows are typed terms; `f :> g` compiles only when `f`'s output is `g`'s input ([`:>`][series], [test][flowspec42]). The algebra's laws each have a test ([LawsSpec][laws42]). | One skill names the next in prose. The order holds while the model follows it. | None. The user sequences the work. |
+| Guards (secret, read, wait, context) | Four guards before or after tool calls ([hooks.nix][guardshooks]), each with tests ([secret][secrettest], [read][readtest], [wait][waittest], [context][ctxtest]). Best effort and fail open, not a security boundary ([GUARDRAILS](GUARDRAILS.md#hooks-fail-open-they-are-not-a-security-boundary)). | Rules in `CLAUDE.md`: "never print secrets", "read in ranges". | Permission rules and a hook system; you write your own guards. |
+| Parallel engineers (10x) | The 10x flow breaks a plan into tasks and runs one engineer child run per task in parallel, each with its own log, then merges the PRs; rounds are capped at 9 ([`tenX`][tenx], [test][tenxspec15]). Factory only: it needs the headless server setup. | A skill can spawn several subagents. Who tracks which one finished lives in the lead's context. | Subagents can run in parallel; the user tracks worktrees and merges. |
+| Reproducible install | One Nix package, pinned by the flake lock, in its own `~/.claude-kategory` config dir ([package][flakepkg], [isolation][linksh]). A check holds that its settings deny reading the login in both config dirs ([check][katcheck]). | A copy of someone's dotfiles. Versions drift unless pinned by hand. | The official installer; config shared in `~/.claude`. |
+| Least-privilege roles | Each subagent role gets the union of what its steps need, derived from one step table, and nothing else ([sufficient][derive106], [lean][derive109]). | Each role file lists its tools by hand. | Subagent tools are whatever you configure. |
+
+## Planned, not built
+
+From the vision's [Direction](../../programs/agents/VISION.md#direction) and
+[Providers](../../programs/agents/VISION.md#providers). None of these hold
+today.
+
+| Planned | Today |
+|---|---|
+| Agents choose from a library of flows and compose them for any task | Flows are fixed: chief, engineer, 10x, architect and the blocks ([FLOWS](FLOWS.md)) |
+| A cheap, fast model reaches a top model's quality, because each flow hands it small jobs | Claude is the main model |
+| Harder enforcement of `state` | Hooks gate a lead's work until `state init`, not every action after ([`Route.hs`][route]) |
+| OpenCode and Codex backends | Claude Code is the only backend ([ADR 0011](../adr/0011-agent-compiler.md)) |
+
+## What it costs
+
+Fair to the other columns:
+
+- **Nix is required.** Bare Claude Code installs anywhere.
+- **Fixed flows.** A task that fits no flow goes to the chief's direct path,
+  with fewer guarantees ([FLOWS](FLOWS.md#the-chief-routes-requests)).
+- **More steps for small work.** Plan, review and CI rounds take time and
+  tokens; Fuel `low` skips the optional ones, never review.
+- **Hooks are best effort.** A rule on a hook holds only when the client
+  fires it; only the kernel's rules always hold ([ARCHITECTURE](ARCHITECTURE.md#the-logic-ladder)).
+- **Built for one repo.** It serves this repository and the author's
+  headless server; it is not a framework for others
+  ([Non-goals](../../programs/agents/VISION.md#non-goals-draft)).
+- **No benchmarks yet.** No measured comparison is committed. The
+  `self-improve` analyzer could produce one.
+
+[restartOf]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Hook.hs#L582
+[hookspec231]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Protocol/HookSpec.hs#L231
+[ctxlimits]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/context-guard/context-guard.py#L57
+[limit]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Meter.hs#L48
+[atcap]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Meter.hs#L66
+[graph74]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/GraphSpec.hs#L74
+[fold228]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Run/FoldSpec.hs#L228
+[deliver]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L759
+[advice439]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Protocol/AdviceSpec.hs#L439
+[waitguard]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/wait-guard/wait-guard.py#L1
+[waittest]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/wait-guard/test_wait-guard.py#L1
+[authority]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Ask.hs#L122
+[askspec32]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Run/AskSpec.hs#L32
+[askspec49]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Run/AskSpec.hs#L49
+[fold458]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Run/FoldSpec.hs#L458
+[fold436]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Run/FoldSpec.hs#L436
+[series]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Flow.hs#L144
+[flowspec42]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/FlowSpec.hs#L42
+[laws42]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Category/LawsSpec.hs#L42
+[guardshooks]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/hooks.nix#L1
+[secrettest]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/secret-guard/test_secret-guard.py#L1
+[readtest]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/read-guard/test_read-guard.py#L1
+[ctxtest]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/context-guard/test_context-guard.py#L1
+[tenx]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/TenX.hs#L19
+[tenxspec15]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/Flow/TenXSpec.hs#L15
+[flakepkg]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/flake.nix#L272
+[linksh]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/claude-code/kategory/link.sh#L9
+[katcheck]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/claude-code/kategory/check.nix#L1
+[derive106]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L106
+[derive109]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L109
+[route]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Cli/Route.hs#L1

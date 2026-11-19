@@ -14,6 +14,9 @@ stay untouched.
 
 Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
 
+How it works, and how it compares to Claude Code alone:
+[docs/harness/README.md](harness/README.md).
+
 ## Prerequisites
 
 - **Nix.** Already installed? Skip this. Otherwise install it with the
