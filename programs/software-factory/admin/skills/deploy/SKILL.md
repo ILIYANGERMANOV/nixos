@@ -18,9 +18,10 @@ argument-hint: "[rollback]"
    - Still running: run `gh run watch <id> --exit-status` in the background
      (`run_in_background`), with no sleep or polling loop, and go on when it
      ends.
-   - Failed: report the failure with the run's link and stop. Exception:
-     when the only failed job is `tech` (see `gh run view <id> --json jobs`),
-     deploy anyway; it does not gate deploys.
+   - Failed: list the failed jobs with `gh run view <id> --json jobs`. If
+     any of them is `check`, `checks-x86_64`, `cache-guard-aarch64-darwin` or
+     `cache-guard-x86_64-linux`, report the failure with the run's link and
+     stop. Otherwise deploy anyway: only those jobs gate deploys.
    - Passed: run `factory-ctl deploy`. It waits for the GitHub workflow,
      which refuses unless CI passed on main's tip; on failure it prints why
      and a link.
