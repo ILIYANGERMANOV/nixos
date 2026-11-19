@@ -19,6 +19,12 @@ The same system as engineering: [README](README.md),
 
 ## 0 Model at a glance
 
+```mermaid
+flowchart LR
+  Wiring["Wiring: Flow, Mode, Ifc"] -->|"graph"| Running["Running: Run(F), Log"]
+  Running -->|"ty"| Types["Types: Cap, Prof"]
+```
+
 | Category | Plain words | Objects | Arrows | Identity | Composition |
 |---|---|---|---|---|---|
 | `Cap` | the vocabulary of work | artifact types `Ctx`, `Plan`, `Diff`, `Findings`, `PR`, `Ticket`, `Result`, lists, labelled sums | paths of outcome edges `step.outcome : A -> B` | the empty path | concatenation |
@@ -328,6 +334,12 @@ Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 | P35 | One writer | only the kernel appends to a run's log | Needs a one-writer test (#499) |
 
 ## 10 Notes
+
+```mermaid
+flowchart LR
+  P["Property row (section 9)"] -->|"caveat"| N["Note N1 to N11"]
+  N -->|"verified against"| C["code line"]
+```
 
 Each note is verified against the code.
 
