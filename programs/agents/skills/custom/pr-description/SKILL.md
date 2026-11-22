@@ -71,6 +71,12 @@ dropped. Row R0 (describe) writes the prose only. Row V0 adds the visuals.
 
 </details>
 
+<details><summary>Skipped edge cases</summary>
+
+<each rare edge case left unhandled, with why it was skipped>
+
+</details>
+
 <details><summary>After merge</summary> ... </details>
 <details><summary>Follow-ups</summary> ... </details>
 <details><summary>Feedback log</summary> ... </details>
@@ -88,6 +94,8 @@ Security-sensitive: <topics>
   commands run, their trimmed output, screenshots. Omit when there is none.
 - **Decided without you** - only the rulings the agent made without asking
   the user, one "why" each. Omit when there are none.
+- **Skipped edge cases** - each rare edge case the code leaves unhandled,
+  with why it was skipped. Omit when there are none.
 - **After merge**, **Follow-ups** (each with its reason), **Feedback log**,
   **QA** - only when they have content. QA stays last: `qa` writes it. QA on
   an older head says so in its summary: `(on <short sha>, before <change>)`.
@@ -95,7 +103,8 @@ Security-sensitive: <topics>
   no bottom line.
 - **Drop** - rename tables, acceptance-criteria checklists and considered
   options (they live in the plan), test lists, "found in review / QA" lists,
-  internal ids (projects, deployments, dashboards), out-of-scope lists, file
+  internal ids (projects, deployments, dashboards), general out-of-scope
+  lists (they live in the plan; a skipped edge case goes in its block), file
   names.
 
 ### Budget
@@ -143,9 +152,10 @@ section 4.6).
 Pass the body through a file so the shell does not mangle it:
 `gh pr create --body-file <file>` for a new PR, `gh pr edit <n> --body-file
 <file>` to rewrite one. Write the file outside the repository, so it is never
-committed. A rewrite keeps the shape and the budget, and keeps the bottom line,
-the visuals, the Feedback log verbatim, every open Follow-up and the QA block:
-collapsed, never dropped. An old body's visible `## Feedback log`, `## Follow-ups` or
+committed. A rewrite keeps the shape, the budget, the bottom line and the visuals. The
+focus visual stays visible. The Feedback log stays verbatim. Every open
+Follow-up, the Skipped edge cases and the QA block stay collapsed, never
+dropped. An old body's visible `## Feedback log`, `## Follow-ups` or
 `## QA` moves into its `<details>` block.
 
 ## Visual (row V0)

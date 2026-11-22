@@ -57,7 +57,7 @@ says so, as Picking rows says. Every other surviving house-rule row or Major
 row you do not fix goes in `## Follow-ups`, with the reason. The fix's size
 decides fix or record, never drop. A row that blocks the feature is a question.
 
-R0 writes the full facts; S0 owns the shape.
+R0 writes the full facts. V0 adds the visuals. S0 owns the shape.
 
 ## Not met always
 

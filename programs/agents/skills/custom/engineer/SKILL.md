@@ -91,7 +91,8 @@ who owns each decision.
   a product, scope or design answer among them is its own kind. `refactor`'s
   big items come back as proposals: Build says what to do with them.
 - **Simplicity over completeness**, as the engineering instructions say. A rare
-  edge case you skip is recorded as out of scope in the PR body.
+  edge case you skip goes in the PR body's `Skipped edge cases` block, with
+  why.
 - **Protect your context window.** Subagents read, implement, verify and
   triage logs; keep only their conclusions. After launching a background
   agent, or on a wake that needs nothing, end the turn without a tool call and
