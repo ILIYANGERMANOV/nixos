@@ -21,6 +21,7 @@ module State.Run.RunGen (
     commit,
     happyPath,
     refined,
+    refinedTranscript,
     researchedIn,
     spawnedIn,
     enoughIn,
@@ -288,6 +289,17 @@ refined =
     , outcome StandardsPlanDone
     , outcome AlignPlanDone
     , outcome PresentDone
+    ]
+
+-- | 'refined' as @state next@ walks it, one transition line per event.
+refinedTranscript :: [Text]
+refinedTranscript =
+    [ "plan.done -> skip_refine"
+    , "skip_refine.run -> simplify_plan"
+    , "simplify_plan.done -> standards_plan"
+    , "standards_plan.done -> align_plan"
+    , "align_plan.done -> present"
+    , "present.done -> confirm"
     ]
 
 -- | A researcher spawned from this choice's pick, then its hand-back: the run is back at the pick.

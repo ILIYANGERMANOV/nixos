@@ -58,6 +58,7 @@ module State.Protocol.Hook (
     silent,
     offAdvice,
     followedAt,
+    beside,
     tracked,
     spawnedAt,
     opensChild,

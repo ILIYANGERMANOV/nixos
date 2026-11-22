@@ -30,7 +30,13 @@ import State.Run.Event (
     SessionId (..),
     Task (..),
  )
-import State.Run.RunGen (breakdownJson, loadSteps, plainTask, roundTask)
+import State.Run.RunGen (
+    breakdownJson,
+    loadSteps,
+    plainTask,
+    refinedTranscript,
+    roundTask,
+ )
 import State.Step.Artifact (shellPath)
 import System.FilePath ((</>))
 import Test.Hspec (
@@ -1918,17 +1924,6 @@ trivialTranscript =
     , "simplify_pr.done -> await_ci"
     , "await_ci.green -> ready"
     , "ready.done -> out"
-    ]
-
--- | The refine passes and the presentation, from @plan@'s done to @confirm@.
-refinedTranscript :: [Text]
-refinedTranscript =
-    [ "plan.done -> skip_refine"
-    , "skip_refine.run -> simplify_plan"
-    , "simplify_plan.done -> standards_plan"
-    , "standards_plan.done -> align_plan"
-    , "align_plan.done -> present"
-    , "present.done -> confirm"
     ]
 
 -- | What next says a Low run's agent may skip, at the refine passes and refactor.

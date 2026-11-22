@@ -27,7 +27,13 @@ import State.Run.Codec (decodeLine, eventType)
 import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
 import State.Run.EventGen (runId)
-import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
+import State.Run.RunGen (
+    breakdownJson,
+    plainTask,
+    refinedTranscript,
+    roundTask,
+    taskFileJson,
+ )
 import System.Directory (
     createDirectory,
     findExecutable,
@@ -2323,17 +2329,6 @@ refinePasses =
     , Handback "researcher" ready
     , Handback "reviewer" ready
     , Record ["present.done"]
-    ]
-
--- | The refine passes and the presentation, from @plan@'s done to @confirm@.
-refinedTranscript :: [Text]
-refinedTranscript =
-    [ "plan.done -> skip_refine"
-    , "skip_refine.run -> simplify_plan"
-    , "simplify_plan.done -> standards_plan"
-    , "standards_plan.done -> align_plan"
-    , "align_plan.done -> present"
-    , "present.done -> confirm"
     ]
 
 -- | The gather ended with no researcher open: its await goes on by itself to the notes.
