@@ -87,7 +87,7 @@ pkgs.runCommand "claude-config-check"
       [ "$(yq -r '.omitClaudeMd // false' <<<"$fm")" = true ] || die "$1" "keeps CLAUDE.md"
       for field in $(yq -r 'keys | .[]' <<<"$fm"); do
         case "$field" in
-          name | description | tools | omitClaudeMd | effort | model | skills) ;;
+          name | description | tools | omitClaudeMd | effort | model | experimental | skills) ;;
           *) die "$1" "unknown field $field" ;;
         esac
       done

@@ -43,7 +43,7 @@ paths:
   it does not allow or a self-activation phrase.
 - `passes/budget.nix` - the agnostic size budget (`agents-frontend.md`).
 - `role.nix` - `mkRole` throws on any unknown field, capability, operation,
-  tier or effort: a backend's format may ignore a misspelled field, and a dropped
+  tier, effort or cache: a backend's format may ignore a misspelled field, and a dropped
   tool list would widen a role.
 - `derive.nix` - derived roles, stage A (#351 section 8): a role's
   capabilities, skills, operations and prose are the union of its rows in

@@ -10,7 +10,8 @@ paths:
 `shared/building.md` serves `implementer`, `fixer` and `refactorer`.
 
 - A `role.nix` is a function of `{ role }` returning the identity only:
-  `description`, `instructions` (its own `role.md`), `tier` and `effort`.
+  `description`, `instructions` (its own `role.md`), `tier`, `effort` and
+  `cache` (`default`, or `long` for a role that waits long on its workers).
   `roles/default.nix` adds the rest from `lib/derive.nix`: `capabilities`
   (`read edit shell web delegate skill`), `skills`, `operations` and the
   `prose` fragments, each the union over the steps of `flows/steps.nix` the role
