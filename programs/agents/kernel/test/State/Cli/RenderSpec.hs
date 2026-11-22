@@ -40,7 +40,7 @@ spec = describe "State.Cli.Render" $ do
                 [ "| Researchers | 1 for all, 8 calls, notes past the hand-back limit | up to 5, 15 calls, notes | one per group, 30 calls, notes, top 5 facts re-checked |"
                 , "| Interview questions | up to 15 | up to 30 | up to 50 |"
                 , "| Re-reviews | up to 1, blockers and Not met fixed only | up to 3 | up to 5 |"
-                , "| Skippable when trivial | `simplify_plan`, `refactor` | none | none |"
+                , "| Skippable when trivial | `refine`, `refactor` | none | none |"
                 , "| Refactor | unless trivial, quick: items 1-3, no `tests.md` | above about 100 changed lines | always |"
                 , "| Full review of a fix to | data model, auth | data model, auth | interface, data model, auth |"
                 ]

@@ -63,9 +63,9 @@ spec = Hspec.describe "State.Flow.Block" $ do
                 )
 
     -- Research is no skip: the gather's agent chooses it, or enough.
-    it "leaves the plan's simplify and the refactor skippable at Low only" $
+    it "leaves the plan's refine passes and the refactor skippable at Low only" $
         [(level, skippableAt level) | level <- [minBound .. maxBound]]
-            `shouldBe` [ (Low, Set.fromList ["refactor", "simplify_plan"])
+            `shouldBe` [ (Low, Set.fromList ["refactor", "refine"])
                        , (Balanced, Set.empty)
                        , (Max, Set.empty)
                        ]

@@ -151,7 +151,7 @@ spec = describe "state-hook over the doubles" $ do
                     `shouldBe` Just
                         ( "run "
                             <> run
-                            <> ": state: recorded 14 implement.done -> skip_refactor\nstate: recorded 15 worker_returned -> skip_refactor\n"
+                            <> ": state: recorded 17 implement.done -> skip_refactor\nstate: recorded 18 worker_returned -> skip_refactor\n"
                         )
                 first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
@@ -167,7 +167,7 @@ spec = describe "state-hook over the doubles" $ do
 
                     said.code `shouldBe` 0
                     contextOf said
-                        `shouldSatisfy` maybe False ("simplify_plan.done -> confirm" `Text.isInfixOf`)
+                        `shouldSatisfy` maybe False ("simplify_plan.done -> standards_plan" `Text.isInfixOf`)
 
             it "leaves a child run's hand-back in the lead's worktree be" $ \world -> do
                 _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
@@ -389,7 +389,7 @@ spec = describe "state-hook over the doubles" $ do
                     contextOf bound
                         `shouldSatisfy` maybe
                             False
-                            ( "state: recorded 14 implement.done -> skip_refactor\nstate: recorded 15 worker_returned -> skip_refactor"
+                            ( "state: recorded 17 implement.done -> skip_refactor\nstate: recorded 18 worker_returned -> skip_refactor"
                                 `Text.isInfixOf`
                             )
                     (length once, length twice) `shouldBe` (length before' + 3, length once)
@@ -408,7 +408,7 @@ spec = describe "state-hook over the doubles" $ do
                     `shouldBe` Just
                         ( "run "
                             <> run
-                            <> ": state: recorded 14 implement.done -> skip_refactor\nstate: recorded 15 worker_returned -> skip_refactor\n"
+                            <> ": state: recorded 17 implement.done -> skip_refactor\nstate: recorded 18 worker_returned -> skip_refactor\n"
                         )
 
             it "binds no subagent no flow knows, whose hand-back stays its own" $ \world -> do

@@ -114,9 +114,12 @@ every child handed back: wait there, never record it.
 | gather/notes | you | done: plan |
 | gather/research | researcher | spawned: gather |
 | interview | you | asked: gather |
-| plan | you | done: skip_simplify_plan |
-| skip_simplify_plan | you | run: simplify_plan; skip: confirm |
-| simplify_plan | researcher | done: confirm |
+| plan | you | done: skip_refine |
+| skip_refine | you | run: simplify_plan; skip: present |
+| simplify_plan | researcher | done: standards_plan |
+| standards_plan | researcher | done: align_plan |
+| align_plan | reviewer | done: present |
+| present | you | done: confirm |
 | confirm | you | adjusted: gather; confirmed: draft |
 | draft | you | done: implement |
 | implement | implementer | done: skip_refactor |
@@ -190,23 +193,23 @@ is the only one.
 A brief or design issue with `## Decisions` has settled them: never re-ask
 them. Interview only its open questions and the gaps research opens.
 
-### Propose: plan, simplify_plan, confirm
+### Propose: plan, refine, present, confirm
 
-Write the plan: goals, the approach and the standards it follows, decisions,
-out of scope, Fuel, and a file tree of the files it adds or changes. A
-brief or design issue's Goal, Decisions, Out of scope and Acceptance criteria
-carry over as they stand.
+Write the plan, one `plan.md`: goals, the approach and the standards it
+follows, decisions, out of scope, Fuel, the tests per layer, and a file tree
+of the files it adds or changes. A brief or design issue's Goal, Decisions,
+Out of scope and Acceptance criteria carry over as they stand.
 
-The simplify pass runs unless Low skips it: `proposal-simplify.md` is
-the plan you confirm, or the identity when nothing is simpler. It never
-changes a settled decision.
+The refine passes run unless Low skips them: each hands back findings, never
+a plan. You alone edit `plan.md`: apply the rows you accept, never against a
+settled decision, and log every row, taken or not, in the plan's
+`## Considered options` table, `| Pass | Finding | Taken? | Why |`, which goes
+into the PR body.
 
-Confirm once, as one `Confirm` question: the plan in a few lines, what the
-simplify pass changed and its trade-off. Options: "Yes, build
-it (Recommended)" / "No, adjust". On adjust, gather again for the correction
-only, keeping all you learned and the Fuel; rerun the simplify pass only if
-the approach changed. Its `Considered options` table goes into the PR body's
-decisions.
+`present` composes the plan message; `confirm` sends it with one `Confirm`
+question as its final text, once: "Yes, build it (Recommended)" / "No,
+adjust". On adjust, gather again for the correction only, keeping all you
+learned and the Fuel.
 
 ### Build: draft, implement, refactor
 

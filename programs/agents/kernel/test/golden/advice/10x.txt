@@ -85,7 +85,7 @@ Gather: the `grilling` interview, one question at a time, each through `state as
 RUN state record plan.done <path>
   at plan: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record plan.done <path> - on to skip_simplify_plan
+    state record plan.done <path> - on to skip_refine
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
   Rounds: 0 of 9 used, 9 left
@@ -93,11 +93,11 @@ RUN state record plan.done <path>
   task t2: not started, tries 0
 Propose: write the plan in the notes directory, as the skill's Propose block says.
 
-== skip_simplify_plan
-RUN state record skip_simplify_plan.run
-  at skip_simplify_plan: an optional block - take one option below, then state next
+== skip_refine
+RUN state record skip_refine.run
+  at skip_refine: an optional block - take one option below, then state next
   options:
-    state record skip_simplify_plan.run - on to simplify_plan
+    state record skip_refine.run - on to simplify_plan
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
   Rounds: 0 of 9 used, 9 left
@@ -108,16 +108,52 @@ RUN state record skip_simplify_plan.run
 SPAWN researcher background: no
   at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback researcher; then state next
   outcomes:
-    simplify_plan.done - on to confirm
+    simplify_plan.done - on to standards_plan
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
   Rounds: 0 of 9 used, 9 left
   task t1: not started, tries 0
   task t2: not started, tries 0
-Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal. Run the researcher skill's `references/proposal.md` on the plan your prompt names.
+Propose: one researcher, naming the plan, the research notes paths and the notes directory. An adjust that changed the approach reruns every refine pass; any other adjust reruns none: record each pass's `.done` on the earlier findings. Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+
+== standards_plan
+SPAWN researcher background: no
+  at standards_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback researcher; then state next
+  outcomes:
+    standards_plan.done - on to align_plan
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Propose: one researcher, naming the plan, the research notes paths and the notes directory. Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+
+== align_plan
+SPAWN reviewer background: no
+  at align_plan: a step a reviewer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback reviewer; then state next
+  outcomes:
+    align_plan.done - on to present
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Propose: one reviewer, naming the plan and the notes directory. Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Write the table to `<notes>/refine-align.md`, `<notes>` the directory your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+
+== present
+RUN state record present.done
+  at present: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record present.done - on to confirm
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Propose: compose the full plan message as `engineer/references/present.md` says, in `<notes>/present.md`. Ask nothing: `confirm` asks.
 
 == confirm
-ASK Confirm the simplified plan: confirmed, or adjusted?
+ASK Confirm the presented plan: confirmed, or adjusted?
   at confirm: a step you run - do the task below, run the option that fits its result, then state next
   outcomes:
     state record confirm.adjusted - back to gather, the plan loop's next round
@@ -127,7 +163,7 @@ ASK Confirm the simplified plan: confirmed, or adjusted?
   Rounds: 0 of 9 used, 9 left
   task t1: not started, tries 0
   task t2: not started, tries 0
-Propose: the simplified plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.
+Propose: one message, `<notes>/present.md` then one Confirm question as its final text. `confirmed` builds it; `adjusted` gathers again.
 
 == breakdown
 RUN state record breakdown.done --tasks <file.json>

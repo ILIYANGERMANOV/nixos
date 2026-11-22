@@ -85,8 +85,8 @@ trips the stuck guard.
 
 **Fact path.** One researcher per fact gap, prompted per `## Callers` in the
 researcher skill with the question in it; it does not count against
-Gather's. Write a delta plan: what the facts change. Run the simplify pass
-on it, unless Low skips it. Record the fact and the delta in
+Gather's. Write a delta plan: what the facts change. Run the refine passes
+on it as Propose does, unless Low skips them. Record the fact and the delta in
 the PR body, `state rule` the question, then resume. A fact that changes a
 goal, a decision or an interface, or opens a choice someone else owns, is a
 new question of that kind.

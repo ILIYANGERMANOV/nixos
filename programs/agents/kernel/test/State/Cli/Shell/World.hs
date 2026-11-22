@@ -59,6 +59,7 @@ module State.Cli.Shell.World (
     reviewed,
     simplified,
     toImplement,
+    refinePasses,
     gathered,
 ) where
 
@@ -578,13 +579,22 @@ toImplement =
     , Handback "researcher" ready
     ]
         <> gathered
-        <> [ Planned
-           , Handback "researcher" ready
-           , Record ["confirm.confirmed"]
+        <> [Planned]
+        <> refinePasses
+        <> [ Record ["confirm.confirmed"]
            , OpenPr
            , Commit
            , Handback "implementer" ready
            ]
+
+-- | Each refine pass hands back, then the lead presents the plan: from @plan@'s done to @confirm@.
+refinePasses :: [Act]
+refinePasses =
+    [ Handback "researcher" ready
+    , Handback "researcher" ready
+    , Handback "reviewer" ready
+    , Record ["present.done"]
+    ]
 
 -- | The gather ended with no researcher open: its await goes on by itself to the notes.
 gathered :: [Act]

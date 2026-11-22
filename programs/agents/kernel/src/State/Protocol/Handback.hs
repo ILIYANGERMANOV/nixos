@@ -397,6 +397,11 @@ fromChild state fan handback = case handback.run of
                     <$> Bifunctor.first Why (oneLine (tokenLine token))
             Nothing -> Left (Why ("line 1 is no stop: " <> tokenLine token))
 
+{- | How a step's worker hands back: a report in its own shape, which needs
+no token (a reviewer's table, a refine pass's findings), or a token line.
+-}
+data HandsBack = AsReport | WithToken
+
 fromWorker ::
     Steps ->
     OpenGraph ->
@@ -449,44 +454,55 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
     done isReport = do
         (place, step@(AnyStep _ (SomeStep s))) <-
             maybe (Left (Why "the run is at no step a subagent runs")) Right stepHere
-        let name@(StateName label) = stepName s
+        let StateName label = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of
             Agent runner _ | runner == agent -> Right ()
             Agent (AgentRole runner) _ -> Left (Why (label <> " is run by " <> runner <> ", not " <> roleName))
             Inline -> Left (Why (label <> " runs inline, not by " <> roleName))
-        if isReport
-            && name
-                `notElem` [stepName Review.Review, stepName Review.ReReview, stepName Plan.SimplifyP]
-            then Left NoToken
-            else Bifunctor.first Why (doneOf place.scope step)
-    -- One arm per layer, each total over its steps; the outcome is in the step's scope.
-    doneOf :: ScopePath -> AnyStep -> Either Text [Event]
+        let (handsBack, events) = doneOf place.scope step
+        case handsBack of
+            WithToken | isReport -> Left NoToken
+            WithToken -> Bifunctor.first Why events
+            AsReport -> Bifunctor.first Why events
+    {- One arm per layer, each total over its steps: how the step's worker
+    hands back, and its outcome in the step's scope.
+    -}
+    doneOf :: ScopePath -> AnyStep -> (HandsBack, Either Text [Event])
     doneOf scope (AnyStep l (SomeStep s)) = case l of
         GatherLayer -> case s of
-            Gather.Research -> took Gather.ResearchHandedBack
+            Gather.Research -> tokened (took Gather.ResearchHandedBack)
             Gather.Interview -> inline s
             Gather.Discuss -> inline s
             Gather.Notes -> inline s
         PlanLayer -> case s of
-            Plan.SimplifyP -> took SimplifyPlanDone
+            Plan.SimplifyP -> reported (took SimplifyPlanDone)
+            Plan.StandardsP -> reported (took StandardsPlanDone)
+            Plan.AlignP -> reported (took AlignPlanDone)
             Plan.PlanS -> inline s
+            Plan.Present -> inline s
             Plan.Confirm -> inline s
         BuildLayer -> case s of
             -- An implementer that names no areas may have touched any (#360's state help).
-            Build.Implement -> took . ImplementDone =<< commit (Set.fromList [minBound .. maxBound])
-            Build.Refactor -> took . RefactorDone =<< atHead
+            Build.Implement ->
+                tokened (took . ImplementDone =<< commit (Set.fromList [minBound .. maxBound]))
+            Build.Refactor -> tokened (took . RefactorDone =<< atHead)
             Build.Draft -> inline s
         ReviewLayer -> case s of
-            Review.Review -> took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
-            Review.Fix -> took . FixDone =<< commit Set.empty
+            Review.Review ->
+                reported
+                    (took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead)
+            Review.Fix -> tokened (took . FixDone =<< commit Set.empty)
             Review.PickRows -> inline s
             Review.ReReview ->
-                took . ReReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
+                reported
+                    (took . ReReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead)
         ShipLayer -> case s of
-            Ship.Describe -> took . DescribeDone =<< atHead
-            Ship.SimplifyPR -> took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified
-            Ship.FixPR -> took . FixPrDone =<< atHead
+            Ship.Describe -> tokened (took . DescribeDone =<< atHead)
+            Ship.SimplifyPR ->
+                tokened
+                    (took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified)
+            Ship.FixPR -> tokened (took . FixPrDone =<< atHead)
             Ship.AwaitCi -> inline s
             Ship.Ready -> inline s
         TicketLayer -> case s of
@@ -505,10 +521,12 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
       where
         took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
         took outcome = Right [tookIn scope outcome]
-    inline :: (StepSet k) => Sing (s :: k) -> Either Text [Event]
+    reported events = (AsReport, events)
+    tokened events = (WithToken, events)
+    inline :: (StepSet k) => Sing (s :: k) -> (HandsBack, Either Text [Event])
     inline s =
         let StateName label = stepName s
-         in Left (label <> " has no done a subagent hands back")
+         in (WithToken, Left (label <> " has no done a subagent hands back"))
     atHead :: Either Text Sha
     atHead = required "HEAD (run it in the worktree)" worktreeHead
     commit :: Set Area -> Either Text Commit

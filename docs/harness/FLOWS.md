@@ -55,14 +55,15 @@ render is [at the end](#chief).
 A request's states sit under its route's name (`engineer/plan`,
 `10x/merge`), so two requests never share a state. The chief can park the
 request in focus and turn to another (`state focus`). The routes are in
-[`Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Chief.hs#L38).
+[`Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L72).
 
 ## Who runs each state
 
 | Runner | States | What it does |
 |---|---|---|
-| lead (`you` in `state render states`) | `fuel`, `gather`, `interview`, `plan`, `confirm`, `draft`, `pick`, `await_ci`, `ready`, `breakdown`, `merge`, `route`, `next`, ... | decides, asks the user, records outcomes |
-| `researcher` | `research`, `simplify_plan` | finds facts, simplifies a plan |
+| lead (`you` in `state render states`) | `fuel`, `gather`, `interview`, `plan`, `present`, `confirm`, `draft`, `pick`, `await_ci`, `ready`, `breakdown`, `merge`, `route`, `next`, ... | decides, asks the user, records outcomes |
+| `researcher` | `research`, `simplify_plan`, `standards_plan` | finds facts; reports where a plan could be simpler or follow a standard |
+| `reviewer` | `align_plan` | reports where a plan breaks the engineering instructions |
 | `implementer` | `implement` | builds one slice of the plan |
 | `refactorer` | `refactor` | one refactor pass |
 | `review-lead` | `review`, `re_review` | one review pass (a re-review reads only the fix) |
@@ -73,9 +74,9 @@ request in focus and turn to another (`state focus`). The routes are in
 The lead is the agent that ran the flow's skill (`/engineer`,
 `/10x-engineer`, `/architect`, `/chief`); every other runner is a subagent
 with a narrow role. Each step's runner is one row of
-[`flows/steps.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/flows/steps.nix#L1),
+[`flows/steps.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/flows/steps.nix#L1),
 and each role's tools are derived from the rows it runs
-([`lib/derive.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L1);
+([`lib/derive.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/lib/derive.nix#L1);
 see [ARCHITECTURE](ARCHITECTURE.md)).
 
 ## Engineer
@@ -83,15 +84,15 @@ see [ARCHITECTURE](ARCHITECTURE.md)).
 From a task to a ready pull request:
 
 1. Set the Fuel.
-2. **Agree** on a plan: gather facts, interview the user, plan, simplify,
-   confirm.
+2. **Agree** on a plan: gather facts, interview the user, plan, refine,
+   present, confirm.
 3. **Build**: draft PR, implement, refactor.
 4. **Review**: pick, fix, re-review, in a loop.
 5. **Describe** the PR.
 6. **Ship**: wait for CI, fix it, mark the PR ready.
 
-Source: [`Engineer.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Engineer.hs#L11),
-built from the blocks in [`Library.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L217).
+Source: [`Engineer.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Engineer.hs#L21),
+built from the blocks in [`Block.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L64).
 
 ```mermaid
 
@@ -110,10 +111,13 @@ stateDiagram-v2
   gather__notes --> plan: done
   gather__research --> gather: spawned
   interview --> gather: asked
-  plan --> skip_simplify_plan: done
-  skip_simplify_plan --> simplify_plan: run
-  skip_simplify_plan --> confirm: skip
-  simplify_plan --> confirm: done
+  plan --> skip_refine: done
+  skip_refine --> simplify_plan: run
+  skip_refine --> present: skip
+  simplify_plan --> standards_plan: done
+  standards_plan --> align_plan: done
+  align_plan --> present: done
+  present --> confirm: done
   confirm --> gather: adjusted
   confirm --> draft: confirmed
   draft --> implement: done
@@ -139,7 +143,7 @@ stateDiagram-v2
 ```
 
 Read it as: each box is a state, each arrow is labelled with the outcome
-the run records to take it (`state record review.rows`). `skip_simplify_plan`
+the run records to take it (`state record review.rows`). `skip_refine`
 and `skip_refactor` are where Fuel decides (see [Fuel skips](#where-fuel-skips-a-step)).
 
 ## 10x
@@ -151,7 +155,7 @@ Many engineers in parallel:
 3. Wait for all of them; merge their PRs.
 4. `merge.next_round` loops back to plan the next round in the same run.
 
-Source: [`TenX.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/TenX.hs#L19).
+Source: [`TenX.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/TenX.hs#L29).
 
 ```mermaid
 
@@ -170,10 +174,13 @@ stateDiagram-v2
   gather__notes --> plan: done
   gather__research --> gather: spawned
   interview --> gather: asked
-  plan --> skip_simplify_plan: done
-  skip_simplify_plan --> simplify_plan: run
-  skip_simplify_plan --> confirm: skip
-  simplify_plan --> confirm: done
+  plan --> skip_refine: done
+  skip_refine --> simplify_plan: run
+  skip_refine --> present: skip
+  simplify_plan --> standards_plan: done
+  standards_plan --> align_plan: done
+  align_plan --> present: done
+  present --> confirm: done
   confirm --> gather: adjusted
   confirm --> breakdown: confirmed
   breakdown --> spawn_engineers: done
@@ -198,7 +205,7 @@ From an idea to a design, changing no code. Each round the agent picks one:
 - write or edit the ticket.
 
 `enough` waits for every researcher, merges their notes and ends the run.
-Source: [`Architect.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Architect.hs#L20).
+Source: [`Architect.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Architect.hs#L17).
 
 ```mermaid
 
@@ -228,8 +235,8 @@ stateDiagram-v2
 |---|---|---|
 | `researching` | researchers on fact gaps, then notes | context |
 | `gathering` | gather (research, interview) | context |
-| `agreeing` | gather, plan, simplify, confirm | context |
-| `proposing` | plan, simplify, confirm | context |
+| `agreeing` | gather, plan, refine, present, confirm | context |
+| `proposing` | plan, refine, present, confirm | context |
 | `building` | draft, implement, refactor | a plan (`open_plan`) |
 | `reviewing` | review, pick, fix, re-review | a branch (`open_branch`) |
 | `describing` | describe, simplify the PR | a branch (`open_branch`) |
@@ -239,13 +246,13 @@ A block is one part of the engineer flow that the chief runs alone, when a
 request needs only that part. A block that starts past the task's context
 first opens its input from the issue, branch or PR the request names.
 
-Source: [`blocks` in `Library.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L272).
+Source: [`blocks` in `Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L136).
 
 ## Where Fuel skips a step
 
 | Step | Low | Balanced | Max | Also skipped when |
 |---|---|---|---|---|
-| `simplify_plan` | agent's call, on a trivial task | runs | runs | the plan is settled without the user: a parent run decided it, or it is feedback with no Design or Scope question open |
+| `refine` (`simplify_plan`, `standards_plan`, `align_plan`) | agent's call, on a trivial task | runs | runs | the plan is settled without the user (`present` is skipped too): a parent run decided it, or it is feedback with no Design or Scope question open |
 | `refactor` | agent's call, on a trivial task | skipped at 100 changed lines or fewer | runs | - |
 | `describe`, `simplify_pr`, `ready` | never skipped | never skipped | never skipped | - |
 
@@ -254,27 +261,27 @@ sizes every cap (next section) and decides two skips. At a `skip_*` state
 the kernel records `run` or `skip` itself when the Fuel or the facts decide;
 the agent decides only where the table says "agent's call".
 
-Sources: [`propose`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L217) and
-[`skippableAtLow`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L320) for
-`simplify_plan`; [`build`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L228)
-for `refactor`; [`settledSkips`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L921)
+Sources: [`propose`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L169) and
+[`refine`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L180) for
+the `refine` block; [`build`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L190)
+for `refactor`; [`settledSkips`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Run/Fold.hs#L1170)
 for the settled plan; the kernel takes the skip in
-[`due`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L198).
+[`due`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Protocol/Advice.hs#L360).
 A run that never set its Fuel counts as Balanced.
 
 ## The caps
 
 | Meter | Step that spends it | Flow | Low | Balanced | Max | At the cap |
 |---|---|---|---|---|---|---|
-| Plan rounds | `confirm.adjusted` | engineer, 10x | 3 | 3 | 3 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L221) |
-| Re-reviews | `pick.loop` | engineer | 1 | 3 | 5 | [Refuse](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L249): only `pick.final` is left |
-| CI fixes | `fix_pr.done` | engineer | 5 | 5 | 5 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L263) |
-| Rounds | `merge.next_round` | 10x | 9 | 9 | 9 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/TenX.hs#L19): 10 rounds in all |
-| Requests | `next.request` | chief | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Chief.hs#L38) |
-| Researchers | `research` (gather) | engineer, 10x | 1 | 5 | one per fact group | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L180) |
-| Interview questions | `interview` | engineer, 10x | 15 | 30 | 50 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L138) |
-| Researchers | `research` (design) | architect, chief discussion | 10 | 30 | 60 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L180) |
-| Discussion questions | `discuss` | architect, chief discussion | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L156) |
+| Plan rounds | `confirm.adjusted` | engineer, 10x | 3 | 3 | 3 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L170) |
+| Re-reviews | `pick.loop` | engineer | 1 | 3 | 5 | [Refuse](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L217): only `pick.final` is left |
+| CI fixes | `fix_pr.done` | engineer | 5 | 5 | 5 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L232) |
+| Rounds | `merge.next_round` | 10x | 9 | 9 | 9 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/TenX.hs#L39): 10 rounds in all |
+| Requests | `next.request` | chief | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L79) |
+| Researchers | `research` (gather) | engineer, 10x | 1 | 5 | one per fact group | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L147) |
+| Interview questions | `interview` | engineer, 10x | 15 | 30 | 50 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L80) |
+| Researchers | `research` (design) | architect, chief discussion | 10 | 30 | 60 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L147) |
+| Discussion questions | `discuss` | architect, chief discussion | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L115) |
 
 Every loop in a flow holds a capped step, so no run loops forever. Each cap
 counts one thing (a meter); used up, it refuses the spend, stops the run or
@@ -309,8 +316,11 @@ stateDiagram-v2
   state "engineer/gather/research" as engineer__gather__research
   state "engineer/interview" as engineer__interview
   state "engineer/plan" as engineer__plan
-  state "engineer/skip_simplify_plan" as engineer__skip_simplify_plan
+  state "engineer/skip_refine" as engineer__skip_refine
   state "engineer/simplify_plan" as engineer__simplify_plan
+  state "engineer/standards_plan" as engineer__standards_plan
+  state "engineer/align_plan" as engineer__align_plan
+  state "engineer/present" as engineer__present
   state "engineer/confirm" as engineer__confirm
   state "engineer/draft" as engineer__draft
   state "engineer/implement" as engineer__implement
@@ -332,8 +342,11 @@ stateDiagram-v2
   state "10x/gather/research" as 10x__gather__research
   state "10x/interview" as 10x__interview
   state "10x/plan" as 10x__plan
-  state "10x/skip_simplify_plan" as 10x__skip_simplify_plan
+  state "10x/skip_refine" as 10x__skip_refine
   state "10x/simplify_plan" as 10x__simplify_plan
+  state "10x/standards_plan" as 10x__standards_plan
+  state "10x/align_plan" as 10x__align_plan
+  state "10x/present" as 10x__present
   state "10x/confirm" as 10x__confirm
   state "10x/breakdown" as 10x__breakdown
   state "10x/spawn_engineers" as 10x__spawn_engineers
@@ -354,12 +367,18 @@ stateDiagram-v2
   state "agreeing/gather/research" as agreeing__gather__research
   state "agreeing/interview" as agreeing__interview
   state "agreeing/plan" as agreeing__plan
-  state "agreeing/skip_simplify_plan" as agreeing__skip_simplify_plan
+  state "agreeing/skip_refine" as agreeing__skip_refine
   state "agreeing/simplify_plan" as agreeing__simplify_plan
+  state "agreeing/standards_plan" as agreeing__standards_plan
+  state "agreeing/align_plan" as agreeing__align_plan
+  state "agreeing/present" as agreeing__present
   state "agreeing/confirm" as agreeing__confirm
   state "proposing/plan" as proposing__plan
-  state "proposing/skip_simplify_plan" as proposing__skip_simplify_plan
+  state "proposing/skip_refine" as proposing__skip_refine
   state "proposing/simplify_plan" as proposing__simplify_plan
+  state "proposing/standards_plan" as proposing__standards_plan
+  state "proposing/align_plan" as proposing__align_plan
+  state "proposing/present" as proposing__present
   state "proposing/confirm" as proposing__confirm
   state "building/open_plan" as building__open_plan
   state "building/draft" as building__draft
@@ -412,10 +431,13 @@ stateDiagram-v2
   engineer__gather__notes --> engineer__plan: done
   engineer__gather__research --> engineer__gather: spawned
   engineer__interview --> engineer__gather: asked
-  engineer__plan --> engineer__skip_simplify_plan: done
-  engineer__skip_simplify_plan --> engineer__simplify_plan: run
-  engineer__skip_simplify_plan --> engineer__confirm: skip
-  engineer__simplify_plan --> engineer__confirm: done
+  engineer__plan --> engineer__skip_refine: done
+  engineer__skip_refine --> engineer__simplify_plan: run
+  engineer__skip_refine --> engineer__present: skip
+  engineer__simplify_plan --> engineer__standards_plan: done
+  engineer__standards_plan --> engineer__align_plan: done
+  engineer__align_plan --> engineer__present: done
+  engineer__present --> engineer__confirm: done
   engineer__confirm --> engineer__gather: adjusted
   engineer__confirm --> engineer__draft: confirmed
   engineer__draft --> engineer__implement: done
@@ -446,10 +468,13 @@ stateDiagram-v2
   10x__gather__notes --> 10x__plan: done
   10x__gather__research --> 10x__gather: spawned
   10x__interview --> 10x__gather: asked
-  10x__plan --> 10x__skip_simplify_plan: done
-  10x__skip_simplify_plan --> 10x__simplify_plan: run
-  10x__skip_simplify_plan --> 10x__confirm: skip
-  10x__simplify_plan --> 10x__confirm: done
+  10x__plan --> 10x__skip_refine: done
+  10x__skip_refine --> 10x__simplify_plan: run
+  10x__skip_refine --> 10x__present: skip
+  10x__simplify_plan --> 10x__standards_plan: done
+  10x__standards_plan --> 10x__align_plan: done
+  10x__align_plan --> 10x__present: done
+  10x__present --> 10x__confirm: done
   10x__confirm --> 10x__gather: adjusted
   10x__confirm --> 10x__breakdown: confirmed
   10x__breakdown --> 10x__spawn_engineers: done
@@ -489,16 +514,22 @@ stateDiagram-v2
   agreeing__gather__notes --> agreeing__plan: done
   agreeing__gather__research --> agreeing__gather: spawned
   agreeing__interview --> agreeing__gather: asked
-  agreeing__plan --> agreeing__skip_simplify_plan: done
-  agreeing__skip_simplify_plan --> agreeing__simplify_plan: run
-  agreeing__skip_simplify_plan --> agreeing__confirm: skip
-  agreeing__simplify_plan --> agreeing__confirm: done
+  agreeing__plan --> agreeing__skip_refine: done
+  agreeing__skip_refine --> agreeing__simplify_plan: run
+  agreeing__skip_refine --> agreeing__present: skip
+  agreeing__simplify_plan --> agreeing__standards_plan: done
+  agreeing__standards_plan --> agreeing__align_plan: done
+  agreeing__align_plan --> agreeing__present: done
+  agreeing__present --> agreeing__confirm: done
   agreeing__confirm --> agreeing__gather: adjusted
   agreeing__confirm --> next: confirmed
-  proposing__plan --> proposing__skip_simplify_plan: done
-  proposing__skip_simplify_plan --> proposing__simplify_plan: run
-  proposing__skip_simplify_plan --> proposing__confirm: skip
-  proposing__simplify_plan --> proposing__confirm: done
+  proposing__plan --> proposing__skip_refine: done
+  proposing__skip_refine --> proposing__simplify_plan: run
+  proposing__skip_refine --> proposing__present: skip
+  proposing__simplify_plan --> proposing__standards_plan: done
+  proposing__standards_plan --> proposing__align_plan: done
+  proposing__align_plan --> proposing__present: done
+  proposing__present --> proposing__confirm: done
   proposing__confirm --> proposing__plan: adjusted
   proposing__confirm --> next: confirmed
   building__open_plan --> building__draft: done
@@ -546,7 +577,7 @@ stateDiagram-v2
 ## Keeping this page true
 
 The four state diagrams above are checked, not trusted. The Nix check
-`rendered` ([`kernel/rendered.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/rendered.nix#L1), part of
+`rendered` ([`kernel/rendered.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/rendered.nix#L1), part of
 `checks.<system>.agents`) runs `state render mermaid --flow <flow>` for each
 flow and fails when this page does not hold the output exactly, as a whole
 block between blank lines. To update the page after a flow change, paste

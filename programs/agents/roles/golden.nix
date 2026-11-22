@@ -31,6 +31,7 @@
       "spawn:refactorer"
       "spawn:researcher"
       "spawn:review-lead"
+      "spawn:reviewer"
     ];
     prose = [
       "topics/engineering.md"

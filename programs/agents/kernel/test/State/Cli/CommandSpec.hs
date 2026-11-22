@@ -33,7 +33,8 @@ import State.Cli.Command (
     unknownEvent,
  )
 import State.Golden (golden)
-import State.Protocol.Record (Recording (..))
+import State.Protocol.Record (Recordable (..), Recording (..), recordables)
+import State.Role (drawnDecoders)
 import State.Run.Ask (
     Above (..),
     ChildTask (..),
@@ -74,7 +75,7 @@ import State.Run.RunGen (
  )
 import State.Step.Artifact (Shape (..), Url (..), shellPathText)
 import State.Step.Build (Outcome (..))
-import State.Step.Catalog (outcome, outcomeEvent)
+import State.Step.Catalog (outcome, outcomeDecoders, outcomeEvent)
 import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -148,6 +149,14 @@ spec = describe "State.Cli.Command" $ do
             case parseCommand steps ["record", "target", "pr", "https://github.com/o/r/issues/3"] of
                 Right (_, Left failure) -> failure.why `shouldSatisfy` Text.isInfixOf "is not a GitHub PR URL"
                 _ -> expectationFailure "not a refusal"
+
+        -- 'recordables' is a hand-kept list: a step whose outcome it misses still builds.
+        it "records every outcome a step or a flow declares" $
+            [ eventText event
+            | event <- map fst (outcomeDecoders <> drawnDecoders)
+            , eventText event `notElem` map (.name) recordables
+            ]
+                `shouldBe` []
 
         it "records a gap with its text, words joined back" $
             recorded ["gap", "no", "hook", "fact"] `shouldBe` Right (Gapped "no hook fact")
@@ -486,8 +495,8 @@ spec = describe "State.Cli.Command" $ do
               ).fix
             | fuel <- [Balanced, Low]
             ]
-                `shouldBe` [ "state record skip_simplify_plan.run"
-                           , "state record skip_simplify_plan.run | state record skip_simplify_plan.skip"
+                `shouldBe` [ "state record skip_refine.run"
+                           , "state record skip_refine.run | state record skip_refine.skip"
                            ]
 
         it
@@ -579,15 +588,15 @@ spec = describe "State.Cli.Command" $ do
         it "of an unknown hook" $
             golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
-    -- At the gather, past the root's Fuel; then with a researcher open, at simplify_plan's skip, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
+    -- At the gather, past the root's Fuel; then with a researcher open, at the refine block's skip, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
     fueled = [fuelSet Balanced]
     researched = fueled <> take 2 happyPath
     researching = fueled <> [Took mempty (pickOf "gather" "research")]
     interviewing = fueled <> [Took mempty (pickOf "gather" "interview")]
     skipping = fueled <> take 6 happyPath
     simplifying = fueled <> take 7 happyPath
-    planned = fueled <> take 8 happyPath
-    picking = fueled <> take 13 happyPath <> [stepTook (ReviewRows sha)]
+    planned = fueled <> take 11 happyPath
+    picking = fueled <> take 16 happyPath <> [stepTook (ReviewRows sha)]
     -- The engineer's cap of this meter.
     capOf :: Text -> Cap
     capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of

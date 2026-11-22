@@ -20,6 +20,8 @@ module State.Run.RunGen (
     sha,
     commit,
     happyPath,
+    refined,
+    refinedTranscript,
     researchedIn,
     spawnedIn,
     enoughIn,
@@ -263,11 +265,9 @@ happyPath =
         <> enoughIn "gather"
         <> map
             (Took mempty)
-            ( [ outcome (PlanDone "plan.md")
-              , runOf "simplify_plan"
-              , outcome SimplifyPlanDone
-              , outcome ConfirmConfirmed
-              ]
+            ( [outcome (PlanDone "plan.md")]
+                <> refined
+                <> [outcome ConfirmConfirmed]
                 <> [ outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b")))
                    , outcome (ImplementDone commit)
                    , runOf "refactor"
@@ -280,6 +280,27 @@ happyPath =
                    , outcome (ReadyDone (Url "u"))
                    ]
             )
+
+-- | A plan's refine passes run, then its presentation: from @plan@'s done to @confirm@.
+refined :: [AnyOutcome]
+refined =
+    [ runOf "refine"
+    , outcome SimplifyPlanDone
+    , outcome StandardsPlanDone
+    , outcome AlignPlanDone
+    , outcome PresentDone
+    ]
+
+-- | 'refined' as @state next@ walks it, one transition line per event.
+refinedTranscript :: [Text]
+refinedTranscript =
+    [ "plan.done -> skip_refine"
+    , "skip_refine.run -> simplify_plan"
+    , "simplify_plan.done -> standards_plan"
+    , "standards_plan.done -> align_plan"
+    , "align_plan.done -> present"
+    , "present.done -> confirm"
+    ]
 
 -- | A researcher spawned from this choice's pick, then its hand-back: the run is back at the pick.
 researchedIn :: Text -> [Event]

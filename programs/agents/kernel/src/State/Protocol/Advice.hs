@@ -219,7 +219,7 @@ import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (fanNamed)
 import State.Step.Fuel (Sing (Fuel))
-import State.Step.Plan (Outcome (..), Sing (Confirm))
+import State.Step.Plan (Outcome (..), Sing (Confirm, Present))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 import System.FilePath ((</>))
@@ -385,10 +385,11 @@ due facts state = case (state.stopped, state.at) of
         , Just url <- [prUrl facts state]
         ]
     -- A plan its parent decided, or feedback on a target with no Design or Scope question open:
-    -- the run neither simplifies nor confirms it with the user.
+    -- the run neither refines, presents nor confirms it with the user.
     decided name
         | planSettled state =
-            [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
+            [Catalog.outcome PresentDone | name == stepName Present]
+                <> [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
         | otherwise = []
     -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
     open = \case

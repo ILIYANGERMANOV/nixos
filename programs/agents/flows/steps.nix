@@ -35,6 +35,10 @@ let
     "topics/engineering.md"
   ];
 
+  # The findings every refine pass hands back, one table the lead applies to
+  # the plan. GFM splits a row on a bare pipe, hence the escape.
+  findingFormat = "Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\\|`. No row: say \"nothing to change, because ...\".";
+
   # The 10x's steps around its engineers' fan-out.
   fanSteps = {
     breakdown = {
@@ -206,8 +210,8 @@ in
     };
     simplify_plan = {
       runner = "researcher";
-      lead = "Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal.";
-      task = "Run the researcher skill's `references/proposal.md` on the plan your prompt names.";
+      lead = "Propose: one researcher, naming the plan, the research notes paths and the notes directory. An adjust that changed the approach reruns every refine pass; any other adjust reruns none: record each pass's `.done` on the earlier findings.";
+      task = "Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. ${findingFormat}";
       tools = [
         "read"
         "shell"
@@ -221,9 +225,54 @@ in
         "10x"
       ];
     };
+    standards_plan = {
+      runner = "researcher";
+      lead = "Propose: one researcher, naming the plan, the research notes paths and the notes directory.";
+      task = "Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. ${findingFormat}";
+      tools = [
+        "read"
+        "shell"
+        "web"
+      ];
+      skills = [ "researcher" ];
+      prose = engProse;
+      ops = [ ];
+      flows = [
+        "engineer"
+        "10x"
+      ];
+    };
+    align_plan = {
+      runner = "reviewer";
+      lead = "Propose: one reviewer, naming the plan and the notes directory.";
+      task = "Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Write the table to `<notes>/refine-align.md`, `<notes>` the directory your prompt names. ${findingFormat}";
+      tools = [
+        "read"
+        "shell"
+      ];
+      skills = [ ];
+      prose = engProse;
+      ops = [ ];
+      flows = [
+        "engineer"
+        "10x"
+      ];
+    };
+    present = {
+      runner = "inline";
+      task = "Propose: compose the full plan message as `engineer/references/present.md` says, in `<notes>/present.md`. Ask nothing: `confirm` asks.";
+      tools = [ "read" ];
+      skills = [ "engineer" ];
+      prose = leadProse;
+      ops = [ ];
+      flows = [
+        "engineer"
+        "10x"
+      ];
+    };
     confirm = {
       runner = "inline";
-      task = "Propose: the simplified plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.";
+      task = "Propose: one message, `<notes>/present.md` then one Confirm question as its final text. `confirmed` builds it; `adjusted` gathers again.";
       tools = [ ];
       skills = [ "engineer" ];
       prose = leadProse;

@@ -27,7 +27,13 @@ import State.Run.Codec (decodeLine, eventType)
 import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
 import State.Run.EventGen (runId)
-import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
+import State.Run.RunGen (
+    breakdownJson,
+    plainTask,
+    refinedTranscript,
+    roundTask,
+    taskFileJson,
+ )
 import System.Directory (
     createDirectory,
     findExecutable,
@@ -125,7 +131,7 @@ spec = describe "the state binary" $ do
                       , Record ["fuel.set", "low"]
                       ]
                         <> gathered
-                        <> [Planned, Record ["skip_simplify_plan.skip"]]
+                        <> [Planned, Record ["skip_refine.skip"], Record ["present.done"]]
                     )
             transcript
                 `shouldBe` [ "next.request -> fuel"
@@ -134,8 +140,9 @@ spec = describe "the state binary" $ do
                            , "engineer/fuel.set -> engineer/gather"
                            , "engineer/gather.enough -> engineer/gather/notes"
                            , "engineer/gather/notes.done -> engineer/plan"
-                           , "engineer/plan.done -> engineer/skip_simplify_plan"
-                           , "engineer/skip_simplify_plan.skip -> engineer/confirm"
+                           , "engineer/plan.done -> engineer/skip_refine"
+                           , "engineer/skip_refine.skip -> engineer/present"
+                           , "engineer/present.done -> engineer/confirm"
                            ]
             asked <- succeeded =<< state bin repo ["next"]
             take 1 asked `shouldSatisfy` all (Text.isInfixOf "confirmed, or adjusted?")
@@ -429,7 +436,7 @@ spec = describe "the state binary" $ do
                 `shouldBe` ( 2
                            ,
                                [ "state override: override to nowhere - the flow has no single state of that name"
-                               , "fix: state override <fuel|gather|gather/researchers|gather/notes|gather/research|interview|plan|skip_simplify_plan|simplify_plan|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                               , "fix: state override <fuel|gather|gather/researchers|gather/notes|gather/research|interview|plan|skip_refine|simplify_plan|standards_plan|align_plan|present|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                ]
                            )
 
@@ -1109,8 +1116,11 @@ spec = describe "the state binary" $ do
                     [ ["gather.enough"]
                     , ["gather/notes.done"]
                     , ["plan.done", plan]
-                    , ["skip_simplify_plan.run"]
+                    , ["skip_refine.run"]
                     , ["simplify_plan.done"]
+                    , ["standards_plan.done"]
+                    , ["align_plan.done"]
+                    , ["present.done"]
                     , ["confirm.confirmed"]
                     , ["breakdown.done", "--tasks", tasks]
                     ]
@@ -1151,8 +1161,11 @@ spec = describe "the state binary" $ do
                             [ ["gather.enough"]
                             , ["gather/notes.done"]
                             , ["plan.done", plan]
-                            , ["skip_simplify_plan.run"]
+                            , ["skip_refine.run"]
                             , ["simplify_plan.done"]
+                            , ["standards_plan.done"]
+                            , ["align_plan.done"]
+                            , ["present.done"]
                             , ["confirm.confirmed"]
                             , ["breakdown.done", "--tasks", tasks]
                             ]
@@ -2301,13 +2314,22 @@ toImplement =
     , HandsBack "researcher" researched
     ]
         <> gathered
-        <> [ Planned
-           , Handback "researcher" ready
-           , Record ["confirm.confirmed"]
+        <> [Planned]
+        <> refinePasses
+        <> [ Record ["confirm.confirmed"]
            , OpenPr
            , Commit
            , Handback "implementer" ready
            ]
+
+-- | Each refine pass hands back, then the lead presents the plan: from @plan@'s done to @confirm@.
+refinePasses :: [Act]
+refinePasses =
+    [ Handback "researcher" ready
+    , Handback "researcher" ready
+    , Handback "reviewer" ready
+    , Record ["present.done"]
+    ]
 
 -- | The gather ended with no researcher open: its await goes on by itself to the notes.
 gathered :: [Act]
@@ -2339,20 +2361,19 @@ balancedTranscript =
     , "worker_returned -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
-    , "plan.done -> skip_simplify_plan"
-    , "skip_simplify_plan.run -> simplify_plan"
-    , "simplify_plan.done -> confirm"
-    , "confirm.confirmed -> draft"
-    , "draft.done -> implement"
-    , "implement.done -> skip_refactor"
-    , "skip_refactor.skip -> review"
-    , "review.rows -> pick"
-    , "pick.final -> describe"
-    , "describe.done -> simplify_pr"
-    , "simplify_pr.done -> await_ci"
-    , "await_ci.green -> ready"
-    , "ready.done -> out"
     ]
+        <> refinedTranscript
+        <> [ "confirm.confirmed -> draft"
+           , "draft.done -> implement"
+           , "implement.done -> skip_refactor"
+           , "skip_refactor.skip -> review"
+           , "review.rows -> pick"
+           , "pick.final -> describe"
+           , "describe.done -> simplify_pr"
+           , "simplify_pr.done -> await_ci"
+           , "await_ci.green -> ready"
+           , "ready.done -> out"
+           ]
 
 -- | Balanced, its review clean: no pick and no fix loop.
 cleanPath :: [Act]
@@ -2377,19 +2398,18 @@ cleanTranscript =
     , "worker_returned -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
-    , "plan.done -> skip_simplify_plan"
-    , "skip_simplify_plan.run -> simplify_plan"
-    , "simplify_plan.done -> confirm"
-    , "confirm.confirmed -> draft"
-    , "draft.done -> implement"
-    , "implement.done -> skip_refactor"
-    , "skip_refactor.skip -> review"
-    , "review.clean -> describe"
-    , "describe.done -> simplify_pr"
-    , "simplify_pr.done -> await_ci"
-    , "await_ci.green -> ready"
-    , "ready.done -> out"
     ]
+        <> refinedTranscript
+        <> [ "confirm.confirmed -> draft"
+           , "draft.done -> implement"
+           , "implement.done -> skip_refactor"
+           , "skip_refactor.skip -> review"
+           , "review.clean -> describe"
+           , "describe.done -> simplify_pr"
+           , "simplify_pr.done -> await_ci"
+           , "await_ci.green -> ready"
+           , "ready.done -> out"
+           ]
 
 -- | Low, a trivial task: the agent gathers nothing, skips the proposal and the refactor, so no hand-back of theirs.
 trivialPath :: [Act]
@@ -2397,7 +2417,8 @@ trivialPath =
     Record ["fuel.set", "low"]
         : gathered
             <> [ Planned
-               , Record ["skip_simplify_plan.skip"]
+               , Record ["skip_refine.skip"]
+               , Record ["present.done"]
                , Record ["confirm.confirmed"]
                , OpenPr
                , Commit
@@ -2416,8 +2437,9 @@ trivialTranscript =
     [ "fuel.set -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
-    , "plan.done -> skip_simplify_plan"
-    , "skip_simplify_plan.skip -> confirm"
+    , "plan.done -> skip_refine"
+    , "skip_refine.skip -> present"
+    , "present.done -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
     , "implement.done -> skip_refactor"
@@ -2431,18 +2453,19 @@ trivialTranscript =
     ]
 
 {- | 'trivialPath' from the gather, in a chief's request on a targeted PR:
-the plan is neither simplified nor confirmed, no draft PR opened, as GitHub
+the plan is neither refined, presented nor confirmed, no draft PR opened, as GitHub
 has the target's, and no ready, which the request skips.
 -}
 targetedPath :: [Act]
-targetedPath = take 3 (drop 1 trivialPath) <> drop 8 (init trivialPath)
+targetedPath = take 3 (drop 1 trivialPath) <> drop 9 (init trivialPath)
 
 targetedTranscript :: [Text]
 targetedTranscript =
     [ "engineer/gather.enough -> engineer/gather/notes"
     , "engineer/gather/notes.done -> engineer/plan"
-    , "engineer/plan.done -> engineer/skip_simplify_plan"
-    , "engineer/skip_simplify_plan.skip -> engineer/confirm"
+    , "engineer/plan.done -> engineer/skip_refine"
+    , "engineer/skip_refine.skip -> engineer/present"
+    , "engineer/present.done -> engineer/confirm"
     , "engineer/confirm.confirmed -> engineer/draft"
     , "engineer/draft.done -> engineer/implement"
     , "engineer/implement.done -> engineer/skip_refactor"
@@ -2459,7 +2482,7 @@ targetedTranscript =
 GitHub has the round's, and no ready, which the round skips.
 -}
 roundPath :: [Act]
-roundPath = take 6 trivialPath <> drop 7 (init trivialPath)
+roundPath = take 7 trivialPath <> drop 8 (init trivialPath)
 
 -- | The PR a user's round names, which the scripted @gh@ reports by URL alone.
 roundUrlString :: String

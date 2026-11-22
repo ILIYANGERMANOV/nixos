@@ -13,10 +13,13 @@ stateDiagram-v2
   gather__notes --> plan: done
   gather__research --> gather: spawned
   interview --> gather: asked
-  plan --> skip_simplify_plan: done
-  skip_simplify_plan --> simplify_plan: run
-  skip_simplify_plan --> confirm: skip
-  simplify_plan --> confirm: done
+  plan --> skip_refine: done
+  skip_refine --> simplify_plan: run
+  skip_refine --> present: skip
+  simplify_plan --> standards_plan: done
+  standards_plan --> align_plan: done
+  align_plan --> present: done
+  present --> confirm: done
   confirm --> gather: adjusted
   confirm --> breakdown: confirmed
   breakdown --> spawn_engineers: done

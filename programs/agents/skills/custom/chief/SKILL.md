@@ -154,9 +154,12 @@ is no arrow: it leaves a request at its state and turns to another.
 | engineer/gather/notes | you | done: engineer/plan |
 | engineer/gather/research | researcher | spawned: engineer/gather |
 | engineer/interview | you | asked: engineer/gather |
-| engineer/plan | you | done: engineer/skip_simplify_plan |
-| engineer/skip_simplify_plan | you | run: engineer/simplify_plan; skip: engineer/confirm |
-| engineer/simplify_plan | researcher | done: engineer/confirm |
+| engineer/plan | you | done: engineer/skip_refine |
+| engineer/skip_refine | you | run: engineer/simplify_plan; skip: engineer/present |
+| engineer/simplify_plan | researcher | done: engineer/standards_plan |
+| engineer/standards_plan | researcher | done: engineer/align_plan |
+| engineer/align_plan | reviewer | done: engineer/present |
+| engineer/present | you | done: engineer/confirm |
 | engineer/confirm | you | adjusted: engineer/gather; confirmed: engineer/draft |
 | engineer/draft | you | done: engineer/implement |
 | engineer/implement | implementer | done: engineer/skip_refactor |
@@ -177,9 +180,12 @@ is no arrow: it leaves a request at its state and turns to another.
 | 10x/gather/notes | you | done: 10x/plan |
 | 10x/gather/research | researcher | spawned: 10x/gather |
 | 10x/interview | you | asked: 10x/gather |
-| 10x/plan | you | done: 10x/skip_simplify_plan |
-| 10x/skip_simplify_plan | you | run: 10x/simplify_plan; skip: 10x/confirm |
-| 10x/simplify_plan | researcher | done: 10x/confirm |
+| 10x/plan | you | done: 10x/skip_refine |
+| 10x/skip_refine | you | run: 10x/simplify_plan; skip: 10x/present |
+| 10x/simplify_plan | researcher | done: 10x/standards_plan |
+| 10x/standards_plan | researcher | done: 10x/align_plan |
+| 10x/align_plan | reviewer | done: 10x/present |
+| 10x/present | you | done: 10x/confirm |
 | 10x/confirm | you | adjusted: 10x/gather; confirmed: 10x/breakdown |
 | 10x/breakdown | you | done: 10x/spawn_engineers |
 | 10x/spawn_engineers | fan-out | each_done: 10x/engineers; spawned: 10x/spawn_engineers |
@@ -200,13 +206,19 @@ is no arrow: it leaves a request at its state and turns to another.
 | agreeing/gather/notes | you | done: agreeing/plan |
 | agreeing/gather/research | researcher | spawned: agreeing/gather |
 | agreeing/interview | you | asked: agreeing/gather |
-| agreeing/plan | you | done: agreeing/skip_simplify_plan |
-| agreeing/skip_simplify_plan | you | run: agreeing/simplify_plan; skip: agreeing/confirm |
-| agreeing/simplify_plan | researcher | done: agreeing/confirm |
+| agreeing/plan | you | done: agreeing/skip_refine |
+| agreeing/skip_refine | you | run: agreeing/simplify_plan; skip: agreeing/present |
+| agreeing/simplify_plan | researcher | done: agreeing/standards_plan |
+| agreeing/standards_plan | researcher | done: agreeing/align_plan |
+| agreeing/align_plan | reviewer | done: agreeing/present |
+| agreeing/present | you | done: agreeing/confirm |
 | agreeing/confirm | you | adjusted: agreeing/gather; confirmed: next |
-| proposing/plan | you | done: proposing/skip_simplify_plan |
-| proposing/skip_simplify_plan | you | run: proposing/simplify_plan; skip: proposing/confirm |
-| proposing/simplify_plan | researcher | done: proposing/confirm |
+| proposing/plan | you | done: proposing/skip_refine |
+| proposing/skip_refine | you | run: proposing/simplify_plan; skip: proposing/present |
+| proposing/simplify_plan | researcher | done: proposing/standards_plan |
+| proposing/standards_plan | researcher | done: proposing/align_plan |
+| proposing/align_plan | reviewer | done: proposing/present |
+| proposing/present | you | done: proposing/confirm |
 | proposing/confirm | you | adjusted: proposing/plan; confirmed: next |
 | building/open_plan | you | done: building/draft |
 | building/draft | you | done: building/implement |

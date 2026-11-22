@@ -39,6 +39,7 @@ import State.Protocol.Advice (Facts (..), factLines)
 import State.Protocol.Hook (
     Begin (..),
     HookName (HandbackHook, SpawnHook),
+    beside,
     hookName,
     opensChild,
  )
@@ -317,9 +318,14 @@ back to the gather's pick before it starts; else, where the role runs
 neither, of each step it runs.
 -}
 stepBrief :: Steps -> OpenGraph -> Node -> AgentRole -> Text
-stepBrief steps g at agent = case [text | name <- named, Right text <- [briefSection steps agent name]] of
+stepBrief steps g at agent = case briefHere steps g at agent of
     [] -> briefOf steps agent
     here : _ -> here
+
+-- | The brief sections of the steps 'stepBrief' tries, in its order.
+briefHere :: Steps -> OpenGraph -> Node -> AgentRole -> [Text]
+briefHere steps g at agent =
+    [text | name <- named, Right text <- [briefSection steps agent name]]
   where
     named = case at of
         At place ->
@@ -454,16 +460,24 @@ ruleOf (AgentRole role)
 
 {- | What a hook tells as work begins (#403): a spawned lead and a lead
 skill how its run starts, a step runner its brief: at the worktree's run,
-when read, its 'stepBrief'. Stated as facts, as imperative text in a hook's
-context can read as an injected order.
+when read, its 'stepBrief', none for one spawned beside at no step it runs.
+Stated as facts, as imperative text in a hook's context can read as an
+injected order.
 -}
 beginText :: Steps -> Maybe (OpenGraph, RunState) -> Begin -> Text
 beginText steps run = \case
     SpawnedLead ->
         "state: this lead's run is driven by `state`. Its first command is the `state init` line in its prompt, as written; "
             <> "then `state next`, until it prints DONE.\n"
-    SpawnedWorker role ->
-        maybe (briefOf steps role) (\(g, state) -> stepBrief steps g state.at role) run
+    SpawnedWorker role -> case run of
+        Nothing -> briefOf steps role
+        Just (g, state) -> case briefHere steps g state.at role of
+            here : _ -> here
+            -- Spawned beside the advice, as a review-lead's reviewer: its
+            -- spawner's prompt is its brief, no step's of the run.
+            []
+                | role `elem` beside -> ""
+                | otherwise -> briefOf steps role
     TypedSkill _ -> skillBegins
     CalledSkill _ -> skillBegins
   where

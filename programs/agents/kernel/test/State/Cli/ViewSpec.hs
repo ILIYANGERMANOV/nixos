@@ -1,5 +1,6 @@
 module State.Cli.ViewSpec (spec) where
 
+import Data.Either (fromRight)
 import Data.Foldable (for_)
 import Data.Text qualified as Text
 import State.Category.Fuel (Fuel (Balanced))
@@ -37,7 +38,7 @@ spec = describe "the texts that need no run" $ do
                 briefOf steps role `shouldSatisfy` \text -> all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
 
         it "names every hand-back token for line 1 at a step the role runs" $ do
-            let atImplement = runAt (fuelSet Balanced : take 10 happyPath)
+            let atImplement = runAt (fuelSet Balanced : take 13 happyPath)
             brief steps g atImplement (AgentRole "implementer") Nothing `shouldSatisfy` \case
                 Right text ->
                     take 1 (Text.lines text) == ["## implement"]
@@ -70,14 +71,15 @@ spec = describe "the texts that need no run" $ do
         it "is the role's sections, for every section, in order" $
             mapM
                 (briefSection steps researcher)
-                [StateName "research", StateName "simplify_plan"]
+                [StateName "research", StateName "simplify_plan", StateName "standards_plan"]
                 `shouldSatisfy` either
                     (const False)
                     (\texts -> concatMap headings texts == headings (briefOf steps researcher))
 
         it "names the role's sections when it runs no such step" $
             briefSection steps researcher (StateName "implement")
-                `shouldBe` Left [StateName "research", StateName "simplify_plan"]
+                `shouldBe` Left
+                    [StateName "research", StateName "simplify_plan", StateName "standards_plan"]
 
     describe "state show" $ do
         it
@@ -100,6 +102,15 @@ spec = describe "the texts that need no run" $ do
             beginText steps Nothing (SpawnedWorker (AgentRole "fixer"))
                 `shouldBe` briefOf steps (AgentRole "fixer")
 
+        it "gives a reviewer spawned at align_plan that step's brief" $
+            beginText steps (Just (g, atAlignPlan)) (SpawnedWorker (AgentRole "reviewer"))
+                `shouldBe` fromRight "" (brief steps g atAlignPlan (AgentRole "reviewer") Nothing)
+
+        it
+            "gives a reviewer spawned beside the advice, at a step it does not run, no brief"
+            $ beginText steps (Just (g, atReview)) (SpawnedWorker (AgentRole "reviewer"))
+                `shouldBe` ""
+
         it
             "tells a spawned engineer its run starts at the init line of its prompt, then state next"
             $ beginText steps Nothing SpawnedLead `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init` line", "`state next`"]
@@ -110,3 +121,7 @@ spec = describe "the texts that need no run" $ do
                 beginText steps Nothing (TypedSkill EngineerSkill)
                     `shouldBe` beginText steps Nothing (CalledSkill TenXSkill)
                 beginText steps Nothing (TypedSkill EngineerSkill) `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init ...`", "`state next`"]
+  where
+    -- The plan done and refined to align_plan; the run past refactor, at review.
+    atAlignPlan = runAt (fuelSet Balanced : take 9 happyPath)
+    atReview = runAt (fuelSet Balanced : take 16 happyPath)

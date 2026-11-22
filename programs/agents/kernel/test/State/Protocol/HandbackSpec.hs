@@ -125,7 +125,7 @@ typing = describe "typeHandback" $ do
             let fixing =
                     runAt
                         ( fuelSet Balanced
-                            : take 13 happyPath
+                            : take 16 happyPath
                                 <> map
                                     (Took mempty)
                                     [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
@@ -166,9 +166,18 @@ typing = describe "typeHandback" $ do
             `shouldBe` Right (Typed [tookIn (scopePath "gather") ResearchHandedBack] Nothing)
 
     it
-        "records simplify_plan.done on a researcher's report, which opens with no token"
-        $ typed atSimplifyPlan "researcher" "# t5 plan (simplify proposal)\n## Goals"
-            `shouldBe` Right (Typed [stepTook SimplifyPlanDone] Nothing)
+        "records each refine pass done on its runner's findings, which open with no token"
+        $ [ typed (runAt (fuelSet Balanced : take n happyPath)) role findings
+          | (n, role) <- [(7, "researcher"), (8, "researcher"), (9, "reviewer")]
+          ]
+            `shouldBe` [ Right (Typed [stepTook SimplifyPlanDone] Nothing)
+                       , Right (Typed [stepTook StandardsPlanDone] Nothing)
+                       , Right (Typed [stepTook AlignPlanDone] Nothing)
+                       ]
+
+    it "refuses a refine pass's findings from a role that does not run it" $
+        typed (runAt (fuelSet Balanced : take 9 happyPath)) "researcher" findings
+            `shouldSatisfy` isLeft
 
     it "asks a stuck question under the run's next own id" $
         typed atImplement "implementer" "NEEDS_DECISION stuck: the same test fails"
@@ -295,13 +304,13 @@ typing = describe "typeHandback" $ do
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
     atGather = runAt (fuelSet Balanced : take 2 happyPath)
-    atSimplifyPlan = runAt (fuelSet Balanced : take 7 happyPath)
-    atImplement = runAt (fuelSet Balanced : take 10 happyPath)
-    atReview = runAt (fuelSet Balanced : take 13 happyPath)
+    findings = "| Concern | Finding | Change | Source | Confidence |"
+    atImplement = runAt (fuelSet Balanced : take 13 happyPath)
+    atReview = runAt (fuelSet Balanced : take 16 happyPath)
     atFix =
         runAt
             ( fuelSet Balanced
-                : take 13 happyPath
+                : take 16 happyPath
                     <> map
                         (Took mempty)
                         [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
