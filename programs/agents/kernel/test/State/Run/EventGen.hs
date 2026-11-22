@@ -245,10 +245,6 @@ templates =
     , outcome (ReadyDone (Url ""))
     , outcome (ReadySkipped (Url ""))
     , outcome (TicketWritten (Url ""))
-    , outcome ProblemUnderstood
-    , outcome ProblemMore
-    , outcome (ConfirmDesignConfirmed (Url ""))
-    , outcome ConfirmDesignAdjusted
     , outcome (OpenPlanDone (Url ""))
     , outcome (OpenBranchDone (Branch ""))
     , outcome (OpenPrDone (Url ""))
@@ -304,10 +300,6 @@ likeIn = \case
         ReadySkipped _ -> ReadySkipped . Url <$> genText
     TicketLayer -> \case
         TicketWritten _ -> TicketWritten . Url <$> genText
-        ProblemUnderstood -> pure ProblemUnderstood
-        ProblemMore -> pure ProblemMore
-        ConfirmDesignConfirmed _ -> ConfirmDesignConfirmed . Url <$> genText
-        ConfirmDesignAdjusted -> pure ConfirmDesignAdjusted
     RequestLayer -> \case
         OpenPlanDone _ -> OpenPlanDone . Url <$> genText
         OpenBranchDone _ -> OpenBranchDone . Branch <$> genText

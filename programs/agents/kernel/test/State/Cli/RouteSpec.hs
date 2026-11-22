@@ -177,7 +177,7 @@ readOnlySpec = describe "the architect's read-only run" $ do
         notesWrites = [Writes (Just (notes <> "/notes.md")), Edits (Just (notes <> "/notes.md")), Writes (Just (notes <> "/./r/../notes.md"))]
         readCalls = [Spawns] <> map RunsShell ["gh issue view 1", "git status", "state next"]
         -- Each run where the architect's flow runs: its own states, and the chief's discussion and architect request.
-        architectAt = [(ArchitectFlow, "architect"), (ArchitectFlow, "architect/ticket"), (ArchitectFlow, "design/confirm_design"), (ChiefFlow, "discussion/discussing"), (ChiefFlow, "architect/architect")]
+        architectAt = [(ArchitectFlow, "architect"), (ArchitectFlow, "architect/ticket"), (ChiefFlow, "discussion/discussing"), (ChiefFlow, "architect/architect")]
         deniedAt (flow, at) = readOnly notes (flowAt flow (StateName at))
     it "denies an edit or write outside the notes dir or below it, a commit, a push and a PR opened or merged at every state, naming the ticket as the write" $
         [deniedAt place call | place <- architectAt, call <- codeWrites] `shouldSatisfy` all (maybe False ("write or edit the ticket at any point" `Text.isInfixOf`))

@@ -13,7 +13,6 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (OpenGraph)
 import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
@@ -23,7 +22,7 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, flowGraph, g, genAccepted, happyPath, legacyArchitectGraph, loadSteps, pickOf, plainTask, problemUnderstood, researchedIn, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketUrl, ticketWritten, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, enoughIn, flowGraph, g, genAccepted, happyPath, loadSteps, pickOf, plainTask, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketUrl, ticketWritten, within)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Gather (Outcome (..))
@@ -31,7 +30,6 @@ import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
-import State.Step.Ticket (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldNotSatisfy, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -204,10 +202,9 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts answered `shouldBe` offering ["state record confirm.confirmed", "state record confirm.adjusted"]
 
     describe "the architect" $ do
-        let architectFrom = architectOn architectGraph
-            architectRun = architectFrom . (knobs Balanced <>)
+        let architectRun = architectOf . (knobs Balanced <>)
         it "asks the architect's Fuel first, as the engineer's" $
-            next noFacts (architectFrom []) `shouldBe` next noFacts (runAt [])
+            next noFacts (architectOf []) `shouldBe` next noFacts (runAt [])
 
         it "offers research, the discussion's questions, the ticket and enough at its one pick" $
             next noFacts (architectRun []) `shouldBe` offering ["state record architect.discuss", "state record architect.enough", "state record architect.research", "state record architect.ticket"]
@@ -221,36 +218,6 @@ spec = describe "State.Protocol.Advice" $ do
         it "tells the discussion to send its Explain message before each question, in the same turn" $
             (advise steps architectGraph noFacts (architectRun [Took mempty (pickOf "architect" "discuss")])).prompt
                 `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the question as text" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
-
-    describe "the legacy architect" $ do
-        let architectRun = architectOn legacyArchitectGraph . (knobs Balanced <>)
-            legacyNext state = commandsOnly (advise steps legacyArchitectGraph noFacts state).action
-            atProblem = architectRun (researchedIn "exploring" <> enoughIn "exploring")
-            atDesignConfirm = problemUnderstood <> designDiscussed
-            atCap = problemUnderstood <> concat (replicate 3 (designDiscussed <> [stepTook ConfirmDesignAdjusted])) <> designDiscussed
-            designGoOn = Question (QId run 100) Stuck (oneLine "go on?")
-            wentOn = [Asked (Asking designGoOn (StateName "design/confirm_design") Itself), Forwarded designGoOn.qid TheUser, Answered designGoOn.qid (Chose "yes") TheUser]
-        it "offers the problem's records without asking, and tells the agent to discuss free-form until the user says design" $ do
-            let advice = advise steps legacyArchitectGraph noFacts atProblem
-            commandsOnly advice.action `shouldBe` offering ["state record problem.understood", "state record problem.more"]
-            advice.prompt `shouldSatisfy` \prompt -> all (`Text.isInfixOf` prompt) ["free-form, no question asked yet", "Only when the user says design or enough", "state ask --kind Confirm \"the problem: understood, or more?\"", "the user's own words"]
-
-        it "drops the line on when to ask once the problem's Confirm was asked and answered" $ do
-            let (question, asked, _) = byRow atProblem Confirm (oneLine "the problem: understood, or more?")
-                answered = architectRun (researchedIn "exploring" <> enoughIn "exploring" <> asked <> [Answered question.qid (Chose "design") TheUser])
-                advice = advise steps legacyArchitectGraph noFacts answered
-            (commandsOnly advice.action, "Only when the user says" `Text.isInfixOf` advice.prompt)
-                `shouldBe` (offering ["state record problem.understood", "state record problem.more"], False)
-
-        it "asks the user to confirm the design" $
-            legacyNext (architectRun atDesignConfirm) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
-
-        it "asks whether to go on at the design rounds' cap, then the confirm again after extend" $ do
-            legacyNext (architectRun atCap) `shouldBe` Ask Stuck "Design rounds: 3 of 3 used, none left: go on?"
-            legacyNext (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
-
-        it "ends, as the architect, naming its notes file and the confirmed design's ticket url" $
-            legacyNext (architectRun (problemUnderstood <> designConfirmed)) `shouldBe` Done (ArchitectEnd architectNotes (Just ticketUrl))
 
     it "names a subagent's role with its article" $
         map (Text.isPrefixOf "at implement: a step an implementer subagent runs") (take 1 (explainedAt (runAt (knobs Balanced <> take 10 happyPath))))
@@ -576,9 +543,9 @@ byRow state kind text = either (error . show) id (ownAsk state ByRow kind text)
 knobs :: Fuel -> [Event]
 knobs fuel = [fuelSet fuel]
 
--- | An architect run of these events, replayed under this graph: the current architect's or the legacy one.
-architectOn :: OpenGraph -> [Event] -> RunState
-architectOn under events = either (error . show) id (replay under (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
+-- | An architect run of these events.
+architectOf :: [Event] -> RunState
+architectOf events = either (error . show) id (replay architectGraph (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
 
 -- | The notes file an architect run of 'start' names at its end.
 architectNotes :: FilePath

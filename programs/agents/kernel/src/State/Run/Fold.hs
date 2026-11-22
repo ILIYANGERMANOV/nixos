@@ -86,7 +86,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
+import Data.Maybe (fromMaybe, isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -322,10 +322,6 @@ data Refusal
       NotSuspended TaskNo
     | -- | A turn away from the request in focus, which recorded work: it is suspended first.
       FocusRecorded TaskNo
-    | -- | The user's word recorded where no Confirm was asked since the run came here.
-      ConfirmUnasked
-    | -- | The user's word recorded while the Confirm asked here waits for its answer.
-      ConfirmOpen QId
     deriving stock (Eq, Show)
 
 {- | An id already in the log, or an answer the run holds already, is not
@@ -753,7 +749,6 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     let effect = effects scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
-    if effect.confirmed then confirmedHere state else Right ()
     case (edge.to == At from, awaitedOpen g state from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
@@ -811,8 +806,6 @@ data Effect = Effect
     , written :: Maybe Url
     , anew :: Bool
     -- ^ A new request starts: it has no target until one is named.
-    , confirmed :: Bool
-    -- ^ The outcome is the user's word: the Confirm asked at its step has its answer in the log first.
     , level :: Maybe Fuel
     -- ^ The run's Fuel from here on, as a 'Fuel' step sets it.
     , skip :: Maybe Skipping
@@ -833,13 +826,13 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     BuildLayer -> none {draft = built o}
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url, skip = keeps o}
-    TicketLayer -> none {written = ticketOf o, confirmed = userWord o}
+    TicketLayer -> none {written = ticketOf o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
     PickLayer -> none
     FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, written = Nothing, anew = False, confirmed = False, level = Nothing, skip = Nothing}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, written = Nothing, anew = False, level = Nothing, skip = Nothing}
 
 -- | The level a 'Fuel' step sets; a skip sets none.
 fuelOutcome :: Outcome (s :: FuelStep) l -> Maybe Fuel
@@ -866,34 +859,10 @@ keeps = \case
     AwaitCiRed _ _ -> Nothing
     FixPrDone _ -> Nothing
 
--- | The ticket written or edited, or, in a legacy architect run, the one its confirmed design went into.
+-- | The ticket written or edited.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
 ticketOf = \case
     TicketWritten url -> Just url
-    ConfirmDesignConfirmed url -> Just url
-    ConfirmDesignAdjusted -> Nothing
-    ProblemUnderstood -> Nothing
-    ProblemMore -> Nothing
-
--- | Leaving the problem or the design loop: the user said so, in answer to the step's Confirm.
-userWord :: Outcome (s :: TicketStep) l -> Bool
-userWord = \case
-    TicketWritten _ -> False
-    ProblemUnderstood -> True
-    ConfirmDesignConfirmed _ -> True
-    ProblemMore -> False
-    ConfirmDesignAdjusted -> False
-
-{- | A Confirm asked since the run came here has its answer: the gate on an
-outcome that records the user's word, so prose alone never leaves the loop.
--}
-confirmedHere :: RunState -> Either Refusal ()
-confirmedHere state = case (confirms, filter (isJust . heldAnswer state) confirms) of
-    (_, _ : _) -> Right ()
-    ([], []) -> Left ConfirmUnasked
-    (open : _, []) -> Left (ConfirmOpen open)
-  where
-    confirms = [question.qid | question <- state.askedHere, question.kind == Ask.Confirm]
 
 -- | The PR an @open_pr@ names: a ship from it waits on that PR's CI.
 openedPr :: Outcome (s :: RequestStep) l -> Maybe Url
@@ -1467,7 +1436,7 @@ stuckExits g state place = case innermost g place of
             AwaitsCi -> True
             AwaitsMerge -> True
             Ordinary -> False
-            AsksConfirm _ _ -> False
+            AsksConfirm _ -> False
             TellsResult -> False
             Discusses -> False
         Nothing -> False

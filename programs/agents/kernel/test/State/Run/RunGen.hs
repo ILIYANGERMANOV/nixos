@@ -3,13 +3,9 @@ module State.Run.RunGen (
     g,
     tenXGraph,
     architectGraph,
-    legacyArchitectGraph,
     chiefGraph,
     ticketUrl,
     ticketWritten,
-    problemUnderstood,
-    designDiscussed,
-    designConfirmed,
     userConfirms,
     securityGraph,
     securityScope,
@@ -56,7 +52,7 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), Name (..), ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
-import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, outOf, placeName)
+import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, outOf)
 import State.Category.Graph qualified as Graph
 import State.Category.Path (unrecorded)
 import State.Category.Step (EventName (..), OutcomeName (..), spawnedOutcome, stateNameText)
@@ -65,7 +61,6 @@ import State.Flow.Architect (architect)
 import State.Flow.Chief (chief)
 import State.Flow.Drawn (drawnOutcomes)
 import State.Flow.Engineer (engineer)
-import State.Flow.Legacy (legacyArchitect)
 import State.Flow.Library (review)
 import State.Flow.TenX (tenX)
 import State.Run.Ask (Above (..), Kind (Confirm), QId (..), Question (..))
@@ -73,7 +68,7 @@ import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genOutcomeNamed, line, logOf, oneLine, run, runId, start, started, tasksOf)
-import State.Run.Fold (Append (..), Refusal (ConfirmUnasked), RunState (..), Worker (..), append, replay)
+import State.Run.Fold (Append (..), Refusal, RunState (..), Worker (..), append, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
@@ -108,10 +103,6 @@ tenXGraph = either (error . show) id (graph tenX)
 architectGraph :: OpenGraph
 architectGraph = either (error . show) id (graph architect)
 
--- | The architect's flow before it became one discussion: old logs replay under it.
-legacyArchitectGraph :: OpenGraph
-legacyArchitectGraph = either (error . show) id (graph legacyArchitect)
-
 chiefGraph :: OpenGraph
 chiefGraph = either (error . show) id (graph chief)
 
@@ -122,18 +113,6 @@ ticketUrl = Url "https://github.com/o/r/issues/1"
 -- | The ticket picked at the architect's discussion and written at 'ticketUrl': the run is back at the pick.
 ticketWritten :: [Event]
 ticketWritten = [Took mempty (pickOf "architect" "ticket"), stepTook (TicketWritten ticketUrl)]
-
--- | A legacy architect run up to its design: researched, explored enough, the problem understood in the user's word.
-problemUnderstood :: [Event]
-problemUnderstood = researchedIn "exploring" <> enoughIn "exploring" <> userConfirms 101 (StateName "problem") <> [stepTook ProblemUnderstood]
-
--- | A legacy design round up to the user's verdict: discussed enough.
-designDiscussed :: [Event]
-designDiscussed = enoughIn "discussing"
-
--- | A legacy design round the user confirms, the ticket written at 'ticketUrl'.
-designConfirmed :: [Event]
-designConfirmed = designDiscussed <> userConfirms 102 (StateName "confirm_design") <> [stepTook (ConfirmDesignConfirmed ticketUrl)]
 
 {- | The user's word at a step that asks Confirm: the question asked there,
 forwarded to the user and answered. @n@ numbers it, unique in its log.
@@ -303,7 +282,7 @@ genAcceptedOn own on = do
         At place -> case handBacks place state <> [(if stays place edge then 5 else 1, tookBy place name) | isNothing (unrecorded on place), (name, edge) <- outOf place on.edges] of
             [] -> pure []
             choices -> do
-                took <- inWord place state n <$> Gen.frequency choices
+                took <- Gen.frequency choices
                 case appended state n took of
                     Right (next, m) -> (took <>) <$> bound next m (bindOf took n)
                     Left _ -> go (k - 1) state n
@@ -322,10 +301,6 @@ genAcceptedOn own on = do
             Right (Appended next) -> appended next (n + 1) rest
             Right AlreadyLogged -> Left Nothing
             Left refusal -> Left (Just refusal)
-    -- A record the fold refuses for want of the user's word takes the user's Confirm first, as the advice asks it.
-    inWord place state n took = case appended state n took of
-        Left (Just ConfirmUnasked) -> userConfirms n (placeName place) <> took
-        _ -> took
     -- The edge is named in the place's scope; the outcome is its step's own.
     tookBy place name = pure . Took place.scope <$> outcomeIn own (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
     {- A researcher in the background may return wherever the run is; at an

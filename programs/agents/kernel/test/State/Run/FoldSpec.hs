@@ -34,7 +34,7 @@ import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genRea
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, g, genAccepted, genAcceptedOn, happyPath, legacyArchitectGraph, outcomeOf, pickOf, plainTask, problemUnderstood, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, ticketWritten, userConfirms, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketUrl, ticketWritten, within)
 import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
@@ -43,18 +43,18 @@ import State.Step.Plan (Outcome (..), Sing (PlanS))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
-import State.Step.Ticket (Outcome (..), Sing (ConfirmDesign))
+import State.Step.Ticket (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Run.Fold" $ do
-    it "names every edge of the engineer, 10x, architect, legacy architect and chief flows by exactly one kind of outcome" $
+    it "names every edge of the engineer, 10x, architect and chief flows by exactly one kind of outcome" $
         -- A fan-out's stays are its children's events, as is a fork of child runs' spawn: the
         -- child's init. A scope's are named bare. An await goes on by no event, and a researcher
         -- hands back by no edge: wherever the run is.
         Set.delete (outcomeEvent (outcome ResearchHandedBack)) outcomeNames
-            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, legacyArchitectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place), isNothing (childFork flow place)]
+            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place), isNothing (childFork flow place)]
 
     describe "the 10x's fan-out" $ do
         let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
@@ -304,7 +304,6 @@ spec = describe "State.Run.Fold" $ do
     gatherBudgets
     tenXRounds
     architectRun
-    legacyArchitectRun
     chiefRequests
     waitingFanOuts
 
@@ -732,69 +731,8 @@ architectRun = describe "the architect's run" $ do
     it "ends on enough with no ticket" $
         (\state -> (state.at, state.ticket)) <$> architect (researchedIn "architect" <> enoughIn "architect")
             `shouldBe` Right (Out, Nothing)
-
-    it "refuses the legacy problem and design steps" $
-        map (\step -> architect [step]) [stepTook ProblemUnderstood, stepTook (ConfirmDesignConfirmed ticketUrl)]
-            `shouldSatisfy` all
-                ( \case
-                    Left (NoEdge _ _) -> True
-                    _ -> False
-                )
   where
-    architect = architectOn architectGraph
-
--- | An architect run at Balanced, of these events, replayed under this graph: the current architect's or the legacy one.
-architectOn :: OpenGraph -> [Event] -> Either Fold.Refusal RunState
-architectOn under events = replay under (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
-
-{- | The legacy architect's run, as old logs replay it: research and the
-problem until the user understands it, design rounds until the user confirms
-one, and only then the ticket's url.
--}
-legacyArchitectRun :: Spec
-legacyArchitectRun = describe "the legacy architect's run" $ do
-    it "researches, understands the problem, adjusts the design once, then keeps the confirmed design's ticket url" $
-        (\state -> (state.at, state.ticket)) <$> architect (problemUnderstood <> designRound ConfirmDesignAdjusted <> designConfirmed)
-            `shouldBe` Right (Out, Just ticketUrl)
-
-    it "refuses the problem understood where no Confirm was asked" $
-        architect (explored <> [stepTook ProblemUnderstood]) `shouldBe` Left ConfirmUnasked
-
-    it "refuses the problem understood while its Confirm waits for the user's answer" $
-        architect (explored <> take 2 (userConfirms 1 (StateName "problem")) <> [stepTook ProblemUnderstood]) `shouldBe` Left (ConfirmOpen (QId run 1))
-
-    it "refuses the problem understood on the answer of an earlier round's Confirm" $
-        architect (explored <> userConfirms 1 (StateName "problem") <> [stepTook ProblemMore] <> explored <> [stepTook ProblemUnderstood]) `shouldBe` Left ConfirmUnasked
-
-    it "refuses the design confirmed where no Confirm was asked" $
-        architect (problemUnderstood <> designDiscussed <> [stepTook (ConfirmDesignConfirmed ticketUrl)]) `shouldBe` Left ConfirmUnasked
-
-    it "researches again after the problem needs more" $
-        nameAt <$> architect (researchedIn "exploring" <> enoughIn "exploring" <> [stepTook ProblemMore]) `shouldBe` Right (Just "exploring")
-
-    it "refuses a fourth problem round at Balanced's three" $
-        architect (concat (replicate 4 (enoughIn "exploring" <> [stepTook ProblemMore]))) `shouldSatisfy` outOf "Problem rounds" 3
-
-    it "refuses a fourth adjusted design at Balanced's three rounds" $
-        architect (problemUnderstood <> concat (replicate 4 (designRound ConfirmDesignAdjusted))) `shouldSatisfy` outOf "Design rounds" 3
-
-    it "accepts a fourth adjusted design after extend" $ do
-        let extended = problemUnderstood <> concat (replicate 3 (designRound ConfirmDesignAdjusted)) <> designDiscussed <> [Extended "the user goes on"]
-        architect (extended <> [stepTook ConfirmDesignAdjusted]) `shouldSatisfy` isRight
-
-    it "records_no_ticket_url_before_the_design_is_confirmed" . hedgehog $ do
-        events <- forAll (genAcceptedOn [] legacyArchitectGraph)
-        let (unconfirmed, rest) = break confirmed events
-        cover 5 "the design confirmed" (not (null rest))
-        states <- traverse (evalEither . replay legacyArchitectGraph . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| unconfirmed)))
-        for_ states $ \state -> (state.ticket, state.latest) === (Nothing, Nothing)
-  where
-    architect = architectOn legacyArchitectGraph
-    explored = researchedIn "exploring" <> enoughIn "exploring"
-    designRound verdict = designDiscussed <> [stepTook verdict]
-    confirmed = \case
-        Took _ took -> outcomeEvent took == EventName (stepName ConfirmDesign) (OutcomeName "confirmed")
-        _ -> False
+    architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| fuelSet Balanced : events))
 
 {- | The chief's requests: each is picked at the hub, runs inline in its
 branch's scope by the events its own skill records bare, and ends at @next@,

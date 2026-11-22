@@ -79,8 +79,7 @@ let
 
   # The architect's steps: the design discussion's questions and the ticket
   # it writes or edits at any point, each run by the lead, who changes no
-  # code. `problem` and `confirm_design` are the legacy architect's
-  # (kernel State.Flow.Legacy), kept so old runs still replay and finish.
+  # code.
   architectSteps = {
     discuss = {
       dom = "Ctx";
@@ -109,41 +108,6 @@ let
       skills = [ "architect" ];
       prose = leadProse;
       ops = [ ];
-      flows = [ "architect" ];
-    };
-    problem = {
-      dom = "Ctx";
-      cod = "Ctx";
-      exit = "Ctx";
-      outcomes = [
-        "understood"
-        "more"
-      ];
-      runner = "inline";
-      task = "Problem: talk the problem through with the user: what hurts, for whom, and why now. No ticket yet. A fact gap is `problem.more`, back to research.";
-      tools = [
-        "read"
-        "web"
-      ];
-      skills = [ "architect" ];
-      prose = leadProse;
-      ops = [ "ask" ];
-      flows = [ "architect" ];
-    };
-    confirm_design = {
-      dom = "Ctx";
-      cod = "Ctx";
-      exit = "Ticket";
-      outcomes = [
-        "confirmed"
-        "adjusted"
-      ];
-      runner = "inline";
-      task = "Design: first send the agreed design as a summary: its decisions, and a diagram or pseudo-code; then, in the same turn, the one Confirm question. `adjusted` discusses again. Only once it is `confirmed`, write the ticket, once: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear. Then record `confirm_design.confirmed <url>`.";
-      tools = [ "shell" ];
-      skills = [ "architect" ];
-      prose = leadProse;
-      ops = [ "ask" ];
       flows = [ "architect" ];
     };
   };

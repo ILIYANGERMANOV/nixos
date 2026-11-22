@@ -27,7 +27,6 @@ module State.Category.Step (
     decodeWith,
     SomeStep (..),
     Special (..),
-    Cue (..),
     confirmText,
     StateName (..),
     stateNameText,
@@ -240,8 +239,8 @@ data SomeStep k where
 data Special
     = -- | Run it as its row says.
       Ordinary
-    | -- | Ask the user to confirm this, once, before recording: @the simplified plan@.
-      AsksConfirm Cue Text
+    | -- | Ask the user to confirm this, once, on entering the step, before recording: @the simplified plan@.
+      AsksConfirm Text
     | -- | Wait on the PR's CI.
       AwaitsCi
     | -- | Wait on the tasks' PRs to merge.
@@ -255,14 +254,6 @@ data Special
 -- | A Confirm's question: its answers are the step's outcomes, so it names what is recorded.
 confirmText :: (StepSet k) => Sing (s :: k) -> Text -> Text
 confirmText s what = what <> ": " <> Text.intercalate ", or " [o | OutcomeName o <- outcomeNames (outcomes s)] <> "?"
-
--- | When a step's Confirm question is asked.
-data Cue
-    = -- | On entering the step.
-      OnEntry
-    | -- | Once the user says the discussion is done: until then the agent talks free-form.
-      OnUserWord
-    deriving stock (Eq, Show)
 
 -- | A state of a flow's graph, by name: what people read, and an override's target.
 newtype StateName = StateName Text

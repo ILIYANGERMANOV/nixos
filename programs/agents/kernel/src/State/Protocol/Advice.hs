@@ -49,7 +49,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (Cue (OnEntry, OnUserWord), EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Discusses, Ordinary, TellsResult), StepSet (..), confirmText, eventText, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Discusses, Ordinary, TellsResult), StepSet (..), confirmText, eventText, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
@@ -369,15 +369,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
     told s = case special s of
         TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
         Ordinary -> ""
-        AsksConfirm OnEntry _ -> ""
-        AsksConfirm OnUserWord what
-            | confirmAsked -> ""
-            | otherwise ->
-                "\nDiscuss "
-                    <> what
-                    <> " with the user free-form, no question asked yet. Only when the user says design or enough, that message is the answer: state ask --kind Confirm \""
-                    <> confirmText s what
-                    <> "\", then state answer <qid> \"<the user's own words>\" at once, asking nothing more. Then record."
+        AsksConfirm _ -> ""
         Step.AwaitsCi -> ""
         AwaitsMerge -> ""
         Discusses -> ""
@@ -395,12 +387,9 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
             (Agent role _, Nothing) -> Spawn role Nothing
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
-        AsksConfirm cue what
+        AsksConfirm what
             | confirmAsked -> Run records
-            | otherwise -> case cue of
-                OnEntry -> Ask Ask.Confirm (confirmText s what)
-                -- The user's word, not the step's entry, asks the question: the records stay offered.
-                OnUserWord -> Run records
+            | otherwise -> Ask Ask.Confirm (confirmText s what)
         Step.AwaitsCi -> AwaitOn Ci (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
         TellsResult -> Run records
@@ -583,8 +572,7 @@ recordTask task = "state record task " <> taskIdText task.id <> " " <> taskState
 
 {- | What a run names at its end. An architect's is its notes file, the
 fixed name its skill writes, then its ticket's url if it wrote one: by the
-run's flow, not its output, so a legacy architect run ends alike. Any other
-run names its flow's output url.
+run's flow, not its output. Any other run names its flow's output url.
 -}
 endOf :: Facts -> RunState -> End
 endOf facts state = case state.start.flow of

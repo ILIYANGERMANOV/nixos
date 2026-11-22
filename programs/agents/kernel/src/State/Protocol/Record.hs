@@ -205,10 +205,6 @@ recordables =
            , url "the PR's url" Ready ReadyDone
            , url "the PR's url" Ready ReadySkipped
            , url "the issue's url" WriteTicket TicketWritten
-           , nothing ProblemUnderstood
-           , nothing ProblemMore
-           , url "the issue's url" ConfirmDesign ConfirmDesignConfirmed
-           , nothing ConfirmDesignAdjusted
            , url "the issue's url" OpenPlan OpenPlanDone
            , outcome (builtEvent OpenBranch OpenBranchDone) "<branch|sha>" [] $ \a -> case a.positional of
                 [ref] -> Right (Plain (tookIn a.scope (OpenBranchDone (Branch ref))))
