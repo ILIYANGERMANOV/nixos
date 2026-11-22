@@ -164,7 +164,7 @@ stand.
 
 ### Propose: plan, refine, present, confirm
 
-The plan is the breakdown, `plan.md` in the run directory:
+The plan is the breakdown, `plan.md` in the notes directory:
 
 | Field | Value |
 |---|---|
@@ -190,17 +190,17 @@ otherwise independent PRs.
 The refine passes run, each handing back findings, never a plan. You alone
 edit `plan.md`: apply a row where the Rule test holds, as a ruling; a real
 trade-off is the user's. Log every row, taken or not and why, in the plan's
-`## Considered options`.
+`## Considered options` table, `| Pass | Finding | Taken? | Why |`.
 
-Present the plan as `~/.claude/skills/engineer/references/present.md` says,
-then confirm once, phone-sized: the breakdown with a file tree of what each task
-adds or changes and, per task, the options with their trade-offs. One
-question ("A) Yes, start (Recommended)" / "B) No, adjust"), repeating until
-clear. No engineer starts before this, a base fix included (Failures).
+`present` composes the message as
+`~/.claude/skills/engineer/references/present.md` says, its breakdown layout;
+`confirm` sends it with one `Confirm` question as its final text, once:
+"Yes, start (Recommended)" / "No, adjust". No engineer starts before this, a
+base fix included (Failures).
 
 ### Breakdown
 
-Write `tasks.json` in the run directory, a JSON array in the plan's order of
+Write `tasks.json` in the notes directory, a JSON array in the plan's order of
 `{"id", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
 "security": [topics], "repo", "worktree"}`, `fuel` one of `low`, `balanced`, `max`,
 `repo` the task's `<owner>/<repo>`, `worktree` the absolute path of its worktree

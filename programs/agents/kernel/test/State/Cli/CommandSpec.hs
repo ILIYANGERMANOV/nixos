@@ -33,7 +33,8 @@ import State.Cli.Command (
     unknownEvent,
  )
 import State.Golden (golden)
-import State.Protocol.Record (Recording (..))
+import State.Protocol.Record (Recordable (..), Recording (..), recordables)
+import State.Role (drawnDecoders)
 import State.Run.Ask (
     Above (..),
     ChildTask (..),
@@ -74,7 +75,7 @@ import State.Run.RunGen (
  )
 import State.Step.Artifact (Shape (..), Url (..), shellPathText)
 import State.Step.Build (Outcome (..))
-import State.Step.Catalog (outcome, outcomeEvent)
+import State.Step.Catalog (outcome, outcomeDecoders, outcomeEvent)
 import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -148,6 +149,14 @@ spec = describe "State.Cli.Command" $ do
             case parseCommand steps ["record", "target", "pr", "https://github.com/o/r/issues/3"] of
                 Right (_, Left failure) -> failure.why `shouldSatisfy` Text.isInfixOf "is not a GitHub PR URL"
                 _ -> expectationFailure "not a refusal"
+
+        -- 'recordables' is a hand-kept list: a step whose outcome it misses still builds.
+        it "records every outcome a step or a flow declares" $
+            [ eventText event
+            | event <- map fst (outcomeDecoders <> drawnDecoders)
+            , eventText event `notElem` map (.name) recordables
+            ]
+                `shouldBe` []
 
         it "records a gap with its text, words joined back" $
             recorded ["gap", "no", "hook", "fact"] `shouldBe` Right (Gapped "no hook fact")

@@ -90,7 +90,7 @@ SPAWN researcher background: no
     simplify_plan.done - on to standards_plan
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
-Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun no refine pass: record `simplify_plan.done`, `standards_plan.done` and `align_plan.done` on the earlier findings. Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one researcher, naming the plan, the research notes paths and the notes directory. An adjust that changed the approach reruns every refine pass; any other adjust reruns none: record each pass's `.done` on the earlier findings. Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == standards_plan
 SPAWN researcher background: no
@@ -99,7 +99,7 @@ SPAWN researcher background: no
     standards_plan.done - on to align_plan
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
-Propose: one researcher, naming the plan and the notes directory. Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one researcher, naming the plan, the research notes paths and the notes directory. Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == align_plan
 SPAWN reviewer background: no
@@ -108,7 +108,7 @@ SPAWN reviewer background: no
     align_plan.done - on to present
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
-Propose: one reviewer, naming the plan. Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one reviewer, naming the plan and the notes directory. Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Write the table to `<notes>/refine-align.md`, `<notes>` the directory your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == present
 RUN state record present.done
@@ -117,7 +117,7 @@ RUN state record present.done
     state record present.done - on to confirm
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
-Propose: present the full plan as one message as `engineer/references/present.md` says, ending in the Confirm question.
+Propose: compose the full plan message as `engineer/references/present.md` says, in `<notes>/present.md`. Ask nothing: `confirm` asks.
 
 == confirm
 ASK Confirm the presented plan: confirmed, or adjusted?
@@ -127,7 +127,7 @@ ASK Confirm the presented plan: confirmed, or adjusted?
     state record confirm.confirmed - on to draft
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
-Propose: the presented plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.
+Propose: one message, `<notes>/present.md` then one Confirm question as its final text. `confirmed` builds it; `adjusted` gathers again.
 
 == draft
 RUN state record draft.done <url> <base> <branch>
@@ -334,7 +334,7 @@ SPAWN researcher background: no
     simplify_plan.done - on to standards_plan
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
-Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun no refine pass: record `simplify_plan.done`, `standards_plan.done` and `align_plan.done` on the earlier findings. Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one researcher, naming the plan, the research notes paths and the notes directory. An adjust that changed the approach reruns every refine pass; any other adjust reruns none: record each pass's `.done` on the earlier findings. Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == standards_plan
 SPAWN researcher background: no
@@ -343,7 +343,7 @@ SPAWN researcher background: no
     standards_plan.done - on to align_plan
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
-Propose: one researcher, naming the plan and the notes directory. Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one researcher, naming the plan, the research notes paths and the notes directory. Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == align_plan
 SPAWN reviewer background: no
@@ -352,7 +352,7 @@ SPAWN reviewer background: no
     align_plan.done - on to present
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
-Propose: one reviewer, naming the plan. Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one reviewer, naming the plan and the notes directory. Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Write the table to `<notes>/refine-align.md`, `<notes>` the directory your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == present
 RUN state record present.done
@@ -361,7 +361,7 @@ RUN state record present.done
     state record present.done - on to confirm
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
-Propose: present the full plan as one message as `engineer/references/present.md` says, ending in the Confirm question.
+Propose: compose the full plan message as `engineer/references/present.md` says, in `<notes>/present.md`. Ask nothing: `confirm` asks.
 
 == confirm
 ASK Confirm the presented plan: confirmed, or adjusted?
@@ -371,7 +371,7 @@ ASK Confirm the presented plan: confirmed, or adjusted?
     state record confirm.confirmed - on to draft
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
-Propose: the presented plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.
+Propose: one message, `<notes>/present.md` then one Confirm question as its final text. `confirmed` builds it; `adjusted` gathers again.
 
 == draft
 RUN state record draft.done <url> <base> <branch>
@@ -578,7 +578,7 @@ SPAWN researcher background: no
     simplify_plan.done - on to standards_plan
   fuel: max
   Plan rounds: 0 of 3 used, 3 left
-Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun no refine pass: record `simplify_plan.done`, `standards_plan.done` and `align_plan.done` on the earlier findings. Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one researcher, naming the plan, the research notes paths and the notes directory. An adjust that changed the approach reruns every refine pass; any other adjust reruns none: record each pass's `.done` on the earlier findings. Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == standards_plan
 SPAWN researcher background: no
@@ -587,7 +587,7 @@ SPAWN researcher background: no
     standards_plan.done - on to align_plan
   fuel: max
   Plan rounds: 0 of 3 used, 3 left
-Propose: one researcher, naming the plan and the notes directory. Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one researcher, naming the plan, the research notes paths and the notes directory. Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == align_plan
 SPAWN reviewer background: no
@@ -596,7 +596,7 @@ SPAWN reviewer background: no
     align_plan.done - on to present
   fuel: max
   Plan rounds: 0 of 3 used, 3 left
-Propose: one reviewer, naming the plan. Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
+Propose: one reviewer, naming the plan and the notes directory. Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Write the table to `<notes>/refine-align.md`, `<notes>` the directory your prompt names. Hand back one table, `| Concern | Finding | Change | Source | Confidence |`: Source a `path:line`, or a standard's id, section and URL; Confidence high when read in the source, medium from a partial or secondary source, low when inferred. Escape a pipe inside a cell as `\|`. No row: say "nothing to change, because ...".
 
 == present
 RUN state record present.done
@@ -605,7 +605,7 @@ RUN state record present.done
     state record present.done - on to confirm
   fuel: max
   Plan rounds: 0 of 3 used, 3 left
-Propose: present the full plan as one message as `engineer/references/present.md` says, ending in the Confirm question.
+Propose: compose the full plan message as `engineer/references/present.md` says, in `<notes>/present.md`. Ask nothing: `confirm` asks.
 
 == confirm
 ASK Confirm the presented plan: confirmed, or adjusted?
@@ -615,7 +615,7 @@ ASK Confirm the presented plan: confirmed, or adjusted?
     state record confirm.confirmed - on to draft
   fuel: max
   Plan rounds: 0 of 3 used, 3 left
-Propose: the presented plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.
+Propose: one message, `<notes>/present.md` then one Confirm question as its final text. `confirmed` builds it; `adjusted` gathers again.
 
 == draft
 RUN state record draft.done <url> <base> <branch>

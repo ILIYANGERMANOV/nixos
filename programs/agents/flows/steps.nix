@@ -210,7 +210,7 @@ in
     };
     simplify_plan = {
       runner = "researcher";
-      lead = "Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun no refine pass: record `simplify_plan.done`, `standards_plan.done` and `align_plan.done` on the earlier findings.";
+      lead = "Propose: one researcher, naming the plan, the research notes paths and the notes directory. An adjust that changed the approach reruns every refine pass; any other adjust reruns none: record each pass's `.done` on the earlier findings.";
       task = "Run the researcher skill's `references/proposal.md` `## Simplify` on the plan your prompt names. ${findingFormat}";
       tools = [
         "read"
@@ -227,7 +227,7 @@ in
     };
     standards_plan = {
       runner = "researcher";
-      lead = "Propose: one researcher, naming the plan and the notes directory.";
+      lead = "Propose: one researcher, naming the plan, the research notes paths and the notes directory.";
       task = "Run the researcher skill's `references/proposal.md` `## Standards` on the plan your prompt names. ${findingFormat}";
       tools = [
         "read"
@@ -244,8 +244,8 @@ in
     };
     align_plan = {
       runner = "reviewer";
-      lead = "Propose: one reviewer, naming the plan.";
-      task = "Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. ${findingFormat}";
+      lead = "Propose: one reviewer, naming the plan and the notes directory.";
+      task = "Check the plan your prompt names against the engineering instructions in your context: each place it breaks one. Write the table to `<notes>/refine-align.md`, `<notes>` the directory your prompt names. ${findingFormat}";
       tools = [
         "read"
         "shell"
@@ -260,7 +260,7 @@ in
     };
     present = {
       runner = "inline";
-      task = "Propose: present the full plan as one message as `engineer/references/present.md` says, ending in the Confirm question.";
+      task = "Propose: compose the full plan message as `engineer/references/present.md` says, in `<notes>/present.md`. Ask nothing: `confirm` asks.";
       tools = [ "read" ];
       skills = [ "engineer" ];
       prose = leadProse;
@@ -272,7 +272,7 @@ in
     };
     confirm = {
       runner = "inline";
-      task = "Propose: the presented plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.";
+      task = "Propose: one message, `<notes>/present.md` then one Confirm question as its final text. `confirmed` builds it; `adjusted` gathers again.";
       tools = [ ];
       skills = [ "engineer" ];
       prose = leadProse;

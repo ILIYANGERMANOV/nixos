@@ -196,18 +196,20 @@ them. Interview only its open questions and the gaps research opens.
 ### Propose: plan, refine, present, confirm
 
 Write the plan, one `plan.md`: goals, the approach and the standards it
-follows, decisions, out of scope, Fuel, and a file tree of the files it adds
-or changes. A brief or design issue's Goal, Decisions, Out of scope and
-Acceptance criteria carry over as they stand.
+follows, decisions, out of scope, Fuel, the tests per layer, and a file tree
+of the files it adds or changes. A brief or design issue's Goal, Decisions,
+Out of scope and Acceptance criteria carry over as they stand.
 
 The refine passes run unless Low skips them: each hands back findings, never
 a plan. You alone edit `plan.md`: apply the rows you accept, never against a
-settled decision, and log every row, taken or not and why, in the plan's
-`## Considered options`, which goes into the PR body.
+settled decision, and log every row, taken or not, in the plan's
+`## Considered options` table, `| Pass | Finding | Taken? | Why |`, which goes
+into the PR body.
 
-Present the plan, then confirm once, as one `Confirm` question. Options:
-"Yes, build it (Recommended)" / "No, adjust". On adjust, gather again for
-the correction only, keeping all you learned and the Fuel.
+`present` composes the plan message; `confirm` sends it with one `Confirm`
+question as its final text, once: "Yes, build it (Recommended)" / "No,
+adjust". On adjust, gather again for the correction only, keeping all you
+learned and the Fuel.
 
 ### Build: draft, implement, refactor
 
