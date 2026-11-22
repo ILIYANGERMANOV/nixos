@@ -30,7 +30,7 @@ import State.Category.Flow (CapTarget (..), Flow (Await, Capped, Case, Catch, Do
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..), outOf)
-import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
+import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload, sameOutcome)
 import State.Category.Step qualified as Step
 import State.Category.Ty (KnownTy)
 import State.Step.Build (BuildStep)
@@ -94,29 +94,6 @@ layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, Some
 data SomeLayer where
     SomeLayer :: (KnownLayer k) => Layer k -> SomeLayer
 
-sameLayer :: Layer a -> Layer b -> Maybe (a :~: b)
-sameLayer a b = case (a, b) of
-    (GatherLayer, GatherLayer) -> Just Refl
-    (GatherLayer, _) -> Nothing
-    (PlanLayer, PlanLayer) -> Just Refl
-    (PlanLayer, _) -> Nothing
-    (BuildLayer, BuildLayer) -> Just Refl
-    (BuildLayer, _) -> Nothing
-    (ReviewLayer, ReviewLayer) -> Just Refl
-    (ReviewLayer, _) -> Nothing
-    (ShipLayer, ShipLayer) -> Just Refl
-    (ShipLayer, _) -> Nothing
-    (TicketLayer, TicketLayer) -> Just Refl
-    (TicketLayer, _) -> Nothing
-    (RequestLayer, RequestLayer) -> Just Refl
-    (RequestLayer, _) -> Nothing
-    (FanLayer, FanLayer) -> Just Refl
-    (FanLayer, _) -> Nothing
-    (PickLayer, PickLayer) -> Just Refl
-    (PickLayer, _) -> Nothing
-    (FuelLayer, FuelLayer) -> Just Refl
-    (FuelLayer, _) -> Nothing
-
 -- | A step's outcome, or a mode's skip, with the layer it is of.
 data AnyOutcome where
     AnyOutcome :: (KnownLayer k) => Layer k -> SomeOutcome k -> AnyOutcome
@@ -125,9 +102,7 @@ instance Show AnyOutcome where
     showsPrec d (AnyOutcome _ o) = showsPrec d o
 
 instance Eq AnyOutcome where
-    AnyOutcome a o == AnyOutcome b o' = case sameLayer a b of
-        Just Refl -> o == o'
-        Nothing -> False
+    AnyOutcome _ o == AnyOutcome _ o' = sameOutcome o o'
 
 -- | An outcome of its layer, packed by the layer's total 'pack'.
 outcome :: (KnownLayer k) => Step.Outcome (s :: k) l -> AnyOutcome

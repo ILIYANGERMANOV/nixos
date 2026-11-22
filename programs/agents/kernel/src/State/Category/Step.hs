@@ -18,6 +18,7 @@ module State.Category.Step (
     LegOf (..),
     Fits (..),
     SomeOutcome (..),
+    sameOutcome,
     packed,
     outcomeEvent,
     builtEvent,
@@ -49,11 +50,11 @@ import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Type.Equality ((:~:) (..))
-import Data.Typeable (Typeable)
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, sameSymbol, symbolVal)
 import State.Category.Effect (Eff)
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..), TyVal, labelledTys)
+import Type.Reflection (Typeable, eqTypeRep, typeRep, (:~~:) (HRefl))
 
 -- | A step's signature: @(in, exit, continue)@.
 type Sig3 = (Ty, Maybe Ty, Ty)
@@ -72,11 +73,11 @@ type family CodOf sig where
 
 {- | A layer of steps. No method has a default, so a layer that leaves one
 out does not build, and each is total over the layer's steps or outcomes,
-so a new one breaks the build at every match. 'Typeable' lets a meter
-('State.Category.Meter') tell its own step's outcomes from another layer's. 'pack' guards the outcomes:
-GHC accepts an outcome whose leg does not fit its step where it is declared
-and refuses it only where it is packed, so 'pack' packs every one, and a
-missing arm is an incomplete match.
+so a new one breaks the build at every match. 'Typeable' lets a term
+('State.Step.Catalog') tell a pick or a skip from another layer's step.
+'pack' guards the outcomes: GHC accepts an outcome whose leg does not fit
+its step where it is declared and refuses it only where it is packed, so
+'pack' packs every one, and a missing arm is an incomplete match.
 -}
 class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
     type Sig (s :: k) :: Sig3
@@ -103,8 +104,6 @@ class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outc
     outcomes :: Sing (s :: k) -> Outcomes (ExitOf (Sig s)) (CodOf (Sig s))
 
     special :: Sing (s :: k) -> Special
-
-    sameStep :: Sing (a :: k) -> Sing (b :: k) -> Maybe (a :~: b)
 
     pack :: Outcome (s :: k) l -> SomeOutcome k
 
@@ -159,37 +158,42 @@ instance (i ~ o) => Fits '(i, 'Nothing, o) 'Opened where
 instance (i ~ o) => Fits '(i, 'Nothing, o) 'Closed where
     legOf = ByClosing
 
--- | An outcome of some step of the layer, with the proof its leg fits.
+{- | An outcome of some step of the layer, with the proof its leg fits.
+'Typeable' tells its step from another's ('sameOutcome').
+-}
 data SomeOutcome k where
-    SomeOutcome :: Sing (s :: k) -> LegOf (Sig s) l -> Outcome s l -> SomeOutcome k
+    SomeOutcome :: (Typeable s) => Sing (s :: k) -> LegOf (Sig s) l -> Outcome s l -> SomeOutcome k
 
 instance (StepSet k) => Show (SomeOutcome k) where
     showsPrec d (SomeOutcome s _ o) = showParen (d > 10) $ showString "SomeOutcome " . showsPrec 11 s . showChar ' ' . showsPrec 11 o
 
--- | Equal when of one step and one leg, with equal reports.
 instance (StepSet k) => Eq (SomeOutcome k) where
-    SomeOutcome s leg o == SomeOutcome s' leg' o' = case sameStep s s' of
-        Nothing -> False
-        Just Refl -> case (leg, leg') of
-            (ByExit, ByExit) -> o == o'
-            (ByExit, _) -> False
-            (ByContinuing, ByContinuing) -> o == o'
-            (ByContinuing, _) -> False
-            (ByTaking, ByTaking) -> case sameTaken leg leg' of
-                Just Refl -> o == o'
-                Nothing -> False
-            (ByTaking, _) -> False
-            (ByOpening, ByOpening) -> o == o'
-            (ByOpening, _) -> False
-            (ByClosing, ByClosing) -> o == o'
-            (ByClosing, _) -> False
+    (==) = sameOutcome
+
+-- | Equal when of one step and one leg, with equal reports: of steps of two layers, never.
+sameOutcome :: (StepSet k) => SomeOutcome k -> SomeOutcome j -> Bool
+sameOutcome (SomeOutcome (_ :: Sing s) leg o) (SomeOutcome (_ :: Sing t) leg' o') = case eqTypeRep (typeRep @s) (typeRep @t) of
+    Nothing -> False
+    Just HRefl -> case (leg, leg') of
+        (ByExit, ByExit) -> o == o'
+        (ByExit, _) -> False
+        (ByContinuing, ByContinuing) -> o == o'
+        (ByContinuing, _) -> False
+        (ByTaking, ByTaking) -> case sameTaken leg leg' of
+            Just Refl -> o == o'
+            Nothing -> False
+        (ByTaking, _) -> False
+        (ByOpening, ByOpening) -> o == o'
+        (ByOpening, _) -> False
+        (ByClosing, ByClosing) -> o == o'
+        (ByClosing, _) -> False
 
 -- | Whether two legs into a sum take one summand.
 sameTaken :: forall sig l m. LegOf sig ('Took l) -> LegOf sig ('Took m) -> Maybe ('Took l :~: 'Took m)
 sameTaken ByTaking ByTaking = (\Refl -> Refl) <$> sameSymbol (Proxy @l) (Proxy @m)
 
 -- | The packing 'pack' does per outcome, where the leg must fit the step.
-packed :: forall k (s :: k) l. (Fits (Sig s) l) => Sing s -> Outcome s l -> SomeOutcome k
+packed :: forall k (s :: k) l. (Fits (Sig s) l, Typeable s) => Sing s -> Outcome s l -> SomeOutcome k
 packed s = SomeOutcome s legOf
 
 -- | The graph's name for the edge an outcome takes: its step's, then its leg's.
@@ -216,7 +220,7 @@ takenLabel ByTaking = Text.pack (symbolVal (Proxy @l))
 a reader cannot sit under another outcome's name.
 -}
 data Decoder k where
-    Decoder :: (Fits (Sig s) l) => Sing (s :: k) -> (Object -> Parser (Outcome s l)) -> Decoder k
+    Decoder :: (Fits (Sig s) l, Typeable s) => Sing (s :: k) -> (Object -> Parser (Outcome s l)) -> Decoder k
 
 decoderEvent :: (StepSet k) => Decoder k -> EventName
 decoderEvent (Decoder s (_ :: Object -> Parser (Outcome s l))) = legEvent s (legOf @(Sig s) @l)

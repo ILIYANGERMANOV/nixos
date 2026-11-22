@@ -9,7 +9,6 @@ module State.Step.Review (
     Outcome (..),
 ) where
 
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -67,16 +66,6 @@ instance StepSet ReviewStep where
         PickRows -> Ordinary
         Fix -> Ordinary
         ReReview -> Ordinary
-
-    sameStep a b = case (a, b) of
-        (Review, Review) -> Just Refl
-        (Review, _) -> Nothing
-        (PickRows, PickRows) -> Just Refl
-        (PickRows, _) -> Nothing
-        (Fix, Fix) -> Just Refl
-        (Fix, _) -> Nothing
-        (ReReview, ReReview) -> Just Refl
-        (ReReview, _) -> Nothing
 
     pack = \case
         o@(ReviewClean _) -> packed Review o

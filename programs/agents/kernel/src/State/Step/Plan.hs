@@ -8,7 +8,6 @@ module State.Step.Plan (
 ) where
 
 import Data.Aeson ((.:), (.=))
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -57,14 +56,6 @@ instance StepSet PlanStep where
         PlanS -> Ordinary
         SimplifyP -> Ordinary
         Confirm -> AsksConfirm "the simplified plan"
-
-    sameStep a b = case (a, b) of
-        (PlanS, PlanS) -> Just Refl
-        (PlanS, _) -> Nothing
-        (SimplifyP, SimplifyP) -> Just Refl
-        (SimplifyP, _) -> Nothing
-        (Confirm, Confirm) -> Just Refl
-        (Confirm, _) -> Nothing
 
     pack = \case
         o@(PlanDone _) -> packed PlanS o

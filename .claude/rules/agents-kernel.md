@@ -27,3 +27,6 @@ long-term design.**
 - **Vendor-free**: `state` knows nothing of the harness running the agents
   (Claude Code, OpenCode, Codex). It is as helpful as its own data allows:
   run logs, events, timestamps. Harness-specific code lives in a backend.
+- **The Haskell `state` code is the source of truth for the flow.** Nix
+  holds only data that Haskell lacks: `flows/steps.nix` names no step's
+  types or outcomes, which the kernel's layers already state.

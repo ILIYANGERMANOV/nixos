@@ -9,7 +9,6 @@ module State.Step.Ticket (
     Outcome (..),
 ) where
 
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Url, urlData, urlOf)
@@ -43,9 +42,6 @@ instance StepSet TicketStep where
 
     special = \case
         WriteTicket -> Ordinary
-
-    sameStep a b = case (a, b) of
-        (WriteTicket, WriteTicket) -> Just Refl
 
     pack = \case
         o@(TicketWritten _) -> packed WriteTicket o

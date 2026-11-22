@@ -1,8 +1,7 @@
 {- | The step table, @programs/agents/flows/steps.nix@ written as JSON: who
-runs each step and the task text @state next@ prints for it. The table names
-each step's types and outcomes too, so the Nix side can derive roles from
-plain data; 'parseSteps' holds them equal to the layers' ("State.Step.Catalog"),
-so the two cannot drift.
+runs each step and the task text @state next@ prints for it. A step's types
+and outcomes are the layers' ("State.Step.Catalog") alone: the table holds
+only what they lack.
 -}
 module State.Table (
     Steps,
@@ -26,21 +25,17 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, stateNameText, stepName)
-import State.Category.Ty (KnownTy (..), TyOf (..), TyVal)
+import State.Category.Step (EventName (..), Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, stateNameText, stepName)
 import State.Flow.Drawn (drawnDecoders, drawnSteps)
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
 import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders)
 
-{- | A row for every step of the layers and no other, each with the step's
-types and outcomes. Only 'parseSteps' builds one.
--}
+-- | A row for every step of the layers and no other. Only 'parseSteps' builds one.
 newtype Steps = Steps (Map StateName Row)
 
-{- | What the kernel reads of a row; the types and outcomes are checked, not
-kept. The task is what the runner executes: @state next@ prints an agent
-step's lead part and then the task, @state brief@ the task alone, so a
-worker's brief holds none of the lead's commands.
+{- | What the kernel reads of a row. The task is what the runner executes:
+@state next@ prints an agent step's lead part and then the task, @state
+brief@ the task alone, so a worker's brief holds none of the lead's commands.
 -}
 data Row = Row {runner :: Runner, task :: Text, notifies :: Bool}
     deriving stock (Eq, Show)
@@ -53,11 +48,7 @@ data Runner = Inline | Agent AgentRole Text
 
 -- | A row as written, before it is checked against its step.
 data Written = Written
-    { dom :: Text
-    , cod :: Text
-    , exit :: Maybe Text
-    , outcomes :: [Text]
-    , runner :: Text
+    { runner :: Text
     , lead :: Maybe Text
     , task :: Text
     , flows :: [Text]
@@ -67,11 +58,7 @@ data Written = Written
 instance FromJSON Written where
     parseJSON = withObject "step" $ \obj ->
         Written
-            <$> obj .: "dom"
-            <*> obj .: "cod"
-            <*> obj .: "exit"
-            <*> obj .: "outcomes"
-            <*> obj .: "runner"
+            <$> obj .: "runner"
             <*> obj .:? "lead"
             <*> obj .: "task"
             <*> obj .: "flows"
@@ -123,23 +110,11 @@ stepEvents s = map (EventName (stepName s)) (outcomeNames (outcomes s))
 check :: Map StateName Written -> AnyStep -> Either [Text] (StateName, Row)
 check rows (AnyStep _ (SomeStep s)) = case Map.lookup name rows of
     Nothing -> Left [label <> ": no row"]
-    Just written -> case (runnerOf written.runner written.lead, mismatches s written <> roleProblems written) of
+    Just written -> case (runnerOf written.runner written.lead, roleProblems written) of
         (Right runner, []) -> Right (name, Row runner written.task ("notify" `elem` written.ops))
         (runner, found) -> Left (map ((label <> ": ") <>) (lefts [runner] <> found))
   where
     name@(StateName label) = stepName s
-
-mismatches :: forall k (s :: k). (StepSet k, KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s))) => Sing s -> Written -> [Text]
-mismatches s written =
-    [ field <> " is " <> actual <> ", the step's is " <> expected
-    | (field, actual, expected) <-
-        [ ("dom", written.dom, tyText (tyVal @(DomOf (Sig s))))
-        , ("cod", written.cod, tyText (tyVal @(CodOf (Sig s))))
-        , ("exit", fromMaybe "null" written.exit, maybe "null" tyText (exitOf (outcomes s)))
-        , ("outcomes", Text.unwords written.outcomes, Text.unwords [outcome | OutcomeName outcome <- outcomeNames (outcomes s)])
-        ]
-    , actual /= expected
-    ]
 
 {- | Every way a row's roles miss the registry ("State.Role"): each flow it
 names is a role's, and its runner leads no flow, since a lead runs its own
@@ -151,26 +126,6 @@ roleProblems written =
         <> [written.runner <> " leads a flow, so it runs no step as a subagent" | written.runner `elem` leads]
   where
     leads = map (\def -> roleText def.name) roles
-
-exitOf :: forall e o. Outcomes e o -> Maybe TyVal
-exitOf = \case
-    Continues _ -> Nothing
-    ExitsOr @x _ _ -> Just (tyVal @x)
-    Branches -> Nothing
-    OpensChildren -> Nothing
-
--- | As the table spells a type: @[Ctx]@ for a list.
-tyText :: TyVal -> Text
-tyText = \case
-    Ctx -> "Ctx"
-    Plan -> "Plan"
-    Diff -> "Diff"
-    Findings -> "Findings"
-    PR -> "PR"
-    Ticket -> "Ticket"
-    Result -> "Result"
-    List t -> "[" <> tyText t <> "]"
-    Sum summands -> "(" <> Text.intercalate " + " [label <> ": " <> tyText t | (label, t) <- summands] <> ")"
 
 -- | The runner sum: an inline step has no lead, a role's step has one.
 runnerOf :: Text -> Maybe Text -> Either Text Runner

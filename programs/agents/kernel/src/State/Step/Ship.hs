@@ -10,7 +10,6 @@ module State.Step.Ship (
 import Data.Aeson ((.:), (.=))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -76,18 +75,6 @@ instance StepSet ShipStep where
         AwaitCi -> AwaitsCi
         FixPR -> Ordinary
         Ready -> Ordinary
-
-    sameStep a b = case (a, b) of
-        (Describe, Describe) -> Just Refl
-        (Describe, _) -> Nothing
-        (SimplifyPR, SimplifyPR) -> Just Refl
-        (SimplifyPR, _) -> Nothing
-        (AwaitCi, AwaitCi) -> Just Refl
-        (AwaitCi, _) -> Nothing
-        (FixPR, FixPR) -> Just Refl
-        (FixPR, _) -> Nothing
-        (Ready, Ready) -> Just Refl
-        (Ready, _) -> Nothing
 
     pack = \case
         o@(DescribeDone _) -> packed Describe o

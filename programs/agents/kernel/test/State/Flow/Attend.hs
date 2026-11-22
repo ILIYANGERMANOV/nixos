@@ -11,7 +11,6 @@ module State.Flow.Attend (
     Outcome (Attended),
 ) where
 
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Effect (Eff (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -36,8 +35,6 @@ instance StepSet AttendStep where
     outcomes Attend = Continues (OutcomeName "done")
 
     special Attend = Ordinary
-
-    sameStep Attend Attend = Just Refl
 
     pack = \case
         o@Attended -> packed Attend o

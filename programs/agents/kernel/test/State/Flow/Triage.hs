@@ -13,7 +13,6 @@ module State.Flow.Triage (
     TriagedS,
 ) where
 
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -42,8 +41,6 @@ instance StepSet TriageStep where
     outcomes Triage = Branches
 
     special Triage = Ordinary
-
-    sameStep Triage Triage = Just Refl
 
     pack = \case
         o@(TriageSmall _) -> packed Triage o

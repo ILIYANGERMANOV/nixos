@@ -21,7 +21,6 @@ module State.Step.Fan (
 import Data.Aeson ((.:))
 import Data.List (find)
 import Data.Text (Text)
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Flow (Name, nameText, namedState)
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
@@ -65,12 +64,6 @@ instance StepSet FanStep where
     special = \case
         Breakdown _ -> Ordinary
         Merge _ -> AwaitsMerge
-
-    sameStep a b = case (a, b) of
-        (Breakdown _, Breakdown _) -> Just Refl
-        (Breakdown _, _) -> Nothing
-        (Merge _, Merge _) -> Just Refl
-        (Merge _, _) -> Nothing
 
     pack = \case
         o@(BreakdownDone fan _) -> packed (Breakdown fan) o

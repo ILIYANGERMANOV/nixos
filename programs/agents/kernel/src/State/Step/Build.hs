@@ -7,7 +7,6 @@ module State.Step.Build (
     Outcome (..),
 ) where
 
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Commit, DraftPr, Sha, commitData, commitOf, draftData, draftOf, headData, headOf)
@@ -54,14 +53,6 @@ instance StepSet BuildStep where
         Draft -> Ordinary
         Implement -> Ordinary
         Refactor -> Ordinary
-
-    sameStep a b = case (a, b) of
-        (Draft, Draft) -> Just Refl
-        (Draft, _) -> Nothing
-        (Implement, Implement) -> Just Refl
-        (Implement, _) -> Nothing
-        (Refactor, Refactor) -> Just Refl
-        (Refactor, _) -> Nothing
 
     pack = \case
         o@(DraftDone _) -> packed Draft o

@@ -15,8 +15,7 @@ module State.Step.Fuel (
 ) where
 
 import Data.Aeson ((.:), (.=))
-import Data.Type.Equality ((:~:) (..))
-import Data.Typeable (Typeable, eqT)
+import Data.Typeable (Typeable)
 import State.Category.Flow (Name, nameText)
 import State.Category.Fuel (PerFuel, SkipWhen, fuelName)
 import State.Category.Fuel qualified as Level
@@ -65,16 +64,10 @@ instance StepSet FuelStep where
         Fuel -> Ordinary
         Skip _ _ -> Ordinary
 
-    sameStep a b = case (a, b) of
-        (Fuel, Fuel) -> Just Refl
-        (Fuel, Skip _ _) -> Nothing
-        (Skip @x _ _, Skip @y _ _) -> (\Refl -> Refl) <$> eqT @x @y
-        (Skip _ _, Fuel) -> Nothing
-
     pack = \case
         o@(LevelSet _) -> packed Fuel o
-        o@(Skipping skip) -> packed skip o
-        o@(Running skip) -> packed skip o
+        o@(Skipping skip@(Skip _ _)) -> packed skip o
+        o@(Running skip@(Skip _ _)) -> packed skip o
 
     encodeOutcome = \case
         LevelSet level -> "level" .= fuelName level

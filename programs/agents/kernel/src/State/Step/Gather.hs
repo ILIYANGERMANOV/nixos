@@ -12,7 +12,6 @@ module State.Step.Gather (
     Outcome (..),
 ) where
 
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -71,16 +70,6 @@ instance StepSet GatherStep where
         Interview -> Ordinary
         Discuss -> Discusses
         Notes -> Ordinary
-
-    sameStep a b = case (a, b) of
-        (Research, Research) -> Just Refl
-        (Research, _) -> Nothing
-        (Interview, Interview) -> Just Refl
-        (Interview, _) -> Nothing
-        (Discuss, Discuss) -> Just Refl
-        (Discuss, _) -> Nothing
-        (Notes, Notes) -> Just Refl
-        (Notes, _) -> Nothing
 
     pack = \case
         o@ResearchSpawned -> packed Research o

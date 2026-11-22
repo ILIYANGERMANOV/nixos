@@ -41,10 +41,6 @@ spec = describe "State.Table" $ do
           ]
             `shouldBe` []
 
-    it "refuses a row whose cod is not its step's" $
-        reparse (KeyMap.insert "plan" (setField "cod" "Diff" (rowNamed "plan")) rows)
-            `shouldBe` ["plan: cod is Diff, the step's is Plan"]
-
     it "refuses a table missing a step's row" $
         reparse (KeyMap.delete "fix" rows) `shouldBe` ["fix: no row"]
 

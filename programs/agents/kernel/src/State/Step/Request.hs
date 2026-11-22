@@ -12,7 +12,6 @@ module State.Step.Request (
 
 import Data.Aeson ((.:), (.=))
 import Data.Text (Text)
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Effect (Eff (FocusE))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
@@ -81,18 +80,6 @@ instance StepSet RequestStep where
         OpenPr -> Ordinary
         Direct -> Ordinary
         Next -> TellsResult
-
-    sameStep a b = case (a, b) of
-        (OpenPlan, OpenPlan) -> Just Refl
-        (OpenPlan, _) -> Nothing
-        (OpenBranch, OpenBranch) -> Just Refl
-        (OpenBranch, _) -> Nothing
-        (OpenPr, OpenPr) -> Just Refl
-        (OpenPr, _) -> Nothing
-        (Direct, Direct) -> Just Refl
-        (Direct, _) -> Nothing
-        (Next, Next) -> Just Refl
-        (Next, _) -> Nothing
 
     pack = \case
         o@(OpenPlanDone _) -> packed OpenPlan o

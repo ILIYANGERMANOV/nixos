@@ -19,8 +19,7 @@ module State.Step.Pick (
 ) where
 
 import Data.Kind (Constraint)
-import Data.Type.Equality ((:~:) (..))
-import Data.Typeable (Typeable, eqT)
+import Data.Typeable (Typeable)
 import GHC.TypeLits (KnownSymbol, Symbol)
 import State.Category.Effect (Eff (..))
 import State.Category.Flow (Name, namedState)
@@ -60,13 +59,8 @@ instance StepSet PickStep where
 
     special (Pick _) = Ordinary
 
-    sameStep (Pick @a @ss _) (Pick @b @ts _) = do
-        Refl <- eqT @a @b
-        Refl <- eqT @ss @ts
-        pure Refl
-
     pack = \case
-        o@(Picked pick) -> packed pick o
+        o@(Picked pick@(Pick _)) -> packed pick o
 
     encodeOutcome (Picked _) = mempty
 
@@ -92,7 +86,7 @@ instance PickLabels all '[] where
     labelOutcomes _ = []
 
 instance (KnownSymbol l, HasLabel l all ~ 'True, PickLabels all ss) => PickLabels all ('(l, b) ': ss) where
-    labelOutcomes p = packed p (picked @l p) : labelOutcomes @all @ss p
+    labelOutcomes p@(Pick _) = packed p (picked @l p) : labelOutcomes @all @ss p
 
 -- | The outcome of label @l@: its type names the label, which the pick's argument does not.
 picked :: forall l a ss. (KnownSymbol l, HasLabel l ss ~ 'True) => Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
