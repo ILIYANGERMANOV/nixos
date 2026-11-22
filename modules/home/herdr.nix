@@ -1,11 +1,28 @@
 {
+  root,
   inputs,
   pkgs,
   themeConfig,
   ...
 }:
 let
-  herdr = inputs.herdr.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  shellCheck = import "${root}/programs/shell-check" { inherit pkgs; };
+
+  # The vendored libghostty-vt build execs hardcoded host tools (/bin/cp,
+  # /bin/ln, /usr/bin/ranlib, /usr/bin/xcrun) that the Darwin Nix sandbox
+  # refuses, so resolve them from PATH instead. Copied from nixpkgs 46b9b90f42
+  # (pkgs/by-name/he/herdr/package.nix). Drop this and use pkgs.herdr once the
+  # pinned nixpkgs release carries herdr (26.11) or upstream herdr fixes it.
+  # Darwin only, so the Linux drv stays upstream's.
+  herdrUpstream = inputs.herdr.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  herdr =
+    if pkgs.stdenv.hostPlatform.isDarwin then
+      herdrUpstream.overrideAttrs (old: {
+        postPatch =
+          (old.postPatch or "") + shellCheck.fragment "${root}/programs/herdr/darwin-post-patch.sh";
+      })
+    else
+      herdrUpstream;
 
   # Match Ghostty's TokyoNight look (see terminal.nix), keyed off the global
   # myConfig.theme switch so herdr blends into the terminal.

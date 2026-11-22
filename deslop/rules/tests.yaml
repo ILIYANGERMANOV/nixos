@@ -55,6 +55,7 @@ rules:
       - "shells/*-install-banner.sh"
 
       # Straight-line build phases with no branch: a broken one fails its package.
+      - "programs/herdr/darwin-post-patch.sh"
       - "programs/kotlin/lsp-install.sh"
       - "programs/playwright/install-compiled.sh"
       - "programs/tech-checks/python-tests.sh"
