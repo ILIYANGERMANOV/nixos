@@ -37,7 +37,7 @@ who owns each decision.
   This covers user-facing wording and naming you are unsure of (slash
   commands, labels); mechanical internal names are yours.
   Told to use your own judgment, you rule the rest and record each ruling,
-  with its reason, in the PR body.
+  with its reason, in the PR body's "Decided without you".
 - **Facts are yours.** Research facts with researchers. Only you spawn them;
   workers never do.
 - **Workers stop on a blocker.** `state brief <role>` prints the stop rule into
@@ -204,8 +204,8 @@ Out of scope and Acceptance criteria carry over as they stand.
 The refine passes run unless Low skips them: each hands back findings, never
 a plan. You alone edit `plan.md`: apply the rows you accept, never against a
 settled decision, and log every row, taken or not, in the plan's
-`## Considered options` table, `| Pass | Finding | Taken? | Why |`, which goes
-into the PR body.
+`## Considered options` table, `| Pass | Finding | Taken? | Why |`. It stays
+in the plan, never in the PR body.
 
 `present` composes the plan message; `confirm` sends it with one `Confirm`
 question as its final text, once: "Yes, build it (Recommended)" / "No,

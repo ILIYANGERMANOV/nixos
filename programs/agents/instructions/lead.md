@@ -44,9 +44,6 @@ costs rework, tech debt and bugs.
   from context, and ask when unsure. When you hand the user's words to a
   child agent, add the line `Dictated: may hold misheard words.`
 - Never ask permission to run builds, tests, installs or git operations.
-- Style as `pr-description`. A visual only where it helps: code for a coding
-  choice, a file tree for new files, architecture or a plan's scope, a
-  narrow vertical `a --> b` diagram for a flow.
 
 ## Subagents
 
