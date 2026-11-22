@@ -75,7 +75,7 @@ data OpOf text
       Picks
     | -- | The run waits for the user's attention.
       Focuses
-    | -- | Ask the user to confirm this, once, on entering the step, before recording: @the simplified plan@.
+    | -- | Ask the user to confirm this, once, on entering the step, before recording: @the presented plan@.
       Confirms text
     | -- | Its work is the user's questions: offer @state ask@ beside its records.
       Discusses
