@@ -26,15 +26,16 @@ Look for a PR template: `.github/pull_request_template.md`,
 sections in its order and ignore the default format below, except that the How
 paragraph and the focus visual open the template's "how" section if it has
 one, and the collapsed blocks and the bottom line close the body. The Style
-rules and the budget still apply inside a template. Never fill a section that asks for
-secrets, credentials, tokens or what CI already shows; leave it as the template
-has it.
+rules and the budget still apply inside a template. Never fill a section that
+asks for secrets, credentials, tokens or what CI already shows; leave it as
+the template has it.
 
 ## Otherwise, the default format
 
 Only `## What & Why` and its focus visual are visible. Everything else sits
 in a collapsed `<details>` block whose summary says what is inside, or is
-dropped. Row R0 (describe) writes the prose only. Row V0 adds the visuals.
+dropped. Row R0 (describe) writes the prose only. Row V0 adds the visuals,
+the usage snippet among them.
 
 ````markdown
 ## What & Why
@@ -52,7 +53,7 @@ dropped. Row R0 (describe) writes the prose only. Row V0 adds the visuals.
 <other visuals, added by row V0>
 
 ```<lang>
-// usage: short, made-up content that shows the API's range
+// usage, added by row V0: short, made-up content that shows the API's range
 ```
 
 - <at most 3 bullets for what the visuals cannot show: fallbacks, overrides>
@@ -77,10 +78,29 @@ dropped. Row R0 (describe) writes the prose only. Row V0 adds the visuals.
 
 </details>
 
-<details><summary>After merge</summary> ... </details>
-<details><summary>Follow-ups</summary> ... </details>
-<details><summary>Feedback log</summary> ... </details>
-<details><summary>QA: <verdict> ...</summary> ... </details>
+<details><summary>After merge</summary>
+
+<steps to take once it lands>
+
+</details>
+
+<details><summary>Follow-ups</summary>
+
+<each follow-up, with its reason>
+
+</details>
+
+<details><summary>Feedback log</summary>
+
+<the user's feedback, verbatim>
+
+</details>
+
+<details><summary>QA: <verdict> ...</summary>
+
+<written by qa>
+
+</details>
 
 Security-sensitive: <topics>
 ````
@@ -89,7 +109,7 @@ Security-sensitive: <topics>
   Concise beats friendly: do not pad it.
 - **How** - the numbered paths only when there are several. The snippet only
   when there is an API or a call site to show, with no internal constants the
-  reader must look up.
+  reader must look up. Omit How when What & Why already covers it.
 - **Proof** - only what was driven and observed that CI cannot show: the
   commands run, their trimmed output, screenshots. Omit when there is none.
 - **Decided without you** - only the rulings the agent made without asking
@@ -149,12 +169,14 @@ section 4.6).
 
 ## Write it
 
-Pass the body through a file so the shell does not mangle it:
-`gh pr create --body-file <file>` for a new PR, `gh pr edit <n> --body-file
-<file>` to rewrite one. Write the file outside the repository, so it is never
-committed. A rewrite keeps the shape, the budget, the bottom line and the visuals. The
-focus visual stays visible. The Feedback log stays verbatim. Every open
-Follow-up, the Skipped edge cases and the QA block stay collapsed, never
+Pass the body through a file so the shell does not mangle it. Row R0 writes
+it with `gh pr create --body-file <file>` for a new PR, or `gh pr edit <n>
+--body-file <file>` for an existing one, so rows V0 and S0 always edit. Write
+the file outside the repository, so it is never committed. A rewrite keeps
+the shape, the budget and the bottom line. It keeps each visual, except one
+that repeats another or shows nothing new. The focus visual stays visible.
+The Feedback log stays verbatim. Every open Follow-up, the Skipped edge cases
+and the QA block stay collapsed, never
 dropped. An old body's visible `## Feedback log`, `## Follow-ups` or
 `## QA` moves into its `<details>` block.
 
@@ -173,7 +195,8 @@ A fixer adds the visuals to the prose that row R0 wrote:
 A fresh fixer with no session history reads the body the way a reviewer does.
 Edit the current body in place:
 
-1. Read the diff index and the plan. Write the core data flow in 3 sentences.
+1. Read the diff index and the plan, if one exists. Write the core data flow
+   in 3 sentences.
 2. Rewrite the body to the shape and the visible-line budget above.
 3. Check the 3 sentences can be read off the visible part, What & Why plus
    the focus visual. If not, fix the visible part, not the collapsed blocks.
