@@ -10,8 +10,7 @@ how it is filed. One issue per deliverable a single PR can close.
 ## Format
 
 The top is for a person, written as "Writing for people" in your instructions
-says. The rest is the contract the
-engineer plans from.
+says. The rest is the contract the engineer plans from.
 
 ````markdown
 ## What & Why

@@ -24,9 +24,9 @@ Look for a PR template: `.github/pull_request_template.md`,
 `.github/PULL_REQUEST_TEMPLATE.md`, the same names at the repository root or in
 `docs/`, or a `PULL_REQUEST_TEMPLATE/` directory. If one exists, fill in its
 sections in its order and ignore the default format below, except that the How
-paragraph and the focus visual open the template's "how" section if it has one, and
-the collapsed blocks and the bottom line close the body. The Style rules and
-the budget still apply inside a template. Never fill a section that asks for
+paragraph and the focus visual open the template's "how" section if it has
+one, and the collapsed blocks and the bottom line close the body. The Style
+rules and the budget still apply inside a template. Never fill a section that asks for
 secrets, credentials, tokens or what CI already shows; leave it as the template
 has it.
 
@@ -144,8 +144,8 @@ Pass the body through a file so the shell does not mangle it:
 `gh pr create --body-file <file>` for a new PR, `gh pr edit <n> --body-file
 <file>` to rewrite one. Write the file outside the repository, so it is never
 committed. A rewrite keeps the shape and the budget, and keeps the bottom line,
-the visuals, the Feedback log verbatim, every open Follow-up and the QA block: collapsed,
-never dropped. An old body's visible `## Feedback log`, `## Follow-ups` or
+the visuals, the Feedback log verbatim, every open Follow-up and the QA block:
+collapsed, never dropped. An old body's visible `## Feedback log`, `## Follow-ups` or
 `## QA` moves into its `<details>` block.
 
 ## Visual (row V0)

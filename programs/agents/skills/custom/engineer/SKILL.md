@@ -253,10 +253,9 @@ describe, the final fixer.
 ### Describe: describe, visual, simplify_pr
 
 The final fixer, row R0, writes the PR body. A fresh fixer on row V0 adds
-its visuals. Then a fresh fixer on row S0
-shortens it as `pr-description`'s `## Simplify (row S0)` says; its
-`Simplified: <sha>` line is recorded and `ready` waits for it. A later R0
-edits in place. Then, in a run with no parent, notify: the draft is complete
+its visuals. Then a fresh fixer on row S0 shortens it as `pr-description`'s
+`## Simplify (row S0)` says; its `Simplified: <sha>` line is recorded and
+`ready` waits for it. A later R0 edits in place. Then, in a run with no parent, notify: the draft is complete
 and CI runs.
 
 ### Ship: await_ci, fix_pr, ready
