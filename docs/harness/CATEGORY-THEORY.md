@@ -329,7 +329,7 @@ Status is one of: `Holds (<test>)`, `Holds if <condition>`,
 | P22 | Monotone budgets, every flow | P21 for every flow in `State.Role.roles`: engineer, 10x, architect and chief, and any flow added there | Holds ([LawsSpec.hs:158][laws158]) |
 | P23 | Monotone full review | each level reviews in full at least the areas of the level below | Holds ([FuelSpec.hs:52][fuel52]) |
 | P24 | Keep | the engineer flow: no Fuel level skips `review` or `describe`. The 10x flow: no level skips `engineers` or `merge`, and each engineer runs the engineer flow | Holds ([EngineerSpec.hs:19][eng19], [TenXSpec.hs:22][tenx22], [TenXSpec.hs:28][tenx28]) |
-| P25 | Keep, full | in every flow of `State.Role.roles`, no Fuel skip names `review` (where the security review runs), `re_review` (blockers), `research` (fact research), `describe` or `simplify_pr` (the final fixer). A flow without one of these steps holds it vacuously | Holds ([LawsSpec.hs:163][laws163]) |
+| P25 | Keep, full | in every flow of `State.Role.roles`, no Fuel skip names `review` (where the security review runs), `re_review` (blockers), `research` (fact research), `describe`, `visual` or `simplify_pr` (the final fixer). A flow without one of these steps holds it vacuously | Holds ([LawsSpec.hs:163][laws163]) |
 | P26 | Bounded | no run spends past a cap; a loop whose body caps no step is refused | Holds ([FoldSpec.hs:228][fold228], [GraphSpec.hs:74][graph74]) |
 | P27 | Stuck | the same problems in a loop's last two rounds in a row mark it stuck, and the run asks a `Stuck` question | Holds ([FoldSpec.hs:267][fold267]) |
 | P28 | Log is a fold | replaying a prefix, then the rest, is replaying the whole | Holds ([FoldSpec.hs:458][fold458], [FoldSpec.hs:338][fold338]) |

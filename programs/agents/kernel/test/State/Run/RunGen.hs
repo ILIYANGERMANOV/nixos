@@ -275,6 +275,7 @@ happyPath =
                    , outcome (ReviewClean sha)
                    ]
                 <> [ outcome (DescribeDone sha)
+                   , outcome (VisualDone sha)
                    , outcome (SimplifyPrDone sha)
                    , outcome (AwaitCiGreen sha)
                    , outcome (ReadyDone (Url "u"))

@@ -384,6 +384,20 @@ in
       ops = [ ];
       flows = [ "engineer" ];
     };
+    visual = {
+      runner = "fixer";
+      lead = "Describe: a fixer on row V0, briefed with `state brief fixer`.";
+      task = "Row V0: `pr-description`'s Visual.";
+      tools = [
+        "read"
+        "edit"
+        "shell"
+      ];
+      skills = [ ];
+      prose = buildingProse;
+      ops = [ ];
+      flows = [ "engineer" ];
+    };
     simplify_pr = {
       runner = "fixer";
       lead = "Describe: a fixer on row S0, briefed with `state brief fixer`.";

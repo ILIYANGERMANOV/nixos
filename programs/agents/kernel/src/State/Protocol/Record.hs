@@ -275,6 +275,7 @@ recordables =
            , atHead ReReview ReReviewClean
            , atHead ReReview ReReviewRows
            , atHead Describe DescribeDone
+           , atHead Visual VisualDone
            , atHead SimplifyPR SimplifyPrDone
            , atHead AwaitCi AwaitCiGreen
            , outcome (builtEvent AwaitCi (uncurry AwaitCiRed)) "<check>..." [] $ \a -> case a.positional of

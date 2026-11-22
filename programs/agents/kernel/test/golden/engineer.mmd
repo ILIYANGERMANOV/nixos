@@ -34,7 +34,8 @@ stateDiagram-v2
   fix --> re_review: done
   re_review --> describe: clean
   re_review --> pick: rows
-  describe --> simplify_pr: done
+  describe --> visual: done
+  visual --> simplify_pr: done
   simplify_pr --> await_ci: done
   await_ci --> ready: green
   await_ci --> fix_pr: red

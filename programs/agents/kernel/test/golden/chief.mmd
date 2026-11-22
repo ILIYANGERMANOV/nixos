@@ -29,6 +29,7 @@ stateDiagram-v2
   state "engineer/fix" as engineer__fix
   state "engineer/re_review" as engineer__re_review
   state "engineer/describe" as engineer__describe
+  state "engineer/visual" as engineer__visual
   state "engineer/simplify_pr" as engineer__simplify_pr
   state "engineer/await_ci" as engineer__await_ci
   state "engineer/fix_pr" as engineer__fix_pr
@@ -90,6 +91,7 @@ stateDiagram-v2
   state "reviewing/re_review" as reviewing__re_review
   state "describing/open_branch" as describing__open_branch
   state "describing/describe" as describing__describe
+  state "describing/visual" as describing__visual
   state "describing/simplify_pr" as describing__simplify_pr
   state "shipping/open_pr" as shipping__open_pr
   state "shipping/await_ci" as shipping__await_ci
@@ -150,7 +152,8 @@ stateDiagram-v2
   engineer__fix --> engineer__re_review: done
   engineer__re_review --> engineer__describe: clean
   engineer__re_review --> engineer__pick: rows
-  engineer__describe --> engineer__simplify_pr: done
+  engineer__describe --> engineer__visual: done
+  engineer__visual --> engineer__simplify_pr: done
   engineer__simplify_pr --> engineer__await_ci: done
   engineer__await_ci --> engineer__ready: green
   engineer__await_ci --> engineer__fix_pr: red
@@ -245,7 +248,8 @@ stateDiagram-v2
   reviewing__re_review --> next: clean
   reviewing__re_review --> reviewing__pick: rows
   describing__open_branch --> describing__describe: done
-  describing__describe --> describing__simplify_pr: done
+  describing__describe --> describing__visual: done
+  describing__visual --> describing__simplify_pr: done
   describing__simplify_pr --> next: done
   shipping__open_pr --> shipping__await_ci: done
   shipping__await_ci --> shipping__ready: green

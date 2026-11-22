@@ -204,9 +204,17 @@ Review: one review-lead for the fix, briefed with `state brief review-lead`. Run
 SPAWN fixer background: no
   at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
-    describe.done - on to simplify_pr
+    describe.done - on to visual
   fuel: low
 Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing the PR body's full facts as `pr-description` says, and any picked rows your prompt names; nothing reviews your fix.
+
+== visual
+SPAWN fixer background: no
+  at visual: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
+  outcomes:
+    visual.done - on to simplify_pr
+  fuel: low
+Describe: a fixer on row V0, briefed with `state brief fixer`. Row V0: `pr-description`'s Visual.
 
 == simplify_pr
 SPAWN fixer background: no
@@ -448,9 +456,17 @@ Review: one review-lead for the fix, briefed with `state brief review-lead`. Run
 SPAWN fixer background: no
   at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
-    describe.done - on to simplify_pr
+    describe.done - on to visual
   fuel: balanced
 Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing the PR body's full facts as `pr-description` says, and any picked rows your prompt names; nothing reviews your fix.
+
+== visual
+SPAWN fixer background: no
+  at visual: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
+  outcomes:
+    visual.done - on to simplify_pr
+  fuel: balanced
+Describe: a fixer on row V0, briefed with `state brief fixer`. Row V0: `pr-description`'s Visual.
 
 == simplify_pr
 SPAWN fixer background: no
@@ -690,9 +706,17 @@ Review: one review-lead for the fix, briefed with `state brief review-lead`. Run
 SPAWN fixer background: no
   at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
   outcomes:
-    describe.done - on to simplify_pr
+    describe.done - on to visual
   fuel: max
 Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing the PR body's full facts as `pr-description` says, and any picked rows your prompt names; nothing reviews your fix.
+
+== visual
+SPAWN fixer background: no
+  at visual: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, best effort: with no recorded line after it, pipe it into state handback fixer; then state next
+  outcomes:
+    visual.done - on to simplify_pr
+  fuel: max
+Describe: a fixer on row V0, briefed with `state brief fixer`. Row V0: `pr-description`'s Visual.
 
 == simplify_pr
 SPAWN fixer background: no

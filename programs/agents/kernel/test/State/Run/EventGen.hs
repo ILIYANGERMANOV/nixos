@@ -277,6 +277,7 @@ templates =
     , outcome (ReReviewClean (Sha ""))
     , outcome (ReReviewRows (Sha ""))
     , outcome (DescribeDone (Sha ""))
+    , outcome (VisualDone (Sha ""))
     , outcome (SimplifyPrDone (Sha ""))
     , outcome (AwaitCiGreen (Sha ""))
     , outcome (AwaitCiRed (Sha "") (Check "" :| []))
@@ -357,6 +358,7 @@ likeIn = \case
         ReReviewRows _ -> ReReviewRows <$> genSha
     ShipLayer -> \case
         DescribeDone _ -> DescribeDone <$> genSha
+        VisualDone _ -> VisualDone <$> genSha
         SimplifyPrDone _ -> SimplifyPrDone <$> genSha
         AwaitCiGreen _ -> AwaitCiGreen <$> genSha
         AwaitCiRed _ _ ->

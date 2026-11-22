@@ -1075,6 +1075,7 @@ keeps = \case
     ReadySkipped _ -> Just ByShape
     ReadyDone _ -> Nothing
     DescribeDone _ -> Nothing
+    VisualDone _ -> Nothing
     SimplifyPrDone _ -> Nothing
     AwaitCiGreen _ -> Nothing
     AwaitCiRed _ _ -> Nothing
@@ -1750,6 +1751,7 @@ shipped = \case
     ReadyDone url -> (Set.empty, Just url)
     ReadySkipped url -> (Set.empty, Just url)
     DescribeDone _ -> (Set.empty, Nothing)
+    VisualDone _ -> (Set.empty, Nothing)
     SimplifyPrDone _ -> (Set.empty, Nothing)
     AwaitCiGreen _ -> (Set.empty, Nothing)
     FixPrDone _ -> (Set.empty, Nothing)

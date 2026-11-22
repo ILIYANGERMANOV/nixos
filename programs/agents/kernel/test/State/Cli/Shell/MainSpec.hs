@@ -619,7 +619,7 @@ spec = describe "state over the doubles" $ do
                     `shouldBe` ( 2
                                ,
                                    [ "state override: override to nowhere - the flow has no single state of that name"
-                                   , "fix: state override <fuel|gather|gather/researchers|gather/notes|gather/research|interview|plan|skip_refine|simplify_plan|standards_plan|align_plan|present|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                                   , "fix: state override <fuel|gather|gather/researchers|gather/notes|gather/research|interview|plan|skip_refine|simplify_plan|standards_plan|align_plan|present|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|visual|simplify_pr|await_ci|fix_pr|ready> <why>"
                                    ]
                                )
 
@@ -1853,7 +1853,11 @@ toSimplifyPr :: [Act]
 toSimplifyPr =
     Record ["fuel.set", "balanced"]
         : toImplement
-            <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
+            <> [ Handback "review-lead" reviewed
+               , Record ["pick.final"]
+               , Handback "fixer" ready
+               , Handback "fixer" ready
+               ]
 
 balancedPath :: [Act]
 balancedPath =
@@ -1879,7 +1883,8 @@ balancedTranscript =
            , "skip_refactor.skip -> review"
            , "review.rows -> pick"
            , "pick.final -> describe"
-           , "describe.done -> simplify_pr"
+           , "describe.done -> visual"
+           , "visual.done -> simplify_pr"
            , "simplify_pr.done -> await_ci"
            , "await_ci.green -> ready"
            , "ready.done -> out"
@@ -1901,6 +1906,7 @@ trivialPath =
                , Handback "review-lead" reviewed
                , Record ["pick.final"]
                , Handback "fixer" ready
+               , Handback "fixer" ready
                , Handback "fixer" simplified
                , Record ["await_ci.green"]
                , Record ["ready.done", prUrl]
@@ -1920,7 +1926,8 @@ trivialTranscript =
     , "skip_refactor.skip -> review"
     , "review.rows -> pick"
     , "pick.final -> describe"
-    , "describe.done -> simplify_pr"
+    , "describe.done -> visual"
+    , "visual.done -> simplify_pr"
     , "simplify_pr.done -> await_ci"
     , "await_ci.green -> ready"
     , "ready.done -> out"

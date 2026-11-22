@@ -499,6 +499,7 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
                     (took . ReReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead)
         ShipLayer -> case s of
             Ship.Describe -> tokened (took . DescribeDone =<< atHead)
+            Ship.Visual -> tokened (took . VisualDone =<< atHead)
             Ship.SimplifyPR ->
                 tokened
                     (took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified)
