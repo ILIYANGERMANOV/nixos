@@ -162,7 +162,7 @@ has settled its Decisions: interview only its Open questions and new gaps,
 and carry its Decisions and Acceptance criteria into the task's brief as they
 stand.
 
-### Propose: plan, simplify_plan, confirm
+### Propose: plan, refine, present, confirm
 
 The plan is the breakdown, `plan.md` in the run directory:
 
@@ -187,12 +187,13 @@ starts once its dependency is merged.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
 
-The simplify pass runs: a `researcher` whose prompt
-names `~/.claude/skills/researcher/references/proposal.md`, the plan and the
-notes paths. You pick among their `Considered options` where the Rule
-test holds, as a ruling; a real trade-off is the user's.
+The refine passes run, each handing back findings, never a plan. You alone
+edit `plan.md`: apply a row where the Rule test holds, as a ruling; a real
+trade-off is the user's. Log every row, taken or not and why, in the plan's
+`## Considered options`.
 
-Confirm once, phone-sized: the breakdown with a file tree of what each task
+Present the plan as `~/.claude/skills/engineer/references/present.md` says,
+then confirm once, phone-sized: the breakdown with a file tree of what each task
 adds or changes and, per task, the options with their trade-offs. One
 question ("A) Yes, start (Recommended)" / "B) No, adjust"), repeating until
 clear. No engineer starts before this, a base fix included (Failures).
@@ -206,7 +207,7 @@ Write `tasks.json` in the run directory, a JSON array in the plan's order of
 (`~` expanded), then `state record breakdown.done --tasks tasks.json`. A round task adds
 `"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
 settles it `kept`. A task whose plan is already settled adds
-`"planDecided": true`: its child skips `simplify_plan` and confirms without
+`"planDecided": true`: its child skips the refine passes and present, and confirms without
 asking you. A task outside it, a base fix or an epic's final PR, joins
 mid-run: one such object in a file, then `state record task add <file>`.
 

@@ -26,7 +26,7 @@ flowchart LR
 Fuel is a run's effort level: `low`, `balanced` (the default) or `max`, set
 by `state record fuel.set <level>` at the run's first step. It decides:
 
-- **Skips**: which optional steps run (`simplify_plan`, `refactor`).
+- **Skips**: which optional steps run (the `refine` block, `refactor`).
 - **Caps**: how far each loop may go.
 
 A cap is a **meter** on one step: what that step's outcomes spend (each

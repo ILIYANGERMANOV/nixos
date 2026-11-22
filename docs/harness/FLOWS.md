@@ -61,8 +61,9 @@ request in focus and turn to another (`state focus`). The routes are in
 
 | Runner | States | What it does |
 |---|---|---|
-| lead (`you` in `state render states`) | `fuel`, `gather`, `interview`, `plan`, `confirm`, `draft`, `pick`, `await_ci`, `ready`, `breakdown`, `merge`, `route`, `next`, ... | decides, asks the user, records outcomes |
-| `researcher` | `research`, `simplify_plan` | finds facts, simplifies a plan |
+| lead (`you` in `state render states`) | `fuel`, `gather`, `interview`, `plan`, `present`, `confirm`, `draft`, `pick`, `await_ci`, `ready`, `breakdown`, `merge`, `route`, `next`, ... | decides, asks the user, records outcomes |
+| `researcher` | `research`, `simplify_plan`, `standards_plan` | finds facts; reports where a plan could be simpler or follow a standard |
+| `reviewer` | `align_plan` | reports where a plan breaks the engineering instructions |
 | `implementer` | `implement` | builds one slice of the plan |
 | `refactorer` | `refactor` | one refactor pass |
 | `review-lead` | `review`, `re_review` | one review pass (a re-review reads only the fix) |
@@ -83,8 +84,8 @@ see [ARCHITECTURE](ARCHITECTURE.md)).
 From a task to a ready pull request:
 
 1. Set the Fuel.
-2. **Agree** on a plan: gather facts, interview the user, plan, simplify,
-   confirm.
+2. **Agree** on a plan: gather facts, interview the user, plan, refine,
+   present, confirm.
 3. **Build**: draft PR, implement, refactor.
 4. **Review**: pick, fix, re-review, in a loop.
 5. **Describe** the PR.
@@ -142,7 +143,7 @@ stateDiagram-v2
 ```
 
 Read it as: each box is a state, each arrow is labelled with the outcome
-the run records to take it (`state record review.rows`). `skip_simplify_plan`
+the run records to take it (`state record review.rows`). `skip_refine`
 and `skip_refactor` are where Fuel decides (see [Fuel skips](#where-fuel-skips-a-step)).
 
 ## 10x
@@ -234,8 +235,8 @@ stateDiagram-v2
 |---|---|---|
 | `researching` | researchers on fact gaps, then notes | context |
 | `gathering` | gather (research, interview) | context |
-| `agreeing` | gather, plan, simplify, confirm | context |
-| `proposing` | plan, simplify, confirm | context |
+| `agreeing` | gather, plan, refine, present, confirm | context |
+| `proposing` | plan, refine, present, confirm | context |
 | `building` | draft, implement, refactor | a plan (`open_plan`) |
 | `reviewing` | review, pick, fix, re-review | a branch (`open_branch`) |
 | `describing` | describe, simplify the PR | a branch (`open_branch`) |
@@ -251,7 +252,7 @@ Source: [`blocks` in `Library.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/
 
 | Step | Low | Balanced | Max | Also skipped when |
 |---|---|---|---|---|
-| `simplify_plan` | agent's call, on a trivial task | runs | runs | the plan is settled without the user: a parent run decided it, or it is feedback with no Design or Scope question open |
+| `refine` (`simplify_plan`, `standards_plan`, `align_plan`) | agent's call, on a trivial task | runs | runs | the plan is settled without the user (`present` is skipped too): a parent run decided it, or it is feedback with no Design or Scope question open |
 | `refactor` | agent's call, on a trivial task | skipped at 100 changed lines or fewer | runs | - |
 | `describe`, `simplify_pr`, `ready` | never skipped | never skipped | never skipped | - |
 
@@ -262,7 +263,7 @@ the agent decides only where the table says "agent's call".
 
 Sources: [`propose`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L217) and
 [`skippableAtLow`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L320) for
-`simplify_plan`; [`build`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L228)
+the `refine` block; [`build`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L228)
 for `refactor`; [`settledSkips`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L921)
 for the settled plan; the kernel takes the skip in
 [`due`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L198).
