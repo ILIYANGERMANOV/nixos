@@ -6,6 +6,7 @@ setup() {
   store="$BATS_TEST_TMPDIR/com.pais.handy/settings_store.json"
   export nix_settings="$BATS_TEST_TMPDIR/nix.json"
   echo '{"selected_model": "whisper-large-v3-turbo", "bindings": {"transcribe": {"current_binding": "option_right"}}}' >"$nix_settings"
+  script_on_path keyed-json-update "$BATS_TEST_DIRNAME/../keyed-json/update.sh"
 }
 
 apply() { bash -euo pipefail "$BATS_TEST_DIRNAME/apply.sh" "$store"; }
@@ -51,11 +52,4 @@ a_store_handy_wrote() {
   apply
 
   cmp "$store" "$BATS_TEST_TMPDIR/once.json"
-}
-
-@test "no temp file is left beside the store" {
-  apply
-
-  run ls "$(dirname "$store")"
-  [ "$output" = settings_store.json ]
 }

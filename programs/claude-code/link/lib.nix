@@ -16,6 +16,7 @@
 
 let
   shellCheck = import ../../shell-check { inherit pkgs; };
+  keyedJsonUpdate = import ../../keyed-json { inherit pkgs; };
 
   # The wrapper's fragments in run order, as paths relative to this directory.
   # load.bats assembles its launch from the same file, so the order it tests is
@@ -44,7 +45,12 @@ let
     in
     shellCheck.writeShellApplication {
       inherit name;
-      runtimeInputs = [ pkgs.jq ]; # always needed for ~/.claude.json management
+      # keyed-json-update writes ~/.claude.json. jq stays on the PATH Claude
+      # Code inherits, as it always was there.
+      runtimeInputs = [
+        keyedJsonUpdate
+        pkgs.jq
+      ];
       passthru = {
         inherit (target) skillFarm instructions settingsFile;
       };

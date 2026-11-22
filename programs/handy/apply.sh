@@ -4,12 +4,5 @@
 # onboarding) as found. Handy rewrites the whole file on every save, so it is
 # Keyed, never Owned.
 
-store=$1
-
-mkdir -p "$(dirname "$store")"
-[ -f "$store" ] || echo '{}' >"$store"
-tmp=$(mktemp "$store.XXXXXX")
-trap 'rm -f "$tmp"' EXIT
-jq --slurpfile nix "$nix_settings" '.settings = (.settings // {}) * $nix[0]' \
-  "$store" >"$tmp"
-mv "$tmp" "$store"
+# shellcheck disable=SC2016 # $nix is jq's variable, not the shell's
+keyed-json-update "$1" '.settings = (.settings // {}) * $nix[0]' "$nix_settings"

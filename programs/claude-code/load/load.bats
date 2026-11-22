@@ -13,6 +13,7 @@ setup() {
 
   stub claude 'echo "args: $*"'
   stub hostname 'echo testhost'
+  script_on_path keyed-json-update "$BATS_TEST_DIRNAME/../../keyed-json/update.sh"
 }
 
 # A flavor's script: its arrays cannot cross the environment. $1... are the

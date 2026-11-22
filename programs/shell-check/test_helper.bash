@@ -14,6 +14,12 @@ stub() {
   PATH="$bin:$PATH"
 }
 
+# The script $2 on PATH as the program $1, under the shell options
+# writeShellApplication runs it with: for a script another one calls by name.
+script_on_path() {
+  stub "$1" "exec '$BASH' -euo pipefail '$2' \"\$@\""
+}
+
 # Whether $1 appears within ten seconds. Exported: a stub can wait on the test.
 wait_for() {
   local tries

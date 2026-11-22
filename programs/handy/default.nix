@@ -5,6 +5,7 @@
 
 let
   shellCheck = import ../shell-check { inherit pkgs; };
+  keyedJsonUpdate = import ../keyed-json { inherit pkgs; };
 
   # The keys Nix owns inside settings_store.json's `settings` object. Field
   # names and values follow Handy v0.10.1's src-tauri/src/settings.rs.
@@ -61,7 +62,7 @@ in
 
   apply = shellCheck.writeShellApplication {
     name = "handy-apply-settings";
-    runtimeInputs = [ pkgs.jq ];
+    runtimeInputs = [ keyedJsonUpdate ];
     text = ''
       ${pkgs.lib.toShellVars { nix_settings = settings; }}
       ${shellCheck.fragment ./apply.sh}
