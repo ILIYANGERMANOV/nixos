@@ -1,10 +1,13 @@
 {
+  root,
   inputs,
   pkgs,
   themeConfig,
   ...
 }:
 let
+  shellCheck = import "${root}/programs/shell-check" { inherit pkgs; };
+
   # The vendored libghostty-vt build execs hardcoded host tools (/bin/cp,
   # /bin/ln, /usr/bin/ranlib, /usr/bin/xcrun) that the Darwin Nix sandbox
   # refuses, so resolve them from PATH instead. Copied from nixpkgs 46b9b90f42
@@ -15,15 +18,8 @@ let
   herdr =
     if pkgs.stdenv.hostPlatform.isDarwin then
       herdrUpstream.overrideAttrs (old: {
-        postPatch = (old.postPatch or "") + ''
-          substituteInPlace vendor/libghostty-vt/pkg/apple-sdk/native_link.zig \
-            --replace-fail '"/usr/bin/xcrun"' '"xcrun"'
-          substituteInPlace vendor/libghostty-vt/src/build/GhosttyLibVt.zig \
-            --replace-fail '"/bin/ln"' '"ln"'
-          substituteInPlace vendor/libghostty-vt/src/build/LibtoolStep.zig \
-            --replace-fail '/bin/cp ' 'cp ' \
-            --replace-fail '/usr/bin/ranlib ' 'ranlib '
-        '';
+        postPatch =
+          (old.postPatch or "") + shellCheck.fragment "${root}/programs/herdr/darwin-post-patch.sh";
       })
     else
       herdrUpstream;
