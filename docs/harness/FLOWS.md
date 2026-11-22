@@ -55,7 +55,7 @@ render is [at the end](#chief).
 A request's states sit under its route's name (`engineer/plan`,
 `10x/merge`), so two requests never share a state. The chief can park the
 request in focus and turn to another (`state focus`). The routes are in
-[`Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Chief.hs#L38).
+[`Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L72).
 
 ## Who runs each state
 
@@ -74,9 +74,9 @@ request in focus and turn to another (`state focus`). The routes are in
 The lead is the agent that ran the flow's skill (`/engineer`,
 `/10x-engineer`, `/architect`, `/chief`); every other runner is a subagent
 with a narrow role. Each step's runner is one row of
-[`flows/steps.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/flows/steps.nix#L1),
+[`flows/steps.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/flows/steps.nix#L1),
 and each role's tools are derived from the rows it runs
-([`lib/derive.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L1);
+([`lib/derive.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/lib/derive.nix#L1);
 see [ARCHITECTURE](ARCHITECTURE.md)).
 
 ## Engineer
@@ -91,8 +91,8 @@ From a task to a ready pull request:
 5. **Describe** the PR.
 6. **Ship**: wait for CI, fix it, mark the PR ready.
 
-Source: [`Engineer.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Engineer.hs#L11),
-built from the blocks in [`Library.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L217).
+Source: [`Engineer.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Engineer.hs#L21),
+built from the blocks in [`Block.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L64).
 
 ```mermaid
 
@@ -155,7 +155,7 @@ Many engineers in parallel:
 3. Wait for all of them; merge their PRs.
 4. `merge.next_round` loops back to plan the next round in the same run.
 
-Source: [`TenX.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/TenX.hs#L19).
+Source: [`TenX.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/TenX.hs#L29).
 
 ```mermaid
 
@@ -205,7 +205,7 @@ From an idea to a design, changing no code. Each round the agent picks one:
 - write or edit the ticket.
 
 `enough` waits for every researcher, merges their notes and ends the run.
-Source: [`Architect.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Architect.hs#L20).
+Source: [`Architect.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Architect.hs#L17).
 
 ```mermaid
 
@@ -246,7 +246,7 @@ A block is one part of the engineer flow that the chief runs alone, when a
 request needs only that part. A block that starts past the task's context
 first opens its input from the issue, branch or PR the request names.
 
-Source: [`blocks` in `Library.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L272).
+Source: [`blocks` in `Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L136).
 
 ## Where Fuel skips a step
 
@@ -261,27 +261,27 @@ sizes every cap (next section) and decides two skips. At a `skip_*` state
 the kernel records `run` or `skip` itself when the Fuel or the facts decide;
 the agent decides only where the table says "agent's call".
 
-Sources: [`propose`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L217) and
-[`skippableAtLow`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L320) for
-the `refine` block; [`build`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L228)
-for `refactor`; [`settledSkips`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L921)
+Sources: [`propose`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L169) and
+[`refine`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L180) for
+the `refine` block; [`build`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L190)
+for `refactor`; [`settledSkips`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Run/Fold.hs#L1170)
 for the settled plan; the kernel takes the skip in
-[`due`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L198).
+[`due`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Protocol/Advice.hs#L360).
 A run that never set its Fuel counts as Balanced.
 
 ## The caps
 
 | Meter | Step that spends it | Flow | Low | Balanced | Max | At the cap |
 |---|---|---|---|---|---|---|
-| Plan rounds | `confirm.adjusted` | engineer, 10x | 3 | 3 | 3 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L221) |
-| Re-reviews | `pick.loop` | engineer | 1 | 3 | 5 | [Refuse](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L249): only `pick.final` is left |
-| CI fixes | `fix_pr.done` | engineer | 5 | 5 | 5 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L263) |
-| Rounds | `merge.next_round` | 10x | 9 | 9 | 9 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/TenX.hs#L19): 10 rounds in all |
-| Requests | `next.request` | chief | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Chief.hs#L38) |
-| Researchers | `research` (gather) | engineer, 10x | 1 | 5 | one per fact group | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L180) |
-| Interview questions | `interview` | engineer, 10x | 15 | 30 | 50 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L138) |
-| Researchers | `research` (design) | architect, chief discussion | 10 | 30 | 60 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L180) |
-| Discussion questions | `discuss` | architect, chief discussion | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L156) |
+| Plan rounds | `confirm.adjusted` | engineer, 10x | 3 | 3 | 3 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L170) |
+| Re-reviews | `pick.loop` | engineer | 1 | 3 | 5 | [Refuse](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L217): only `pick.final` is left |
+| CI fixes | `fix_pr.done` | engineer | 5 | 5 | 5 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L232) |
+| Rounds | `merge.next_round` | 10x | 9 | 9 | 9 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/TenX.hs#L39): 10 rounds in all |
+| Requests | `next.request` | chief | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L79) |
+| Researchers | `research` (gather) | engineer, 10x | 1 | 5 | one per fact group | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L147) |
+| Interview questions | `interview` | engineer, 10x | 15 | 30 | 50 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L80) |
+| Researchers | `research` (design) | architect, chief discussion | 10 | 30 | 60 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L147) |
+| Discussion questions | `discuss` | architect, chief discussion | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L115) |
 
 Every loop in a flow holds a capped step, so no run loops forever. Each cap
 counts one thing (a meter); used up, it refuses the spend, stops the run or
@@ -577,7 +577,7 @@ stateDiagram-v2
 ## Keeping this page true
 
 The four state diagrams above are checked, not trusted. The Nix check
-`rendered` ([`kernel/rendered.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/rendered.nix#L1), part of
+`rendered` ([`kernel/rendered.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/rendered.nix#L1), part of
 `checks.<system>.agents`) runs `state render mermaid --flow <flow>` for each
 flow and fails when this page does not hold the output exactly, as a whole
 block between blank lines. To update the page after a flow change, paste
