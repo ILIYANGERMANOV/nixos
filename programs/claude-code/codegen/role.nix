@@ -36,6 +36,12 @@ let
     large = "opus";
   };
 
+  # An attrset, so a cache with no entry aborts evaluation.
+  caches = {
+    default = [ ];
+    long = [ "experimental: { cacheTtl: 1h }" ];
+  };
+
   render =
     instructions: agent:
     let
@@ -49,6 +55,7 @@ let
       ]
       ++ lib.optional (agent.effort != null) "effort: ${agent.effort}"
       ++ lib.optional (agent.tier != null) "model: ${models.${agent.tier}}"
+      ++ caches.${agent.cache}
       ++ lib.optionals (agent.skills != [ ]) ([ "skills:" ] ++ map (skill: "  - ${skill}") agent.skills);
     in
     pkgs.concatText "${agent.name}.md" (

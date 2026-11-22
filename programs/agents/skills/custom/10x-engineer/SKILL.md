@@ -255,8 +255,8 @@ which task and repo, why it exists, what came up. Your recommendation comes
 first. Each option gives its consequence and the full PR URL when one exists.
 Never relay worker text verbatim.
 
-**Resume.** On `RESUME`: `state record resumed <child>`, then `SendMessage` the child, or past about 5 idle
-minutes a fresh `engineer` with its spawn prompt, saying "Answer to `<qid>`:
+**Resume.** On `RESUME`: `state record resumed <child>`, then `SendMessage` the child, or past about an idle
+hour a fresh `engineer` with its spawn prompt, saying "Answer to `<qid>`:
 `<a>`, in your run already. Run `state next`." A ruling also goes into its PR
 body's Key decisions.
 

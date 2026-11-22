@@ -22,6 +22,8 @@ let
   # operations: what it may call, `ask`, `await`, `notify` or `spawn:<role>`.
   # No harness enforces them yet; a check holds them equal to its steps'.
   # tier, effort: null inherits from whoever spawns it.
+  # cache: how long its prompt cache lives between calls, `default` (the
+  # harness's own) or `long`, for a role that waits long on its workers.
   fields = [
     "name"
     "description"
@@ -31,6 +33,7 @@ let
     "operations"
     "tier"
     "effort"
+    "cache"
   ];
   capabilities = [
     "read"
@@ -57,6 +60,10 @@ let
     "medium"
     "high"
   ];
+  caches = [
+    "default"
+    "long"
+  ];
 
   problems =
     record:
@@ -72,7 +79,8 @@ let
       ) record.operations
     )
     ++ lib.optional (!lib.elem record.tier tiers) "unknown tier"
-    ++ lib.optional (!lib.elem record.effort efforts) "unknown effort";
+    ++ lib.optional (!lib.elem record.effort efforts) "unknown effort"
+    ++ lib.optional (!lib.elem record.cache caches) "unknown cache";
 
   mkRole =
     spec:
@@ -82,6 +90,7 @@ let
         operations = [ ];
         tier = null;
         effort = null;
+        cache = "default";
       }
       // spec;
       found = problems record;
@@ -137,6 +146,8 @@ let
     )) "mkRole accepted an unknown operation";
     assert lib.assertMsg (rejected (valid // { tier = "huge"; })) "mkRole accepted an unknown tier";
     assert lib.assertMsg (rejected (valid // { effort = "hgih"; })) "mkRole accepted an unknown effort";
+    assert lib.assertMsg (rejected (valid // { cache = null; })) "mkRole accepted a null cache";
+    assert lib.assertMsg (rejected (valid // { cache = "1h"; })) "mkRole accepted an unknown cache";
     assert lib.assertMsg (
       discover ./fixtures/roles == { alpha = ./fixtures/roles/alpha/role.nix; }
     ) "discover did not find exactly the role folders";

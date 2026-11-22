@@ -59,8 +59,8 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   - **CI.** Its `AWAIT ci` hand-back prints `Parent runs:` lines. Run the one
     CI matches as printed, from your worktree (`cd <its worktree> && state
     record await_ci.green`, or `await_ci.red <check>...`), then `cd` back.
-    Then resume the child: SendMessage it, or past about 5 idle minutes a
-    fresh agent of its role with its spawn prompt, saying "CI finished on
+    Then resume the child: SendMessage it, or past about an idle hour (an
+    `engineer`; 5 minutes for other roles) a fresh agent of its role with its spawn prompt, saying "CI finished on
     `<PR>`, recorded in your run in `<its worktree>`. Run `state next`."
     Green, it finishes `ready`; red, it runs its CI fix.
   - **Answers.** An answer that could not reach its run: your `state answer`
