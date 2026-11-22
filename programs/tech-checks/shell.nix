@@ -19,6 +19,7 @@ let
     inherit pkgs;
     touchSsh = lib.getExe yubikey.ssh;
   };
+  handy = import ../handy { inherit pkgs; };
 
   # Same text and same shellcheck phase, without building what the text names:
   # keeping the context builds claude-code and `qa`'s browsers, 2.8 GiB against
@@ -269,6 +270,7 @@ in
     ++ [
       typos.cli
       tempFactory.cli
+      handy.apply
       yubikey.ssh
       yubikey.sshKeygen
     ]

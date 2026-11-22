@@ -9,6 +9,7 @@
     ./ssh.nix
     ./typos.nix
     ./temp-factory.nix
+    ./handy.nix
     ./direnv.nix
     ./blockchain.nix
     ./languages/typescript.nix
