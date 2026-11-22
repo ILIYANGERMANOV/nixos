@@ -82,7 +82,7 @@ with a law in `LawsSpec`:
   wait for every child of `g`, their results in fork order. A path out of a
   `Fork` that skips its `Await` is refused. `Each f`: `f` once per item.
 - `Scope name f`: its states record `name/step.outcome`.
-- `Handle h f`: `h` answers one flow effect (Pick, Ask, Focus) that `f`'s
+- `Handle h f`: `h` answers one flow effect (Pick, Ask, Focus, Await) that `f`'s
   steps raise (their layer's `Raises`); a whole flow answers every one. A
   flow effect is an `Eff` with its `Handler` (`State/Category/Effect.hs`),
   answered purely in `State/Run/Fold.hs` by `handle` and `applyEvent`. An

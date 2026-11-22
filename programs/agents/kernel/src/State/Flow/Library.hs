@@ -178,10 +178,10 @@ gather =
     researchLoop
         "gather"
         gatherResearcherLimit
-        (#interview :-> Capped questions Extend (Step Interview) :& End)
+        (#interview :-> Capped questionLimit Extend (Step Interview) :& End)
   where
     -- The questions the user is asked in an interview, by Fuel.
-    questions = UpTo <$> PerFuel 15 30 50
+    questionLimit = UpTo <$> PerFuel 15 30 50
 
 type GatherS = ResearchLoopS '[ '("interview", 'Ctx)] '[CappedS (DoS Interview)]
 

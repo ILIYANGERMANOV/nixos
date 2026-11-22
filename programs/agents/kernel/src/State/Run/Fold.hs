@@ -91,7 +91,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Effect (Eff (..), Handler (..), awaiting)
+import State.Category.Effect (Eff (..), Handler (..))
 import State.Category.Flow (
     FanEvent (..),
     Name (..),
@@ -135,8 +135,8 @@ import State.Category.Step (
     SomeOutcome (..),
     SomeStep (..),
     StepSet (stepName),
-    opsOf,
     stateNameText,
+    stepAwaits,
  )
 import State.FlowName (FlowName (..))
 import State.Role qualified as Role
@@ -651,7 +651,7 @@ applyEvent g state n = \case
     -- A step moved: an agent works the run again.
     Took scope (AnyOutcome PickLayer some) -> going (working <$> handle PickHandler g state (Picked scope some))
     Took scope outcome@(AnyOutcome _ (SomeOutcome s _ _))
-        | any awaiting (opsOf s) ->
+        | stepAwaits s ->
             going (working <$> handle AwaitHandler g state (Settles scope outcome))
         | otherwise -> going (working <$> took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
@@ -1785,7 +1785,7 @@ stuckExits g state place = case innermost g place of
         Out -> False
         Exit -> False
     awaits entry = case stepNamed entry.name of
-        Just (AnyStep _ (SomeStep s)) -> any awaiting (opsOf s)
+        Just (AnyStep _ (SomeStep s)) -> stepAwaits s
         Nothing -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses

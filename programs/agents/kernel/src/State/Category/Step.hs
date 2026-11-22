@@ -28,6 +28,7 @@ module State.Category.Step (
     decodeWith,
     SomeStep (..),
     opsOf,
+    stepAwaits,
     confirmText,
     StateName (..),
     stateNameText,
@@ -52,7 +53,7 @@ import Data.Text qualified as Text
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, sameSymbol, symbolVal)
-import State.Category.Effect (KnownOps (..), Op, OpVal)
+import State.Category.Effect (KnownOps (..), Op, OpVal, awaiting)
 import State.Category.Ty (
     HasLabel,
     KnownTy,
@@ -280,6 +281,10 @@ data SomeStep k where
 -- | The operations a step raises, as values.
 opsOf :: forall k (s :: k). (KnownOps (Raises s)) => Sing s -> [OpVal]
 opsOf _ = opsVal @(Raises s)
+
+-- | Whether the step waits on something outside the run.
+stepAwaits :: forall k (s :: k). (KnownOps (Raises s)) => Sing s -> Bool
+stepAwaits s = any awaiting (opsOf s)
 
 -- | A Confirm's question: its answers are the step's outcomes, so it names what is recorded.
 confirmText :: (StepSet k) => Sing (s :: k) -> Text -> Text
