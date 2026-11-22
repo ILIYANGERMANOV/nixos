@@ -2,8 +2,6 @@
 
 Base instructions for every agent.
 
-A dictated reply may hold misheard words: infer from context, or ask.
-
 ## Skills and git
 
 - Without a Skill tool, invoking a skill means reading
