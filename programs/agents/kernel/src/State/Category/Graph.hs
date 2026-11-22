@@ -39,12 +39,66 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 
 -- Flow's 'Exit' is qualified: 'Exit' here is the 'Node'.
-import State.Category.Flow (AgentRole, Branch (..), Branches (..), CapTarget (..), FanEvent (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Handle, Id, Into, Loop, Scope, (:>)), Group (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyEvent, scopePath, scoped)
+import State.Category.Flow (
+    AgentRole,
+    Branch (..),
+    Branches (..),
+    CapTarget (..),
+    FanEvent (..),
+    Flow (
+        Await,
+        Capped,
+        Case,
+        Catch,
+        Do,
+        Each,
+        Fork,
+        Handle,
+        Id,
+        Into,
+        Loop,
+        Scope,
+        (:>)
+    ),
+    Group (..),
+    Name (..),
+    ScopePath,
+    fanEvent,
+    nameText,
+    namedState,
+    qualify,
+    qualifyEvent,
+    scopePath,
+    scoped,
+ )
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel)
 import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
-import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), Sig, Sing, StateName (..), StepSet, eventText, outcomes, stepName)
-import State.Category.Ty (Elem (..), IsSum, KnownTy (..), NotSum, Summand (..), Summands (..), Ty, TyOf (..), TyVal, elemLabel)
+import State.Category.Step (
+    EventName (..),
+    OutcomeEdge (..),
+    OutcomeName (..),
+    Outcomes (..),
+    Sig,
+    Sing,
+    StateName (..),
+    StepSet,
+    eventText,
+    outcomes,
+    stepName,
+ )
+import State.Category.Ty (
+    Elem (..),
+    IsSum,
+    KnownTy (..),
+    NotSum,
+    Summand (..),
+    Summands (..),
+    Ty,
+    TyOf (..),
+    TyVal,
+    elemLabel,
+ )
 
 {- | A state where a step, a fork or an await runs next. The path is the step's
 position in the term, so a step used twice is two states. The name is its
@@ -148,17 +202,37 @@ whole p = do
             OpenGraph
                 { inPort
                 , edges = Map.filterWithKey (\(from, _) _ -> Set.member from reached) edges
-                , loops = Map.mapMaybe (\at -> if Set.member at.entry reached then Just at {body = Set.intersection at.body reached} else Nothing) p.loops
+                , loops =
+                    Map.mapMaybe
+                        ( \at ->
+                            if Set.member at.entry reached
+                                then Just at {body = Set.intersection at.body reached}
+                                else Nothing
+                        )
+                        p.loops
                 , caps = Map.filterWithKey (\metered _ -> Set.member metered.place reached) p.caps
                 , groupStates = Map.restrictKeys p.groups reached
                 }
-    case [name | (name, n) <- Map.toList (Map.fromListWith (+) [(placeName place, 1 :: Int) | place <- Set.toList reached]), n > 1] of
+    case [ name
+         | (name, n) <-
+            Map.toList
+                (Map.fromListWith (+) [(placeName place, 1 :: Int) | place <- Set.toList reached])
+         , n > 1
+         ] of
         [] -> pure ()
         name : _ -> Left (SameState name)
-    case [metered.place | (metered, cap) <- Map.toList g.caps, refuses cap.atCap, null (leaving g metered.place)] of
+    case [ metered.place
+         | (metered, cap) <- Map.toList g.caps
+         , refuses cap.atCap
+         , null (leaving g metered.place)
+         ] of
         [] -> pure ()
         place : _ -> Left (RefuseWithoutWayOut place)
-    case [(place, group) | (place, Forking group) <- Map.toList p.groups, Set.member place reached, escapes g.edges (awaitsOf group) place] of
+    case [ (place, group)
+         | (place, Forking group) <- Map.toList p.groups
+         , Set.member place reached
+         , escapes g.edges (awaitsOf group) place
+         ] of
         [] -> pure g
         (place, group) : _ -> Left (NotAwaited place group.group)
   where
@@ -194,7 +268,10 @@ reachable start edges = go Set.empty [start]
         [] -> seen
         place : rest
             | Set.member place seen -> go seen rest
-            | otherwise -> go (Set.insert place seen) ([next | (_, Edge {to = At next}) <- outOf place edges] <> rest)
+            | otherwise ->
+                go
+                    (Set.insert place seen)
+                    ([next | (_, Edge {to = At next}) <- outOf place edges] <> rest)
 
 {- | Which summand of @t@ an edge continues into, down to one type. 'Here' at
 a sum does not type-check, so every selector names one in port. Its context
@@ -309,7 +386,14 @@ casePart n = \case
 
 -- | 'Id', 'Into' or 'Exit': no state, each summand of its in passes on to where it enters.
 passing :: (Sel i -> Entry o) -> Part i o
-passing inPorts = Part {inPorts, edges = Map.empty, loops = Map.empty, caps = Map.empty, groups = Map.empty}
+passing inPorts =
+    Part
+        { inPorts
+        , edges = Map.empty
+        , loops = Map.empty
+        , caps = Map.empty
+        , groups = Map.empty
+        }
 
 -- | The codiagonal: the body's exit edges, and an in port straight to its exit, go on as its out.
 caught :: (NotSum b) => Part a b -> Part a b
@@ -330,7 +414,11 @@ inScope :: Name -> Part i o -> Part i o
 inScope scope p =
     Part
         { inPorts = moved.inPorts
-        , edges = Map.fromList [((from, eventIn event), edgeIn edge) | ((from, event), edge) <- Map.toList moved.edges]
+        , edges =
+            Map.fromList
+                [ ((from, eventIn event), edgeIn edge)
+                | ((from, event), edge) <- Map.toList moved.edges
+                ]
         , loops = Map.mapKeys (scoped scope) moved.loops
         , caps = moved.caps
         , groups = fmap groupIn moved.groups
@@ -353,18 +441,28 @@ inScope scope p =
 {- | One state, one edge per outcome: an exit to the exit, a continuing one to
 the out, or to its summand of the out when the step branches.
 -}
-stepPart :: forall k (s :: k) i e o. (StepSet k, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing s -> Either Clash (Part i o)
+stepPart ::
+    forall k (s :: k) i e o.
+    (StepSet k, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) =>
+    Sing s -> Either Clash (Part i o)
 stepPart s = do
     edges <- case outcomes s of
         Continues continue -> Right [edge continue (ToOut Here) (tyVal @o)]
-        exits@(ExitsOr exit continue) -> Right [edge exit ToExit (exitTy exits), edge continue (ToOut Here) (tyVal @o)]
+        exits@(ExitsOr exit continue) ->
+            Right [edge exit ToExit (exitTy exits), edge continue (ToOut Here) (tyVal @o)]
         branches@Branches -> Right (branchEdges branches)
         OpensChildren -> Left (StaysOutside place)
     Right (oneState place (Map.fromList edges))
   where
     place = rootPlace (stepName s)
-    branchEdges :: forall ss. (o ~ 'Sum ss) => Outcomes 'Nothing ('Sum ss) -> [((Place, EventName), Edge (To o))]
-    branchEdges Branches = [edge (OutcomeName (elemLabel e)) (ToOut (In e)) (summandTy e) | Summand e <- summands @ss]
+    branchEdges ::
+        forall ss.
+        (o ~ 'Sum ss) =>
+        Outcomes 'Nothing ('Sum ss) -> [((Place, EventName), Edge (To o))]
+    branchEdges Branches =
+        [ edge (OutcomeName (elemLabel e)) (ToOut (In e)) (summandTy e)
+        | Summand e <- summands @ss
+        ]
     edge :: OutcomeName -> To o -> TyVal -> ((Place, EventName), Edge (To o))
     edge outcome to cod =
         let event = EventName place.name outcome
@@ -375,10 +473,22 @@ rootPlace :: StateName -> Place
 rootPlace = Place [] mempty
 
 -- | 'stepPart' with the step's meter capped at its state.
-cappedPart :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Either Clash (Part i o)
+cappedPart ::
+    (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) =>
+    PerFuel Limit -> AtCap -> Sing (s :: k) -> Either Clash (Part i o)
 cappedPart limit atCap s = do
     p <- stepPart s
-    Right Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, caps = Map.singleton (Metered (rootPlace (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0), groups = p.groups}
+    Right
+        Part
+            { inPorts = p.inPorts
+            , edges = p.edges
+            , loops = p.loops
+            , caps =
+                Map.singleton
+                    (Metered (rootPlace (stepName s)) (stepName s))
+                    (Cap (SomeMeter s) limit atCap 0)
+            , groups = p.groups
+            }
 
 exitTy :: forall x o. Outcomes ('Just x) o -> TyVal
 exitTy (ExitsOr _ _) = tyVal @x
@@ -393,14 +503,19 @@ loop's caps start afresh each time the run enters it, so they bound nothing here
 closeLoop :: (NotSum a, NotSum b) => Name -> Part a a -> Either Clash (Part a b)
 closeLoop name body = do
     entry <- entryOf body
-    loops <- unionLoops body.loops (Map.singleton name LoopAt {entry, body = sources body.edges})
+    loops <-
+        unionLoops
+            body.loops
+            (Map.singleton name LoopAt {entry, body = sources body.edges})
     let nested = foldMap (.body) body.loops
         closed edge = case edge.to of
             ToOut _ -> Edge (ToState entry) edge.arrow (Just name)
             ToExit -> Edge (ToOut Here) edge.arrow edge.back
             ToState place -> Edge (ToState place) edge.arrow edge.back
     if any ((`Set.notMember` nested) . (.place)) (Map.keys body.caps)
-        then pure body {inPorts = \Here -> Enters entry, edges = fmap closed body.edges, loops}
+        then
+            pure
+                body {inPorts = \Here -> Enters entry, edges = fmap closed body.edges, loops}
         else Left (Unbounded name)
 
 -- | The state a part over one type starts at, if it runs a step before it ends.
@@ -414,7 +529,10 @@ entryOf p = case p.inPorts Here of
 next item, and @<first>.each_done@ leaves once the items are spent. A body
 that runs no step maps each item straight on.
 -}
-eachPart :: forall a b. (KnownTy a, KnownTy b, NotSum a, NotSum b) => Part a b -> Either Clash (Part ('List a) ('List b))
+eachPart ::
+    forall a b.
+    (KnownTy a, KnownTy b, NotSum a, NotSum b) =>
+    Part a b -> Either Clash (Part ('List a) ('List b))
 eachPart body = case body.inPorts Here of
     Passes Here -> Right (passing (\Here -> Passes Here))
     Exits -> Right (passing (\Here -> Exits))
@@ -424,7 +542,15 @@ eachPart body = case body.inPorts Here of
                 ToState place -> edge {to = ToState place}
                 ToExit -> edge {to = ToExit}
             event = EventName entry.name eachDoneOutcome
-        edges <- insertNew (entry, event) (Edge (ToOut Here) (Along (OutcomeEdge event (List (tyVal @a)) (List (tyVal @b)))) Nothing) (fmap next body.edges)
+        edges <-
+            insertNew
+                (entry, event)
+                ( Edge
+                    (ToOut Here)
+                    (Along (OutcomeEdge event (List (tyVal @a)) (List (tyVal @b))))
+                    Nothing
+                )
+                (fmap next body.edges)
         pure body {inPorts = \Here -> Enters entry, edges}
 
 -- | The outcome that leaves an 'Each' once its items are spent.
@@ -436,7 +562,13 @@ input. The child's body is its own run, so only its types are drawn here.
 -}
 forkPart :: forall a. (KnownTy a, NotSum a) => GroupOf -> StateName -> Part a a
 forkPart group name =
-    (oneState place (Map.singleton (place, event) (Edge (ToOut Here) (Along (OutcomeEdge event (tyVal @a) (tyVal @a))) Nothing)))
+    ( oneState
+        place
+        ( Map.singleton
+            (place, event)
+            (Edge (ToOut Here) (Along (OutcomeEdge event (tyVal @a) (tyVal @a))) Nothing)
+        )
+    )
         { groups = Map.singleton place (Forking group)
         }
   where
@@ -467,21 +599,41 @@ forkName group = \case
     spawnName = StateName ("spawn_" <> nameText group)
 
 -- | 'forkPart' of one step, its meter counting the children it starts.
-cappedFork :: forall k (s :: k) a. (StepSet k, Meter s, KnownTy a, NotSum a) => PerFuel Limit -> AtCap -> GroupOf -> Sing s -> Part a a
-cappedFork limit atCap group s = Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, caps = Map.singleton (Metered (rootPlace (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0), groups = p.groups}
+cappedFork ::
+    forall k (s :: k) a.
+    (StepSet k, Meter s, KnownTy a, NotSum a) =>
+    PerFuel Limit -> AtCap -> GroupOf -> Sing s -> Part a a
+cappedFork limit atCap group s =
+    Part
+        { inPorts = p.inPorts
+        , edges = p.edges
+        , loops = p.loops
+        , caps =
+            Map.singleton
+                (Metered (rootPlace (stepName s)) (stepName s))
+                (Cap (SomeMeter s) limit atCap 0)
+        , groups = p.groups
+        }
   where
     p = forkPart group (stepName s)
 
 {- | One state, the group's: a child's @handed_back@ stays, @done@ goes on
 with every child's result once all have handed back.
 -}
-awaitPart :: forall a b. (KnownTy a, KnownTy b, NotSum a) => GroupOf -> Part a ('List b)
+awaitPart ::
+    forall a b. (KnownTy a, KnownTy b, NotSum a) => GroupOf -> Part a ('List b)
 awaitPart group =
     ( oneState
         place
         ( Map.fromList
             [ ((place, fanEvent HandsBack place.name), Edge (ToState place) Stay Nothing)
-            , ((place, done), Edge (ToOut Here) (Along (OutcomeEdge done (tyVal @a) (List (tyVal @b)))) Nothing)
+            ,
+                ( (place, done)
+                , Edge
+                    (ToOut Here)
+                    (Along (OutcomeEdge done (tyVal @a) (List (tyVal @b))))
+                    Nothing
+                )
             ]
         )
     )
@@ -492,8 +644,16 @@ awaitPart group =
     done = fanEvent Leaves place.name
 
 -- | A part of one state: entered there, with these edges out of it.
-oneState :: (IsSum i ~ 'False) => Place -> Map (Place, EventName) (Edge (To o)) -> Part i o
-oneState place edges = Part {inPorts = \Here -> Enters place, edges, loops = Map.empty, caps = Map.empty, groups = Map.empty}
+oneState ::
+    (IsSum i ~ 'False) => Place -> Map (Place, EventName) (Edge (To o)) -> Part i o
+oneState place edges =
+    Part
+        { inPorts = \Here -> Enters place
+        , edges
+        , loops = Map.empty
+        , caps = Map.empty
+        , groups = Map.empty
+        }
 
 -- | The graph's states. Every state has an edge out, so the edges' keys hold them all.
 places :: OpenGraph -> Set Place
@@ -528,7 +688,11 @@ eventLabel place event@(EventName step (OutcomeName outcome))
 order by state first.
 -}
 outOf :: Place -> Map (Place, EventName) a -> [(EventName, a)]
-outOf place = map (\((_, event), a) -> (event, a)) . Map.toAscList . Map.takeWhileAntitone ((== place) . fst) . Map.dropWhileAntitone ((< place) . fst)
+outOf place =
+    map (\((_, event), a) -> (event, a))
+        . Map.toAscList
+        . Map.takeWhileAntitone ((== place) . fst)
+        . Map.dropWhileAntitone ((< place) . fst)
 
 -- | The states these edges leave.
 sources :: Map (Place, EventName) a -> Set Place
@@ -546,8 +710,13 @@ movePlaces move p =
             Enters place -> Enters (move place)
             Passes on -> Passes on
             Exits -> Exits
-        , edges = Map.fromList [((move from, event), fmap node edge) | ((from, event), edge) <- Map.toList p.edges]
-        , loops = fmap (\at -> at {entry = move at.entry, body = Set.map move at.body}) p.loops
+        , edges =
+            Map.fromList
+                [ ((move from, event), fmap node edge)
+                | ((from, event), edge) <- Map.toList p.edges
+                ]
+        , loops =
+            fmap (\at -> at {entry = move at.entry, body = Set.map move at.body}) p.loops
         , caps = Map.mapKeys (\metered -> metered {place = move metered.place}) p.caps
         , groups = Map.mapKeys move p.groups
         }
@@ -557,10 +726,18 @@ movePlaces move p =
         ToOut sel -> ToOut sel
         ToExit -> ToExit
 
-unionLoops :: Map Name LoopAt -> Map Name LoopAt -> Either Clash (Map Name LoopAt)
+unionLoops ::
+    Map Name LoopAt -> Map Name LoopAt -> Either Clash (Map Name LoopAt)
 unionLoops left right = case Map.keys (Map.intersection left right) of
     [] -> Right (Map.union left right)
     name : _ -> Left (SameLoop name)
 
-insertNew :: (Place, EventName) -> Edge n -> Map (Place, EventName) (Edge n) -> Either Clash (Map (Place, EventName) (Edge n))
-insertNew key@(place, event) edge = Map.alterF (maybe (Right (Just edge)) (const (Left (SameEvent place event)))) key
+insertNew ::
+    (Place, EventName) ->
+    Edge n ->
+    Map (Place, EventName) (Edge n) ->
+    Either Clash (Map (Place, EventName) (Edge n))
+insertNew key@(place, event) edge =
+    Map.alterF
+        (maybe (Right (Just edge)) (const (Left (SameEvent place event))))
+        key

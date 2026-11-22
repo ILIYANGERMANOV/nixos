@@ -19,16 +19,32 @@ import Data.List (nubBy)
 import Data.Maybe (listToMaybe)
 import State.Category.Flow (Name)
 import State.Category.Fuel (Fuel, PerFuel, SkipWhen (Never), atFuel)
-import State.Category.Step (EventName (..), SomeStep (..), StateName, StepSet (stepName))
+import State.Category.Step (
+    EventName (..),
+    SomeStep (..),
+    StateName,
+    StepSet (stepName),
+ )
 import State.Role (RoleDef (..), SomeFlow (..), roles)
-import State.Step.Catalog (AnyOutcome, AnyStep (..), Layer (FuelLayer, PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
+import State.Step.Catalog (
+    AnyOutcome,
+    AnyStep (..),
+    Layer (FuelLayer, PickLayer),
+    flowOutcomes,
+    outcome,
+    outcomeEvent,
+    termSteps,
+ )
 import State.Step.Fuel (Outcome (Running, Skipping), Sing (Skip))
 
 {- | Once per name: two flows drawing one name draw one step, or the step
 table's check finds two readers of one event.
 -}
 drawnSteps :: [AnyStep]
-drawnSteps = nubBy ((==) `on` nameOf) [step | RoleDef {flow = SomeFlow flow} <- roles, step <- termSteps flow]
+drawnSteps =
+    nubBy
+        ((==) `on` nameOf)
+        [step | RoleDef {flow = SomeFlow flow} <- roles, step <- termSteps flow]
   where
     nameOf (AnyStep _ (SomeStep s)) = stepName s
 
@@ -41,7 +57,12 @@ drawnDecoders :: [(EventName, Object -> Parser AnyOutcome)]
 drawnDecoders = [(outcomeEvent o, const (pure o)) | o <- drawnOutcomes]
 
 -- | A skip step: its block, the levels that skip it, and its two outcomes.
-data SkipHere = SkipHere {block :: Name, when :: PerFuel SkipWhen, skips :: AnyOutcome, runs :: AnyOutcome}
+data SkipHere = SkipHere
+    { block :: Name
+    , when :: PerFuel SkipWhen
+    , skips :: AnyOutcome
+    , runs :: AnyOutcome
+    }
 
 -- | The skip step of this name, when the flows draw one.
 skipHere :: StateName -> Maybe SkipHere
@@ -55,7 +76,9 @@ skipHere name =
 -- | Whether a run at this Fuel takes the event out of the state: a skip its level never makes is no way on.
 fuelTakes :: Fuel -> StateName -> EventName -> Bool
 fuelTakes fuel name event = case skipHere name of
-    Just skip | atFuel fuel skip.when == Never -> event.outcome /= (outcomeEvent skip.skips).outcome
+    Just skip
+        | atFuel fuel skip.when == Never ->
+            event.outcome /= (outcomeEvent skip.skips).outcome
     _ -> True
 
 -- | Whether the flows draw a pick of this name: the agent picks its branch by label.

@@ -7,8 +7,18 @@ import Data.Either (fromLeft)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
-import State.Category.Graph (GroupAt (..), GroupOf (..), Metered (..), OpenGraph (..))
-import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName (..))
+import State.Category.Graph (
+    GroupAt (..),
+    GroupOf (..),
+    Metered (..),
+    OpenGraph (..),
+ )
+import State.Category.Step (
+    EventName (..),
+    OutcomeName (..),
+    SomeStep (..),
+    StateName (..),
+ )
 import State.Role (FlowName)
 import State.Run.RunGen (flowGraph, loadSteps)
 import State.Step.Catalog (AnyStep (..), stepNamed)
@@ -20,7 +30,8 @@ spec :: Spec
 spec = describe "State.Table" $ do
     -- The build exports the flows' table as STATE_STEPS (kernel/default.nix).
     table <- runIO (LBS.readFile =<< getEnv "STATE_STEPS")
-    let rows = fromMaybe (error "STATE_STEPS is not a JSON object") (decode table >>= asObject)
+    let rows =
+            fromMaybe (error "STATE_STEPS is not a JSON object") (decode table >>= asObject)
         reparse = problems . encode . Object
         rowNamed key = fromMaybe (error "no such row") (KeyMap.lookup key rows)
 
@@ -45,7 +56,8 @@ spec = describe "State.Table" $ do
         reparse (KeyMap.delete "fix" rows) `shouldBe` ["fix: no row"]
 
     it "refuses an inline row with a lead" $
-        reparse (KeyMap.insert "plan" (setField "lead" "Spawn one." (rowNamed "plan")) rows)
+        reparse
+            (KeyMap.insert "plan" (setField "lead" "Spawn one." (rowNamed "plan")) rows)
             `shouldBe` ["plan: an inline step has no lead"]
 
     it "refuses a role's row without a lead" $
@@ -53,7 +65,12 @@ spec = describe "State.Table" $ do
             `shouldBe` ["fix: a step run by fixer needs a lead"]
 
     it "refuses a row in a flow no role leads" $
-        reparse (KeyMap.insert "fix" (setValue "flows" (Array (pure (String "qa"))) (rowNamed "fix")) rows)
+        reparse
+            ( KeyMap.insert
+                "fix"
+                (setValue "flows" (Array (pure (String "qa"))) (rowNamed "fix"))
+                rows
+            )
             `shouldBe` ["fix: flows names qa, which no role leads"]
 
     it "refuses a row run by a role that leads a flow" $
@@ -69,16 +86,20 @@ spec = describe "State.Table" $ do
             clean = EventName review (OutcomeName "clean")
             withRows = EventName review (OutcomeName "rows")
         it "refuses two steps of one name" $
-            namingProblems [review, StateName "fix", review] [] Set.empty `shouldBe` ["review: two steps have this name"]
+            namingProblems [review, StateName "fix", review] [] Set.empty
+                `shouldBe` ["review: two steps have this name"]
 
         it "refuses two readers of one event" $
-            namingProblems [review] [clean, clean] (Set.singleton clean) `shouldBe` ["review.clean: two readers read this event"]
+            namingProblems [review] [clean, clean] (Set.singleton clean)
+                `shouldBe` ["review.clean: two readers read this event"]
 
         it "refuses a reader of an event no step declares" $
-            namingProblems [review] [clean, withRows] (Set.singleton clean) `shouldBe` ["review.rows: no step has this outcome"]
+            namingProblems [review] [clean, withRows] (Set.singleton clean)
+                `shouldBe` ["review.rows: no step has this outcome"]
 
         it "refuses a declared event no reader reads" $
-            namingProblems [review] [clean] (Set.fromList [clean, withRows]) `shouldBe` ["review.rows: no layer reads this outcome"]
+            namingProblems [review] [clean] (Set.fromList [clean, withRows])
+                `shouldBe` ["review.rows: no layer reads this outcome"]
   where
     -- 'Steps' has no Eq: what is checked is the list of problems.
     problems = fromLeft [] . parseSteps

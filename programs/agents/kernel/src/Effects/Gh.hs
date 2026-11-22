@@ -10,7 +10,15 @@ module Effects.Gh (
 ) where
 
 import Data.Text qualified as Text
-import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
+import Effectful (
+    Dispatch (Dynamic),
+    DispatchOf,
+    Eff,
+    Effect,
+    IOE,
+    liftIO,
+    (:>),
+ )
 import Effectful.Dispatch.Dynamic (interpret, send)
 import State.Protocol.Advice (PrView (..), prViewFields)
 import State.Step.Artifact (Shape (..), urlText)
@@ -30,10 +38,12 @@ prView = send . PrView
 runGhIO :: (IOE :> es) => Eff (Gh : es) a -> Eff es a
 runGhIO = interpret $ \_ -> \case
     PrView shape ->
-        liftIO (timeout (seconds * 1000000) (readProcessWithExitCode "gh" (prViewArgs shape) "")) >>= \case
-            Nothing -> pure (PrViewTimedOut seconds)
-            Just (ExitSuccess, out, _) -> pure (PrViewPrinted (Text.pack out))
-            Just (ExitFailure _, _, err) -> pure (PrViewFailed (Text.pack err))
+        liftIO
+            (timeout (seconds * 1000000) (readProcessWithExitCode "gh" (prViewArgs shape) ""))
+            >>= \case
+                Nothing -> pure (PrViewTimedOut seconds)
+                Just (ExitSuccess, out, _) -> pure (PrViewPrinted (Text.pack out))
+                Just (ExitFailure _, _, err) -> pure (PrViewFailed (Text.pack err))
 
 -- | A run's own PR is its branch's; a round's is the one it names, read by URL.
 prViewArgs :: Shape -> [String]

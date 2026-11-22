@@ -25,7 +25,9 @@ type data TriageStep = Triage
 instance StepSet TriageStep where
     type Raises s = '[]
 
-    type Sig Triage = '( 'Diff, 'Nothing, 'Sum '[ '("small", 'Diff), '("big", 'Plan)])
+    type
+        Sig Triage =
+            '( 'Diff, 'Nothing, 'Sum '[ '("small", 'Diff), '("big", 'Plan)])
 
     data Sing s where
         Triage :: Sing Triage
@@ -59,6 +61,16 @@ deriving stock instance Eq (Outcome (s :: TriageStep) l)
 
 -- | The big branch is scoped: a flow names each state once, and both branches describe.
 triaged :: Flow TriagedS 'Diff 'Nothing 'PR
-triaged = Do Triage :> Case (#small :-> Do Describe :& #big :-> Scope "big" (Do Implement :> Do Refactor :> Do Describe) :& End)
+triaged =
+    Do Triage
+        :> Case
+            ( #small
+                :-> Do Describe
+                :& #big
+                :-> Scope "big" (Do Implement :> Do Refactor :> Do Describe)
+                :& End
+            )
 
-type TriagedS = DoS Triage :>> CaseS '[DoS Describe, ScopeS (DoS Implement :>> DoS Refactor :>> DoS Describe)]
+type TriagedS =
+    DoS Triage
+        :>> CaseS '[DoS Describe, ScopeS (DoS Implement :>> DoS Refactor :>> DoS Describe)]

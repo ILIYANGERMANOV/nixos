@@ -47,7 +47,17 @@ import Data.Text qualified as Text
 import Data.Typeable (Typeable)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 import Numeric.Natural (Natural)
-import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Label (..), Name (..), Shape (..))
+import State.Category.Flow (
+    AgentRole (..),
+    Branch (..),
+    Branches (..),
+    CapTarget (..),
+    Flow (..),
+    Group (..),
+    Label (..),
+    Name (..),
+    Shape (..),
+ )
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (StepSet (Sig, Sing, stepName), stateNameText)
@@ -65,7 +75,16 @@ import State.Step.Ship (ShipStep (..), Sing (..))
 'Pick' then a 'Case'. Two steps, two events: @<name>.<label>@, then the
 branch's own.
 -}
-choice :: (KnownTy a, NotSum a, Summands ss, Over a ss, PickLabels ss ss, Typeable a, Typeable ss) => Name -> Branches bs ss e c -> Flow (ChoiceS a ss bs) a e c
+choice ::
+    ( KnownTy a
+    , NotSum a
+    , Summands ss
+    , Over a ss
+    , PickLabels ss ss
+    , Typeable a
+    , Typeable ss
+    ) =>
+    Name -> Branches bs ss e c -> Flow (ChoiceS a ss bs) a e c
 choice name branches = Do (Pick name) :> Case branches
 
 type ChoiceS :: Ty -> [(Symbol, Ty)] -> [Shape] -> Shape
@@ -78,7 +97,15 @@ bounds the rounds ('State.Category.Graph.graph' refuses a loop with none).
 Law, the Kleene star of a sum: the order of the actions does not matter.
 -}
 choiceLoop ::
-    (KnownTy a, NotSum a, NotSum b, Summands ('("enough", a) ': ss), Over a ss, PickLabels ('("enough", a) ': ss) ('("enough", a) ': ss), Typeable a, Typeable ss) =>
+    ( KnownTy a
+    , NotSum a
+    , NotSum b
+    , Summands ('("enough", a) ': ss)
+    , Over a ss
+    , PickLabels ('("enough", a) ': ss) ('("enough", a) ': ss)
+    , Typeable a
+    , Typeable ss
+    ) =>
     Name ->
     Flow f a 'Nothing b ->
     Branches bs ss 'Nothing a ->
@@ -86,17 +113,25 @@ choiceLoop ::
 choiceLoop name enough actions = Loop name (choice name (#enough :-> enough :> Exit :& actions))
 
 type ChoiceLoopS :: Ty -> [(Symbol, Ty)] -> Shape -> [Shape] -> Shape
-type ChoiceLoopS a ss enough bs = LoopS (ChoiceS a ('("enough", a) ': ss) ((enough :>> ExitS) ': bs))
+type ChoiceLoopS a ss enough bs =
+    LoopS (ChoiceS a ('("enough", a) ': ss) ((enough :>> ExitS) ': bs))
 
 {- | A block the run's Fuel may skip: a 'Skip' step picks @skip@, past the
 block, or @run@. The kernel decides the pick where the level may skip.
 Law: at a level that never skips, the block alone.
 -}
-skippable :: (StepSet k, Sig s ~ '(a, 'Nothing, a), KnownTy a, NotSum a, Typeable a) => Sing (s :: k) -> PerFuel SkipWhen -> Flow (SkippableS a (DoS s)) a 'Nothing a
+skippable ::
+    (StepSet k, Sig s ~ '(a, 'Nothing, a), KnownTy a, NotSum a, Typeable a) =>
+    Sing (s :: k) -> PerFuel SkipWhen -> Flow (SkippableS a (DoS s)) a 'Nothing a
 skippable step skips = skippableBlock (nameOf step) skips (Do step)
 
 -- | 'skippable' over any block, its skip named @name@.
-skippableBlock :: (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Flow f a 'Nothing a -> Flow (SkippableS a f) a 'Nothing a
+skippableBlock ::
+    (KnownTy a, NotSum a, Typeable a) =>
+    Name ->
+    PerFuel SkipWhen ->
+    Flow f a 'Nothing a ->
+    Flow (SkippableS a f) a 'Nothing a
 skippableBlock name skips block = Do (Skip name skips) :> Case (#skip :-> Id :& #run :-> block :& End)
 
 type SkippableS :: Ty -> Shape -> Shape
@@ -107,7 +142,11 @@ once, then their results in the items' order: #351's @traverse@. Its
 laws, @parallel g Id@ handing the items back and @parallel@ of a series a
 series of @parallel@s, are a run's: the parent's graph draws no state of the child.
 -}
-parallel :: (KnownTy a, KnownTy b, NotSum a, NotSum b) => Group b -> Flow f a 'Nothing b -> Flow (ParallelS f) ('List a) 'Nothing ('List b)
+parallel ::
+    (KnownTy a, KnownTy b, NotSum a, NotSum b) =>
+    Group b ->
+    Flow f a 'Nothing b ->
+    Flow (ParallelS f) ('List a) 'Nothing ('List b)
 parallel group child = Each (Fork group child) :> Await group
 
 type ParallelS :: Shape -> Shape
@@ -133,7 +172,11 @@ their notes. Its meters are the researchers and the questions; at either cap
 the user is asked whether to go on, and @extend@ grants both again.
 -}
 gather :: Flow GatherS 'Ctx 'Nothing 'Ctx
-gather = researchLoop "gather" gatherResearcherLimit (#interview :-> Capped questions Extend (Step Interview) :& End)
+gather =
+    researchLoop
+        "gather"
+        gatherResearcherLimit
+        (#interview :-> Capped questions Extend (Step Interview) :& End)
   where
     -- The questions the user is asked in an interview, by Fuel.
     questions = UpTo <$> PerFuel 15 30 50
@@ -154,11 +197,21 @@ ask the user design questions, each explained before it is asked, then the
 other actions; @extend@ grants both budgets again at the user's yes.
 -}
 discuss ::
-    (Summands ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss), Over 'Ctx ss, PickLabels ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss) ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss), Typeable ss) =>
+    ( Summands ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss)
+    , Over 'Ctx ss
+    , PickLabels
+        ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss)
+        ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss)
+    , Typeable ss
+    ) =>
     Name ->
     Branches bs ss 'Nothing 'Ctx ->
     Flow (DiscussS ss bs) 'Ctx 'Nothing 'Ctx
-discuss name actions = researchLoop name designResearcherLimit (#discuss :-> Capped designQuestionLimit Extend (Step Discuss) :& actions)
+discuss name actions =
+    researchLoop
+        name
+        designResearcherLimit
+        (#discuss :-> Capped designQuestionLimit Extend (Step Discuss) :& actions)
   where
     -- The researchers a design spawns, by Fuel: the architect's and the chief's discussion.
     designResearcherLimit = UpTo <$> PerFuel 10 30 60
@@ -166,7 +219,8 @@ discuss name actions = researchLoop name designResearcherLimit (#discuss :-> Cap
     designQuestionLimit = UpTo <$> PerFuel 50 100 200
 
 type DiscussS :: [(Symbol, Ty)] -> [Shape] -> Shape
-type DiscussS ss bs = ResearchLoopS ('("discuss", 'Ctx) ': ss) (CappedS (DoS Discuss) ': bs)
+type DiscussS ss bs =
+    ResearchLoopS ('("discuss", 'Ctx) ': ss) (CappedS (DoS Discuss) ': bs)
 
 {- | A 'choiceLoop' named @name@ whose first action, @research@, spawns
 researchers up to the cap and whose @enough@ merges their notes, both in its
@@ -174,7 +228,13 @@ scope, then the other actions. The name is the pick's state and the
 researchers' scope.
 -}
 researchLoop ::
-    (Summands ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss), Over 'Ctx ss, PickLabels ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss) ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss), Typeable ss) =>
+    ( Summands ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss)
+    , Over 'Ctx ss
+    , PickLabels
+        ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss)
+        ('("enough", 'Ctx) ': '("research", 'Ctx) ': ss)
+    , Typeable ss
+    ) =>
     Name ->
     PerFuel Limit ->
     Branches bs ss 'Nothing 'Ctx ->
@@ -191,7 +251,8 @@ researchLoop name cap actions = choiceLoop name merged (#research :-> researcher
     researchers = Group "researchers" (AgentRole "researcher")
 
 type ResearchLoopS :: [(Symbol, Ty)] -> [Shape] -> Shape
-type ResearchLoopS ss bs = ChoiceLoopS 'Ctx ('("research", 'Ctx) ': ss) MergedS (ResearchersS ': bs)
+type ResearchLoopS ss bs =
+    ChoiceLoopS 'Ctx ('("research", 'Ctx) ': ss) MergedS (ResearchersS ': bs)
 
 type ResearchersS = ScopeS (CappedS (ForkS (DoS Research)))
 
@@ -215,13 +276,17 @@ propose =
     -- Low may skip the step of a trivial task; Balanced and Max run it.
     skippableAtLow = PerFuel Skippable Never Never
 
-type ProposeS = DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS Confirm)
+type ProposeS =
+    DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS Confirm)
 
 {- | @draft@ opens the draft PR before the first commit. Balanced skips the
 refactor at or below 100 changed lines, Low on a trivial task.
 -}
 build :: Flow BuildS 'Plan 'Nothing 'Diff
-build = Do Draft :> Do Implement :> skippable Refactor (PerFuel Skippable (AtOrBelow 100) Never)
+build =
+    Do Draft
+        :> Do Implement
+        :> skippable Refactor (PerFuel Skippable (AtOrBelow 100) Never)
 
 type BuildS = DoS Draft :>> DoS Implement :>> SkippableS 'Diff (DoS Refactor)
 
@@ -241,7 +306,10 @@ clean. Each @pick.loop@ spends a re-review, #351's @n(m)@: once none is
 left, pick offers only @pick.final@.
 -}
 fixReReview :: Flow FixReReviewS 'Findings 'Nothing 'Diff
-fixReReview = Loop "fix" (Capped (UpTo <$> PerFuel 1 3 5) Refuse (Step PickRows) :> Do Fix :> Do ReReview)
+fixReReview =
+    Loop
+        "fix"
+        (Capped (UpTo <$> PerFuel 1 3 5) Refuse (Step PickRows) :> Do Fix :> Do ReReview)
 
 type FixReReviewS = LoopS (CappedS (DoS PickRows) :>> DoS Fix :>> DoS ReReview)
 
@@ -255,9 +323,13 @@ type DescribeS = DoS Describe :>> DoS SimplifyPR
 is, by its task's shape, and records the url it keeps.
 -}
 ship :: Flow ShipS 'PR 'Nothing 'PR
-ship = Loop "ci" (Do AwaitCi :> upTo 5 Stop (Step FixPR)) :> Do Ready :> Case (#done :-> Id :& #skipped :-> Id :& End)
+ship =
+    Loop "ci" (Do AwaitCi :> upTo 5 Stop (Step FixPR))
+        :> Do Ready
+        :> Case (#done :-> Id :& #skipped :-> Id :& End)
 
-type ShipS = LoopS (DoS AwaitCi :>> CappedS (DoS FixPR)) :>> DoS Ready :>> CaseS '[IdS, IdS]
+type ShipS =
+    LoopS (DoS AwaitCi :>> CappedS (DoS FixPR)) :>> DoS Ready :>> CaseS '[IdS, IdS]
 
 {- | Each block a request may run alone, as a branch of a 'choice': a block
 that starts past 'Ctx' opens its input first, from the issue, branch or PR
@@ -301,7 +373,10 @@ type Blocks =
      ]
 
 -- | A choice's branch: the flow in a scope of the branch's label, its out retyped as 'Result'.
-branch :: forall l f o. (KnownSymbol l, KnownTy o, NotSum o) => Flow f 'Ctx 'Nothing o -> Branch (BranchS f) l 'Ctx 'Nothing 'Result
+branch ::
+    forall l f o.
+    (KnownSymbol l, KnownTy o, NotSum o) =>
+    Flow f 'Ctx 'Nothing o -> Branch (BranchS f) l 'Ctx 'Nothing 'Result
 branch flow = Label :-> Scope (Name (Text.pack (symbolVal (Proxy @l)))) flow :> Into
 
 type BranchS :: Shape -> Shape

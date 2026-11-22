@@ -72,7 +72,16 @@ import GHC.Records (HasField (..))
 import Numeric.Natural (Natural)
 import State.Category.Fuel (parseByName)
 import State.Role (Rung (..))
-import State.Run.Id (EventId, RunId, TaskId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
+import State.Run.Id (
+    EventId,
+    RunId,
+    TaskId,
+    breaksLine,
+    eventIdText,
+    numberedText,
+    parseNumbered,
+    runIdText,
+ )
 import State.Step.Artifact (PlanCall (..), Shape)
 
 {- | What a question is about, which decides who may answer it. 'Security' is
@@ -200,7 +209,8 @@ data Decision = RuleOn Proposal | PassOn
     deriving stock (Eq, Show)
 
 -- | A role's answer, before 'triage' checks the role may give it.
-data Proposal = Proposal {answer :: OneLine, why :: OneLine, cost :: OneLine, basis :: Maybe Basis}
+data Proposal = Proposal
+    {answer :: OneLine, why :: OneLine, cost :: OneLine, basis :: Maybe Basis}
     deriving stock (Eq, Show)
 
 -- | Why a ruling on a 'Security' question may stand without the user.
@@ -298,7 +308,9 @@ raiseTo reading question = Question question.qid (raise question.kind reading) q
 
 accept :: Question -> Proposal -> Either Refusal Ruling
 accept question proposal
-    | Security <- question.kind, Nothing <- proposal.basis = Left (NoBasis question.qid)
+    | Security <- question.kind
+    , Nothing <- proposal.basis =
+        Left (NoBasis question.qid)
     | otherwise = Right (Accepted question.qid question.kind proposal)
 
 {- | One rung's handling of a question: a Kleisli arrow, so rungs compose
@@ -426,7 +438,9 @@ data Reply = Chose Text | Other Text
 
 -- | The reply's text, marked with what it asks of the run that reads it, if anything ('otherNote').
 replyText :: Kind -> Reply -> Text
-replyText kind reply = replyWords reply <> foldMap (\note -> " (" <> note <> ")") (otherNote kind reply)
+replyText kind reply =
+    replyWords reply
+        <> foldMap (\note -> " (" <> note <> ")") (otherNote kind reply)
 
 -- | The reply's words alone.
 replyWords :: Reply -> Text
@@ -452,11 +466,17 @@ otherNote kind = \case
 
 -- | What an 'Other' reply asks of the run that reads it, where 'otherNote' says it asks anything.
 replyNote :: Text
-replyNote = "none of the options: it may be a new request - re-plan for it, or take it up as one"
+replyNote =
+    "none of the options: it may be a new request - re-plan for it, or take it up as one"
 
 -- | A question on one line, @<Kind> <qid>: <question>@, as a hand-back's @NEEDS_DECISION@ carries it (#360's wire format).
 questionLine :: Question -> Text
-questionLine question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
+questionLine question =
+    kindName question.kind
+        <> " "
+        <> qidText question.qid
+        <> ": "
+        <> oneLineText question.text
 
 {- | A flow role's hand-back: its first line (#360's wire format), its run,
 then a line per ruling it made, so the reader sees each one (law Audit).
@@ -472,7 +492,9 @@ rulingLine ruling =
         <> " "
         <> kindName ruling.kind
         <> ": "
-        <> Text.intercalate " - " (map oneLineText [proposal.answer, proposal.why, proposal.cost])
+        <> Text.intercalate
+            " - "
+            (map oneLineText [proposal.answer, proposal.why, proposal.cost])
         <> foldMap ((" - basis: " <>) . basisText) proposal.basis
   where
     proposal = ruling.proposal

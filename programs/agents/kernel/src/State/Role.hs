@@ -28,7 +28,15 @@ module State.Role (
 import Data.List (find)
 import Data.Maybe (mapMaybe)
 import State.Category.Effect (Handler (..), Unhandled)
-import State.Category.Flow (AgentRole (..), Effects, Flow (..), Name (..), roleText, scopeNames, unqualify)
+import State.Category.Flow (
+    AgentRole (..),
+    Effects,
+    Flow (..),
+    Name (..),
+    roleText,
+    scopeNames,
+    unqualify,
+ )
 import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (KnownTy (..), NotSum, TyOf (..), TyVal)
@@ -49,7 +57,9 @@ data RoleDef = RoleDef {name :: AgentRole, flow :: SomeFlow, rung :: Rung}
 nowhere and handles every effect its steps raise, else it does not compile.
 -}
 data SomeFlow where
-    SomeFlow :: (KnownTy o, NotSum o, Unhandled (Effects s) ~ '[]) => Flow s 'Ctx 'Nothing o -> SomeFlow
+    SomeFlow ::
+        (KnownTy o, NotSum o, Unhandled (Effects s) ~ '[]) =>
+        Flow s 'Ctx 'Nothing o -> SomeFlow
 
 -- | What the flow ends in.
 flowOut :: SomeFlow -> TyVal
@@ -64,10 +74,26 @@ flow that ships PRs raises.
 -}
 role :: FlowName -> RoleDef
 role flowName = case flowName of
-    EngineerFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (Handle AskHandler (Handle AwaitHandler engineer))) Lead
-    TenXFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (Handle AskHandler (Handle AwaitHandler tenX))) Orchestrator
-    ArchitectFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (Handle AskHandler architect)) Lead
-    ChiefFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow (Handle AskHandler (Handle AwaitHandler chief))) Lead
+    EngineerFlow ->
+        RoleDef
+            (AgentRole (flowText flowName))
+            (SomeFlow (Handle AskHandler (Handle AwaitHandler engineer)))
+            Lead
+    TenXFlow ->
+        RoleDef
+            (AgentRole (flowText flowName))
+            (SomeFlow (Handle AskHandler (Handle AwaitHandler tenX)))
+            Orchestrator
+    ArchitectFlow ->
+        RoleDef
+            (AgentRole (flowText flowName))
+            (SomeFlow (Handle AskHandler architect))
+            Lead
+    ChiefFlow ->
+        RoleDef
+            (AgentRole (flowText flowName))
+            (SomeFlow (Handle AskHandler (Handle AwaitHandler chief)))
+            Lead
 
 roles :: [RoleDef]
 roles = map role [minBound .. maxBound]

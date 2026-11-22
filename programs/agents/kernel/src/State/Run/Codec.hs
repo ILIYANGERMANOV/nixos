@@ -39,8 +39,24 @@ module State.Run.Codec (
     decodeTask,
 ) where
 
-import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, (.:), (.:?), (.=))
-import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, null_, pair, pairs, text)
+import Data.Aeson (
+    Key,
+    Object,
+    Value (..),
+    eitherDecodeStrictText,
+    withObject,
+    (.:),
+    (.:?),
+    (.=),
+ )
+import Data.Aeson.Encoding (
+    Encoding,
+    encodingToLazyByteString,
+    null_,
+    pair,
+    pairs,
+    text,
+ )
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
 import Data.Functor ((<&>))
@@ -59,7 +75,21 @@ import State.Category.Fuel (parseByName)
 import State.Category.Step (eventText)
 import State.Flow.Drawn (drawnDecoders)
 import State.Role (flowText)
-import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
+import State.Run.Ask (
+    Above (..),
+    Basis (..),
+    Kind (Security),
+    OneLine,
+    Proposal (..),
+    QId,
+    Question (..),
+    kindName,
+    oneLineText,
+    parseKind,
+    parseOneLine,
+    parseQId,
+    qidText,
+ )
 import State.Run.Event (
     AgentId (..),
     AgentRole (..),
@@ -99,7 +129,29 @@ import State.Run.Event (
     tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (Shape (..), areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, planData, planOf, repoText, shaText, shapeData, shapeOf, targetData, targetOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact (
+    Shape (..),
+    areaText,
+    branchText,
+    decodeBreakdown,
+    decodeTask,
+    judgementText,
+    named,
+    planData,
+    planOf,
+    repoText,
+    shaText,
+    shapeData,
+    shapeOf,
+    targetData,
+    targetOf,
+    taskEncoding,
+    taskIdText,
+    topicText,
+    urlData,
+    urlOf,
+    urlText,
+ )
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders)
 
@@ -181,7 +233,14 @@ sourceOf :: RunId -> Natural -> Text -> Parser Source
 sourceOf run n raw
     | raw == eventIdText (Numbered run n) = pure Cli
     | Just (Hashed digest) <- parseEventId raw = pure (Hook digest)
-    | otherwise = fail ("id " <> show raw <> " is neither " <> show (eventIdText (Numbered run n)) <> " nor h:<hash>")
+    | otherwise =
+        fail
+            ( "id "
+                <> show raw
+                <> " is neither "
+                <> show (eventIdText (Numbered run n))
+                <> " nor h:<hash>"
+            )
 
 eventType :: Event -> Text
 eventType = \case
@@ -275,16 +334,37 @@ eventOf kind obj = case kind of
     "target" -> Targeted <$> targetOf obj
     "extend" -> Extended <$> obj .: "why"
     "gap" -> Gapped <$> obj .: "text"
-    "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
+    "stop" ->
+        Stopped
+            <$> ( Stop
+                    <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText))
+                    <*> obj .: "why"
+                )
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
     "asked" -> Asked <$> askingOf obj
     "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "kind" >>= security)
-    "ruled" -> RuledOn <$> qidOf obj <*> (Proposal <$> oneLineAt "answer" obj <*> oneLineAt "why" obj <*> oneLineAt "cost" obj <*> (obj .: "basis" >>= traverse basisOf))
+    "ruled" ->
+        RuledOn
+            <$> qidOf obj
+            <*> ( Proposal
+                    <$> oneLineAt "answer" obj
+                    <*> oneLineAt "why" obj
+                    <*> oneLineAt "cost" obj
+                    <*> (obj .: "basis" >>= traverse basisOf)
+                )
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
     "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= aboveOf)
     "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "why" obj
-    "spawned" -> Spawned <$> (Child <$> childOf obj <*> (childTaskOf obj >>= maybe (fail "a spawned child names its task or is untasked") pure) <*> obj .: "worktree")
+    "spawned" ->
+        Spawned
+            <$> ( Child
+                    <$> childOf obj
+                    <*> ( childTaskOf obj
+                            >>= maybe (fail "a spawned child names its task or is untasked") pure
+                        )
+                    <*> obj .: "worktree"
+                )
     "spawning" -> Spawning <$> taskOf obj
     "resumed" -> Resumed <$> childOf obj
     "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
@@ -295,7 +375,10 @@ eventOf kind obj = case kind of
     "restarted" -> pure Restarted
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
-    "worker_returned" -> WorkerReturned . AgentRole <$> obj .: "role" <*> (fmap AgentId <$> obj .: "agent")
+    "worker_returned" ->
+        WorkerReturned . AgentRole
+            <$> obj .: "role"
+            <*> (fmap AgentId <$> obj .: "agent")
     "agent_ended" -> AgentEnded . AgentId <$> obj .: "agent"
     "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
     "focused" -> Focused <$> requestOf obj
@@ -317,7 +400,8 @@ childOf :: Object -> Parser RunId
 childOf obj = obj .: "child" >>= runIdOf
 
 requestOf :: Object -> Parser TaskNo
-requestOf obj = obj .: "request" >>= \raw -> maybe (fail (show raw <> " is no request, r<n>")) pure (parseTaskNo raw)
+requestOf obj =
+    obj .: "request" >>= \raw -> maybe (fail (show raw <> " is no request, r<n>")) pure (parseTaskNo raw)
 
 taskOf :: Object -> Parser TaskId
 taskOf obj = TaskId <$> obj .: "task"
@@ -359,11 +443,18 @@ saidOf :: Object -> Parser Said
 saidOf obj =
     obj .: "token" >>= \case
         "READY" -> Finished <$> oneLineAt "ref" obj
-        "AWAIT" -> Awaits <$> (obj .:? "on" >>= maybe (pure Ci) (named "awaited" (parseByName waitingText))) <*> oneLineAt "ref" obj
+        "AWAIT" ->
+            Awaits
+                <$> (obj .:? "on" >>= maybe (pure Ci) (named "awaited" (parseByName waitingText)))
+                <*> oneLineAt "ref" obj
         token ->
             obj .:? "ref" >>= \case
                 Nothing | token == "NEEDS_DECISION" -> AsksUp <$> qidOf obj
-                ref -> maybe (fail ("no hand-back token: " <> show token)) (pure . Ended) (parseStop token (fromMaybe "" ref))
+                ref ->
+                    maybe
+                        (fail ("no hand-back token: " <> show token))
+                        (pure . Ended)
+                        (parseStop token (fromMaybe "" ref))
 
 {- | A stop on the wire (#360): its hand-back token, and the prefix its why
 takes there. The one spelling of a stop, read by the log and the hand-back.
@@ -416,13 +507,23 @@ taskStateOf obj = do
     pr <- fmap Url <$> obj .: "pr"
     name <- obj .: "state"
     case (lookup name prStates, name) of
-        (Just state, _) -> maybe (fail ("a task in " <> Text.unpack name <> " names its pr")) (pure . state) pr
+        (Just state, _) ->
+            maybe
+                (fail ("a task in " <> Text.unpack name <> " names its pr"))
+                (pure . state)
+                pr
         (Nothing, "parked") -> Parked <$> obj .: "why" <*> pure pr
         (Nothing, other) -> fail ("unknown task state " <> show other)
 
 -- | The states that name their PR, by the name 'taskStateName' gives each: @state record task@'s and the log's.
 prStates :: [(Text, Url -> TaskState)]
-prStates = [("ci", InCi), ("review", InReview), ("merged", Merged), ("kept", Kept), ("round", Round)]
+prStates =
+    [ ("ci", InCi)
+    , ("review", InReview)
+    , ("merged", Merged)
+    , ("kept", Kept)
+    , ("round", Round)
+    ]
 
 -- | As @state record task@ names it.
 taskStateName :: TaskState -> Text
@@ -452,7 +553,9 @@ startOf obj =
         <$> (obj .: "flow" >>= named "flow" (parseByName flowText))
         <*> obj .: "notes"
         <*> (obj .: "principal" >>= principalOf)
-        <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
+        <*> ( Set.fromList
+                <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText)))
+            )
 
 {- | The user on its own PR is a bare word, as a log older than rounds wrote
 it; the user's round is its PR; a parent run is its id, the task it
@@ -463,7 +566,13 @@ principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser OwnPr -> text "user"
     ByUser shape@(RoundOn _) -> pairs (shapeData shape)
-    ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> linkData parent.link <> shapeData shape <> planData plan)
+    ByRole parent shape plan ->
+        pairs
+            ( "run" .= runIdText parent.run
+                <> linkData parent.link
+                <> shapeData shape
+                <> planData plan
+            )
     ByCaller OwnPr -> text "caller"
     ByCaller shape@(RoundOn _) -> pairs ("caller" .= True <> shapeData shape)
 
@@ -473,10 +582,18 @@ principalOf = \case
     String "caller" -> pure (ByCaller OwnPr)
     Object obj ->
         (,) <$> obj .:? "run" <*> obj .:? "caller" >>= \case
-            (Just run, _) -> ByRole <$> (Parent <$> runIdOf run <*> linkOf obj) <*> shapeOf obj <*> planOf obj
+            (Just run, _) ->
+                ByRole
+                    <$> (Parent <$> runIdOf run <*> linkOf obj)
+                    <*> shapeOf obj
+                    <*> planOf obj
             (Nothing, Just True) -> ByCaller . RoundOn . Url <$> obj .: "pr"
             (Nothing, _) -> ByUser . RoundOn . Url <$> obj .: "pr"
-    other -> fail ("a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task?}, not " <> show other)
+    other ->
+        fail
+            ( "a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task?}, not "
+                <> show other
+            )
 
 -- | A fan-out's child names its task or its delegation; a direct child, neither.
 linkData :: Link -> Series
@@ -503,7 +620,8 @@ qidOf obj = obj .: "qid" >>= named "question id" parseQId
 security :: Text -> Parser ()
 security raw
     | raw == kindName Security = pure ()
-    | otherwise = fail ("a question is only ever re-tagged as Security, not " <> show raw)
+    | otherwise =
+        fail ("a question is only ever re-tagged as Security, not " <> show raw)
 
 -- | The run itself is a bare word; a subagent is its role, a child run its id.
 askerEncoding :: Asker -> Encoding
@@ -515,7 +633,9 @@ askerEncoding = \case
 askerOf :: Value -> Parser Asker
 askerOf = \case
     String "self" -> pure Itself
-    Object obj -> obj .:? "role" >>= maybe (ChildRun <$> (obj .: "run" >>= runIdOf)) (pure . Subagent . AgentRole)
+    Object obj ->
+        obj .:? "role"
+            >>= maybe (ChildRun <$> (obj .: "run" >>= runIdOf)) (pure . Subagent . AgentRole)
     other -> fail ("a question is from \"self\", {role} or {run}, not " <> show other)
 
 -- | As a principal: the user and the caller are bare words, a parent run is its id.
@@ -563,7 +683,11 @@ oneLineOf :: Text -> Parser OneLine
 oneLineOf raw = maybe (fail (show raw <> " holds a line break")) pure (parseOneLine raw)
 
 runIdOf :: Text -> Parser RunId
-runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break")) pure (parseRunId raw)
+runIdOf raw =
+    maybe
+        (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break"))
+        pure
+        (parseRunId raw)
 
 -- | #360's @AWAIT <what> <refs>@: what a run hands up to be waited on.
 waitingText :: Waiting -> Text

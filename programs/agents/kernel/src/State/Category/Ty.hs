@@ -36,7 +36,16 @@ The labels are a parameter because one declaration serves two levels: a
 flow's types are 'Ty', labels as type-level 'Symbol's, and what a term
 reports of them is 'TyVal', labels as 'Text'. GHC has no value of a 'Symbol'.
 -}
-data TyOf label = Ctx | Plan | Diff | Findings | PR | Ticket | Result | List (TyOf label) | Sum [(label, TyOf label)]
+data TyOf label
+    = Ctx
+    | Plan
+    | Diff
+    | Findings
+    | PR
+    | Ticket
+    | Result
+    | List (TyOf label)
+    | Sum [(label, TyOf label)]
     deriving stock (Eq, Ord, Show)
 
 -- | The kind of a flow's types: what a 'State.Category.Flow.Flow' is indexed by.
@@ -81,7 +90,12 @@ instance NotSum 'Result
 instance NotSum ('List t)
 
 instance
-    (Unsatisfiable ('Text "A sum " ':<>: 'ShowType ('Sum ss) ':<>: 'Text " where one type is needed: branch on it with Case")) =>
+    ( Unsatisfiable
+        ( 'Text "A sum "
+            ':<>: 'ShowType ('Sum ss)
+            ':<>: 'Text " where one type is needed: branch on it with Case"
+        )
+    ) =>
     NotSum ('Sum ss)
 
 -- | Where summand @l@, of type @a@, sits among the summands: a proof by position.

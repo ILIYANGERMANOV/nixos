@@ -43,10 +43,26 @@ import Data.Text qualified as Text
 import GHC.OverloadedLabels (IsLabel (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import GHC.TypeLits (KnownSymbol, Symbol)
-import State.Category.Effect (Eff (..), Effs, FromOps, Handler, None, ToList, Union, Without)
+import State.Category.Effect (
+    Eff (..),
+    Effs,
+    FromOps,
+    Handler,
+    None,
+    ToList,
+    Union,
+    Without,
+ )
 import State.Category.Fuel (PerFuel)
 import State.Category.Meter (AtCap, Limit, Meter)
-import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..), handedBackOutcome, spawnedOutcome)
+import State.Category.Step (
+    EventName (..),
+    OutcomeName (..),
+    StateName (..),
+    StepSet (..),
+    handedBackOutcome,
+    spawnedOutcome,
+ )
 import State.Category.Ty (KnownTy, NotSum, Ty, TyOf (..))
 
 {- | The exit of @f ':>' g@: either side's, and the same type when both have
@@ -131,7 +147,9 @@ data Flow (s :: Shape) (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     {- | One step, of any layer: its signature is the term's type. A step takes
     one type, never a sum. Law: one state, one edge per outcome.
     -}
-    Do :: (StepSet k, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Flow (DoS s) i e o
+    Do ::
+        (StepSet k, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) =>
+        Sing (s :: k) -> Flow (DoS s) i e o
     -- | Identity: no step runs. Law: @Id :> f = f = f :> Id@.
     Id :: Flow IdS a 'Nothing a
     {- | Retype as 'Result': no step runs, nothing is recorded, as 'Id'. The
@@ -155,7 +173,9 @@ data Flow (s :: Shape) (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     one that does not). Law, Elgot's fixpoint: the loop is its body unrolled
     once, @Loop n f = Catch (f :> Loop n f)@.
     -}
-    Loop :: (NotSum a, NotSum b) => Name -> Flow f a ('Just b) a -> Flow (LoopS f) a 'Nothing b
+    Loop ::
+        (NotSum a, NotSum b) =>
+        Name -> Flow f a ('Just b) a -> Flow (LoopS f) a 'Nothing b
     {- | The copairing: each summand runs its branch, the branch of its
     label, so a branch missing or out of the sum's order does not compile.
     Laws, read off a step @t@ into the sum: beta, @t@'s edge @l@ walks as
@@ -171,7 +191,9 @@ data Flow (s :: Shape) (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     Law: a fold over the list, the body's states drawn once, its out going
     back to its first state for the next item; @<first>.each_done@ leaves.
     -}
-    Each :: (KnownTy a, KnownTy b, NotSum a, NotSum b) => Flow f a 'Nothing b -> Flow (EachS f) ('List a) 'Nothing ('List b)
+    Each ::
+        (KnownTy a, KnownTy b, NotSum a, NotSum b) =>
+        Flow f a 'Nothing b -> Flow (EachS f) ('List a) 'Nothing ('List b)
     {- | Start the body as a child run in the group, and go on with the
     input: the child runs beside the parent. One state, the group's, its
     @spawned@ event the edge on. The body is not drawn: it is the child's
@@ -179,13 +201,16 @@ data Flow (s :: Shape) (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     the group (structured concurrency), else 'State.Category.Graph.graph'
     refuses the flow.
     -}
-    Fork :: (KnownTy a, KnownTy b, NotSum a) => Group b -> Flow f a 'Nothing b -> Flow (ForkS f) a 'Nothing a
+    Fork ::
+        (KnownTy a, KnownTy b, NotSum a) =>
+        Group b -> Flow f a 'Nothing b -> Flow (ForkS f) a 'Nothing a
     {- | Wait for every child of the group to hand back: their results, in
     the order they were forked. One state, the group's: @handed_back@ stays,
     @done@ goes on. Law: @parallel g f = Each (Fork g f) :> Await g@ is
     @traverse f@ on the list.
     -}
-    Await :: (KnownTy a, KnownTy b, NotSum a) => Group b -> Flow AwaitS a 'Nothing ('List b)
+    Await ::
+        (KnownTy a, KnownTy b, NotSum a) => Group b -> Flow AwaitS a 'Nothing ('List b)
     {- | The codiagonal @b + b -> b@: the exit goes on as the out. Laws:
     @Catch (f :> g) = f :> Catch g@ for an @f@ with no exit, and
     @Catch (Case bs) = Case (each b, Catch b)@.
@@ -212,7 +237,10 @@ parentheses (@:>@ binds tighter):
 -}
 data Branches (bs :: [Shape]) (ss :: [(Symbol, Ty)]) (e :: Maybe Ty) (c :: Ty) where
     End :: Branches '[] '[] 'Nothing c
-    (:&) :: Branch f l a e1 c -> Branches bs ss e2 c -> Branches (f ': bs) ('(l, a) ': ss) (Join e1 e2) c
+    (:&) ::
+        Branch f l a e1 c ->
+        Branches bs ss e2 c ->
+        Branches (f ': bs) ('(l, a) ': ss) (Join e1 e2) c
 
 infixr 3 :&
 
@@ -255,8 +283,12 @@ one step, whose cap counts the children it starts. No other flow has a
 meter, so capping one does not compile.
 -}
 data CapTarget (c :: Shape) (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
-    Step :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> CapTarget (DoS s) i e o
-    ForkOf :: (StepSet k, Meter s, Sig s ~ '(a, 'Nothing, b), KnownTy a, KnownTy b, NotSum a) => Group b -> Sing (s :: k) -> CapTarget (ForkS (DoS s)) a 'Nothing a
+    Step ::
+        (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) =>
+        Sing (s :: k) -> CapTarget (DoS s) i e o
+    ForkOf ::
+        (StepSet k, Meter s, Sig s ~ '(a, 'Nothing, b), KnownTy a, KnownTy b, NotSum a) =>
+        Group b -> Sing (s :: k) -> CapTarget (ForkS (DoS s)) a 'Nothing a
 
 deriving stock instance Show (CapTarget c i e o)
 

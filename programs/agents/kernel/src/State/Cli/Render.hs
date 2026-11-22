@@ -19,11 +19,37 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (Name, namedState)
-import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel, fullReview)
-import State.Category.Graph (Cap (..), Edge (..), GroupAt (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
+import State.Category.Fuel (
+    Fuel (..),
+    PerFuel,
+    SkipWhen (..),
+    atFuel,
+    fullReview,
+ )
+import State.Category.Graph (
+    Cap (..),
+    Edge (..),
+    GroupAt (..),
+    Node (..),
+    OpenGraph (..),
+    Place (..),
+    eventLabel,
+    placeName,
+    places,
+    shownOrder,
+ )
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
-import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
-import State.Protocol.Handback (TokenWord (NeedsDecisionWord), tokenWordText, tokenWords)
+import State.Category.Step (
+    SomeStep (..),
+    StateName,
+    StepSet (stepName),
+    stateNameText,
+ )
+import State.Protocol.Handback (
+    TokenWord (NeedsDecisionWord),
+    tokenWordText,
+    tokenWords,
+ )
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
@@ -42,7 +68,9 @@ states :: OpenGraph -> Steps -> Text
 states g steps =
     table
         ["State", "Run by", "Arrows out"]
-        [[stateNameText (placeName place), runBy place, arrowsOut place] | place <- Set.toList (places g)]
+        [ [stateNameText (placeName place), runBy place, arrowsOut place]
+        | place <- Set.toList (places g)
+        ]
   where
     -- A group's fork fans out and its await waits for the children; any other unnamed state, a pick or a skip, is the lead's own.
     runBy place = case (stepNamed place.name, Map.lookup place g.groupStates) of
@@ -53,7 +81,11 @@ states g steps =
         (Nothing, Just (Awaiting _)) -> "await"
         (Nothing, Nothing) -> "you"
     arrowsOut place =
-        Text.intercalate "; " [eventLabel place event <> ": " <> target edge.to | (event, edge) <- shownEdges g place]
+        Text.intercalate
+            "; "
+            [ eventLabel place event <> ": " <> target edge.to
+            | (event, edge) <- shownEdges g place
+            ]
     target = \case
         At place -> stateNameText (placeName place)
         Out -> "end"
@@ -70,9 +102,16 @@ capped alike at every level is no row. A step the flow draws as optional
 fuel :: [(Name, PerFuel SkipWhen)] -> OpenGraph -> Text
 fuel skips g =
     rows $
-        [someMeterName cap.meter : map (\level -> meterCell cap.meter level (atFuel level cap.limit)) levels | (_, cap) <- sortOn (uncurry shownOrder) (Map.toList g.caps), varies cap.limit]
+        [ someMeterName cap.meter
+            : map (\level -> meterCell cap.meter level (atFuel level cap.limit)) levels
+        | (_, cap) <- sortOn (uncurry shownOrder) (Map.toList g.caps)
+        , varies cap.limit
+        ]
             <> [ "Skippable when trivial" : map skippable levels
-               , "Refactor" : map (\level -> refactor (skipAt level (stepName Refactor)) <> refactorDepth level) levels
+               , "Refactor"
+                    : map
+                        (\level -> refactor (skipAt level (stepName Refactor)) <> refactorDepth level)
+                        levels
                , "Full review of a fix to" : map (areasText . fullReview) levels
                ]
   where
@@ -80,7 +119,10 @@ fuel skips g =
     varies limit = nub (map (`atFuel` limit) levels) /= [atFuel Low limit]
     optSteps :: [(StateName, PerFuel SkipWhen)]
     optSteps = nub [(namedState name, when) | (name, when) <- skips]
-    skippable level = case ["`" <> stateNameText name <> "`" | (name, when) <- optSteps, atFuel level when == Skippable] of
+    skippable level = case [ "`" <> stateNameText name <> "`"
+                           | (name, when) <- optSteps
+                           , atFuel level when == Skippable
+                           ] of
         [] -> "none"
         names -> Text.intercalate ", " names
     skipAt level step = maybe Never (atFuel level) (lookup step optSteps)
@@ -88,7 +130,13 @@ fuel skips g =
         Never -> "always"
         AtOrBelow most -> "above about " <> tshow most <> " changed lines"
         Skippable -> "unless trivial"
-    areasText areas = Text.intercalate ", " [Text.replace "-" " " (areaText area) | area <- [minBound .. maxBound], Set.member area areas]
+    areasText areas =
+        Text.intercalate
+            ", "
+            [ Text.replace "-" " " (areaText area)
+            | area <- [minBound .. maxBound]
+            , Set.member area areas
+            ]
 
 {- | A meter's cell: what the level allows, and for researchers and
 re-reviews how deep each goes.
@@ -132,7 +180,9 @@ kinds :: Text
 kinds =
     table
         ("Kind" : map rungText rungs)
-        [kindName kind : map (ruleText . (`authority` kind)) rungs | kind <- [minBound .. maxBound :: Kind]]
+        [ kindName kind : map (ruleText . (`authority` kind)) rungs
+        | kind <- [minBound .. maxBound :: Kind]
+        ]
   where
     rungs = [minBound .. maxBound]
     ruleText = \case
@@ -161,7 +211,9 @@ stopRule =
         , "> stop at once. Commit and push the work you have, if any, as a"
         , "> normal commit with no WIP marker and `Remaining: <what is left>` in its"
         , "> body, plus `(does not build yet)` when it does not build."
-        , "> Start your hand-back with `" <> needsDecision <> " <question>`, then that commit, what"
+        , "> Start your hand-back with `"
+            <> needsDecision
+            <> " <question>`, then that commit, what"
         , "> you tried and the evidence paths. Spawn no researcher."
         ]
 
@@ -175,7 +227,9 @@ planWrong =
         [ "> The plan is wrong when a finding shows a wrong approach, a requirement that"
         , "> cannot be met, scope the plan does not hold, or a data-model or auth"
         , "> redesign. Do not stop early: finish the review, then make"
-        , "> `" <> needsDecision <> " plan wrong: <finding>` the first line of your return, before"
+        , "> `"
+            <> needsDecision
+            <> " plan wrong: <finding>` the first line of your return, before"
         , "> the usual report. Every other finding, security included, goes in the table"
         , "> as usual."
         ]
@@ -187,12 +241,17 @@ handbackRule :: Text
 handbackRule =
     Text.unlines
         [ "> Line 1 of your hand-back opens with one token, its payload on the same line,"
-        , "> one of: " <> Text.intercalate ", " ["`" <> word <> "`" | word <- tokenWords] <> "."
+        , "> one of: "
+            <> Text.intercalate ", " ["`" <> word <> "`" | word <- tokenWords]
+            <> "."
         ]
 
 -- | A Markdown table: the header, its rule, then a line per row.
 table :: [Text] -> [[Text]] -> Text
-table header body = Text.unlines [line header, "|" <> Text.intercalate "|" (map (const "---") header) <> "|"] <> rows body
+table header body =
+    Text.unlines
+        [line header, "|" <> Text.intercalate "|" (map (const "---") header) <> "|"]
+        <> rows body
 
 rows :: [[Text]] -> Text
 rows = Text.unlines . map line

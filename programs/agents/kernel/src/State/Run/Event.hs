@@ -79,9 +79,53 @@ import State.Category.Effect (Waiting (..))
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
-import State.Run.Ask (Above, ChildTask (..), Link (..), OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question, Reply (..))
-import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), TaskNo (..), parseRunId, parseTaskNo, runIdText, taskNoText)
-import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Target (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
+import State.Run.Ask (
+    Above,
+    ChildTask (..),
+    Link (..),
+    OneLine,
+    Op (..),
+    Parent (..),
+    Principal (..),
+    Proposal,
+    QId,
+    Question,
+    Reply (..),
+ )
+import State.Run.Id (
+    AgentId (..),
+    Digest (..),
+    EventId (..),
+    RunId,
+    TaskId (..),
+    TaskNo (..),
+    parseRunId,
+    parseTaskNo,
+    runIdText,
+    taskNoText,
+ )
+import State.Step.Artifact (
+    Branch (..),
+    BreakdownError (..),
+    Check (..),
+    Commit (..),
+    DraftPr (..),
+    Judgement (..),
+    Label (..),
+    Picks (..),
+    PlanCall (..),
+    Repo (..),
+    Requirement (..),
+    Sha (..),
+    Shape (..),
+    Target (..),
+    Task (..),
+    Tasks,
+    Topic (..),
+    Url (..),
+    breakdown,
+    taskList,
+ )
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook

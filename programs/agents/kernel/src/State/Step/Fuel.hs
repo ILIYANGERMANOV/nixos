@@ -39,7 +39,8 @@ instance StepSet FuelStep where
     data Sing s where
         Fuel :: Sing Fuel
         -- \| Named after the block it may skip, with the levels that may: its state is @skip_<block>@.
-        Skip :: (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Sing (Skip a)
+        Skip ::
+            (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Sing (Skip a)
 
     data Outcome s l where
         -- \| The run's Fuel, from here on.
@@ -71,7 +72,14 @@ instance StepSet FuelStep where
         Running _ -> mempty
 
     -- A skip's events are its block's, read where the flow is known ('skipOutcomes').
-    decoders = [Decoder Fuel (\o -> LevelSet <$> (o .: "level" >>= maybe (fail "no such level") pure . Level.parseFuel))]
+    decoders =
+        [ Decoder
+            Fuel
+            ( \o ->
+                LevelSet
+                    <$> (o .: "level" >>= maybe (fail "no such level") pure . Level.parseFuel)
+            )
+        ]
 
 {- | A skip's two outcomes, which a run may record at it: its block names
 the skip, so the layer has no reader of them ('decoders'). 'Fuel''s carries

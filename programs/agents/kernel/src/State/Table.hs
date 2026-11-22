@@ -25,7 +25,18 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Step (EventName (..), Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, stateNameText, stepName)
+import State.Category.Step (
+    EventName (..),
+    Sing,
+    SomeStep (..),
+    StateName (..),
+    StepSet,
+    eventText,
+    outcomeNames,
+    outcomes,
+    stateNameText,
+    stepName,
+ )
 import State.Flow.Drawn (drawnDecoders, drawnSteps)
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
 import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders)
@@ -74,7 +85,11 @@ parseSteps raw = do
     written <- either (\why -> Left [Text.pack why]) Right (eitherDecode raw)
     let rows = Map.mapKeys StateName (written :: Map Text Written)
         known = Set.fromList stepNames
-        unknown = [name <> ": no such step" | StateName name <- Map.keys rows, not (Set.member (StateName name) known)]
+        unknown =
+            [ name <> ": no such step"
+            | StateName name <- Map.keys rows
+            , not (Set.member (StateName name) known)
+            ]
         checked = map (check rows) allSteps
     case catalogProblems <> unknown <> concat (lefts checked) of
         [] -> Right (Steps (Map.fromList (rights checked)))
@@ -88,7 +103,9 @@ catalogProblems :: [Text]
 catalogProblems = namingProblems stepNames readers declared
   where
     readers = map fst (outcomeDecoders <> drawnDecoders)
-    declared = Set.fromList (concat [stepEvents s | AnyStep _ (SomeStep s) <- allSteps <> drawnSteps])
+    declared =
+        Set.fromList
+            (concat [stepEvents s | AnyStep _ (SomeStep s) <- allSteps <> drawnSteps])
 
 {- | Every way these names clash or miss an outcome: the steps' names, the
 event each outcome reader reads, and the events the steps declare.
@@ -97,11 +114,19 @@ namingProblems :: [StateName] -> [EventName] -> Set EventName -> [Text]
 namingProblems steps readers declared =
     [stateNameText name <> ": two steps have this name" | name <- twice steps]
         <> [eventText event <> ": two readers read this event" | event <- twice readers]
-        <> [eventText event <> ": no step has this outcome" | event <- readers, not (Set.member event declared)]
-        <> [eventText event <> ": no layer reads this outcome" | event <- Set.toList declared, event `notElem` readers]
+        <> [ eventText event <> ": no step has this outcome"
+           | event <- readers
+           , not (Set.member event declared)
+           ]
+        <> [ eventText event <> ": no layer reads this outcome"
+           | event <- Set.toList declared
+           , event `notElem` readers
+           ]
   where
     twice :: (Ord a) => [a] -> [a]
-    twice names = Map.keys (Map.filter (> (1 :: Int)) (Map.fromListWith (+) [(name, 1) | name <- names]))
+    twice names =
+        Map.keys
+            (Map.filter (> (1 :: Int)) (Map.fromListWith (+) [(name, 1) | name <- names]))
 
 -- | A step's events: its exit and continuing ones, or one per branch.
 stepEvents :: (StepSet k) => Sing (s :: k) -> [EventName]
@@ -122,8 +147,13 @@ flow's steps inline.
 -}
 roleProblems :: Written -> [Text]
 roleProblems written =
-    ["flows names " <> flow <> ", which no role leads" | flow <- written.flows, flow `notElem` leads]
-        <> [written.runner <> " leads a flow, so it runs no step as a subagent" | written.runner `elem` leads]
+    [ "flows names " <> flow <> ", which no role leads"
+    | flow <- written.flows
+    , flow `notElem` leads
+    ]
+        <> [ written.runner <> " leads a flow, so it runs no step as a subagent"
+           | written.runner `elem` leads
+           ]
   where
     leads = map (\def -> roleText def.name) roles
 
@@ -139,12 +169,25 @@ runnerOf runner lead = case (runner, lead) of
 step of the layers, so the lookup cannot miss.
 -}
 row :: (StepSet k) => Steps -> Sing (s :: k) -> Row
-row (Steps rows) s = fromMaybe (error "parseSteps keeps a row for every step") (Map.lookup (stepName s) rows)
+row (Steps rows) s =
+    fromMaybe
+        (error "parseSteps keeps a row for every step")
+        (Map.lookup (stepName s) rows)
 
 -- | The roles a subagent runs a step as, each once, in the order of the steps.
 agentRoles :: Steps -> [AgentRole]
-agentRoles steps = nub [role | AnyStep _ (SomeStep s) <- allSteps, Agent role _ <- [(row steps s).runner]]
+agentRoles steps =
+    nub
+        [ role
+        | AnyStep _ (SomeStep s) <- allSteps
+        , Agent role _ <- [(row steps s).runner]
+        ]
 
 -- | The steps this role runs, in the catalog's order.
 stepsRunBy :: Steps -> AgentRole -> [AnyStep]
-stepsRunBy steps agent = [step | step@(AnyStep _ (SomeStep s)) <- allSteps, Agent runner _ <- [(row steps s).runner], runner == agent]
+stepsRunBy steps agent =
+    [ step
+    | step@(AnyStep _ (SomeStep s)) <- allSteps
+    , Agent runner _ <- [(row steps s).runner]
+    , runner == agent
+    ]

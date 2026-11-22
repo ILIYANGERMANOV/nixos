@@ -13,7 +13,15 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Text.IO qualified as Text
-import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
+import Effectful (
+    Dispatch (Dynamic),
+    DispatchOf,
+    Eff,
+    Effect,
+    IOE,
+    liftIO,
+    (:>),
+ )
 import Effectful.Dispatch.Dynamic (interpret, send)
 import System.IO (stderr)
 

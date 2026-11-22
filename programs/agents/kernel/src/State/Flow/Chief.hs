@@ -7,14 +7,37 @@ a question asked inside it climbs from that flow's rung.
 -}
 module State.Flow.Chief (chief, ChiefS, discussion) where
 
-import State.Category.Effect (Eff (FocusE, PickE), Handler (FocusHandler, PickHandler))
-import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Label (..), Name (..), Shape (..))
+import State.Category.Effect (
+    Eff (FocusE, PickE),
+    Handler (FocusHandler, PickHandler),
+ )
+import State.Category.Flow (
+    AgentRole (..),
+    Branch (..),
+    Branches (..),
+    CapTarget (..),
+    Flow (..),
+    Group (..),
+    Label (..),
+    Name (..),
+    Shape (..),
+ )
 import State.Category.Fuel (PerFuel (..))
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))
 import State.Flow.Architect (ArchitectS, architect)
 import State.Flow.Engineer (EngineerS, engineer)
-import State.Flow.Library (Blocks, BlocksS, BranchS, ChoiceS, DiscussS, blocks, branch, choice, discuss)
+import State.Flow.Library (
+    Blocks,
+    BlocksS,
+    BranchS,
+    ChoiceS,
+    DiscussS,
+    blocks,
+    branch,
+    choice,
+    discuss,
+ )
 import State.Flow.TenX (TenXS, tenX)
 import State.FlowName (FlowName (EngineerFlow), flowText)
 import State.Step.Fuel (FuelStep (Fuel), Sing (Fuel))
@@ -29,7 +52,16 @@ steps raise 'FocusE', the user's attention: its handler suspends the
 request in focus at any state and turns to another ("State.Run.Fold").
 -}
 chief :: Flow (HandleS PickE (HandleS FocusE ChiefS)) 'Ctx 'Nothing 'Result
-chief = Handle PickHandler . Handle FocusHandler $ Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 50 100 200) Extend (Step Next)) :> Await delegates :> Into
+chief =
+    Handle PickHandler . Handle FocusHandler $
+        Loop
+            "requests"
+            ( Do Fuel
+                :> choice "route" requests
+                :> Capped (UpTo <$> PerFuel 50 100 200) Extend (Step Next)
+            )
+            :> Await delegates
+            :> Into
   where
     requests =
         branch @"architect" architect
@@ -46,7 +78,10 @@ chief = Handle PickHandler . Handle FocusHandler $ Loop "requests" (Do Fuel :> c
     delegates :: Group 'PR
     delegates = Group "delegates" (AgentRole (flowText EngineerFlow))
 
-type ChiefS = LoopS (DoS Fuel :>> ChoiceS 'Ctx Requests RequestFlows :>> CappedS (DoS Next)) :>> AwaitS :>> IntoS
+type ChiefS =
+    LoopS (DoS Fuel :>> ChoiceS 'Ctx Requests RequestFlows :>> CappedS (DoS Next))
+        :>> AwaitS
+        :>> IntoS
 
 -- | The routes of a request, each taking its context.
 type Requests =

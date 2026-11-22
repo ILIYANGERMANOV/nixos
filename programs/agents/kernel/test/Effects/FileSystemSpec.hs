@@ -3,7 +3,17 @@ module Effects.FileSystemSpec (spec) where
 import Control.Exception (try)
 import Data.List (sort)
 import Effectful (runEff)
-import Effects.FileSystem (createDirectory, inDirectory, listDirectory, readBytes, readText, removeFile, runFileSystemIO, writeText, writeTextAtomic)
+import Effects.FileSystem (
+    createDirectory,
+    inDirectory,
+    listDirectory,
+    readBytes,
+    readText,
+    removeFile,
+    runFileSystemIO,
+    writeText,
+    writeTextAtomic,
+ )
 import System.Directory qualified as Directory
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
@@ -15,7 +25,8 @@ spec = describe "Effects.FileSystem" $ around (withSystemTempDirectory "state-fs
     it "writes a file's text and reads it back" $ \dir -> do
         let file = dir </> "pointer"
 
-        text <- runEff . runFileSystemIO $ writeText file "/notes ünïcode\n" >> readText file
+        text <-
+            runEff . runFileSystemIO $ writeText file "/notes ünïcode\n" >> readText file
 
         text `shouldBe` Just "/notes ünïcode\n"
 
@@ -30,14 +41,17 @@ spec = describe "Effects.FileSystem" $ around (withSystemTempDirectory "state-fs
     it "creates a directory and its missing parents" $ \dir -> do
         let deep = dir </> "a" </> "b"
 
-        runEff . runFileSystemIO $ createDirectory deep >> createDirectory deep >> writeText (deep </> "f") "x"
+        runEff . runFileSystemIO $
+            createDirectory deep >> createDirectory deep >> writeText (deep </> "f") "x"
 
         (runEff . runFileSystemIO $ readText (deep </> "f")) `shouldReturn` Just "x"
 
     it "replaces a file's text whole, leaving no temp file beside it" $ \dir -> do
         let file = dir </> "binding"
 
-        text <- runEff . runFileSystemIO $ writeText file "old" >> writeTextAtomic file "run ünïcode\n" >> readText file
+        text <-
+            runEff . runFileSystemIO $
+                writeText file "old" >> writeTextAtomic file "run ünïcode\n" >> readText file
 
         text `shouldBe` Just "run ünïcode\n"
         Directory.listDirectory dir `shouldReturn` ["binding"]
@@ -45,12 +59,17 @@ spec = describe "Effects.FileSystem" $ around (withSystemTempDirectory "state-fs
     it "removes a file, and one already absent" $ \dir -> do
         let file = dir </> "stash"
 
-        runEff . runFileSystemIO $ writeText file "x" >> removeFile file >> removeFile file
+        runEff . runFileSystemIO $
+            writeText file "x" >> removeFile file >> removeFile file
 
         Directory.listDirectory dir `shouldReturn` []
 
     it "lists a directory's names, and none of an absent one" $ \dir -> do
-        names <- runEff . runFileSystemIO $ createDirectory (dir </> "s1") >> writeText (dir </> "main") "x" >> listDirectory dir
+        names <-
+            runEff . runFileSystemIO $
+                createDirectory (dir </> "s1")
+                    >> writeText (dir </> "main") "x"
+                    >> listDirectory dir
         absent <- runEff . runFileSystemIO $ listDirectory (dir </> "absent")
 
         (sort names, absent) `shouldBe` (["main", "s1"], [])
@@ -58,6 +77,8 @@ spec = describe "Effects.FileSystem" $ around (withSystemTempDirectory "state-fs
     it "resolves relative paths against the directory it runs in" $ \dir -> do
         runEff . runFileSystemIO $ createDirectory (dir </> "work")
 
-        text <- runEff . runFileSystemIO . inDirectory (dir </> "work") $ writeText "f" "x" >> readText (dir </> "work" </> "f")
+        text <-
+            runEff . runFileSystemIO . inDirectory (dir </> "work") $
+                writeText "f" "x" >> readText (dir </> "work" </> "f")
 
         text `shouldBe` Just "x"

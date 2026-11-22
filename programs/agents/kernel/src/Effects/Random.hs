@@ -7,7 +7,15 @@ module Effects.Random (
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
+import Effectful (
+    Dispatch (Dynamic),
+    DispatchOf,
+    Eff,
+    Effect,
+    IOE,
+    liftIO,
+    (:>),
+ )
 import Effectful.Dispatch.Dynamic (interpret, send)
 import System.IO (IOMode (ReadMode), withBinaryFile)
 

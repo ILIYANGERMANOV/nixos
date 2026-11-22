@@ -77,7 +77,9 @@ instance StepSet FanStep where
 
     decoders =
         concat
-            [ [ Decoder (Breakdown fan) (\obj -> BreakdownDone fan <$> (obj .: "tasks" >>= breakdownOf))
+            [ [ Decoder
+                    (Breakdown fan)
+                    (\obj -> BreakdownDone fan <$> (obj .: "tasks" >>= breakdownOf))
               , Decoder (Merge fan) (fmap (MergeDone fan) . urlOf)
               , Decoder (Merge fan) (const (pure (MergeNextRound fan)))
               ]
@@ -117,7 +119,10 @@ fanStepName step fan
 
 -- | The fan-out whose state this is: its breakdown, its await or its merge.
 fanOf :: StateName -> Maybe Name
-fanOf name = find (\fan -> name `elem` [breakdownName fan, namedState fan, mergeName fan]) fanOuts
+fanOf name =
+    find
+        (\fan -> name `elem` [breakdownName fan, namedState fan, mergeName fan])
+        fanOuts
 
 -- | The fan-out whose 'State.Category.Flow.Await' state, named by its group, this is.
 fanNamed :: StateName -> Maybe Name

@@ -11,9 +11,22 @@ import Hedgehog.Range qualified as Range
 import State.Category.Flow (Flow (..))
 import State.Category.FlowGen (composes, genFlow, genWalk, graphOf, pathTo)
 import State.Category.Fuel (SkipWhen (..), always)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Graph (
+    Arrow (..),
+    Edge (..),
+    Node (..),
+    OpenGraph (..),
+    Place (..),
+    graph,
+    places,
+ )
 import State.Category.Path (step, ty)
-import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName (..))
+import State.Category.Step (
+    EventName (..),
+    OutcomeEdge (..),
+    OutcomeName (..),
+    StateName (..),
+ )
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Library (skippable)
 import State.Step.Build (Sing (..))
@@ -74,7 +87,12 @@ genSkip = do
   where
     withSkips flow = do
         g <- graphOf flow
-        skips <- nonEmpty [(place, event, edge) | ((place, event), edge) <- Map.toList g.edges, event.outcome == OutcomeName "skip"]
+        skips <-
+            nonEmpty
+                [ (place, event, edge)
+                | ((place, event), edge) <- Map.toList g.edges
+                , event.outcome == OutcomeName "skip"
+                ]
         Just (g, skips)
 
 ends :: [OutcomeEdge] -> Maybe (TyVal, TyVal)

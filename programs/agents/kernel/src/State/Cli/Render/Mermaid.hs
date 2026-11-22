@@ -8,7 +8,15 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Graph (Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places)
+import State.Category.Graph (
+    Edge (..),
+    Node (..),
+    OpenGraph (..),
+    Place (..),
+    eventLabel,
+    placeName,
+    places,
+ )
 import State.Category.Step (StateName (..), stateNameText)
 
 {- | In the graph's order, which is the term's: a block's states before the
@@ -19,7 +27,11 @@ mermaid :: OpenGraph -> Text
 mermaid g =
     Text.unlines $
         ["stateDiagram-v2", "  direction TB"]
-            <> ["  state \"" <> name <> "\" as " <> ident place | place <- Set.toList (places g), let StateName name = placeName place, ident place /= name]
+            <> [ "  state \"" <> name <> "\" as " <> ident place
+               | place <- Set.toList (places g)
+               , let StateName name = placeName place
+               , ident place /= name
+               ]
             <> ["  [*] --> " <> ident g.inPort]
             <> [ "  " <> ident from <> " --> " <> node edge.to <> ": " <> eventLabel from event
                | ((from, event), edge) <- Map.toList g.edges

@@ -14,7 +14,15 @@ import State.Category.Effect (OpOf (Awaits), Waiting (Ci))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
-import State.Step.Artifact (Check (..), Sha, Url, headData, headOf, urlData, urlOf)
+import State.Step.Artifact (
+    Check (..),
+    Sha,
+    Url,
+    headData,
+    headOf,
+    urlData,
+    urlOf,
+ )
 
 type data ShipStep = Describe | SimplifyPR | AwaitCi | FixPR | Ready
 
@@ -49,7 +57,13 @@ instance StepSet ShipStep where
         -- \| The PR left as it is: a round on an existing PR keeps it so.
         ReadySkipped :: Url -> Outcome Ready ('Took "skipped")
 
-    layerSteps = [SomeStep Describe, SomeStep SimplifyPR, SomeStep AwaitCi, SomeStep FixPR, SomeStep Ready]
+    layerSteps =
+        [ SomeStep Describe
+        , SomeStep SimplifyPR
+        , SomeStep AwaitCi
+        , SomeStep FixPR
+        , SomeStep Ready
+        ]
       where
         _listsEvery :: Sing (s :: ShipStep) -> ()
         _listsEvery = \case
@@ -87,7 +101,9 @@ instance StepSet ShipStep where
         DescribeDone sha -> headData sha
         SimplifyPrDone sha -> headData sha
         AwaitCiGreen sha -> headData sha
-        AwaitCiRed sha failing -> headData sha <> "failing" .= map (\(Check check) -> check) (NonEmpty.toList failing)
+        AwaitCiRed sha failing ->
+            headData sha
+                <> "failing" .= map (\(Check check) -> check) (NonEmpty.toList failing)
         FixPrDone sha -> headData sha
         ReadyDone url -> urlData url
         ReadySkipped url -> urlData url
@@ -96,7 +112,9 @@ instance StepSet ShipStep where
         [ Decoder Describe (fmap DescribeDone . headOf)
         , Decoder SimplifyPR (fmap SimplifyPrDone . headOf)
         , Decoder AwaitCi (fmap AwaitCiGreen . headOf)
-        , Decoder AwaitCi (\obj -> AwaitCiRed <$> headOf obj <*> (fmap Check <$> obj .: "failing"))
+        , Decoder
+            AwaitCi
+            (\obj -> AwaitCiRed <$> headOf obj <*> (fmap Check <$> obj .: "failing"))
         , Decoder FixPR (fmap FixPrDone . headOf)
         , Decoder Ready (fmap ReadyDone . urlOf)
         , Decoder Ready (fmap ReadySkipped . urlOf)

@@ -36,16 +36,33 @@ runGitScripted worktree = interpret $ \_ -> \case
     HeadBranch -> pure worktree.branch
     Numstat base@(Branch name) -> pure $ case lookup base worktree.numstats of
         Just out -> Right out
-        Nothing -> Left ("git diff --numstat origin/" <> name <> "...HEAD: fatal: ambiguous argument 'origin/" <> name <> "...HEAD': unknown revision or path not in the working tree.")
+        Nothing ->
+            Left
+                ( "git diff --numstat origin/"
+                    <> name
+                    <> "...HEAD: fatal: ambiguous argument 'origin/"
+                    <> name
+                    <> "...HEAD': unknown revision or path not in the working tree."
+                )
 
 -- | The git dir of the worktree the current directory is in.
 gitDirHere :: (State Disk :> es) => Worktree -> Eff es (Either Text FilePath)
 gitDirHere worktree = do
     cwd <- gets @Disk (.cwd)
-    pure $ case [top | top <- worktree.others, splitDirectories top `isPrefixOf` splitDirectories cwd] of
+    pure $ case [ top
+                | top <- worktree.others
+                , splitDirectories top `isPrefixOf` splitDirectories cwd
+                ] of
         top : _ -> Right (top </> ".git")
         [] -> worktree.gitDir
 
 -- | No git to start: every call throws as the real spawn does, does-not-exist.
 runGitMissing :: Eff (Git : es) a -> Eff es a
-runGitMissing = interpret $ \_ _ -> throwIO (mkIOError doesNotExistErrorType "readCreateProcessWithExitCode: posix_spawnp" Nothing (Just "git"))
+runGitMissing = interpret $ \_ _ ->
+    throwIO
+        ( mkIOError
+            doesNotExistErrorType
+            "readCreateProcessWithExitCode: posix_spawnp"
+            Nothing
+            (Just "git")
+        )

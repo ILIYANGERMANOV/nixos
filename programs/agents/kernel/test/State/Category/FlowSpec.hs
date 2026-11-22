@@ -13,7 +13,13 @@ import Data.Char (isAlphaNum, isDigit)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
 import State.Category.Effect (Handler (..))
-import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Shape (..))
+import State.Category.Flow (
+    Branch (..),
+    Branches (..),
+    CapTarget (..),
+    Flow (..),
+    Shape (..),
+ )
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
 import State.Category.Meter (AtCap (..))
@@ -57,12 +63,16 @@ spec = describe "State.Category.Flow" $ do
         it "a loop whose body never exits" $
             rejected
                 "Couldn't match type: Nothing with: Just State.Category.Ty.Diff"
-                (Loop "review" (Do Refactor) :: Flow _ 'State.Category.Ty.Diff 'Nothing 'State.Category.Ty.Diff)
+                ( Loop "review" (Do Refactor) ::
+                    Flow _ 'State.Category.Ty.Diff 'Nothing 'State.Category.Ty.Diff
+                )
 
         it "a loop whose body ends at another type than its in" $
             rejected
                 "Couldn't match type: State.Category.Ty.Findings with: State.Category.Ty.Plan"
-                (Loop "review" (Do Implement :> Do Review) :: Flow _ 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff)
+                ( Loop "review" (Do Implement :> Do Review) ::
+                    Flow _ 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff
+                )
 
         it "capping a step with no meter" $
             rejectedShown
@@ -76,22 +86,34 @@ spec = describe "State.Category.Flow" $ do
         it "a series whose two sides exit with different types" $
             rejected
                 "Both sides of :> exit, with different types: State.Category.Ty.PR and State.Category.Ty.Plan"
-                (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow _ ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
+                ( Do (Merge engineers) :> Do PlanS :> Do Confirm ::
+                    Flow
+                        _
+                        ('State.Category.Ty.List 'State.Category.Ty.PR)
+                        ('Just 'State.Category.Ty.PR)
+                        'State.Category.Ty.Ctx
+                )
 
         it "capping a flow that is neither a step nor a fork of one" $
             rejected
                 "Couldn't match expected type: CapTarget"
-                (upTo 1 Stop (Do Fix) :: Flow _ 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
+                ( upTo 1 Stop (Do Fix) ::
+                    Flow _ 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff
+                )
 
         it "a case after a step whose out is not a sum" $
             rejected
                 "Couldn't match type: State.Category.Ty.Diff with: State.Category.Ty.Sum"
-                (Do Fix :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End))
+                ( Do Fix
+                    :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)
+                )
 
         it "a case branch under another summand's label" $
             rejected
                 "Couldn't match type ‘\"small\"’ with ‘\"big\"’"
-                (Do Triage :> Case (#big :-> Do Describe :& #small :-> Do Implement :> Do Describe :& End))
+                ( Do Triage
+                    :> Case (#big :-> Do Describe :& #small :-> Do Implement :> Do Describe :& End)
+                )
 
         it "a case missing a summand's branch" $
             rejected
@@ -109,7 +131,12 @@ spec = describe "State.Category.Flow" $ do
         it "an optional block over a sum: its skip would be one edge for two summands" $
             rejectedShown
                 "A sum State.Category.Ty.Sum"
-                (graph (Do Triage :> skippableBlock "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
+                ( graph
+                    ( Do Triage
+                        :> skippableBlock "refactor" (always Never) Id
+                        :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)
+                    )
+                )
 
     {- 'Unhandled' names the effects left, in 'Eff''s order. 'Eff' is not
     imported, so GHC prints its constructors qualified.
@@ -132,17 +159,29 @@ spec = describe "State.Category.Flow" $ do
 
         it "each registered flow, its pick handler removed" $ do
             let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
-            rejectedShown fragment (flowOut (SomeFlow (Handle AskHandler (Handle AwaitHandler (unhandled engineer)))))
-            rejectedShown fragment (flowOut (SomeFlow (Handle AskHandler (Handle AwaitHandler (unhandled tenX)))))
-            rejectedShown fragment (flowOut (SomeFlow (Handle AskHandler (unhandled architect))))
-            rejectedShown fragment (flowOut (SomeFlow (Handle AskHandler (Handle AwaitHandler (unhandled chief)))))
+            rejectedShown
+                fragment
+                ( flowOut
+                    (SomeFlow (Handle AskHandler (Handle AwaitHandler (unhandled engineer))))
+                )
+            rejectedShown
+                fragment
+                (flowOut (SomeFlow (Handle AskHandler (Handle AwaitHandler (unhandled tenX)))))
+            rejectedShown
+                fragment
+                (flowOut (SomeFlow (Handle AskHandler (unhandled architect))))
+            rejectedShown
+                fragment
+                (flowOut (SomeFlow (Handle AskHandler (Handle AwaitHandler (unhandled chief)))))
 
-        it "each registered flow, its principal's handler removed: its questions bubble out" $ do
-            let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.AskE]"
-            rejectedShown fragment (flowOut (SomeFlow (Handle AwaitHandler engineer)))
-            rejectedShown fragment (flowOut (SomeFlow (Handle AwaitHandler tenX)))
-            rejectedShown fragment (flowOut (SomeFlow architect))
-            rejectedShown fragment (flowOut (SomeFlow (Handle AwaitHandler chief)))
+        it
+            "each registered flow, its principal's handler removed: its questions bubble out"
+            $ do
+                let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.AskE]"
+                rejectedShown fragment (flowOut (SomeFlow (Handle AwaitHandler engineer)))
+                rejectedShown fragment (flowOut (SomeFlow (Handle AwaitHandler tenX)))
+                rejectedShown fragment (flowOut (SomeFlow architect))
+                rejectedShown fragment (flowOut (SomeFlow (Handle AwaitHandler chief)))
 
         it "each flow that ships a PR, its wait handler removed: its waits bubble out" $ do
             let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.AwaitE]"
@@ -197,7 +236,12 @@ that loads the library beside its package (the quick test's) has GHC qualify
 a name by its unit id; the fragments name it as @cabal test@ prints it.
 -}
 headline :: String -> String
-headline = unpackaged . unwords . concatMap words . takeWhile (not . ("In the " `isInfixOf`)) . lines
+headline =
+    unpackaged
+        . unwords
+        . concatMap words
+        . takeWhile (not . ("In the " `isInfixOf`))
+        . lines
 
 {- | The text without unit ids before names (@state-0.1.0.0-inplace:@, or a
 hash in place of @inplace@), whatever punctuation precedes them. A unit id is

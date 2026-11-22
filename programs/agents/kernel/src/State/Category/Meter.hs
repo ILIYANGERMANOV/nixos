@@ -21,7 +21,14 @@ import Control.Monad (join)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Step (LegOf (..), Outcome, Sig, Sing, SomeOutcome (..), StepSet (..))
+import State.Category.Step (
+    LegOf (..),
+    Outcome,
+    Sig,
+    Sing,
+    SomeOutcome (..),
+    StepSet (..),
+ )
 import Type.Reflection (Typeable, eqTypeRep, typeRep, (:~~:) (HRefl))
 
 {- | What a step records at its own state that a meter may count: one of its
@@ -120,7 +127,13 @@ spentBy (SomeMeter s) = \case
     RecordedOutcome some -> fromMaybe 0 (ownOutcome s some (\leg o -> spends s (Ends leg o)))
 
 -- | What the step makes of the outcome, when it is one of its own: of another step, nothing.
-ownOutcome :: forall k j (s :: k) r. (Typeable s) => Sing s -> SomeOutcome j -> (forall l. LegOf (Sig s) l -> Outcome s l -> r) -> Maybe r
+ownOutcome ::
+    forall k j (s :: k) r.
+    (Typeable s) =>
+    Sing s ->
+    SomeOutcome j ->
+    (forall l. LegOf (Sig s) l -> Outcome s l -> r) ->
+    Maybe r
 ownOutcome _ (SomeOutcome (_ :: Sing t) leg o) own = case eqTypeRep (typeRep @s) (typeRep @t) of
     Just HRefl -> Just (own leg o)
     Nothing -> Nothing

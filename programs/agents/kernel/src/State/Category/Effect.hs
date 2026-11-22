@@ -103,14 +103,16 @@ class KnownOps (os :: [Op]) where
     opsVal :: [OpVal]
 
 instance KnownOps '[] where opsVal = []
-instance (KnownOp o, KnownOps os) => KnownOps (o ': os) where opsVal = opVal @o : opsVal @os
+instance (KnownOp o, KnownOps os) => KnownOps (o ': os) where
+    opsVal = opVal @o : opsVal @os
 
 class KnownOp (o :: Op) where
     opVal :: OpVal
 
 instance KnownOp 'Picks where opVal = Picks
 instance KnownOp 'Focuses where opVal = Focuses
-instance (KnownSymbol q) => KnownOp ('Confirms q) where opVal = Confirms (Text.pack (symbolVal (Proxy @q)))
+instance (KnownSymbol q) => KnownOp ('Confirms q) where
+    opVal = Confirms (Text.pack (symbolVal (Proxy @q)))
 instance KnownOp 'Discusses where opVal = Discusses
 instance KnownOp ('Awaits 'Ci) where opVal = Awaits Ci
 instance KnownOp ('Awaits 'Merge) where opVal = Awaits Merge
@@ -153,7 +155,8 @@ type family One e where
 -- | The effects in the set, in 'Eff''s order, each once.
 type ToList :: Effs -> [Eff]
 type family ToList s where
-    ToList (Flags p a f w) = Flag p PickE (Flag a AskE (Flag f FocusE (Flag w AwaitE '[])))
+    ToList (Flags p a f w) =
+        Flag p PickE (Flag a AskE (Flag f FocusE (Flag w AwaitE '[])))
 
 type Flag :: Bool -> Eff -> [Eff] -> [Eff]
 type family Flag b e es where
@@ -163,7 +166,8 @@ type family Flag b e es where
 -- | The effects of either set.
 type Union :: Effs -> Effs -> Effs
 type family Union s t where
-    Union (Flags p a f w) (Flags p' a' f' w') = Flags (p || p') (a || a') (f || f') (w || w')
+    Union (Flags p a f w) (Flags p' a' f' w') =
+        Flags (p || p') (a || a') (f || f') (w || w')
 
 -- | The set without the effect.
 type Without :: Eff -> Effs -> Effs

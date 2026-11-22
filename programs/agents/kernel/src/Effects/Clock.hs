@@ -6,7 +6,15 @@ module Effects.Clock (
 ) where
 
 import Data.Time (UTCTime, getCurrentTime)
-import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
+import Effectful (
+    Dispatch (Dynamic),
+    DispatchOf,
+    Eff,
+    Effect,
+    IOE,
+    liftIO,
+    (:>),
+ )
 import Effectful.Dispatch.Dynamic (interpret, send)
 
 data Clock :: Effect where

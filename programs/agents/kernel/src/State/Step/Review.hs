@@ -12,7 +12,17 @@ module State.Step.Review (
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
-import State.Step.Artifact (Commit, Picks, Sha, commitData, commitOf, headData, headOf, picksData, picksOf)
+import State.Step.Artifact (
+    Commit,
+    Picks,
+    Sha,
+    commitData,
+    commitOf,
+    headData,
+    headOf,
+    picksData,
+    picksOf,
+ )
 
 type data ReviewStep = Review | PickRows | Fix | ReReview
 

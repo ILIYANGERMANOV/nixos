@@ -44,11 +44,22 @@ instance StepSet PickStep where
     type Sig (Pick a ss) = '(a, 'Nothing, 'Sum ss)
 
     data Sing s where
-        Pick :: (KnownTy a, NotSum a, Summands ss, Over a ss, PickLabels ss ss, Typeable a, Typeable ss) => Name -> Sing (Pick a ss)
+        Pick ::
+            ( KnownTy a
+            , NotSum a
+            , Summands ss
+            , Over a ss
+            , PickLabels ss ss
+            , Typeable a
+            , Typeable ss
+            ) =>
+            Name -> Sing (Pick a ss)
 
     data Outcome s l where
         -- \| The branch labelled @l@ goes on.
-        Picked :: (KnownSymbol l, HasLabel l ss ~ 'True) => Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
+        Picked ::
+            (KnownSymbol l, HasLabel l ss ~ 'True) =>
+            Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
 
     -- No row: each flow names its own picks, so no pick belongs to the layer.
     layerSteps = []
@@ -83,11 +94,17 @@ class PickLabels all ss where
 instance PickLabels all '[] where
     labelOutcomes _ = []
 
-instance (KnownSymbol l, HasLabel l all ~ 'True, PickLabels all ss) => PickLabels all ('(l, b) ': ss) where
+instance
+    (KnownSymbol l, HasLabel l all ~ 'True, PickLabels all ss) =>
+    PickLabels all ('(l, b) ': ss)
+    where
     labelOutcomes p@(Pick _) = packed p (picked @l p) : labelOutcomes @all @ss p
 
 -- | The outcome of label @l@: its type names the label, which the pick's argument does not.
-picked :: forall l a ss. (KnownSymbol l, HasLabel l ss ~ 'True) => Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
+picked ::
+    forall l a ss.
+    (KnownSymbol l, HasLabel l ss ~ 'True) =>
+    Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
 picked = Picked
 
 deriving stock instance Show (Sing (s :: PickStep))

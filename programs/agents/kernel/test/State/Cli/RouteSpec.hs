@@ -26,10 +26,18 @@ spec = describe "routing a shell command's state calls" $ do
 
         it "moves the calls after a cd, absolute or relative to the directory before" $
             [calls "cd /wt && state next", calls "cd wt && state pending; state next"]
-                `shouldBe` [[at "/wt" "next" "state next"], [at "/work/wt" "pending" "state pending", at "/work/wt" "next" "state next"]]
+                `shouldBe` [ [at "/wt" "next" "state next"]
+                           , [at "/work/wt" "pending" "state pending", at "/work/wt" "next" "state next"]
+                           ]
 
         it "splits at every list and pipe operator" $
-            map (map (.sub) . calls) ["state next || state pending", "state next | tail -5", "state next & state pending", "state next\nstate pending"]
+            map
+                (map (.sub) . calls)
+                [ "state next || state pending"
+                , "state next | tail -5"
+                , "state next & state pending"
+                , "state next\nstate pending"
+                ]
                 `shouldBe` [["next", "pending"], ["next"], ["next", "pending"], ["next", "pending"]]
 
         it "reads quotes, so an operator in an argument splits nothing" $
@@ -39,26 +47,51 @@ spec = describe "routing a shell command's state calls" $ do
         it "reads a line continuation as nothing" $
             calls "cd /wt \\\n  && state next" `shouldBe` [at "/wt" "next" "state next"]
 
-        it "reads a here-document's body as no command, its delimiter kept in the call's text" $
-            calls "state next <<'EOF'\nstate pending\nEOF\nstate next" `shouldBe` [at "/work" "next" "state next <<'EOF'", at "/work" "next" "state next"]
+        it
+            "reads a here-document's body as no command, its delimiter kept in the call's text"
+            $ calls "state next <<'EOF'\nstate pending\nEOF\nstate next"
+                `shouldBe` [at "/work" "next" "state next <<'EOF'", at "/work" "next" "state next"]
 
         it "drops a redirection from the call's argv but keeps it in its text" $
-            calls "state next 2>&1 | tail -3" `shouldBe` [at "/work" "next" "state next 2>&1"]
+            calls "state next 2>&1 | tail -3"
+                `shouldBe` [at "/work" "next" "state next 2>&1"]
 
         it "routes no call that reads no run: init, help, render, or argv state refuses" $
-            map calls ["state init --notes /n", "state help", "state next --help", "state render stop-rule", "state nope"]
+            map
+                calls
+                [ "state init --notes /n"
+                , "state help"
+                , "state next --help"
+                , "state render stop-rule"
+                , "state nope"
+                ]
                 `shouldBe` replicate 5 []
 
         it "routes no show, which names its run, but routes next, pending and a write" $
-            map (map (.sub) . calls) ["state show", "state next", "state pending", "state void 3 --why typo"]
+            map
+                (map (.sub) . calls)
+                ["state show", "state next", "state pending", "state void 3 --why typo"]
                 `shouldBe` [[], ["next"], ["pending"], ["void"]]
 
-        it "routes nothing it cannot read: a subshell, a substitution, a heredoc, an open quote" $
-            map calls ["(cd /wt && state next)", "state record x --note \"$(date)\"", "state ask <<EOF\nhi\nEOF", "state next 'open"]
+        it
+            "routes nothing it cannot read: a subshell, a substitution, a heredoc, an open quote"
+            $ map
+                calls
+                [ "(cd /wt && state next)"
+                , "state record x --note \"$(date)\""
+                , "state ask <<EOF\nhi\nEOF"
+                , "state next 'open"
+                ]
                 `shouldBe` replicate 4 []
 
         it "routes no call after a cd to a directory it cannot name" $
-            map calls ["cd $WT && state next", "cd ~/wt && state next", "cd - && state next", "cd && state next"]
+            map
+                calls
+                [ "cd $WT && state next"
+                , "cd ~/wt && state next"
+                , "cd - && state next"
+                , "cd && state next"
+                ]
                 `shouldBe` replicate 4 []
 
         it "ignores a comment and a command that is not state" $
@@ -67,15 +100,24 @@ spec = describe "routing a shell command's state calls" $ do
         it "a_call_after_cd_runs_in_that_directory" . hedgehog $ do
             dir <- forAll genDir
             sub <- forAll (Gen.element ["next", "pending"])
-            stateCalls steps "/work" ("cd " <> Text.pack dir <> " && state " <> sub) === [at dir sub ("state " <> sub)]
+            stateCalls steps "/work" ("cd " <> Text.pack dir <> " && state " <> sub)
+                === [at dir sub ("state " <> sub)]
 
         it "lets a record and an answer reach a child run, no other call" $
-            map (.reach) (calls "state record await_ci.green; state answer q1 postgres; state next; state stop blocked why; state ask --kind Design which")
+            map
+                (.reach)
+                ( calls
+                    "state record await_ci.green; state answer q1 postgres; state next; state stop blocked why; state ask --kind Design which"
+                )
                 `shouldBe` [OwnOrChildRun, OwnOrChildRun, OwnRun, OwnRun, OwnRun]
 
         it "a_single_quoted_directory_reads_back_whole" . hedgehog $ do
-            dir <- forAll (Gen.string (Range.linear 1 20) (Gen.filter (/= '\'') Gen.unicode))
-            map (.dir) (stateCalls steps "/" ("cd '/" <> Text.pack dir <> "' && state next")) === ["/" <> dir]
+            dir <-
+                forAll (Gen.string (Range.linear 1 20) (Gen.filter (/= '\'') Gen.unicode))
+            map
+                (.dir)
+                (stateCalls steps "/" ("cd '/" <> Text.pack dir <> "' && state next"))
+                === ["/" <> dir]
 
     describe "the verdict" $ do
         let bound = Binding (runId "0a1b2c3d") "/notes" "/repo/.claude/worktrees/child"
@@ -84,13 +126,22 @@ spec = describe "routing a shell command's state calls" $ do
             other = Just (Target "/repo" Nothing)
             childOf parent = Just (Target "/repo/.claude/worktrees/grandchild" (Just (runId parent)))
             parentMay dir sub written = StateCall dir sub written OwnOrChildRun
-            green = parentMay "/repo/.claude/worktrees/grandchild" "record" "state record await_ci.green"
-            answer = parentMay "/repo/.claude/worktrees/grandchild" "answer" "state answer 0e0e0e0e:1 postgres"
+            green =
+                parentMay
+                    "/repo/.claude/worktrees/grandchild"
+                    "record"
+                    "state record await_ci.green"
+            answer =
+                parentMay
+                    "/repo/.claude/worktrees/grandchild"
+                    "answer"
+                    "state answer 0e0e0e0e:1 postgres"
         it "allows a call in the bound worktree" $
             route bound [(next, own)] `shouldBe` Nothing
 
         it "allows a record and an answer in the worktree of the bound run's child" $
-            route bound [(green, childOf "0a1b2c3d"), (answer, childOf "0a1b2c3d")] `shouldBe` Nothing
+            route bound [(green, childOf "0a1b2c3d"), (answer, childOf "0a1b2c3d")]
+                `shouldBe` Nothing
 
         it "denies a record in the worktree of another run's child, naming the fix" $
             route bound [(green, childOf "0f0f0f0f")]
@@ -100,26 +151,40 @@ spec = describe "routing a shell command's state calls" $ do
                     )
 
         it "denies a record in a worktree whose run is no child" $
-            route bound [(green, Just (Target "/repo/.claude/worktrees/grandchild" Nothing))] `shouldSatisfy` maybe False ("state record:" `Text.isPrefixOf`)
+            route
+                bound
+                [(green, Just (Target "/repo/.claude/worktrees/grandchild" Nothing))]
+                `shouldSatisfy` maybe False ("state record:" `Text.isPrefixOf`)
 
         it "denies any other call in the worktree of the bound run's child" $
-            route bound [(at "/repo/.claude/worktrees/grandchild" "next" "state next", childOf "0a1b2c3d")] `shouldSatisfy` maybe False ("state next:" `Text.isPrefixOf`)
+            route
+                bound
+                [
+                    ( at "/repo/.claude/worktrees/grandchild" "next" "state next"
+                    , childOf "0a1b2c3d"
+                    )
+                ]
+                `shouldSatisfy` maybe False ("state next:" `Text.isPrefixOf`)
 
-        it "denies a call in another worktree, even the one the bound worktree sits in, naming the fix" $
-            route bound [(next, other)]
+        it
+            "denies a call in another worktree, even the one the bound worktree sits in, naming the fix"
+            $ route bound [(next, other)]
                 `shouldBe` Just
                     ( "state next: the run at /repo is not this agent's - this agent is bound to run 0a1b2c3d at /repo/.claude/worktrees/child\n"
                         <> "fix: cd /repo/.claude/worktrees/child && state next\n"
                     )
 
         it "denies a call in no worktree" $
-            route bound [(at "/tmp" "pending" "state pending", Nothing)] `shouldSatisfy` maybe False ("state pending: /tmp is in no git worktree" `Text.isPrefixOf`)
+            route bound [(at "/tmp" "pending" "state pending", Nothing)]
+                `shouldSatisfy` maybe False ("state pending: /tmp is in no git worktree" `Text.isPrefixOf`)
 
         it "denies by the first call at another run" $
-            route bound [(next, own), (at "/repo" "pending" "state pending", other)] `shouldSatisfy` maybe False ("state pending:" `Text.isPrefixOf`)
+            route bound [(next, own), (at "/repo" "pending" "state pending", other)]
+                `shouldSatisfy` maybe False ("state pending:" `Text.isPrefixOf`)
 
         it "quotes a bound worktree a shell would split" $
-            route bound {toplevel = "/home/me/my repo"} [(next, other)] `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
+            route bound {toplevel = "/home/me/my repo"} [(next, other)]
+                `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
 
     gateSpec
     readOnlySpec
@@ -127,7 +192,9 @@ spec = describe "routing a shell command's state calls" $ do
 gateSpec :: Spec
 gateSpec = describe "the gate of an agent bound to no run" $ do
     let denied lead = map (gate lead)
-        writes = [Edits (Just "/w/a.hs"), Writes (Just "/w/b.md"), Spawns] <> map RunsShell recordedCommands
+        writes =
+            [Edits (Just "/w/a.hs"), Writes (Just "/w/b.md"), Spawns]
+                <> map RunsShell recordedCommands
         initFix = "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>/\n"
     it "denies a typed /engineer's edit, naming the init that starts its run" $
         gate engineer (Edits (Just "/w/a.hs"))
@@ -136,63 +203,157 @@ gateSpec = describe "the gate of an agent bound to no run" $ do
                     <> initFix
                 )
 
-    it "denies a skill lead's every write, spawn, commit, push and PR opened or merged" $
-        denied engineer writes `shouldSatisfy` all (maybe False (initFix `Text.isSuffixOf`))
+    it
+        "denies a skill lead's every write, spawn, commit, push and PR opened or merged"
+        $ denied engineer writes
+            `shouldSatisfy` all (maybe False (initFix `Text.isSuffixOf`))
 
     it "points a typed /10x-engineer at the init its run directory takes" $
-        denied (SkillLead TenXSkill) writes `shouldSatisfy` all (maybe False ("fix: state init --notes \"$PWD\" --flow 10x, in the run directory Intake or Resume names\n" `Text.isSuffixOf`))
+        denied (SkillLead TenXSkill) writes
+            `shouldSatisfy` all
+                ( maybe
+                    False
+                    ( "fix: state init --notes \"$PWD\" --flow 10x, in the run directory Intake or Resume names\n"
+                        `Text.isSuffixOf`
+                    )
+                )
 
     it "points a typed /architect at the architect's init" $
-        denied (SkillLead ArchitectSkill) writes `shouldSatisfy` all (maybe False ("fix: state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --flow architect\n" `Text.isSuffixOf`))
+        denied (SkillLead ArchitectSkill) writes
+            `shouldSatisfy` all
+                ( maybe
+                    False
+                    ( "fix: state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --flow architect\n"
+                        `Text.isSuffixOf`
+                    )
+                )
 
     it "points a spawned lead at the init line in its prompt" $
-        denied RoleLead writes `shouldSatisfy` all (maybe False ("fix: run the `state init` line in your prompt, as written\n" `Text.isSuffixOf`))
+        denied RoleLead writes
+            `shouldSatisfy` all
+                ( maybe
+                    False
+                    ("fix: run the `state init` line in your prompt, as written\n" `Text.isSuffixOf`)
+                )
 
     it "names the command it denies, found among a compound's simple commands" $
-        gate engineer (RunsShell "git add . && git commit -m x") `shouldSatisfy` maybe False ("state init: this lead has no run, so `git commit -m x` waits" `Text.isPrefixOf`)
+        gate engineer (RunsShell "git add . && git commit -m x")
+            `shouldSatisfy` maybe
+                False
+                ("state init: this lead has no run, so `git commit -m x` waits" `Text.isPrefixOf`)
 
     it "lets a lead read, research and run state" $
-        denied engineer (map RunsShell readCommands) `shouldBe` map (const Nothing) readCommands
+        denied engineer (map RunsShell readCommands)
+            `shouldBe` map (const Nothing) readCommands
 
     it "lets a command it cannot read go on" $
-        denied RoleLead (map RunsShell ["(git commit -m x)", "echo \"$(git push)\"", "git commit -m 'open"]) `shouldBe` replicate 3 Nothing
+        denied
+            RoleLead
+            ( map
+                RunsShell
+                ["(git commit -m x)", "echo \"$(git push)\"", "git commit -m 'open"]
+            )
+            `shouldBe` replicate 3 Nothing
 
     it "never_gates_an_agent_that_leads_nothing" . hedgehog $ do
         call <- forAll (Gen.element (writes <> map RunsShell readCommands))
         gate NotLead call === Nothing
 
     it "leads by a role that leads a flow, else by a lead skill begun" $
-        [leadOf (Just (AgentRole "engineer")) (Just TenXSkill), leadOf (Just (AgentRole "10x")) Nothing, leadOf (Just (AgentRole "implementer")) Nothing, leadOf Nothing Nothing, leadOf Nothing (Just TenXSkill)]
+        [ leadOf (Just (AgentRole "engineer")) (Just TenXSkill)
+        , leadOf (Just (AgentRole "10x")) Nothing
+        , leadOf (Just (AgentRole "implementer")) Nothing
+        , leadOf Nothing Nothing
+        , leadOf Nothing (Just TenXSkill)
+        ]
             `shouldBe` [RoleLead, RoleLead, NotLead, NotLead, SkillLead TenXSkill]
   where
     engineer = SkillLead EngineerSkill
-    recordedCommands = ["git commit -m x", "git push", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash", "git add . && git commit -m x"]
-    readCommands = ["git status", "git log --oneline -3", "gh pr view 7", "state next", "state init --notes /tmp/n --task t", "echo git commit"]
+    recordedCommands =
+        [ "git commit -m x"
+        , "git push"
+        , "git -C /wt push -u origin HEAD"
+        , "gh pr create --draft"
+        , "gh pr merge 7 --squash"
+        , "git add . && git commit -m x"
+        ]
+    readCommands =
+        [ "git status"
+        , "git log --oneline -3"
+        , "gh pr view 7"
+        , "state next"
+        , "state init --notes /tmp/n --task t"
+        , "echo git commit"
+        ]
 
 readOnlySpec :: Spec
 readOnlySpec = describe "the architect's read-only run" $ do
     let notes = "/tmp/notes"
-        codeWrites = [Edits (Just "/wt/src/a.hs"), Writes (Just "/wt/README.md"), Writes (Just (notes <> "/../x")), Edits (Just (notes <> "/./../notes2/n.md")), Writes Nothing, Edits (Just (notes <> "/worktrees/T1/src/a.hs")), Writes (Just (notes <> "/sub/n.md"))] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
-        ticketWrites = map RunsShell ["gh issue create --repo o/r --title t --body b", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\nbody\nEOF", "gh issue comment 1 --repo o/r --body b"]
-        notesWrites = [Writes (Just (notes <> "/notes.md")), Edits (Just (notes <> "/notes.md")), Writes (Just (notes <> "/./r/../notes.md"))]
+        codeWrites =
+            [ Edits (Just "/wt/src/a.hs")
+            , Writes (Just "/wt/README.md")
+            , Writes (Just (notes <> "/../x"))
+            , Edits (Just (notes <> "/./../notes2/n.md"))
+            , Writes Nothing
+            , Edits (Just (notes <> "/worktrees/T1/src/a.hs"))
+            , Writes (Just (notes <> "/sub/n.md"))
+            ]
+                <> map
+                    RunsShell
+                    [ "git commit -m x"
+                    , "git -C /wt push -u origin HEAD"
+                    , "gh pr create --draft"
+                    , "gh pr merge 7 --squash"
+                    ]
+        ticketWrites =
+            map
+                RunsShell
+                [ "gh issue create --repo o/r --title t --body b"
+                , "gh issue edit 1 --repo o/r --body-file - <<'EOF'\nbody\nEOF"
+                , "gh issue comment 1 --repo o/r --body b"
+                ]
+        notesWrites =
+            [ Writes (Just (notes <> "/notes.md"))
+            , Edits (Just (notes <> "/notes.md"))
+            , Writes (Just (notes <> "/./r/../notes.md"))
+            ]
         readCalls = [Spawns] <> map RunsShell ["gh issue view 1", "git status", "state next"]
         -- Each run where the architect's flow runs: its own states, and the chief's discussion and architect request.
-        architectAt = [(ArchitectFlow, "architect"), (ArchitectFlow, "architect/ticket"), (ChiefFlow, "discussion/discussing"), (ChiefFlow, "architect/architect")]
+        architectAt =
+            [ (ArchitectFlow, "architect")
+            , (ArchitectFlow, "architect/ticket")
+            , (ChiefFlow, "discussion/discussing")
+            , (ChiefFlow, "architect/architect")
+            ]
         deniedAt (flow, at) = readOnly notes (flowAt flow (StateName at))
-    it "denies an edit or write outside the notes dir or below it, a commit, a push and a PR opened or merged at every state, naming the ticket as the write" $
-        [deniedAt place call | place <- architectAt, call <- codeWrites] `shouldSatisfy` all (maybe False ("write or edit the ticket at any point" `Text.isInfixOf`))
+    it
+        "denies an edit or write outside the notes dir or below it, a commit, a push and a PR opened or merged at every state, naming the ticket as the write"
+        $ [deniedAt place call | place <- architectAt, call <- codeWrites]
+            `shouldSatisfy` all (maybe False ("write or edit the ticket at any point" `Text.isInfixOf`))
 
-    it "lets the ticket be written, edited or commented on, a researcher spawn and reads go on, at every state" $
-        [deniedAt place call | place <- architectAt, call <- ticketWrites <> readCalls] `shouldSatisfy` all (== Nothing)
+    it
+        "lets the ticket be written, edited or commented on, a researcher spawn and reads go on, at every state"
+        $ [deniedAt place call | place <- architectAt, call <- ticketWrites <> readCalls]
+            `shouldSatisfy` all (== Nothing)
 
-    it "lets Edit and Write change the files directly in the notes dir, at every state" $
-        [deniedAt place call | place <- architectAt, call <- notesWrites] `shouldSatisfy` all (== Nothing)
+    it
+        "lets Edit and Write change the files directly in the notes dir, at every state"
+        $ [deniedAt place call | place <- architectAt, call <- notesWrites]
+            `shouldSatisfy` all (== Nothing)
 
     it "never_denies_the_engineer_or_the_10x" . hedgehog $ do
         flow <- forAll (Gen.element [EngineerFlow, TenXFlow])
-        call <- forAll (Gen.element (codeWrites <> notesWrites <> ticketWrites <> readCalls))
+        call <-
+            forAll (Gen.element (codeWrites <> notesWrites <> ticketWrites <> readCalls))
         readOnly notes flow call === Nothing
 
 -- | An absolute directory of plain path words, which a shell reads as written.
 genDir :: Gen FilePath
-genDir = concatMap ('/' :) <$> Gen.list (Range.linear 1 4) (Gen.string (Range.linear 1 8) (Gen.element (['a' .. 'z'] <> ['0' .. '9'] <> "._-")))
+genDir =
+    concatMap ('/' :)
+        <$> Gen.list
+            (Range.linear 1 4)
+            ( Gen.string
+                (Range.linear 1 8)
+                (Gen.element (['a' .. 'z'] <> ['0' .. '9'] <> "._-"))
+            )

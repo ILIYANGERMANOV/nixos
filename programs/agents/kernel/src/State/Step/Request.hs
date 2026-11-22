@@ -49,7 +49,13 @@ instance StepSet RequestStep where
         NextDone :: Outcome Next 'Exited
         NextRequest :: Outcome Next 'Continued
 
-    layerSteps = [SomeStep OpenPlan, SomeStep OpenBranch, SomeStep OpenPr, SomeStep Direct, SomeStep Next]
+    layerSteps =
+        [ SomeStep OpenPlan
+        , SomeStep OpenBranch
+        , SomeStep OpenPr
+        , SomeStep Direct
+        , SomeStep Next
+        ]
       where
         _listsEvery :: Sing (s :: RequestStep) -> ()
         _listsEvery = \case

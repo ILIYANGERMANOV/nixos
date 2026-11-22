@@ -35,7 +35,20 @@ import Data.List (isInfixOf, stripPrefix)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), architectInitFix, chiefInitFix, failureText, initFix, parseCommand, tenXInitFix)
+import State.Cli.Command (
+    Command (..),
+    Exit (..),
+    Failure (..),
+    InitArgs (..),
+    Origin (..),
+    RunCommand (..),
+    architectInitFix,
+    chiefInitFix,
+    failureText,
+    initFix,
+    parseCommand,
+    tenXInitFix,
+ )
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (FlowName (..), leads)
@@ -65,7 +78,11 @@ data Target = Target {top :: FilePath, parent :: Maybe RunId}
 @init@, @help@, @render@, @show@ and argv @state@ refuses never route.
 -}
 stateCalls :: Steps -> FilePath -> Text -> [StateCall]
-stateCalls steps cwd command = [StateCall at sub written (reachOf parsed) | (Just at, sub, parsed, written) <- stateCommands steps (Just cwd) command, readsOne parsed]
+stateCalls steps cwd command =
+    [ StateCall at sub written (reachOf parsed)
+    | (Just at, sub, parsed, written) <- stateCommands steps (Just cwd) command
+    , readsOne parsed
+    ]
   where
     readsOne = \case
         Init _ -> False
@@ -120,7 +137,12 @@ subagent can (#459). Its run is a child: of its fan-out's run, or, spawned
 outside one, of its caller ('FromCaller').
 -}
 parentlessInit :: Steps -> Text -> Maybe Text
-parentlessInit steps command = listToMaybe [denial sub written | (_, sub, Init args, written) <- stateCommands steps Nothing command, FromUser _ <- [args.origin]]
+parentlessInit steps command =
+    listToMaybe
+        [ denial sub written
+        | (_, sub, Init args, written) <- stateCommands steps Nothing command
+        , FromUser _ <- [args.origin]
+        ]
   where
     denial sub written =
         failureText
@@ -128,15 +150,18 @@ parentlessInit steps command = listToMaybe [denial sub written | (_, sub, Init a
             Failure
                 { exit = BadInput
                 , what = written <> " starts a user's run"
-                , why = "a subagent's run is a child: it neither asks the user nor spawns in the background"
-                , fix = "rerun it with --parent <run> from your brief, plus --task <id> under a fan-out; with no parent run, with --child"
+                , why =
+                    "a subagent's run is a child: it neither asks the user nor spawns in the background"
+                , fix =
+                    "rerun it with --parent <run> from your brief, plus --task <id> under a fan-out; with no parent run, with --child"
                 }
 
 {- | Every @state@ call of a command that parses, in order: the directory it
 runs in ('Nothing': unknown, as a @cd@ this reader leaves be moved it, or
 none was given), its subcommand, the command and its text as written.
 -}
-stateCommands :: Steps -> Maybe FilePath -> Text -> [(Maybe FilePath, Text, Command, Text)]
+stateCommands ::
+    Steps -> Maybe FilePath -> Text -> [(Maybe FilePath, Text, Command, Text)]
 stateCommands steps cwd command = maybe [] (walk cwd) (segments command)
   where
     walk dir = \case
@@ -160,7 +185,12 @@ bound run's child. Tops are compared whole, never as a prefix: a worktree
 may sit inside another.
 -}
 route :: Binding -> [(StateCall, Maybe Target)] -> Maybe Text
-route bound calls = listToMaybe [denial call ((.top) <$> target) | (call, target) <- calls, not (maybe False (reaches call.reach) target)]
+route bound calls =
+    listToMaybe
+        [ denial call ((.top) <$> target)
+        | (call, target) <- calls
+        , not (maybe False (reaches call.reach) target)
+        ]
   where
     reaches reach target =
         target.top == bound.toplevel || case reach of
@@ -171,8 +201,16 @@ route bound calls = listToMaybe [denial call ((.top) <$> target) | (call, target
             call.sub
             Failure
                 { exit = BadInput
-                , what = maybe (Text.pack call.dir <> " is in no git worktree") (\other -> "the run at " <> Text.pack other <> " is not this agent's") top
-                , why = "this agent is bound to run " <> runIdText bound.run <> " at " <> Text.pack bound.toplevel
+                , what =
+                    maybe
+                        (Text.pack call.dir <> " is in no git worktree")
+                        (\other -> "the run at " <> Text.pack other <> " is not this agent's")
+                        top
+                , why =
+                    "this agent is bound to run "
+                        <> runIdText bound.run
+                        <> " at "
+                        <> Text.pack bound.toplevel
                 , fix = cdThen bound.toplevel call.written
                 }
 
@@ -204,10 +242,13 @@ gate :: Lead -> Gate -> Maybe Text
 gate lead call = case lead of
     NotLead -> Nothing
     SkillLead EngineerSkill -> denial initFix <$> writeOf call
-    SkillLead TenXSkill -> denial (tenXInitFix <> ", in the run directory Intake or Resume names") <$> writeOf call
+    SkillLead TenXSkill ->
+        denial (tenXInitFix <> ", in the run directory Intake or Resume names")
+            <$> writeOf call
     SkillLead ArchitectSkill -> denial architectInitFix <$> writeOf call
     SkillLead ChiefSkill -> denial chiefInitFix <$> writeOf call
-    RoleLead -> denial "run the `state init` line in your prompt, as written" <$> writeOf call
+    RoleLead ->
+        denial "run the `state init` line in your prompt, as written" <$> writeOf call
   where
     denial fix act =
         failureText
@@ -242,8 +283,14 @@ readOnly notes flow call = guard (writesNoCode flow) *> (denial <$> codeWrite)
             Failure
                 { exit = BadInput
                 , what = "the architect flow changes no code, so " <> act <> " is denied"
-                , why = "an architect run writes only its notes, in " <> Text.pack notes <> ", and its ticket"
-                , fix = "keep the design in the discussion and in " <> Text.pack (notes </> "notes.md") <> ", which Edit and Write may change; write or edit the ticket at any point: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
+                , why =
+                    "an architect run writes only its notes, in "
+                        <> Text.pack notes
+                        <> ", and its ticket"
+                , fix =
+                    "keep the design in the discussion and in "
+                        <> Text.pack (notes </> "notes.md")
+                        <> ", which Edit and Write may change; write or edit the ticket at any point: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
                 }
 
 {- | Whether an absolute path is a file directly in a directory, read
@@ -280,7 +327,12 @@ writeOf = \case
     Edits _ -> Just "its edit"
     Writes _ -> Just "its write"
     Spawns -> Just "its spawn"
-    RunsShell command -> listToMaybe ["`" <> segment.written <> "`" | segment <- fromMaybe [] (segments command), recorded segment.tokens]
+    RunsShell command ->
+        listToMaybe
+            [ "`" <> segment.written <> "`"
+            | segment <- fromMaybe [] (segments command)
+            , recorded segment.tokens
+            ]
 
 -- | A command a run records: a commit, a push, a PR opened or merged. @git -C <dir>@ is git still.
 recorded :: [Text] -> Bool
@@ -344,13 +396,18 @@ heredoc acc input = case (delimiter, break (== '\n') afterMarker) of
     (_ : _, (line, '\n' : body))
         | not ("<<" `isInfixOf` line)
         , (_, _ : after) <- break ((== delimiter) . stripTabs) (lines body) ->
-            scan (wrote ("<<" <> dash <> spaces <> marker) (endWord acc)) (line <> "\n" <> unlines after)
+            scan
+                (wrote ("<<" <> dash <> spaces <> marker) (endWord acc))
+                (line <> "\n" <> unlines after)
     _ -> Nothing
   where
     -- @<<-@ strips the body's leading tabs, the delimiter's line's too.
     (dash, afterDash) = span (== '-') input
     (spaces, afterSpaces) = span (== ' ') afterDash
-    (marker, afterMarker) = break (\c -> isSpace c || c `elem` [';', '|', '&', '<', '>', '(', ')']) afterSpaces
+    (marker, afterMarker) =
+        break
+            (\c -> isSpace c || c `elem` [';', '|', '&', '<', '>', '(', ')'])
+            afterSpaces
     delimiter = filter (`notElem` ['\'', '"', '\\']) marker
     stripTabs = if null dash then id else dropWhile (== '\t')
 
@@ -359,7 +416,8 @@ doubleQuoted :: Acc -> String -> String -> String -> Maybe Acc
 doubleQuoted acc value text = \case
     '"' : rest -> scan (wrote ('"' : reverse text <> "\"") (inWord (reverse value) acc)) rest
     '\\' : c : rest
-        | c `elem` ['"', '\\', '$', '`'] -> doubleQuoted acc (c : value) (c : '\\' : text) rest
+        | c `elem` ['"', '\\', '$', '`'] ->
+            doubleQuoted acc (c : value) (c : '\\' : text) rest
         | otherwise -> doubleQuoted acc (c : '\\' : value) (c : '\\' : text) rest
     -- A substitution may nest quotes this reader would misread.
     '`' : _ -> Nothing
@@ -375,7 +433,10 @@ redirect operator acc input = scan (wrote (operator <> more <> spaces <> target)
   where
     (more, afterOperator) = span (`elem` ['>', '&', '|']) input
     (spaces, afterSpaces) = span (== ' ') afterOperator
-    (target, after) = break (\c -> isSpace c || c `elem` [';', '|', '&', '<', '>', '(', ')']) afterSpaces
+    (target, after) =
+        break
+            (\c -> isSpace c || c `elem` [';', '|', '&', '<', '>', '(', ')'])
+            afterSpaces
 
 -- | The file descriptor a redirection names (@2>@) is no word.
 dropFd :: Acc -> Acc

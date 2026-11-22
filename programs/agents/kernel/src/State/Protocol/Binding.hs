@@ -55,7 +55,13 @@ and the notes dir holds no whitespace (init's parser refuses it); the toplevel
 comes last and is the rest of the line, as git may name a path with spaces.
 -}
 renderBinding :: Binding -> Text
-renderBinding binding = Text.unwords ["run", runIdText binding.run, Text.pack binding.notes, Text.pack binding.toplevel]
+renderBinding binding =
+    Text.unwords
+        [ "run"
+        , runIdText binding.run
+        , Text.pack binding.notes
+        , Text.pack binding.toplevel
+        ]
 
 parseBinding :: Text -> Maybe Binding
 parseBinding line = do
@@ -112,7 +118,11 @@ slotOf root (SessionId session) key = Slot . (root </>) <$> component session <*
         Main -> Text.pack mainName
         AgentKey agent -> agent.agentIdText
     component text
-        | Text.null text || text `elem` [".", ".."] || Text.elem '/' text || Text.elem '\0' text = Nothing
+        | Text.null text
+            || text `elem` [".", ".."]
+            || Text.elem '/' text
+            || Text.elem '\0' text =
+            Nothing
         | otherwise = Just (Text.unpack text)
 
 bindingFile :: Slot -> FilePath
@@ -145,7 +155,12 @@ sessionDir slot = slot.dir
 
 -- | The subagents with a slot, among the names in their session's directory: neither @main@ nor a file beside a slot.
 slottedAgents :: [FilePath] -> [AgentId]
-slottedAgents names = [AgentId (Text.pack name) | name <- names, name /= mainName, not (any (`isPrefixOf` name) [stashPrefix, leadPrefix, ledPrefix])]
+slottedAgents names =
+    [ AgentId (Text.pack name)
+    | name <- names
+    , name /= mainName
+    , not (any (`isPrefixOf` name) [stashPrefix, leadPrefix, ledPrefix])
+    ]
 
 -- | Whether a binding's worktree still stands: one is removed once its PR merged.
 data Worktree = Standing | Removed
@@ -181,5 +196,7 @@ staleNote binding here
 -- | A binding of the run to the worktree it moved from, bound to the one it moved to; none for another.
 rebound :: RunId -> FilePath -> FilePath -> Binding -> Maybe Binding
 rebound run from to binding
-    | binding.run == run, equalFilePath binding.toplevel from = Just binding {toplevel = to}
+    | binding.run == run
+    , equalFilePath binding.toplevel from =
+        Just binding {toplevel = to}
     | otherwise = Nothing

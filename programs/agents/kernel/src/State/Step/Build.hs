@@ -9,7 +9,17 @@ module State.Step.Build (
 
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
-import State.Step.Artifact (Commit, DraftPr, Sha, commitData, commitOf, draftData, draftOf, headData, headOf)
+import State.Step.Artifact (
+    Commit,
+    DraftPr,
+    Sha,
+    commitData,
+    commitOf,
+    draftData,
+    draftOf,
+    headData,
+    headOf,
+ )
 
 type data BuildStep = Draft | Implement | Refactor
 

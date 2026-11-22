@@ -71,7 +71,16 @@ module State.Protocol.Hook (
 ) where
 
 import Control.Monad (guard)
-import Data.Aeson (Object, Value (..), eitherDecode, encode, object, withObject, (.:), (.=))
+import Data.Aeson (
+    Object,
+    Value (..),
+    eitherDecode,
+    encode,
+    object,
+    withObject,
+    (.:),
+    (.=),
+ )
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
@@ -86,9 +95,27 @@ import State.Category.Flow (ScopePath)
 import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
-import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingIn)
+import State.Protocol.Binding (
+    AgentId (..),
+    Binding (..),
+    Key (..),
+    Slot,
+    bindingIn,
+ )
 import State.Role (leads)
-import State.Run.Event (AgentRole (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), roleText, runIdText, tookIn)
+import State.Run.Event (
+    AgentRole (..),
+    Branch,
+    DraftPr (..),
+    Envelope (..),
+    Event (Restarted, Took),
+    RunId,
+    SessionId (..),
+    Source (..),
+    roleText,
+    runIdText,
+    tookIn,
+ )
 import State.Run.Fan (Fan (..))
 import State.Run.Fold (Open (..), RunState (..), forks, ledger, over, unvoided)
 import State.Run.Id (digestOf)
@@ -99,7 +126,14 @@ import State.Step.Gather qualified as Gather
 import State.Table (Steps, agentRoles, stepsRunBy)
 import System.FilePath ((</>))
 
-data HookName = ResumeHook | SpawnHook | HandbackHook | BindHook | RouteHook | BeginHook | StopHook
+data HookName
+    = ResumeHook
+    | SpawnHook
+    | HandbackHook
+    | BindHook
+    | RouteHook
+    | BeginHook
+    | StopHook
     deriving stock (Eq, Show, Enum, Bounded)
 
 -- | As @kernel/hooks.nix@ names them on the command line.
@@ -157,7 +191,17 @@ data Agent = Agent {agentId :: Maybe AgentId, role :: Maybe AgentRole}
     deriving stock (Eq, Show)
 
 -- | @vocabulary.json@'s tools, in its order.
-data Tool = Shell | Read | Edit | Write | Delegate | HandbackTool | Web | Skill | StopAgent | Other
+data Tool
+    = Shell
+    | Read
+    | Edit
+    | Write
+    | Delegate
+    | HandbackTool
+    | Web
+    | Skill
+    | StopAgent
+    | Other
     deriving stock (Eq, Show, Enum, Bounded)
 
 -- | Why a session started: @vocabulary.json@'s sources, in its order.
@@ -169,7 +213,11 @@ parseHookEvent :: LBS.ByteString -> Either Text HookEvent
 parseHookEvent input = either (Left . Text.pack) Right $ do
     value <- eitherDecode input
     flip parseEither value $ withObject "hook event" $ \o -> do
-        call <- Call . SessionId <$> o .: "session" <*> o .: "cwd" <*> (o .: "agent" >>= agentOf)
+        call <-
+            Call . SessionId
+                <$> o .: "session"
+                <*> o .: "cwd"
+                <*> (o .: "agent" >>= agentOf)
         (o .: "event" :: Parser Text) >>= \case
             "sessionStart" -> SessionStart call <$> (o .: "source" >>= named "source" startSourceName)
             "beforeTool" -> do
@@ -181,14 +229,30 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
             "agentStart" -> pure (AgentStart call)
             "promptExpansion" -> PromptExpansion call <$> o .: "skill"
             "agentStop" -> AgentStop call . map AgentId <$> o .: "running"
-            other -> fail ("no event " <> Text.unpack other <> ": sessionStart, beforeTool, afterTool, agentStart, promptExpansion or agentStop")
+            other ->
+                fail
+                    ( "no event "
+                        <> Text.unpack other
+                        <> ": sessionStart, beforeTool, afterTool, agentStart, promptExpansion or agentStop"
+                    )
   where
     tool o = o .: "tool" >>= named "tool" toolName
     agentOf = \case
         Null -> pure Nothing
-        value -> withObject "agent" (\a -> Just <$> (Agent . fmap AgentId <$> a .: "id" <*> (fmap AgentRole <$> a .: "role"))) value
+        value ->
+            withObject
+                "agent"
+                ( \a ->
+                    Just
+                        <$> (Agent . fmap AgentId <$> a .: "id" <*> (fmap AgentRole <$> a .: "role"))
+                )
+                value
     named :: (Enum a, Bounded a) => String -> (a -> Text) -> Text -> Parser a
-    named what name raw = maybe (fail ("no " <> what <> " " <> Text.unpack raw)) pure (lookup raw [(name x, x) | x <- [minBound .. maxBound]])
+    named what name raw =
+        maybe
+            (fail ("no " <> what <> " " <> Text.unpack raw))
+            pure
+            (lookup raw [(name x, x) | x <- [minBound .. maxBound]])
 
 toolName :: Tool -> Text
 toolName = \case
@@ -219,7 +283,11 @@ data Job = Asks Want | Binds Bind | Routes Gate | Begins Begin | Ends End
 miss. An edit or write carries its file, joined to the caller's directory
 when relative; 'Nothing' when its input names none.
 -}
-data Gate = RunsShell Text | Edits (Maybe FilePath) | Writes (Maybe FilePath) | Spawns
+data Gate
+    = RunsShell Text
+    | Edits (Maybe FilePath)
+    | Writes (Maybe FilePath)
+    | Spawns
     deriving stock (Eq, Show)
 
 -- | What a hook asks of the worktree's run.
@@ -322,14 +390,22 @@ wants steps hook event = case hook of
     BeginHook -> case event of
         AgentStart call -> Right (Begins <$> (spawnedBegin steps =<< (.role) =<< call.agent))
         PromptExpansion _ skill -> Right (Begins . TypedSkill <$> leadSkill skill)
-        BeforeTool _ tool input -> Right (Begins . CalledSkill <$> (guard (tool == Skill) *> textAt "skill" input >>= leadSkill))
+        BeforeTool _ tool input ->
+            Right
+                ( Begins . CalledSkill
+                    <$> (guard (tool == Skill) *> textAt "skill" input >>= leadSkill)
+                )
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
         AgentStop _ _ -> undeclared
     StopHook -> case event of
         AgentStop call running -> Right (Just (Ends (Stops (keyOf call.agent) running)))
         -- The id of the agent a call stopped is in its input, as @agent_hook.py@ passes it.
-        AfterTool _ tool input _ -> Right (Ends . StopsAgent . AgentId <$> (guard (tool == StopAgent) *> textAt "task_id" input))
+        AfterTool _ tool input _ ->
+            Right
+                ( Ends . StopsAgent . AgentId
+                    <$> (guard (tool == StopAgent) *> textAt "task_id" input)
+                )
         SessionStart {} -> undeclared
         BeforeTool {} -> undeclared
         AgentStart _ -> undeclared
@@ -477,8 +553,18 @@ the run is. A child run records its own in its parent's run.
 followedAt :: Steps -> OpenGraph -> RunState -> AgentRole -> Bool
 followedAt steps g state role =
     role `notElem` beside
-        || or [stepName s == place.name | At place <- [state.at], AnyStep _ (SomeStep s) <- runs]
-        || (any ((== role) . (.role)) (ledger g state) && or [stepName s == metered.step | metered <- forks g state, AnyStep _ (SomeStep s) <- runs])
+        || or
+            [ stepName s == place.name
+            | At place <- [state.at]
+            , AnyStep _ (SomeStep s) <- runs
+            ]
+        || ( any ((== role) . (.role)) (ledger g state)
+                && or
+                    [ stepName s == metered.step
+                    | metered <- forks g state
+                    , AnyStep _ (SomeStep s) <- runs
+                    ]
+           )
   where
     runs = stepsRunBy steps role
 
@@ -488,7 +574,13 @@ carries no child id, so a spawn seen twice records twice: none is deduplicated.
 -}
 spawnedAt :: Steps -> Node -> AgentRole -> Maybe Event
 spawnedAt steps at spawned = case at of
-    At place -> listToMaybe [event | AnyStep l (SomeStep s) <- stepsRunBy steps spawned, stepName s == place.name, Just event <- [opening place.scope l s]]
+    At place ->
+        listToMaybe
+            [ event
+            | AnyStep l (SomeStep s) <- stepsRunBy steps spawned
+            , stepName s == place.name
+            , Just event <- [opening place.scope l s]
+            ]
     Out -> Nothing
     Exit -> Nothing
 
@@ -524,8 +616,14 @@ beside = map AgentRole ["reviewer", "researcher", "checker"]
 another branch than HEAD's (@Nothing@: a detached HEAD), or whose drafted PR
 GitHub reports merged or closed (@Nothing@: no PR read).
 -}
-silent :: Maybe Branch -> Maybe Readiness -> NonEmpty Envelope -> RunState -> Bool
-silent headBranch readiness envelopes state = over state || maybe False (\bound -> Just bound /= headBranch || prOver) (boundBranch envelopes)
+silent ::
+    Maybe Branch -> Maybe Readiness -> NonEmpty Envelope -> RunState -> Bool
+silent headBranch readiness envelopes state =
+    over state
+        || maybe
+            False
+            (\bound -> Just bound /= headBranch || prOver)
+            (boundBranch envelopes)
   where
     prOver = case readiness of
         Just IsMerged -> True
@@ -536,7 +634,12 @@ silent headBranch readiness envelopes state = over state || maybe False (\bound 
 
 -- | The branch of the run's latest draft PR not voided, as GitHub reported it.
 boundBranch :: NonEmpty Envelope -> Maybe Branch
-boundBranch envelopes = case [draft.branch | Envelope {event = Took _ (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))} <- reverse (fst (unvoided (toList envelopes)))] of
+boundBranch envelopes = case [ draft.branch
+                             | Envelope
+                                { event = Took _ (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))
+                                } <-
+                                reverse (fst (unvoided (toList envelopes)))
+                             ] of
     branch : _ -> Just branch
     [] -> Nothing
 
@@ -549,8 +652,16 @@ offAdvice :: Steps -> Node -> AgentRole -> AgentRole -> Maybe Text
 offAdvice steps at advised spawned
     | spawned `notElem` flowRoles steps = Nothing
     | spawned == advised || spawned `elem` beside = Nothing
-    | spawned == AgentRole "implementer" && atStep [stepName Build.Implement, stepName Build.Refactor] = Nothing
-    | otherwise = Just ("state: the advice is SPAWN " <> roleText advised <> ", not " <> roleText spawned)
+    | spawned == AgentRole "implementer"
+        && atStep [stepName Build.Implement, stepName Build.Refactor] =
+        Nothing
+    | otherwise =
+        Just
+            ( "state: the advice is SPAWN "
+                <> roleText advised
+                <> ", not "
+                <> roleText spawned
+            )
   where
     atStep names = case at of
         At place -> place.name `elem` names
@@ -567,7 +678,10 @@ restartOf source state = case source of
     Resumed -> lost
     Compact -> Nothing
   where
-    lost = if all (Set.null . (.atWork)) state.fans && null state.workers then Nothing else Just Restarted
+    lost =
+        if all (Set.null . (.atWork)) state.fans && null state.workers
+            then Nothing
+            else Just Restarted
 
 {- | The ids of a hook's records, one per event it appends, in order: a hash
 of the run, the agent and its message, so the same hand-back seen twice
@@ -575,7 +689,17 @@ appends once (#360 call 18).
 -}
 hookSources :: RunId -> Agent -> AgentRole -> Text -> [Source]
 hookSources run agent (AgentRole role) message =
-    [Hook (digestOf [runIdText run, maybe "" (.agentIdText) agent.agentId, role, message, Text.pack (show n)]) | n <- [0 :: Int ..]]
+    [ Hook
+        ( digestOf
+            [ runIdText run
+            , maybe "" (.agentIdText) agent.agentId
+            , role
+            , message
+            , Text.pack (show n)
+            ]
+        )
+    | n <- [0 :: Int ..]
+    ]
 
 {- | A hand-back the log holds already: its first record's id is logged. The
 hook then records nothing, not even a refusal of the step it moved past.
@@ -622,6 +746,7 @@ toldOf job said = case job of
 encodeReply :: Reply -> Maybe LBS.ByteString
 encodeReply = \case
     Quiet -> Nothing
-    Allow context -> Just (encode (object ["decision" .= ("allow" :: Text), "context" .= context]))
+    Allow context ->
+        Just (encode (object ["decision" .= ("allow" :: Text), "context" .= context]))
     Deny reason -> Just (encode (object ["decision" .= ("deny" :: Text), "reason" .= reason]))
     Note context -> Just (encode (object ["context" .= context]))

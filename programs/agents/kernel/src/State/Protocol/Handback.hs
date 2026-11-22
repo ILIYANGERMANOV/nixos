@@ -34,14 +34,66 @@ import Data.Text qualified as Text
 import State.Category.Flow (ScopePath)
 import State.Category.Fuel (Area, parseByName)
 import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..))
-import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
+import State.Category.Step (
+    Outcome,
+    Sing,
+    SomeStep (..),
+    StateName (..),
+    StepSet,
+    stepName,
+ )
 import State.Role (leads)
-import State.Run.Ask (Kind (Stuck), OneLine, Question (..), oneLineText, parseKind, parseOneLine, parseQId, questionLine)
-import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire, waitingText)
-import State.Run.Event (AgentId, AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), Waiting (..), parseRunId, runIdText, tookIn)
+import State.Run.Ask (
+    Kind (Stuck),
+    OneLine,
+    Question (..),
+    oneLineText,
+    parseKind,
+    parseOneLine,
+    parseQId,
+    questionLine,
+ )
+import State.Run.Codec (
+    areaText,
+    parseStopLine,
+    shaText,
+    stopToken,
+    stopWire,
+    waitingText,
+ )
+import State.Run.Event (
+    AgentId,
+    AgentRole (..),
+    Asker (..),
+    Asking (..),
+    Commit (..),
+    Event (Asked, HandedBack, TaskMoved),
+    RunId,
+    Said (..),
+    Sha (..),
+    Shape (..),
+    Stop,
+    StopReason (Replan),
+    Task (..),
+    TaskState (..),
+    Url (..),
+    Waiting (..),
+    parseRunId,
+    runIdText,
+    tookIn,
+ )
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
-import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, forks, nextQId, returnOf, untaskedFan)
+import State.Run.Fold (
+    RunState (..),
+    ScopedFan (..),
+    askedAt,
+    fanIn,
+    forks,
+    nextQId,
+    returnOf,
+    untaskedFan,
+ )
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
@@ -122,7 +174,12 @@ data Need
 parseHandback :: Text -> Either Refusal Handback
 parseHandback message = do
     token <- parseToken first
-    run <- traverse (\raw -> maybe (Left (Why ("Run: " <> raw <> " is no run id"))) Right (parseRunId raw)) (trailer "Run: ")
+    run <-
+        traverse
+            ( \raw ->
+                maybe (Left (Why ("Run: " <> raw <> " is no run id"))) Right (parseRunId raw)
+            )
+            (trailer "Run: ")
     reviewedHead <- traverse (sha "Reviewed head:") (trailer "Reviewed head:")
     simplified <- traverse (sha "Simplified:") (trailer "Simplified:")
     touches <- traverse parseTouches (trailer "Touches:")
@@ -146,7 +203,17 @@ parseToken line = case parseByName tokenWordText word of
     Just NeedsDecisionWord -> Just . NeedsDecision <$> Bifunctor.first Why (parseNeed payload)
     Just AwaitWord -> case parseByName waitingText what of
         Just waiting -> Just . Await waiting <$> line1 refs
-        Nothing -> Left (Why (tokenWordText AwaitWord <> " " <> what <> ": only " <> Text.intercalate " or " (map waitingText [minBound .. maxBound]) <> " is awaited"))
+        Nothing ->
+            Left
+                ( Why
+                    ( tokenWordText AwaitWord
+                        <> " "
+                        <> what
+                        <> ": only "
+                        <> Text.intercalate " or " (map waitingText [minBound .. maxBound])
+                        <> " is awaited"
+                    )
+                )
     Just BlockedWord -> Just . Blocked <$> line1 payload
     Just FailedWord -> Just . Failed <$> line1 payload
     Nothing -> Right Nothing
@@ -164,7 +231,9 @@ parseNeed payload = case (labelled "stuck:", labelled "plan wrong:", asks) of
     (_, _, Just question) -> Right (Asks question)
     (Nothing, Nothing, Nothing) -> Untyped <$> oneLine payload
   where
-    labelled label = (\after -> Text.stripPrefix " " after `orElse` after) <$> Text.stripPrefix label payload
+    labelled label =
+        (\after -> Text.stripPrefix " " after `orElse` after)
+            <$> Text.stripPrefix label payload
     -- questionLine's shape: @<Kind> <qid>: <question>@.
     asks = do
         let (kindWord, afterKind) = Text.breakOn " " payload
@@ -210,7 +279,8 @@ tokenLine = \case
         StuckOn why -> needing ("stuck: " <> oneLineText why)
         PlanWrong finding -> needing (planWrong (oneLineText finding))
         Untyped question -> needing (oneLineText question)
-    Await waiting ref -> spaced (tokenWordText AwaitWord <> " " <> waitingText waiting) (oneLineText ref)
+    Await waiting ref ->
+        spaced (tokenWordText AwaitWord <> " " <> waitingText waiting) (oneLineText ref)
     Blocked why -> spaced (tokenWordText BlockedWord) (oneLineText why)
     Failed why -> spaced (tokenWordText FailedWord) (oneLineText why)
   where
@@ -240,10 +310,26 @@ run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. A worker's hand-back also says it returned, when it was logged at
 work ('returnOf'). The sha is the worktree's HEAD.
 -}
-typeHandback :: Steps -> OpenGraph -> RunState -> Maybe Sha -> AgentRole -> Maybe AgentId -> Handback -> Either Refusal Typed
-typeHandback steps g state worktreeHead agent agentId handback = case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]] <> [ScopedFan place.scope fan | Just _ <- [leads agent], At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
+typeHandback ::
+    Steps ->
+    OpenGraph ->
+    RunState ->
+    Maybe Sha ->
+    AgentRole ->
+    Maybe AgentId ->
+    Handback ->
+    Either Refusal Typed
+typeHandback steps g state worktreeHead agent agentId handback = case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]]
+    <> [ ScopedFan place.scope fan
+       | Just _ <- [leads agent]
+       , At place <- [state.at]
+       , Just fan <- [Fan.fanNamed place.name]
+       ] of
     here : _ -> fromChild state (fanIn state.fans here) handback
-    [] -> (\typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}) <$> fromWorker steps g state worktreeHead agent handback
+    [] ->
+        ( \typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}
+        )
+            <$> fromWorker steps g state worktreeHead agent handback
 
 {- | A direct child's hand-back, wherever this run is: only a question is
 this run's, which joins its pending to rule on or forward up. The rest
@@ -268,7 +354,12 @@ childAsked :: RunState -> RunId -> Question -> Event
 childAsked state child question = Asked (Asking question (askedAt state) (ChildRun child))
 
 unaskedByChild :: Refusal
-unaskedByChild = Why ("a child asks by state ask in its own run: hand back " <> tokenWordText NeedsDecisionWord <> " <Kind> <qid>: <question>")
+unaskedByChild =
+    Why
+        ( "a child asks by state ask in its own run: hand back "
+            <> tokenWordText NeedsDecisionWord
+            <> " <Kind> <qid>: <question>"
+        )
 
 {- | A child run's hand-back at the fan-out: what it said, under its run id,
 which it must name. A question it asked joins this run's pending; its stop
@@ -281,7 +372,9 @@ fromChild state fan handback = case handback.run of
         Nothing -> Left NoToken
         Just (Ready summary) -> Right (Typed (said (Finished summary) : prMoved summary) Nothing)
         Just token@(NeedsDecision need) -> case need of
-            Asks question -> Right (Typed [said (AsksUp question.qid), childAsked state child question] Nothing)
+            Asks question ->
+                Right
+                    (Typed [said (AsksUp question.qid), childAsked state child question] Nothing)
             PlanWrong _ -> ended token
             StuckOn _ -> Left unaskedByChild
             Untyped _ -> Left unaskedByChild
@@ -299,10 +392,19 @@ fromChild state fan handback = case handback.run of
             Nothing -> []
         -- Read back as the log reads it, so an out-of-rounds stop stays one.
         ended token = case parseStopLine (tokenLine token) of
-            Just stop -> Typed [said (Ended stop)] . Just <$> Bifunctor.first Why (oneLine (tokenLine token))
+            Just stop ->
+                Typed [said (Ended stop)] . Just
+                    <$> Bifunctor.first Why (oneLine (tokenLine token))
             Nothing -> Left (Why ("line 1 is no stop: " <> tokenLine token))
 
-fromWorker :: Steps -> OpenGraph -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Refusal Typed
+fromWorker ::
+    Steps ->
+    OpenGraph ->
+    RunState ->
+    Maybe Sha ->
+    AgentRole ->
+    Handback ->
+    Either Refusal Typed
 fromWorker steps g state worktreeHead agent handback = case handback.token of
     -- A forked worker reports in its own shape (a researcher's opens with its index): any hand-back closes its child.
     Nothing -> recorded <$> done (not forked)
@@ -327,21 +429,35 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
     {- A worker of a group hands back wherever the run is, before its bind
     too (structured concurrency): its step is the one forked. Else the step here.
     -}
-    openFork = listToMaybe [(metered.place, step) | metered <- forks g state, step@(AnyStep _ (SomeStep s)) <- stepsRunBy steps agent, stepName s == metered.step]
-    stepHere = openFork <|> listToMaybe [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]]
+    openFork =
+        listToMaybe
+            [ (metered.place, step)
+            | metered <- forks g state
+            , step@(AnyStep _ (SomeStep s)) <- stepsRunBy steps agent
+            , stepName s == metered.step
+            ]
+    stepHere =
+        openFork
+            <|> listToMaybe
+                [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]]
     -- Logged, so @state next@ advises the triage until the run asks it.
-    triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> Bifunctor.first Why (oneLine (tokenLine token))
+    triage token =
+        (\line -> Typed [Event.WorkerHandedBack agent line] (Just line))
+            <$> Bifunctor.first Why (oneLine (tokenLine token))
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
-        (place, step@(AnyStep _ (SomeStep s))) <- maybe (Left (Why "the run is at no step a subagent runs")) Right stepHere
+        (place, step@(AnyStep _ (SomeStep s))) <-
+            maybe (Left (Why "the run is at no step a subagent runs")) Right stepHere
         let name@(StateName label) = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of
             Agent runner _ | runner == agent -> Right ()
             Agent (AgentRole runner) _ -> Left (Why (label <> " is run by " <> runner <> ", not " <> roleName))
             Inline -> Left (Why (label <> " runs inline, not by " <> roleName))
-        if isReport && name `notElem` [stepName Review.Review, stepName Review.ReReview, stepName Plan.SimplifyP]
+        if isReport
+            && name
+                `notElem` [stepName Review.Review, stepName Review.ReReview, stepName Plan.SimplifyP]
             then Left NoToken
             else Bifunctor.first Why (doneOf place.scope step)
     -- One arm per layer, each total over its steps; the outcome is in the step's scope.
@@ -365,7 +481,8 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
             Review.Review -> took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
             Review.Fix -> took . FixDone =<< commit Set.empty
             Review.PickRows -> inline s
-            Review.ReReview -> took . ReReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
+            Review.ReReview ->
+                took . ReReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
         ShipLayer -> case s of
             Ship.Describe -> took . DescribeDone =<< atHead
             Ship.SimplifyPR -> took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified
@@ -389,7 +506,9 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
         took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
         took outcome = Right [tookIn scope outcome]
     inline :: (StepSet k) => Sing (s :: k) -> Either Text [Event]
-    inline s = let StateName label = stepName s in Left (label <> " has no done a subagent hands back")
+    inline s =
+        let StateName label = stepName s
+         in Left (label <> " has no done a subagent hands back")
     atHead :: Either Text Sha
     atHead = required "HEAD (run it in the worktree)" worktreeHead
     commit :: Set Area -> Either Text Commit
