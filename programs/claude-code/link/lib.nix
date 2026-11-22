@@ -36,6 +36,9 @@ let
       values = lib.toShellVars {
         claude_bin = "${claude-code}/bin/claude";
         instructions_file = "${target.instructions}";
+        # By store path, not runtimeInputs: Claude Code inherits the wrapper's
+        # PATH, which must stay as it was.
+        keyed_json_update = "${keyedJsonUpdate}/bin/keyed-json-update";
         mcp_secrets = target.mcpSecrets;
         mcp_static_file = "${target.mcpStaticFile}";
         runtime_path = lib.makeBinPath target.runtime;
@@ -45,12 +48,7 @@ let
     in
     shellCheck.writeShellApplication {
       inherit name;
-      # keyed-json-update writes ~/.claude.json. jq stays on the PATH Claude
-      # Code inherits, as it always was there.
-      runtimeInputs = [
-        keyedJsonUpdate
-        pkgs.jq
-      ];
+      runtimeInputs = [ pkgs.jq ]; # always needed for ~/.claude.json management
       passthru = {
         inherit (target) skillFarm instructions settingsFile;
       };

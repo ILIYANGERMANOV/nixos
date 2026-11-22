@@ -21,4 +21,4 @@ install -m 600 "$settings_file" "$HOME/.claude/settings.json"
 # mcp_static_file is a Nix store path with the static JSON (env var references only).
 # Replaces mcpServers entirely so switching flavors is always clean.
 # shellcheck disable=SC2016 # $nix is jq's variable, not the shell's
-keyed-json-update "$HOME/.claude.json" '.mcpServers = $nix[0]' "$mcp_static_file"
+"$keyed_json_update" "$HOME/.claude.json" '.mcpServers = $nix[0]' "$mcp_static_file"
