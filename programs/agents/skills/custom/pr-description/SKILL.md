@@ -176,9 +176,9 @@ the file outside the repository, so it is never committed. A rewrite keeps
 the shape, the budget and the bottom line. It keeps each visual, except one
 that repeats another or shows nothing new. The focus visual stays visible.
 The Feedback log stays verbatim. Every open Follow-up, the Skipped edge cases
-and the QA block stay collapsed, never
-dropped. An old body's visible `## Feedback log`, `## Follow-ups` or
-`## QA` moves into its `<details>` block.
+and the QA block stay collapsed, never dropped. An old body's visible
+`## Feedback log`, `## Follow-ups` or `## QA` moves into its `<details>`
+block.
 
 ## Visual (row V0)
 
