@@ -27,7 +27,7 @@ module State.Category.Step (
     decoderEvent,
     decodeWith,
     SomeStep (..),
-    Special (..),
+    opsOf,
     confirmText,
     StateName (..),
     stateNameText,
@@ -52,7 +52,7 @@ import Data.Text qualified as Text
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, sameSymbol, symbolVal)
-import State.Category.Effect (Eff)
+import State.Category.Effect (KnownOps (..), Op, OpVal)
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..), TyVal, labelledTys)
 import Type.Reflection (Typeable, eqTypeRep, typeRep, (:~~:) (HRefl))
 
@@ -82,11 +82,11 @@ its step where it is declared and refuses it only where it is packed, so
 class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
     type Sig (s :: k) :: Sig3
 
-    {- | The effects the step raises besides a question: every step may put
-    one, so 'State.Category.Flow.Effects' adds 'AskE' itself. A pick also
-    picks.
+    {- | The operations the step raises besides a question: every step may
+    put one, so 'State.Category.Flow.Effects' adds 'AskE' itself. A pick
+    also picks; a step raises at most one entry operation (see 'Op').
     -}
-    type Raises (s :: k) :: [Eff]
+    type Raises (s :: k) :: [Op]
 
     -- | The value of a step: 'State.Category.Flow.Do' takes it.
     data Sing (s :: k) :: Type
@@ -102,8 +102,6 @@ class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outc
 
     -- | The names of the step's exit and continuing outcomes.
     outcomes :: Sing (s :: k) -> Outcomes (ExitOf (Sig s)) (CodOf (Sig s))
-
-    special :: Sing (s :: k) -> Special
 
     pack :: Outcome (s :: k) l -> SomeOutcome k
 
@@ -159,10 +157,11 @@ instance (i ~ o) => Fits '(i, 'Nothing, o) 'Closed where
     legOf = ByClosing
 
 {- | An outcome of some step of the layer, with the proof its leg fits.
-'Typeable' tells its step from another's ('sameOutcome').
+'Typeable' tells its step from another's ('sameOutcome'), 'KnownOps' its
+operations ('opsOf').
 -}
 data SomeOutcome k where
-    SomeOutcome :: (Typeable s) => Sing (s :: k) -> LegOf (Sig s) l -> Outcome s l -> SomeOutcome k
+    SomeOutcome :: (Typeable s, KnownOps (Raises s)) => Sing (s :: k) -> LegOf (Sig s) l -> Outcome s l -> SomeOutcome k
 
 instance (StepSet k) => Show (SomeOutcome k) where
     showsPrec d (SomeOutcome s _ o) = showParen (d > 10) $ showString "SomeOutcome " . showsPrec 11 s . showChar ' ' . showsPrec 11 o
@@ -193,7 +192,7 @@ sameTaken :: forall sig l m. LegOf sig ('Took l) -> LegOf sig ('Took m) -> Maybe
 sameTaken ByTaking ByTaking = (\Refl -> Refl) <$> sameSymbol (Proxy @l) (Proxy @m)
 
 -- | The packing 'pack' does per outcome, where the leg must fit the step.
-packed :: forall k (s :: k) l. (Fits (Sig s) l, Typeable s) => Sing s -> Outcome s l -> SomeOutcome k
+packed :: forall k (s :: k) l. (Fits (Sig s) l, Typeable s, KnownOps (Raises s)) => Sing s -> Outcome s l -> SomeOutcome k
 packed s = SomeOutcome s legOf
 
 -- | The graph's name for the edge an outcome takes: its step's, then its leg's.
@@ -220,7 +219,7 @@ takenLabel ByTaking = Text.pack (symbolVal (Proxy @l))
 a reader cannot sit under another outcome's name.
 -}
 data Decoder k where
-    Decoder :: (Fits (Sig s) l, Typeable s) => Sing (s :: k) -> (Object -> Parser (Outcome s l)) -> Decoder k
+    Decoder :: (Fits (Sig s) l, Typeable s, KnownOps (Raises s)) => Sing (s :: k) -> (Object -> Parser (Outcome s l)) -> Decoder k
 
 decoderEvent :: (StepSet k) => Decoder k -> EventName
 decoderEvent (Decoder s (_ :: Object -> Parser (Outcome s l))) = legEvent s (legOf @(Sig s) @l)
@@ -237,23 +236,11 @@ decodeWith (Decoder s parse) = fmap (packed s) . parse
 
 -- | A step of the layer with its types known, so the steps can sit in one list.
 data SomeStep k where
-    SomeStep :: (KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s))) => Sing (s :: k) -> SomeStep k
+    SomeStep :: (KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s)), KnownOps (Raises s)) => Sing (s :: k) -> SomeStep k
 
--- | What the advice at a step does instead of running it as its row says.
-data Special
-    = -- | Run it as its row says.
-      Ordinary
-    | -- | Ask the user to confirm this, once, on entering the step, before recording: @the simplified plan@.
-      AsksConfirm Text
-    | -- | Wait on the PR's CI.
-      AwaitsCi
-    | -- | Wait on the tasks' PRs to merge.
-      AwaitsMerge
-    | -- | Name the url the run recorded last, what the request ended in.
-      TellsResult
-    | -- | Run it as its row says, its work the user's questions: offer @state ask@ beside its records.
-      Discusses
-    deriving stock (Eq, Show)
+-- | The operations a step raises, as values.
+opsOf :: forall k (s :: k). (KnownOps (Raises s)) => Sing s -> [OpVal]
+opsOf _ = opsVal @(Raises s)
 
 -- | A Confirm's question: its answers are the step's outcomes, so it names what is recorded.
 confirmText :: (StepSet k) => Sing (s :: k) -> Text -> Text

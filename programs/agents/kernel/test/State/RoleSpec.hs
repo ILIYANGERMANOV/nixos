@@ -42,7 +42,7 @@ spec = describe "State.Role" $ do
 
     describe "RoleDef" $ do
         it "leads a flow that ends in a plan, not a PR" $ do
-            let planner = RoleDef (AgentRole "planner") (SomeFlow (Handle PrincipalAnswers (Handle AgentPicks agree))) Lead
+            let planner = RoleDef (AgentRole "planner") (SomeFlow (Handle AskHandler (Handle PickHandler agree))) Lead
             flowOut planner.flow `shouldBe` Plan
             case planner.flow of
                 SomeFlow flow -> graph flow `shouldSatisfy` isRight
@@ -51,28 +51,28 @@ spec = describe "State.Role" $ do
             map (flowOut . (.flow) . role) [minBound .. maxBound] `shouldBe` [PR, PR, Ctx, Result]
 
     describe "Effects" $
-        it "each registered flow raises picks and questions, a forked engineer its questions, a root none: checked as this module compiles" $ do
+        it "each registered flow raises picks and questions, one that ships PRs its waits, a forked engineer its questions and waits, a root none: checked as this module compiles" $ do
             effectsRaised `shouldBe` (Refl, Refl, Refl, Refl, Refl)
             rootsHandled `shouldBe` (Refl, Refl, Refl, Refl)
 
 {- | The effects each registered flow's body leaves to its handlers. The 10x
-forks handled engineers: their picks are their own, their questions bubble
-up to the 10x.
+forks handled engineers: their picks are their own, their questions and
+waits bubble up to the 10x.
 -}
 effectsRaised ::
-    ( Effects EngineerS :~: '[PickE, AskE]
-    , Effects TenXS :~: '[PickE, AskE]
-    , Effects ChiefS :~: '[PickE, AskE, FocusE]
+    ( Effects EngineerS :~: '[PickE, AskE, AwaitE]
+    , Effects TenXS :~: '[PickE, AskE, AwaitE]
+    , Effects ChiefS :~: '[PickE, AskE, FocusE, AwaitE]
     , Effects ArchitectS :~: '[PickE, AskE]
-    , Effects (ParallelS (HandleS PickE EngineerS)) :~: '[AskE]
+    , Effects (ParallelS (HandleS PickE EngineerS)) :~: '[AskE, AwaitE]
     )
 effectsRaised = (Refl, Refl, Refl, Refl, Refl)
 
--- | A registered flow, at the root, leaves nothing: its principal answers its questions.
+-- | A registered flow, at the root, leaves nothing: its principal answers its questions, its waits settle there.
 rootsHandled ::
-    ( Effects (HandleS AskE (HandleS PickE EngineerS)) :~: '[]
-    , Effects (HandleS AskE (HandleS PickE TenXS)) :~: '[]
-    , Effects (HandleS AskE (HandleS PickE (HandleS FocusE ChiefS))) :~: '[]
+    ( Effects (HandleS AskE (HandleS AwaitE (HandleS PickE EngineerS))) :~: '[]
+    , Effects (HandleS AskE (HandleS AwaitE (HandleS PickE TenXS))) :~: '[]
+    , Effects (HandleS AskE (HandleS AwaitE (HandleS PickE (HandleS FocusE ChiefS)))) :~: '[]
     , Effects (HandleS AskE (HandleS PickE ArchitectS)) :~: '[]
     )
 rootsHandled = (Refl, Refl, Refl, Refl)

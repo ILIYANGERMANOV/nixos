@@ -21,7 +21,7 @@ module State.Step.Pick (
 import Data.Kind (Constraint)
 import Data.Typeable (Typeable)
 import GHC.TypeLits (KnownSymbol, Symbol)
-import State.Category.Effect (Eff (..))
+import State.Category.Effect (OpOf (Picks))
 import State.Category.Flow (Name, namedState)
 import State.Category.Step
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..))
@@ -39,7 +39,7 @@ type family Over a ss where
     Over a ('(l, b) ': ss) = (a ~ b, Over a ss)
 
 instance StepSet PickStep where
-    type Raises s = '[PickE]
+    type Raises s = '[ 'Picks]
 
     type Sig (Pick a ss) = '(a, 'Nothing, 'Sum ss)
 
@@ -56,8 +56,6 @@ instance StepSet PickStep where
     stepName (Pick name) = namedState name
 
     outcomes (Pick _) = Branches
-
-    special (Pick _) = Ordinary
 
     pack = \case
         o@(Picked pick@(Pick _)) -> packed pick o

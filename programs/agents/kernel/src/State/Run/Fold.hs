@@ -91,13 +91,13 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Effect (Eff (..), Handler (..))
+import State.Category.Effect (Eff (..), Handler (..), awaiting)
 import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText, scopeNames)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, outOf, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (Closes), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (awaitDone, forkPasses, step)
-import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
+import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), StepSet (stepName), opsOf, stateNameText)
 import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Reply (..), Ruling, deliver, flattened, oneLineText, principalPlan, principalShape)
@@ -480,24 +480,27 @@ data Answering (eff :: Eff) where
     Suspends :: TaskNo -> OneLine -> Answering FocusE
     -- | The chief turns back to this waiting request.
     Focuses :: TaskNo -> Answering FocusE
+    -- | The outcome of the step that waits, in its scopes: what it waited on settled.
+    Settles :: ScopePath -> AnyOutcome -> Answering AwaitE
 
 {- | The handler's run once the event answers its effect, or why the event
 does not: pure, so a replay of the log gives the run its live commands gave.
 -}
 handle :: Handler eff -> OpenGraph -> RunState -> Answering eff -> Either Refusal RunState
 handle handler g state = case handler of
-    AgentPicks -> \(Picked scope some) -> pick g state scope some
-    PrincipalAnswers -> \case
+    PickHandler -> \(Picked scope some) -> pick g state scope some
+    AskHandler -> \case
         Asks asking -> fromChild asking.from <$> asked g state asking
         Retags qid -> retagged state qid
         RulesOn qid proposal -> ruledOn state qid proposal
         Forwards qid to -> forwarded state qid to
         Answers qid reply by -> answered state qid reply by
         Parks qid why -> parked state qid why
-    FocusHere -> \answering ->
+    FocusHandler -> \answering ->
         focusable state >> case answering of
             Suspends task summary -> suspends g state task summary
             Focuses task -> focuses g state task
+    AwaitHandler -> \(Settles scope outcome) -> took g state scope outcome
 
 {- | A pick moves along its label's edge, unless the budget of the step it
 enters is used up: the advice offers only the actions a budget leaves, so
@@ -526,16 +529,18 @@ applyEvent g state n = \case
     Extended _ -> going (extended g state)
     Gapped gap -> going (Right state {gaps = state.gaps <> [(n, gap)]})
     -- A step moved: an agent works the run again.
-    Took scope (AnyOutcome PickLayer some) -> going (working <$> handle AgentPicks g state (Picked scope some))
-    Took scope outcome -> going (working <$> took g state scope outcome)
+    Took scope (AnyOutcome PickLayer some) -> going (working <$> handle PickHandler g state (Picked scope some))
+    Took scope outcome@(AnyOutcome _ (SomeOutcome s _ _))
+        | any awaiting (opsOf s) -> going (working <$> handle AwaitHandler g state (Settles scope outcome))
+        | otherwise -> going (working <$> took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
-    Asked asking -> going (handle PrincipalAnswers g state (Asks asking))
-    RetaggedSecurity qid -> going (handle PrincipalAnswers g state (Retags qid))
-    RuledOn qid proposal -> going (handle PrincipalAnswers g state (RulesOn qid proposal))
-    Forwarded qid to -> going (handle PrincipalAnswers g state (Forwards qid to))
-    Answered qid reply by -> going (handle PrincipalAnswers g state (Answers qid reply by))
-    QuestionParked qid why -> going (handle PrincipalAnswers g state (Parks qid why))
+    Asked asking -> going (handle AskHandler g state (Asks asking))
+    RetaggedSecurity qid -> going (handle AskHandler g state (Retags qid))
+    RuledOn qid proposal -> going (handle AskHandler g state (RulesOn qid proposal))
+    Forwarded qid to -> going (handle AskHandler g state (Forwards qid to))
+    Answered qid reply by -> going (handle AskHandler g state (Answers qid reply by))
+    QuestionParked qid why -> going (handle AskHandler g state (Parks qid why))
     Spawning task -> going (inTaskFan task (Fan.spawning (askingChildren state) task))
     Spawned child -> going $ case child.task of
         Tasked task -> heldTask task >>= \holder -> atAwait g holder.at >> inFanAt holder.fan (Fan.spawned (askingChildren state) child) state
@@ -562,8 +567,8 @@ applyEvent g state n = \case
     WorkerSpawned role agent -> going (Right state {workers = state.workers <> [Worker role agent n]})
     WorkerReturned role agent -> going (Right state {workers = returned role agent state.workers})
     AgentEnded agent -> going (Right state {agentEnded = Just agent})
-    Suspended task summary -> going (handle FocusHere g state (Suspends task summary))
-    Focused task -> going (handle FocusHere g state (Focuses task))
+    Suspended task summary -> going (handle FocusHandler g state (Suspends task summary))
+    Focused task -> going (handle FocusHandler g state (Focuses task))
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
@@ -1432,13 +1437,7 @@ stuckExits g state place = case innermost g place of
         Out -> False
         Exit -> False
     awaits entry = case stepNamed entry.name of
-        Just (AnyStep _ (SomeStep s)) -> case special s of
-            AwaitsCi -> True
-            AwaitsMerge -> True
-            Ordinary -> False
-            AsksConfirm _ -> False
-            TellsResult -> False
-            Discusses -> False
+        Just (AnyStep _ (SomeStep s)) -> any awaiting (opsOf s)
         Nothing -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses

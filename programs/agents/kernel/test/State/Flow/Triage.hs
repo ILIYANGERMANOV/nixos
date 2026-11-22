@@ -40,8 +40,6 @@ instance StepSet TriageStep where
 
     outcomes Triage = Branches
 
-    special Triage = Ordinary
-
     pack = \case
         o@(TriageSmall _) -> packed Triage o
         o@(TriageBig _) -> packed Triage o

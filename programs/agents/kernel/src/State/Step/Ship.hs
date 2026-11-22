@@ -10,6 +10,7 @@ module State.Step.Ship (
 import Data.Aeson ((.:), (.=))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
+import State.Category.Effect (OpOf (Awaits), Waiting (Ci))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -18,7 +19,11 @@ import State.Step.Artifact (Check (..), Sha, Url, headData, headOf, urlData, url
 type data ShipStep = Describe | SimplifyPR | AwaitCi | FixPR | Ready
 
 instance StepSet ShipStep where
-    type Raises s = '[]
+    type Raises Describe = '[]
+    type Raises SimplifyPR = '[]
+    type Raises AwaitCi = '[ 'Awaits 'Ci]
+    type Raises FixPR = '[]
+    type Raises Ready = '[]
 
     type Sig Describe = '( 'Diff, 'Nothing, 'PR)
     type Sig SimplifyPR = '( 'PR, 'Nothing, 'PR)
@@ -68,13 +73,6 @@ instance StepSet ShipStep where
         AwaitCi -> ExitsOr (OutcomeName "green") (OutcomeName "red")
         FixPR -> Continues (OutcomeName "done")
         Ready -> Branches
-
-    special = \case
-        Describe -> Ordinary
-        SimplifyPR -> Ordinary
-        AwaitCi -> AwaitsCi
-        FixPR -> Ordinary
-        Ready -> Ordinary
 
     pack = \case
         o@(DescribeDone _) -> packed Describe o

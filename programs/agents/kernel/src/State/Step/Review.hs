@@ -61,12 +61,6 @@ instance StepSet ReviewStep where
         Fix -> Continues (OutcomeName "done")
         ReReview -> ExitsOr (OutcomeName "clean") (OutcomeName "rows")
 
-    special = \case
-        Review -> Ordinary
-        PickRows -> Ordinary
-        Fix -> Ordinary
-        ReReview -> Ordinary
-
     pack = \case
         o@(ReviewClean _) -> packed Review o
         o@(ReviewRows _) -> packed Review o

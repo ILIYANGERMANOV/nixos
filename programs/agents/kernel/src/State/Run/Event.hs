@@ -75,6 +75,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
+import State.Category.Effect (Waiting (..))
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
@@ -258,10 +259,6 @@ data Said
       Awaits Waiting OneLine
     | Ended Stop
     deriving stock (Eq, Show)
-
--- | What a run with no wakes of its own hands up for a run above to wait on.
-data Waiting = Ci | Merge
-    deriving stock (Eq, Show, Enum, Bounded)
 
 -- | Where a task's PR stands; the child's own hand-back settles it otherwise.
 data TaskState

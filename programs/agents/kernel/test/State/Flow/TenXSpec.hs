@@ -25,8 +25,8 @@ spec = describe "State.Flow.TenX" $ do
     {- The term holds the fork's body as a task's default flow; each child runs its own task's.
     The registry roots it under its principal; forked, its questions go up to the 10x.
     -}
-    it "forks the registry's engineer flow, less its root's handler, as each engineer's body" $
-        (\body -> "Handle PrincipalAnswers (" <> body <> ")") <$> lookup engineers (parBodies tenX)
+    it "forks the registry's engineer flow, less its root's handlers, as each engineer's body" $
+        (\body -> "Handle AskHandler (Handle AwaitHandler (" <> body <> "))") <$> lookup engineers (parBodies tenX)
             `shouldBe` Just (case (role EngineerFlow).flow of SomeFlow flow -> show flow)
 
 {- | Each fork's body, by its group, shown. Compared by 'show', not

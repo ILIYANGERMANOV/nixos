@@ -12,6 +12,7 @@ module State.Step.Gather (
     Outcome (..),
 ) where
 
+import State.Category.Effect (OpOf (Discusses))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -19,7 +20,10 @@ import State.Category.Ty (TyOf (..))
 type data GatherStep = Research | Interview | Discuss | Notes
 
 instance StepSet GatherStep where
-    type Raises s = '[]
+    type Raises Research = '[]
+    type Raises Interview = '[]
+    type Raises Discuss = '[ 'Discusses]
+    type Raises Notes = '[]
 
     type Sig Research = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Interview = '( 'Ctx, 'Nothing, 'Ctx)
@@ -64,12 +68,6 @@ instance StepSet GatherStep where
         Interview -> Continues (OutcomeName "asked")
         Discuss -> Continues (OutcomeName "asked")
         Notes -> Continues (OutcomeName "done")
-
-    special = \case
-        Research -> Ordinary
-        Interview -> Ordinary
-        Discuss -> Discusses
-        Notes -> Ordinary
 
     pack = \case
         o@ResearchSpawned -> packed Research o

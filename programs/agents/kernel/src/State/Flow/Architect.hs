@@ -7,7 +7,7 @@ url, if one was written.
 -}
 module State.Flow.Architect (architect, ArchitectS) where
 
-import State.Category.Effect (Eff (PickE), Handler (AgentPicks))
+import State.Category.Effect (Eff (PickE), Handler (PickHandler))
 import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Ty (TyOf (..))
 import State.Flow.Library (DiscussS, discuss)
@@ -16,7 +16,7 @@ import State.Step.Ticket (Sing (WriteTicket), TicketStep (WriteTicket))
 
 architect :: Flow (HandleS PickE ArchitectS) 'Ctx 'Nothing 'Ctx
 architect =
-    Handle AgentPicks $
+    Handle PickHandler $
         Do Fuel
             :> discuss "architect" (#ticket :-> Do WriteTicket :& End)
 

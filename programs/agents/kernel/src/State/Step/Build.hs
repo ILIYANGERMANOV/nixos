@@ -49,11 +49,6 @@ instance StepSet BuildStep where
         Implement -> Continues (OutcomeName "done")
         Refactor -> Continues (OutcomeName "done")
 
-    special = \case
-        Draft -> Ordinary
-        Implement -> Ordinary
-        Refactor -> Ordinary
-
     pack = \case
         o@(DraftDone _) -> packed Draft o
         o@(ImplementDone _) -> packed Implement o

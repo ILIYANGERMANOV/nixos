@@ -39,19 +39,20 @@ import Data.List (genericLength, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
+import State.Category.Effect (KnownOps)
+import State.Category.Effect qualified as Op
 import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Discusses, Ordinary, TellsResult), StepSet (..), confirmText, eventText, outcomeNames, spawnedOutcome, stateNameText)
-import State.Category.Step qualified as Step
-import State.Category.Ty (TyOf (..), TyVal)
+import State.Category.Step (DomOf, EventName (..), Sig, Sing, SomeStep (..), StepSet (..), confirmText, eventText, opsOf, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Ty (KnownTy (..), TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption, spawnChildOption)
@@ -365,14 +366,11 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
     -- One line per action, so one action's task never reads as another's.
     choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (_, Edge {to = At next}) <- shownEdges g place, Just (AnyStep _ (SomeStep s)) <- [stepNamed next.name]]
     confirmAsked = Ask.Confirm `elem` askedKinds
-    told :: (StepSet k) => Sing (s :: k) -> Text
-    told s = case special s of
-        TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
-        Ordinary -> ""
-        AsksConfirm _ -> ""
-        Step.AwaitsCi -> ""
-        AwaitsMerge -> ""
-        Discusses -> ""
+    -- A step that takes a request's result names the url the run recorded last.
+    told :: forall k (s :: k). (KnownTy (DomOf (Sig s))) => Sing s -> Text
+    told _
+        | tyVal @(DomOf (Sig s)) == Result = "\nThe last result: " <> maybe "none recorded" urlText state.latest
+        | otherwise = ""
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
     extendOrGo place budget
         | Ask.Stuck `notElem` askedKinds = goOn budget
@@ -380,24 +378,28 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
     goOn budget = Ask Ask.Stuck (spentText budget <> ": go on?")
     {- At a used-up budget the step's question still comes first; it records
     only what the budget leaves, and an agent is not spawned to spend past it.
+    A step raises at most one entry operation; were there two, the first wins.
     -}
-    atStep :: (StepSet k) => Place -> Sing (s :: k) -> Action
-    atStep place s = case special s of
-        Ordinary -> case ((row steps s).runner, usedUpAt place) of
+    atStep :: (StepSet k, KnownOps (Raises s)) => Place -> Sing (s :: k) -> Action
+    atStep place s = fromMaybe works (listToMaybe (mapMaybe onEntry (opsOf s)))
+      where
+        works = case ((row steps s).runner, usedUpAt place) of
             (Agent role _, Nothing) -> Spawn role Nothing
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
-        AsksConfirm what
-            | confirmAsked -> Run records
-            | otherwise -> Ask Ask.Confirm (confirmText s what)
-        Step.AwaitsCi -> AwaitOn Ci (maybe "the PR" urlText (prUrl facts state))
-        AwaitsMerge -> atMerge records (currentFan state)
-        TellsResult -> Run records
-        -- A used-up budget asks no more: only its records are left.
-        Discusses -> case usedUpAt place of
-            Nothing -> Run (discussAsk NonEmpty.<| records)
-            Just _ -> Run records
-      where
+        onEntry = \case
+            -- A pick is answered at its choice ('atChoice'), focus by the chief's own commands.
+            Op.Picks -> Nothing
+            Op.Focuses -> Nothing
+            Op.Confirms what
+                | confirmAsked -> Just (Run records)
+                | otherwise -> Just (Ask Ask.Confirm (confirmText s what))
+            -- A used-up budget asks no more: only its records are left.
+            Op.Discusses -> Just $ case usedUpAt place of
+                Nothing -> Run (discussAsk NonEmpty.<| records)
+                Just _ -> Run records
+            Op.Awaits Ci -> Just (AwaitOn Ci (maybe "the PR" urlText (prUrl facts state)))
+            Op.Awaits Merge -> Just (atMerge records (currentFan state))
         records = maybe (recordOutcomes g place s) (someOptions . capRecords g place . (.cap.atCap)) (usedUpAt place)
     -- A discussion's question is about the design or its scope: a fact is the researchers' to find.
     discussAsk = commandOption ("state ask --kind <" <> Text.intercalate "|" (map kindName [Ask.Design, Ask.Scope]) <> "> <question>") "one question to the user, explained first and answered before the next"

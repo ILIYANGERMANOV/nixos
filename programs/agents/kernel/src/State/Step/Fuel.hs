@@ -60,10 +60,6 @@ instance StepSet FuelStep where
         Fuel -> Continues (OutcomeName "set")
         Skip _ _ -> Branches
 
-    special = \case
-        Fuel -> Ordinary
-        Skip _ _ -> Ordinary
-
     pack = \case
         o@(LevelSet _) -> packed Fuel o
         o@(Skipping skip@(Skip _ _)) -> packed skip o

@@ -7,7 +7,7 @@ a question asked inside it climbs from that flow's rung.
 -}
 module State.Flow.Chief (chief, ChiefS, discussion) where
 
-import State.Category.Effect (Eff (FocusE, PickE), Handler (AgentPicks, FocusHere))
+import State.Category.Effect (Eff (FocusE, PickE), Handler (FocusHandler, PickHandler))
 import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Label (..), Name (..), Shape (..))
 import State.Category.Fuel (PerFuel (..))
 import State.Category.Meter (AtCap (..), Limit (..))
@@ -29,7 +29,7 @@ steps raise 'FocusE', the user's attention: its handler suspends the
 request in focus at any state and turns to another ("State.Run.Fold").
 -}
 chief :: Flow (HandleS PickE (HandleS FocusE ChiefS)) 'Ctx 'Nothing 'Result
-chief = Handle AgentPicks . Handle FocusHere $ Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 50 100 200) Extend (Step Next)) :> Await delegates :> Into
+chief = Handle PickHandler . Handle FocusHandler $ Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 50 100 200) Extend (Step Next)) :> Await delegates :> Into
   where
     requests =
         branch @"architect" architect

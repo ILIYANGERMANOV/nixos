@@ -21,6 +21,7 @@ module State.Step.Fan (
 import Data.Aeson ((.:))
 import Data.List (find)
 import Data.Text (Text)
+import State.Category.Effect qualified as Effect
 import State.Category.Flow (Name, nameText, namedState)
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
@@ -30,7 +31,10 @@ import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
 type data FanStep = Breakdown | Merge
 
 instance StepSet FanStep where
-    type Raises s = '[]
+    type Raises Breakdown = '[]
+
+    -- This layer's step 'Merge' shares its name with 'Effect.Waiting''s, so that one is qualified.
+    type Raises Merge = '[ 'Effect.Awaits 'Effect.Merge]
 
     type Sig Breakdown = '( 'Plan, 'Nothing, 'List 'Ctx)
     type Sig Merge = '( 'List 'PR, 'Just 'PR, 'Ctx)
@@ -60,10 +64,6 @@ instance StepSet FanStep where
     outcomes = \case
         Breakdown _ -> Continues (OutcomeName "done")
         Merge _ -> ExitsOr (OutcomeName "done") (OutcomeName "next_round")
-
-    special = \case
-        Breakdown _ -> Ordinary
-        Merge _ -> AwaitsMerge
 
     pack = \case
         o@(BreakdownDone fan _) -> packed (Breakdown fan) o

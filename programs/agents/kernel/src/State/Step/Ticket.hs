@@ -40,9 +40,6 @@ instance StepSet TicketStep where
     outcomes = \case
         WriteTicket -> Continues (OutcomeName "written")
 
-    special = \case
-        WriteTicket -> Ordinary
-
     pack = \case
         o@(TicketWritten _) -> packed WriteTicket o
 

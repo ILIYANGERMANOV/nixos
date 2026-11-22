@@ -12,7 +12,7 @@ module State.Step.Request (
 
 import Data.Aeson ((.:), (.=))
 import Data.Text (Text)
-import State.Category.Effect (Eff (FocusE))
+import State.Category.Effect (OpOf (Focuses))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -22,7 +22,7 @@ type data RequestStep = OpenPlan | OpenBranch | OpenPr | Direct | Next
 
 -- | The user's attention ('FocusE'): the chief takes the next request, or turns to another.
 instance StepSet RequestStep where
-    type Raises s = '[FocusE]
+    type Raises s = '[ 'Focuses]
 
     type Sig OpenPlan = '( 'Ctx, 'Nothing, 'Plan)
     type Sig OpenBranch = '( 'Ctx, 'Nothing, 'Diff)
@@ -73,13 +73,6 @@ instance StepSet RequestStep where
         OpenPr -> Continues (OutcomeName "done")
         Direct -> Continues (OutcomeName "done")
         Next -> ExitsOr (OutcomeName "done") (OutcomeName "request")
-
-    special = \case
-        OpenPlan -> Ordinary
-        OpenBranch -> Ordinary
-        OpenPr -> Ordinary
-        Direct -> Ordinary
-        Next -> TellsResult
 
     pack = \case
         o@(OpenPlanDone _) -> packed OpenPlan o
