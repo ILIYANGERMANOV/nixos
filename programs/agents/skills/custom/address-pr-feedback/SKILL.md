@@ -334,11 +334,11 @@ Draft **every** reply and the summary comment. Then ask one question
 with the drafts verbatim in its context, grouped by outcome, and exactly these
 options:
 
-- A) **Reply + resolve + summary** (Recommended) - post each reply, resolve
+- **A) Reply + resolve + summary (Recommended):** post each reply, resolve
   each thread, then post the summary as one `gh pr comment`.
-- B) **Reply + resolve** - post each reply and resolve each thread. No summary
+- **B) Reply + resolve:** post each reply and resolve each thread. No summary
   comment, so top-level comments get no answer.
-- C) **Don't comment** - post nothing on GitHub. Threads stay open.
+- **C) Don't comment:** post nothing on GitHub. Threads stay open.
 
 It ends "Reply with a letter or your own words."
 

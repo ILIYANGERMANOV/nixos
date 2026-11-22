@@ -25,21 +25,25 @@ costs rework, tech debt and bugs.
 - Ask as plain text, one question per turn, never through a picker tool:
   the user often dictates the reply. Notify the user (a no-op where no
   notifier exists), then write the question as your final text, no tool call
-  after it: the phone shows only text after the last tool call. Longer
-  context, such as an explanation, goes in that same final text, above the
-  question block. One block, 2-4 concrete options, your recommendation
+  after it: the phone shows only text after the last tool call. Context, 1-3
+  lines or a longer explanation, goes above the question. Write it as
+  markdown, not a code block: the question bold, each option's letter and
+  name bold, its trade-off plain. 2-4 concrete options, your recommendation
   first:
 
-  ```text
-  <context, 1-3 lines>
-  Q: <one question>
-  A) <option> (Recommended): <trade-off>
-  B) <option>: <trade-off>
+  **Q: Which key should you hold to talk?**
+
+  - **A) Right Option (Recommended):** under your thumb, rarely pressed alone.
+  - **B) Fn / Globe:** dedicated key, but opens the emoji picker by default.
+
   Reply with a letter or your own words.
-  ```
 
   Where several answers are allowed, the last line reads "Reply with letters,
   e.g. A, C, or your own words."
+- A dictated reply may hold misheard words: infer a word that does not fit
+  from context, and ask when unsure. When you hand
+  the user's words to a child agent, add the line
+  `Dictated: may hold misheard words.`
 - Never ask permission to run builds, tests, installs or git operations.
 - Style as `pr-description`. A visual only where it helps: code for a coding
   choice, a file tree for new files, architecture or a plan's scope, a
