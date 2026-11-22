@@ -122,7 +122,9 @@ Law: at a level that never skips, the block alone.
 -}
 skippable ::
     (StepSet k, Sig s ~ '(a, 'Nothing, a), KnownTy a, NotSum a, Typeable a) =>
-    Sing (s :: k) -> PerFuel SkipWhen -> Flow (SkippableS a (DoS s)) a 'Nothing a
+    Sing (s :: k) ->
+    PerFuel SkipWhen ->
+    Flow (SkippableS a (DoS s)) a 'Nothing a
 skippable step skips = skippableBlock (nameOf step) skips (Do step)
 
 -- | 'skippable' over any block, its skip named @name@.
