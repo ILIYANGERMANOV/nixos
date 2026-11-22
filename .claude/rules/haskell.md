@@ -25,6 +25,9 @@ Caveats:
 
 - An E2E spec in `quick-test` runs the executable from the last cabal build.
   After an `app/` edit, run `kernel-build` (or `kernel-test`) first.
+- fourmolu formats at 80 columns, and a multi-line operand before
+  `>>= \case` takes two `kernel-format` passes to settle. When `kernel-lint`
+  fails right after `kernel-format`, run `kernel-format` once more.
 - An idle ghcid session dies after 2h; the next quick call respawns it
   (a cold start is a full load).
 - The quick runners take `nix`, `git` and `pgrep` from PATH.
