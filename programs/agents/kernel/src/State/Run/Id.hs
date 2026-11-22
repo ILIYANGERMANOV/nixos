@@ -63,7 +63,8 @@ holds no line break, so a hand-back line naming it stays one line (#360).
 -}
 parseRunId :: Text -> Maybe RunId
 parseRunId raw
-    | Text.null raw || raw == "h" || Text.elem ':' raw || Text.any breaksLine raw = Nothing
+    | Text.null raw || raw == "h" || Text.elem ':' raw || Text.any breaksLine raw =
+        Nothing
     | otherwise = Just (RunId raw)
 
 runIdText :: RunId -> Text
@@ -95,7 +96,13 @@ newtype Digest = Digest Text
 NUL, in hex. A dedupe key, no security.
 -}
 digestOf :: [Text] -> Digest
-digestOf = Digest . Text.pack . (`showHex` "") . BS.foldl' step 0xcbf29ce484222325 . encodeUtf8 . Text.intercalate "\0"
+digestOf =
+    Digest
+        . Text.pack
+        . (`showHex` "")
+        . BS.foldl' step 0xcbf29ce484222325
+        . encodeUtf8
+        . Text.intercalate "\0"
   where
     step :: Word64 -> Word8 -> Word64
     step hash byte = (hash `xor` fromIntegral byte) * 0x100000001b3
@@ -111,7 +118,9 @@ holds a line break, so a hand-back line naming it stays one line (#360).
 -}
 parseEventId :: Text -> Maybe EventId
 parseEventId raw = case Text.stripPrefix "h:" raw of
-    Just digest | not (Text.null digest || Text.any breaksLine digest) -> Just (Hashed (Digest digest))
+    Just digest
+        | not (Text.null digest || Text.any breaksLine digest) ->
+            Just (Hashed (Digest digest))
     Just _ -> Nothing
     Nothing -> uncurry Numbered <$> parseNumbered raw
 

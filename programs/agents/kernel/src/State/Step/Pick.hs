@@ -19,10 +19,9 @@ module State.Step.Pick (
 ) where
 
 import Data.Kind (Constraint)
-import Data.Type.Equality ((:~:) (..))
-import Data.Typeable (Typeable, eqT)
+import Data.Typeable (Typeable)
 import GHC.TypeLits (KnownSymbol, Symbol)
-import State.Category.Effect (Eff (..))
+import State.Category.Effect (OpOf (Picks))
 import State.Category.Flow (Name, namedState)
 import State.Category.Step
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..))
@@ -40,16 +39,27 @@ type family Over a ss where
     Over a ('(l, b) ': ss) = (a ~ b, Over a ss)
 
 instance StepSet PickStep where
-    type Raises s = '[PickE]
+    type Raises s = '[ 'Picks]
 
     type Sig (Pick a ss) = '(a, 'Nothing, 'Sum ss)
 
     data Sing s where
-        Pick :: (KnownTy a, NotSum a, Summands ss, Over a ss, PickLabels ss ss, Typeable a, Typeable ss) => Name -> Sing (Pick a ss)
+        Pick ::
+            ( KnownTy a
+            , NotSum a
+            , Summands ss
+            , Over a ss
+            , PickLabels ss ss
+            , Typeable a
+            , Typeable ss
+            ) =>
+            Name -> Sing (Pick a ss)
 
     data Outcome s l where
         -- \| The branch labelled @l@ goes on.
-        Picked :: (KnownSymbol l, HasLabel l ss ~ 'True) => Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
+        Picked ::
+            (KnownSymbol l, HasLabel l ss ~ 'True) =>
+            Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
 
     -- No row: each flow names its own picks, so no pick belongs to the layer.
     layerSteps = []
@@ -58,15 +68,8 @@ instance StepSet PickStep where
 
     outcomes (Pick _) = Branches
 
-    special (Pick _) = Ordinary
-
-    sameStep (Pick @a @ss _) (Pick @b @ts _) = do
-        Refl <- eqT @a @b
-        Refl <- eqT @ss @ts
-        pure Refl
-
     pack = \case
-        o@(Picked pick) -> packed pick o
+        o@(Picked pick@(Pick _)) -> packed pick o
 
     encodeOutcome (Picked _) = mempty
 
@@ -91,11 +94,17 @@ class PickLabels all ss where
 instance PickLabels all '[] where
     labelOutcomes _ = []
 
-instance (KnownSymbol l, HasLabel l all ~ 'True, PickLabels all ss) => PickLabels all ('(l, b) ': ss) where
-    labelOutcomes p = packed p (picked @l p) : labelOutcomes @all @ss p
+instance
+    (KnownSymbol l, HasLabel l all ~ 'True, PickLabels all ss) =>
+    PickLabels all ('(l, b) ': ss)
+    where
+    labelOutcomes p@(Pick _) = packed p (picked @l p) : labelOutcomes @all @ss p
 
 -- | The outcome of label @l@: its type names the label, which the pick's argument does not.
-picked :: forall l a ss. (KnownSymbol l, HasLabel l ss ~ 'True) => Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
+picked ::
+    forall l a ss.
+    (KnownSymbol l, HasLabel l ss ~ 'True) =>
+    Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
 picked = Picked
 
 deriving stock instance Show (Sing (s :: PickStep))

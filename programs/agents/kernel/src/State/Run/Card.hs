@@ -25,7 +25,15 @@ import Data.Set qualified as Set
 import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
 import State.Run.Ask (Kind, OneLine, QId, Question (..), Reply)
 import State.Run.Event (AgentId, Asking (..), Envelope (..), StateName, TaskNo)
-import State.Run.Fold (Pending (..), RunState (..), Suspension (..), Worker (..), given, nodeName, waitsAt)
+import State.Run.Fold (
+    Pending (..),
+    RunState (..),
+    Suspension (..),
+    Worker (..),
+    given,
+    nodeName,
+    waitsAt,
+ )
 
 -- | A request: its number, whether it waits, its state, its decisions and open questions, and its last worker.
 data Card = Card
@@ -52,7 +60,10 @@ waiting one, by number.
 cards :: NonEmpty (Envelope, RunState) -> [Card]
 cards logged =
     cardOf InFocus final.focus (nodeName final.at)
-        : [cardOf (Paused at suspension.summary) task (nodeName (waitsAt suspension)) | (task, suspension) <- Map.toList final.suspended, Just at <- [(spanOf task).pausedAt]]
+        : [ cardOf (Paused at suspension.summary) task (nodeName (waitsAt suspension))
+          | (task, suspension) <- Map.toList final.suspended
+          , Just at <- [(spanOf task).pausedAt]
+          ]
   where
     final = snd (NonEmpty.last logged)
     spans = spansOf logged
@@ -63,8 +74,11 @@ cards logged =
                 { task
                 , standing
                 , node
-                , decisions = [decision | decision@(qid, _, _) <- given final, qid `elem` here.asked]
-                , open = [p.asking.question | p <- final.pending, p.asking.question.qid `elem` here.asked]
+                , decisions =
+                    [decision | decision@(qid, _, _) <- given final, qid `elem` here.asked]
+                , open =
+                    [ p.asking.question | p <- final.pending, p.asking.question.qid `elem` here.asked
+                    ]
                 , agent = here.lastWorker
                 }
 
@@ -113,14 +127,28 @@ request had.
 spansOf :: NonEmpty (Envelope, RunState) -> Map TaskNo Span
 spansOf ((_, first) :| rest) = snd (foldl' step (first, Map.singleton first.focus emptySpan) rest)
   where
-    step (before, spans) (envelope, after) = (after, reopened (Map.alter (Just . noted . fromMaybe emptySpan) before.focus spans))
+    step (before, spans) (envelope, after) =
+        ( after
+        , reopened (Map.alter (Just . noted . fromMaybe emptySpan) before.focus spans)
+        )
       where
         noted here =
             here
-                { asked = here.asked <> Set.toList (Set.difference after.everAsked before.everAsked)
-                , lastWorker = listToMaybe (reverse [worker.agent | worker <- after.workers, worker `notElem` before.workers]) <|> here.lastWorker
-                , pausedAt = if Map.member before.focus after.suspended && Map.notMember before.focus before.suspended then Just envelope.ts else here.pausedAt
+                { asked =
+                    here.asked <> Set.toList (Set.difference after.everAsked before.everAsked)
+                , lastWorker =
+                    listToMaybe
+                        ( reverse
+                            [worker.agent | worker <- after.workers, worker `notElem` before.workers]
+                        )
+                        <|> here.lastWorker
+                , pausedAt =
+                    if Map.member before.focus after.suspended
+                        && Map.notMember before.focus before.suspended
+                        then Just envelope.ts
+                        else here.pausedAt
                 }
         reopened
-            | after.focus /= before.focus && Map.notMember after.focus before.suspended = Map.insert after.focus emptySpan
+            | after.focus /= before.focus && Map.notMember after.focus before.suspended =
+                Map.insert after.focus emptySpan
             | otherwise = id

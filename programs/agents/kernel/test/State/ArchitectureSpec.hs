@@ -12,10 +12,15 @@ import Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec = describe "kernel architecture" $ do
-    it "keeps Principal and Op out of every flow module's imports (law Principal-blind)" $ do
-        reached <- traverse (\name -> (name,) <$> closure name) flowModules
-        [(name, Set.toList (Set.intersection modules environment)) | (name, modules) <- reached, not (Set.disjoint modules environment)]
-            `shouldBe` []
+    it
+        "keeps Principal and Op out of every flow module's imports (law Principal-blind)"
+        $ do
+            reached <- traverse (\name -> (name,) <$> closure name) flowModules
+            [ (name, Set.toList (Set.intersection modules environment))
+              | (name, modules) <- reached
+              , not (Set.disjoint modules environment)
+              ]
+                `shouldBe` []
 
     -- The category and its steps never reach the flows, the run or the
     -- command line, nor the run its protocol: a module imports its own layer
@@ -23,23 +28,38 @@ spec = describe "kernel architecture" $ do
     it "keeps every layer's imports at its own layer or below" $ do
         names <- mapMaybe moduleOf <$> packageFiles "src"
         reached <- traverse (\name -> (name,) . Set.toList <$> closure name) names
-        [(name, upward) | (name, modules) <- reached, let upward = [m | m <- modules, any (`isPrefixOf` m) (higher name)], not (null upward)]
+        [ (name, upward)
+          | (name, modules) <- reached
+          , let upward = [m | m <- modules, any (`isPrefixOf` m) (higher name)]
+          , not (null upward)
+          ]
             `shouldBe` []
 
     -- Law Principal-blind: the kernel has no word for who started a run, in
     -- any file the package builds from, tests and golden files too. The word
     -- is spelled in two halves so this file does not hold it either.
     it "names no principal mode in any of its files" $ do
-        files <- (["state.cabal"] <>) . concat <$> traverse packageFiles ["src", "app", "test"]
+        files <-
+            (["state.cabal"] <>) . concat <$> traverse packageFiles ["src", "app", "test"]
         sources <- traverse (\file -> (file,) <$> ByteString.readFile file) files
-        [file | (file, source) <- sources, ("dele" <> "gated") `ByteString.isInfixOf` ByteString.map toLower source] `shouldBe` []
+        [ file
+          | (file, source) <- sources
+          , ("dele" <> "gated") `ByteString.isInfixOf` ByteString.map toLower source
+          ]
+            `shouldBe` []
 
     -- Read, decide in pure code, write: only the effects and "State.Cli.Shell" do
     -- IO or name an effect; the two mains, under @app@, only interpret.
     it "keeps IO and effects out of every module but the effects' and the shell's" $ do
-        decisions <- filter (\name -> not (name == shell || isEffects name)) . mapMaybe moduleOf <$> packageFiles "src"
+        decisions <-
+            filter (\name -> not (name == shell || isEffects name)) . mapMaybe moduleOf
+                <$> packageFiles "src"
         reached <- traverse (\name -> (name,) . Set.toList <$> closure name) decisions
-        effects <- traverse (\(name, modules) -> (name,) . concatMap (filter isEffect) <$> traverse imports modules) reached
+        effects <-
+            traverse
+                ( \(name, modules) -> (name,) . concatMap (filter isEffect) <$> traverse imports modules
+                )
+                reached
         [found | found@(_, _ : _) <- effects] `shouldBe` []
 
 -- | Every file under a directory of the package.
@@ -132,7 +152,20 @@ isEffects = isPrefixOf "Effects."
 
 -- | A library module that runs effects: files, processes, the environment, exceptions, effectful.
 isEffect :: String -> Bool
-isEffect name = any (`isPrefixOf` name) ["Effectful", "System.IO", "System.Timeout", "System.Process", "System.Directory", "System.Environment", "System.Exit", "Control.Exception", "GHC.IO", "Data.Text.IO"]
+isEffect name =
+    any
+        (`isPrefixOf` name)
+        [ "Effectful"
+        , "System.IO"
+        , "System.Timeout"
+        , "System.Process"
+        , "System.Directory"
+        , "System.Environment"
+        , "System.Exit"
+        , "Control.Exception"
+        , "GHC.IO"
+        , "Data.Text.IO"
+        ]
 
 -- | The module a source file under @src@ defines.
 moduleOf :: FilePath -> Maybe String

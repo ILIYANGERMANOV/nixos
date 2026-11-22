@@ -20,10 +20,16 @@ module State.Category.Meter (
 import Control.Monad (join)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
-import Data.Type.Equality ((:~:) (..))
-import Data.Typeable (eqT)
 import Numeric.Natural (Natural)
-import State.Category.Step (LegOf (..), Outcome, Sig, Sing, SomeOutcome (..), StepSet (..))
+import State.Category.Step (
+    LegOf (..),
+    Outcome,
+    Sig,
+    Sing,
+    SomeOutcome (..),
+    StepSet (..),
+ )
+import Type.Reflection (Typeable, eqTypeRep, typeRep, (:~~:) (HRefl))
 
 {- | What a step records at its own state that a meter may count: one of its
 outcomes, or a question the run asks there (an interview's question is an
@@ -36,9 +42,9 @@ data Spend (s :: k) where
 {- | A step that spends a budget: its row name in the Fuel table, and what
 each event costs. 'Owes' says whether a spend starts a child that hands
 back ('State.Category.Flow.Fork'): only then may the step's outcomes be a
-spawn and a hand-back ('Owed').
+spawn and a hand-back ('Owed'). 'Typeable' tells its step from another's.
 -}
-class (StepSet k) => Meter (s :: k) where
+class (StepSet k, Typeable s) => Meter (s :: k) where
     type Owes s :: Bool
     type Owes s = 'False
     meterName :: Sing s -> Text
@@ -81,9 +87,7 @@ instance Show SomeMeter where
 
 -- | Equal when of one step.
 instance Eq SomeMeter where
-    SomeMeter (a :: Sing (s :: k)) == SomeMeter (b :: Sing (t :: j)) = case eqT @k @j of
-        Just Refl -> isJust (sameStep a b)
-        Nothing -> False
+    SomeMeter (_ :: Sing s) == SomeMeter (_ :: Sing t) = isJust (eqTypeRep (typeRep @s) (typeRep @t))
 
 someMeterName :: SomeMeter -> Text
 someMeterName (SomeMeter s) = meterName s
@@ -110,7 +114,7 @@ owedBy (SomeMeter s) = \case
 
 -- | An event a run records at a metered state, its step's kind hidden.
 data Recorded where
-    RecordedOutcome :: (StepSet k) => SomeOutcome k -> Recorded
+    RecordedOutcome :: SomeOutcome k -> Recorded
     RecordedAsk :: Recorded
 
 {- | What the event spends of the meter. An outcome of another step spends
@@ -123,9 +127,13 @@ spentBy (SomeMeter s) = \case
     RecordedOutcome some -> fromMaybe 0 (ownOutcome s some (\leg o -> spends s (Ends leg o)))
 
 -- | What the step makes of the outcome, when it is one of its own: of another step, nothing.
-ownOutcome :: forall k j (s :: k) r. (StepSet k, StepSet j) => Sing s -> SomeOutcome j -> (forall l. LegOf (Sig s) l -> Outcome s l -> r) -> Maybe r
-ownOutcome s (SomeOutcome t leg o) own = case eqT @k @j of
-    Just Refl -> case sameStep s t of
-        Just Refl -> Just (own leg o)
-        Nothing -> Nothing
+ownOutcome ::
+    forall k j (s :: k) r.
+    (Typeable s) =>
+    Sing s ->
+    SomeOutcome j ->
+    (forall l. LegOf (Sig s) l -> Outcome s l -> r) ->
+    Maybe r
+ownOutcome _ (SomeOutcome (_ :: Sing t) leg o) own = case eqTypeRep (typeRep @s) (typeRep @t) of
+    Just HRefl -> Just (own leg o)
     Nothing -> Nothing

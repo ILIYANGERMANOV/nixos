@@ -15,7 +15,15 @@ module Effects.Log (
 import Control.Exception (handle, throwIO)
 import Data.Text (Text)
 import Database.SQLite.Simple (SQLError)
-import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
+import Effectful (
+    Dispatch (Dynamic),
+    DispatchOf,
+    Eff,
+    Effect,
+    IOE,
+    liftIO,
+    (:>),
+ )
 import Effectful.Dispatch.Dynamic (interpret, send)
 import Effects.Environment (Environment, lookupEnv)
 import Effects.Store (Durability, Store, withStore)
@@ -46,7 +54,9 @@ or the first it cannot read, and returns the events to append. The lock lasts
 until they are written. Events for a run never started that do not start it
 throw.
 -}
-locked :: (Log :> es) => RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Eff es a
+locked ::
+    (Log :> es) =>
+    RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Eff es a
 locked run = send . Locked run
 
 -- | The runs started as children of this one, oldest first.
@@ -61,14 +71,18 @@ inNotes = send . InNotes
 each operation at this durability. A store error, such as a lock still held after the wait, or
 no store at all, throws an 'IOException': an outage the shell tells.
 -}
-runLogIO :: (Environment :> es, IOE :> es) => Durability -> Eff (Log : es) a -> Eff es a
+runLogIO ::
+    (Environment :> es, IOE :> es) => Durability -> Eff (Log : es) a -> Eff es a
 runLogIO durability = interpret $ \_ op -> do
     path <- runStore <$> lookupEnv "XDG_STATE_HOME" <*> lookupEnv "HOME"
     liftIO . asIOError $ case path of
-        Nothing -> throwIO (userError "no run store: neither XDG_STATE_HOME nor HOME is an absolute path")
+        Nothing ->
+            throwIO
+                (userError "no run store: neither XDG_STATE_HOME nor HOME is an absolute path")
         Just db -> withStore durability db (onStore op)
   where
-    asIOError = handle (\(e :: SQLError) -> throwIO (userError ("the run store: " <> show e)))
+    asIOError =
+        handle (\(e :: SQLError) -> throwIO (userError ("the run store: " <> show e)))
 
 onStore :: Log m a -> Store -> IO a
 onStore op store = case op of

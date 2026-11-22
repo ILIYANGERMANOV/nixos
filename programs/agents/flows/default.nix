@@ -16,10 +16,6 @@ let
     "ops"
   ];
   stepFields = [
-    "dom"
-    "cod"
-    "exit"
-    "outcomes"
     "runner"
     "task"
     "flows"
@@ -65,10 +61,6 @@ let
   check =
     let
       inline = {
-        dom = "Ctx";
-        cod = "Ctx";
-        exit = null;
-        outcomes = [ "done" ];
         runner = "inline";
         task = "Do it.";
         tools = [ ];

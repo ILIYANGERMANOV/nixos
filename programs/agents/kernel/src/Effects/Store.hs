@@ -27,10 +27,30 @@ import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time.Format.ISO8601 (iso8601Show)
-import Database.SQLite.Simple (Connection, Only (..), Query (..), execute, executeMany, execute_, query, query_, withConnection, withImmediateTransaction)
+import Database.SQLite.Simple (
+    Connection,
+    Only (..),
+    Query (..),
+    execute,
+    executeMany,
+    execute_,
+    query,
+    query_,
+    withConnection,
+    withImmediateTransaction,
+ )
 import State.Role (flowText)
 import State.Run.Codec (LogError, decodeLines, encodeLine)
-import State.Run.Event (Envelope (..), Event (..), Parent (..), Principal (..), RunId, Start (..), parseRunId, runIdText)
+import State.Run.Event (
+    Envelope (..),
+    Event (..),
+    Parent (..),
+    Principal (..),
+    RunId,
+    Start (..),
+    parseRunId,
+    runIdText,
+ )
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory)
 
@@ -67,11 +87,20 @@ withStore durability path act = do
 
 -- | Whether the run was started in the store.
 exists :: Store -> RunId -> IO Bool
-exists (Store conn) run = not . null <$> (query conn "SELECT 1 FROM runs WHERE id = ?" (Only (runIdText run)) :: IO [Only Int])
+exists (Store conn) run =
+    not . null
+        <$> ( query conn "SELECT 1 FROM runs WHERE id = ?" (Only (runIdText run)) ::
+                IO [Only Int]
+            )
 
 -- | The run's first event, as stored, if it has one.
 firstEvent :: Store -> RunId -> IO (Maybe Text)
-firstEvent (Store conn) run = fmap fromOnly . listToMaybe <$> query conn "SELECT json FROM events WHERE run = ? AND seq = 1" (Only (runIdText run))
+firstEvent (Store conn) run =
+    fmap fromOnly . listToMaybe
+        <$> query
+            conn
+            "SELECT json FROM events WHERE run = ? AND seq = 1"
+            (Only (runIdText run))
 
 {- | The run's events, in seq order, under the write lock for one decision:
 @decide@ gets them all, or the first it cannot read, and returns the events
@@ -80,17 +109,30 @@ first, in the same transaction: its flow, notes and parent come from the
 start. Any other batch for a run never started violates a foreign key and
 throws, as does a batch whose seqs do not follow the log's ('misnumbered').
 -}
-locked :: Store -> RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> IO a
+locked ::
+    Store -> RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> IO a
 locked (Store conn) run decide = withImmediateTransaction conn $ do
-    rows <- query conn "SELECT json FROM events WHERE run = ? ORDER BY seq" (Only (runIdText run))
+    rows <-
+        query
+            conn
+            "SELECT json FROM events WHERE run = ? ORDER BY seq"
+            (Only (runIdText run))
     let (new, result) = decide (decodeLines (map fromOnly rows))
     for_ (misnumbered (length rows) new) (throwIO . userError)
     for_ (startOf new) $ \(envelope, start) ->
         execute
             conn
             "INSERT INTO runs (id, parent, flow, notes, created_at) VALUES (?, ?, ?, ?, ?)"
-            (runIdText run, runIdText <$> parentOf start.principal, flowText start.flow, start.notes, iso8601Show envelope.ts)
-    executeMany conn "INSERT INTO events (run, seq, json) VALUES (?, ?, ?)" [(runIdText run, toInteger e.seq, encodeLine e) | e <- new]
+            ( runIdText run
+            , runIdText <$> parentOf start.principal
+            , flowText start.flow
+            , start.notes
+            , iso8601Show envelope.ts
+            )
+    executeMany
+        conn
+        "INSERT INTO events (run, seq, json) VALUES (?, ?, ?)"
+        [(runIdText run, toInteger e.seq, encodeLine e) | e <- new]
     pure result
   where
     startOf = \case
@@ -106,23 +148,49 @@ from 1, so a duplicate or a gap is a writer's bug. The primary key alone
 refuses only the duplicate.
 -}
 misnumbered :: Int -> [Envelope] -> Maybe String
-misnumbered logged new = case [(envelope.seq, next) | (envelope, next) <- zip new [fromIntegral logged + 1 ..], envelope.seq /= next] of
+misnumbered logged new = case [ (envelope.seq, next)
+                              | (envelope, next) <- zip new [fromIntegral logged + 1 ..]
+                              , envelope.seq /= next
+                              ] of
     [] -> Nothing
-    (got, next) : _ -> Just ("seq " <> show got <> " where " <> show next <> " is next: a log's seqs run densely from 1")
+    (got, next) : _ ->
+        Just
+            ( "seq "
+                <> show got
+                <> " where "
+                <> show next
+                <> " is next: a log's seqs run densely from 1"
+            )
 
 {- | The runs started as children of this one, oldest first: in the order
 their starts were written, the rowid's, as two in one second tie on
 @created_at@, whose text drops trailing zeros and so does not sort as time.
 -}
 children :: Store -> RunId -> IO [RunId]
-children (Store conn) parent = query conn "SELECT id FROM runs WHERE parent = ? ORDER BY rowid" (Only (runIdText parent)) >>= runIds
+children (Store conn) parent =
+    query
+        conn
+        "SELECT id FROM runs WHERE parent = ? ORDER BY rowid"
+        (Only (runIdText parent))
+        >>= runIds
 
 -- | The runs started in this notes dir, oldest first, as 'children' orders them.
 inNotes :: Store -> FilePath -> IO [RunId]
-inNotes (Store conn) notes = query conn "SELECT id FROM runs WHERE notes = ? ORDER BY rowid" (Only notes) >>= runIds
+inNotes (Store conn) notes =
+    query conn "SELECT id FROM runs WHERE notes = ? ORDER BY rowid" (Only notes)
+        >>= runIds
 
 runIds :: [Only Text] -> IO [RunId]
-runIds = traverse (\(Only raw) -> maybe (throwIO (userError ("the store holds a run id that does not parse: " <> Text.unpack raw))) pure (parseRunId raw))
+runIds =
+    traverse
+        ( \(Only raw) ->
+            maybe
+                ( throwIO
+                    (userError ("the store holds a run id that does not parse: " <> Text.unpack raw))
+                )
+                pure
+                (parseRunId raw)
+        )
 
 -- | Brings the schema to the last migration, each one applied once, in order.
 migrate :: Connection -> IO ()
@@ -130,7 +198,15 @@ migrate conn =
     -- Read without the write lock first: a current schema, the common case, takes none.
     userVersion >>= \current -> case compare current latest of
         EQ -> pure ()
-        GT -> throwIO (userError ("the kernel store's schema is version " <> show current <> ", newer than this state's " <> show latest))
+        GT ->
+            throwIO
+                ( userError
+                    ( "the kernel store's schema is version "
+                        <> show current
+                        <> ", newer than this state's "
+                        <> show latest
+                    )
+                )
         LT -> withImmediateTransaction conn $ do
             -- Again under the lock: another process may have migrated meanwhile.
             applied <- userVersion

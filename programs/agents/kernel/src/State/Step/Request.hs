@@ -12,8 +12,7 @@ module State.Step.Request (
 
 import Data.Aeson ((.:), (.=))
 import Data.Text (Text)
-import Data.Type.Equality ((:~:) (..))
-import State.Category.Effect (Eff (FocusE))
+import State.Category.Effect (OpOf (Focuses))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -23,7 +22,7 @@ type data RequestStep = OpenPlan | OpenBranch | OpenPr | Direct | Next
 
 -- | The user's attention ('FocusE'): the chief takes the next request, or turns to another.
 instance StepSet RequestStep where
-    type Raises s = '[FocusE]
+    type Raises s = '[ 'Focuses]
 
     type Sig OpenPlan = '( 'Ctx, 'Nothing, 'Plan)
     type Sig OpenBranch = '( 'Ctx, 'Nothing, 'Diff)
@@ -50,7 +49,13 @@ instance StepSet RequestStep where
         NextDone :: Outcome Next 'Exited
         NextRequest :: Outcome Next 'Continued
 
-    layerSteps = [SomeStep OpenPlan, SomeStep OpenBranch, SomeStep OpenPr, SomeStep Direct, SomeStep Next]
+    layerSteps =
+        [ SomeStep OpenPlan
+        , SomeStep OpenBranch
+        , SomeStep OpenPr
+        , SomeStep Direct
+        , SomeStep Next
+        ]
       where
         _listsEvery :: Sing (s :: RequestStep) -> ()
         _listsEvery = \case
@@ -74,25 +79,6 @@ instance StepSet RequestStep where
         OpenPr -> Continues (OutcomeName "done")
         Direct -> Continues (OutcomeName "done")
         Next -> ExitsOr (OutcomeName "done") (OutcomeName "request")
-
-    special = \case
-        OpenPlan -> Ordinary
-        OpenBranch -> Ordinary
-        OpenPr -> Ordinary
-        Direct -> Ordinary
-        Next -> TellsResult
-
-    sameStep a b = case (a, b) of
-        (OpenPlan, OpenPlan) -> Just Refl
-        (OpenPlan, _) -> Nothing
-        (OpenBranch, OpenBranch) -> Just Refl
-        (OpenBranch, _) -> Nothing
-        (OpenPr, OpenPr) -> Just Refl
-        (OpenPr, _) -> Nothing
-        (Direct, Direct) -> Just Refl
-        (Direct, _) -> Nothing
-        (Next, Next) -> Just Refl
-        (Next, _) -> Nothing
 
     pack = \case
         o@(OpenPlanDone _) -> packed OpenPlan o

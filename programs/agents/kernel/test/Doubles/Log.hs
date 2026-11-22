@@ -17,7 +17,14 @@ import Effectful.State.Static.Local (State, get, put)
 import Effects.Log (Log (..))
 import Effects.Store (misnumbered)
 import State.Run.Codec (decodeLines, encodeLine)
-import State.Run.Event (Envelope (..), Event (..), Parent (..), Principal (..), RunId, Start (..))
+import State.Run.Event (
+    Envelope (..),
+    Event (..),
+    Parent (..),
+    Principal (..),
+    RunId,
+    Start (..),
+ )
 
 {- | Each run's rows, in seq order, the runs in the order they started, as
 the store's rowid keeps them; read-only, every lock throws, as a full disk or
@@ -45,8 +52,26 @@ runLogInMemory = interpret $ \_ -> \case
             (Runs _, Nothing, _ : _) -> throwIO (userError "events for a run never started")
         pure result
     -- Oldest first, in the order they started, as the store's rowid orders them.
-    Children run -> (\runs -> [child | (child, rows) <- runs, started <- startOf rows, parentOf started == Just run]) . rowsOf <$> get
-    InNotes notes -> (\runs -> [found | (found, rows) <- runs, Envelope {event = Started start} <- startOf rows, start.notes == notes]) . rowsOf <$> get
+    Children run ->
+        ( \runs ->
+            [ child
+            | (child, rows) <- runs
+            , started <- startOf rows
+            , parentOf started == Just run
+            ]
+        )
+            . rowsOf
+            <$> get
+    InNotes notes ->
+        ( \runs ->
+            [ found
+            | (found, rows) <- runs
+            , Envelope {event = Started start} <- startOf rows
+            , start.notes == notes
+            ]
+        )
+            . rowsOf
+            <$> get
 
 -- | The run's first line, when it reads.
 startOf :: [Text] -> [Envelope]
@@ -72,4 +97,8 @@ rowsOf = \case
 
 -- | The run's rows edited by hand, as a store's rows are; the store writable again.
 editRows :: RunId -> ([Text] -> [Text]) -> Runs -> Runs
-editRows run edit store = Runs [(found, if found == run then edit rows else rows) | (found, rows) <- rowsOf store]
+editRows run edit store =
+    Runs
+        [ (found, if found == run then edit rows else rows)
+        | (found, rows) <- rowsOf store
+        ]

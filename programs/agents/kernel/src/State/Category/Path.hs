@@ -12,7 +12,16 @@ module State.Category.Path (
 import Control.Applicative ((<|>))
 import Data.Map.Strict qualified as Map
 import State.Category.Flow (FanEvent (..), fanEvent)
-import State.Category.Graph (Arrow (..), Edge (..), GroupAt (..), Node (..), OpenGraph (..), Place, eachDoneOutcome, placeName)
+import State.Category.Graph (
+    Arrow (..),
+    Edge (..),
+    GroupAt (..),
+    Node (..),
+    OpenGraph (..),
+    Place,
+    eachDoneOutcome,
+    placeName,
+ )
 import State.Category.Step (EventName (..), OutcomeEdge)
 
 -- | The one edge an event takes from a state, if the flow has it there.

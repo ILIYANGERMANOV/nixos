@@ -50,7 +50,17 @@ import State.Category.FlowGen (genScopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Flow.Drawn (drawnOutcomes)
-import State.Run.Ask (Above (..), Basis (..), Decision (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
+import State.Run.Ask (
+    Above (..),
+    Basis (..),
+    Decision (..),
+    OneLine,
+    Proposal (..),
+    QId (..),
+    Question (..),
+    Reading (..),
+    parseOneLine,
+ )
 import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
@@ -95,7 +105,12 @@ genEvent =
         , Answered <$> genQId <*> genReply <*> genAbove
         , QuestionParked <$> genQId <*> genOneLine
         , Spawning <$> genTaskId
-        , Spawned <$> (Child <$> genRunId <*> Gen.choice [Tasked <$> genTaskId, pure Untasked] <*> genPath)
+        , Spawned
+            <$> ( Child
+                    <$> genRunId
+                    <*> Gen.choice [Tasked <$> genTaskId, pure Untasked]
+                    <*> genPath
+                )
         , Resumed <$> genRunId
         , HandedBack <$> genRunId <*> genSaid
         , TaskMoved <$> genTaskId <*> genTaskState
@@ -178,20 +193,30 @@ genRepo = Repo <$> part <*> part
 
 -- | An absolute path of the characters a shell reads as none of its syntax.
 genWorktree :: Gen ShellPath
-genWorktree = Gen.mapMaybe (shellPath . ('/' :)) (Gen.string (Range.linear 0 20) (Gen.element ("aZ09._/@+-" :: String)))
+genWorktree =
+    Gen.mapMaybe
+        (shellPath . ('/' :))
+        (Gen.string (Range.linear 0 20) (Gen.element ("aZ09._/@+-" :: String)))
 
 genShape :: Gen Shape
 genShape = Gen.choice [pure OwnPr, RoundOn . Url <$> genText]
 
 genTarget :: Gen Target
-genTarget = Gen.choice [OnPr . Url <$> genText, OnBranch . Branch <$> genText, OnTicket . Url <$> genText]
+genTarget =
+    Gen.choice
+        [ OnPr . Url <$> genText
+        , OnBranch . Branch <$> genText
+        , OnTicket . Url <$> genText
+        ]
 
 -- | A breakdown the test spells, which must be one 'breakdown' accepts.
 tasksOf :: NonEmpty Task -> Tasks
 tasksOf = either (error . show) id . breakdown
 
 genAsker :: Gen Asker
-genAsker = Gen.choice [pure Itself, Subagent . AgentRole <$> genText, ChildRun <$> genRunId]
+genAsker =
+    Gen.choice
+        [pure Itself, Subagent . AgentRole <$> genText, ChildRun <$> genRunId]
 
 genAbove :: Gen Above
 genAbove = Gen.choice [pure TheUser, ParentRun <$> genRunId, pure TheCaller]
@@ -201,7 +226,18 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.choice [InFan <$> Gen.choice [Tasked <$> genTaskId, pure Untasked], pure Direct]) <*> genShape <*> Gen.enumBounded, ByCaller <$> genShape]
+        <*> Gen.choice
+            [ ByUser <$> genShape
+            , ByRole
+                <$> ( Parent
+                        <$> genRunId
+                        <*> Gen.choice
+                            [InFan <$> Gen.choice [Tasked <$> genTaskId, pure Untasked], pure Direct]
+                    )
+                <*> genShape
+                <*> Gen.enumBounded
+            , ByCaller <$> genShape
+            ]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -245,10 +281,6 @@ templates =
     , outcome (ReadyDone (Url ""))
     , outcome (ReadySkipped (Url ""))
     , outcome (TicketWritten (Url ""))
-    , outcome ProblemUnderstood
-    , outcome ProblemMore
-    , outcome (ConfirmDesignConfirmed (Url ""))
-    , outcome ConfirmDesignAdjusted
     , outcome (OpenPlanDone (Url ""))
     , outcome (OpenBranchDone (Branch ""))
     , outcome (OpenPrDone (Url ""))
@@ -257,7 +289,28 @@ templates =
     , outcome NextRequest
     ]
         <> concat
-            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr ChildConfirms Nothing Nothing EngineerFlow :| [])))
+            [ [ outcome
+                    ( BreakdownDone
+                        fan
+                        ( tasksOf
+                            ( Task
+                                (TaskId "t1")
+                                []
+                                (Branch "")
+                                (Branch "")
+                                Balanced
+                                False
+                                False
+                                Set.empty
+                                OwnPr
+                                ChildConfirms
+                                Nothing
+                                Nothing
+                                EngineerFlow
+                                :| []
+                            )
+                        )
+                    )
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)
               ]
@@ -283,7 +336,9 @@ likeIn = \case
         ConfirmConfirmed -> pure ConfirmConfirmed
         ConfirmAdjusted -> pure ConfirmAdjusted
     BuildLayer -> \case
-        DraftDone _ -> DraftDone <$> (DraftPr . Url <$> genText <*> (Branch <$> genText) <*> (Branch <$> genText))
+        DraftDone _ ->
+            DraftDone
+                <$> (DraftPr . Url <$> genText <*> (Branch <$> genText) <*> (Branch <$> genText))
         ImplementDone _ -> ImplementDone <$> genCommit
         RefactorDone _ -> RefactorDone <$> genSha
     ReviewLayer -> \case
@@ -298,16 +353,17 @@ likeIn = \case
         DescribeDone _ -> DescribeDone <$> genSha
         SimplifyPrDone _ -> SimplifyPrDone <$> genSha
         AwaitCiGreen _ -> AwaitCiGreen <$> genSha
-        AwaitCiRed _ _ -> AwaitCiRed <$> genSha <*> Gen.nonEmpty (Range.linear 1 3) (Check <$> Gen.element ["lint", "test", "build"])
+        AwaitCiRed _ _ ->
+            AwaitCiRed
+                <$> genSha
+                <*> Gen.nonEmpty
+                    (Range.linear 1 3)
+                    (Check <$> Gen.element ["lint", "test", "build"])
         FixPrDone _ -> FixPrDone <$> genSha
         ReadyDone _ -> ReadyDone . Url <$> genText
         ReadySkipped _ -> ReadySkipped . Url <$> genText
     TicketLayer -> \case
         TicketWritten _ -> TicketWritten . Url <$> genText
-        ProblemUnderstood -> pure ProblemUnderstood
-        ProblemMore -> pure ProblemMore
-        ConfirmDesignConfirmed _ -> ConfirmDesignConfirmed . Url <$> genText
-        ConfirmDesignAdjusted -> pure ConfirmDesignAdjusted
     RequestLayer -> \case
         OpenPlanDone _ -> OpenPlanDone . Url <$> genText
         OpenBranchDone _ -> OpenBranchDone . Branch <$> genText
@@ -331,7 +387,11 @@ genPicks :: Gen Picks
 genPicks =
     Picks
         <$> genSet (Label <$> Gen.element ["A", "B", "C"])
-        <*> (Map.fromList <$> Gen.list (Range.linear 0 2) ((,) . Requirement <$> Gen.element ["R1", "R2"] <*> Gen.enumBounded))
+        <*> ( Map.fromList
+                <$> Gen.list
+                    (Range.linear 0 2)
+                    ((,) . Requirement <$> Gen.element ["R1", "R2"] <*> Gen.enumBounded)
+            )
 
 genCommit :: Gen Commit
 genCommit = Commit <$> genSha <*> genSet Gen.enumBounded
@@ -356,7 +416,9 @@ genTime :: Gen UTCTime
 genTime =
     UTCTime . ModifiedJulianDay
         <$> Gen.integral (Range.linear 40000 80000)
-        <*> (picosecondsToDiffTime <$> Gen.integral (Range.linear 0 (86400 * 1000000000000 - 1)))
+        <*> ( picosecondsToDiffTime
+                <$> Gen.integral (Range.linear 0 (86400 * 1000000000000 - 1))
+            )
 
 -- | Any run id the kernel accepts.
 genRunId :: Gen RunId
@@ -366,7 +428,10 @@ genRunId = Gen.mapMaybe parseRunId genIdText
 parsers refuse one: 'Gen.unicode' alone almost never draws one.
 -}
 genIdText :: Gen Text
-genIdText = Gen.text (Range.linear 1 8) (Gen.frequency [(9, Gen.unicode), (1, Gen.element lineBreaks)])
+genIdText =
+    Gen.text
+        (Range.linear 1 8)
+        (Gen.frequency [(9, Gen.unicode), (1, Gen.element lineBreaks)])
 
 lineBreaks :: [Char]
 lineBreaks = filter breaksLine [minBound .. maxBound]
@@ -379,7 +444,8 @@ genQuestion = Question <$> genQId <*> Gen.enumBounded <*> genOneLine
 
 -- | Any reading: a kind and a choice.
 genReading :: Gen Reading
-genReading = Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> genProposal, pure PassOn]
+genReading =
+    Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> genProposal, pure PassOn]
 
 genProposal :: Gen Proposal
 genProposal = Proposal <$> genOneLine <*> genOneLine <*> genOneLine <*> Gen.maybe genBasis

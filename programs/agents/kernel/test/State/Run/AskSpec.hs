@@ -8,7 +8,15 @@ import Hedgehog.Range qualified as Range
 import State.Role (Rung (..))
 import State.Run.Ask
 import State.Run.Event (PlanCall (..), Shape (..))
-import State.Run.EventGen (genOneLine, genProposal, genQId, genQuestion, genReading, oneLine, runId)
+import State.Run.EventGen (
+    genOneLine,
+    genProposal,
+    genQId,
+    genQuestion,
+    genReading,
+    oneLine,
+    runId,
+ )
 import State.Run.Id (TaskId (..), breaksLine)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -16,7 +24,9 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = describe "State.Run.Ask" $ do
     it "authority_table_is_total" $
-        [(kind, map (`authority` kind) [Worker, Lead, Orchestrator, User]) | kind <- [minBound .. maxBound]]
+        [ (kind, map (`authority` kind) [Worker, Lead, Orchestrator, User])
+        | kind <- [minBound .. maxBound]
+        ]
             `shouldBe` table
 
     it "forward_all_handler_changes_nothing" . hedgehog $ do
@@ -37,7 +47,10 @@ spec = describe "State.Run.Ask" $ do
                 (RuleOn _, alone) -> alone
                 (PassOn, Left refusal) -> Left refusal
                 (PassOn, Right _) -> rung parent raised
-        cover 2 "the child raises what it forwards" (raisedBy (rung child question) question)
+        cover
+            2
+            "the child raises what it forwards"
+            (raisedBy (rung child question) question)
         (rung child `andThen` rung parent) question === expected
 
     it "andThen_is_associative" . hedgehog $ do
@@ -71,7 +84,9 @@ spec = describe "State.Run.Ask" $ do
                 `shouldBe` Left (NoBasis qid)
 
         it "accepts a Security ruling that names its basis" $
-            fmap ruledBasis (triage Orchestrator (Reading Security (RuleOn based)) (asking Security))
+            fmap
+                ruledBasis
+                (triage Orchestrator (Reading Security (RuleOn based)) (asking Security))
                 `shouldBe` Right (Just (Obvious (oneLine "the user named the key")))
 
         it "never re-tags away from Security" $
@@ -86,8 +101,11 @@ spec = describe "State.Run.Ask" $ do
             triage Orchestrator (Reading Fact PassOn) (asking Fact)
                 `shouldBe` Left (MustAnswer Orchestrator Fact)
 
-        it "lets the engineer and the 10x forward a Pick, so the user's may cell is reachable" $
-            map (\role -> triage role (Reading Pick PassOn) (asking Pick)) [Lead, Orchestrator]
+        it
+            "lets the engineer and the 10x forward a Pick, so the user's may cell is reachable"
+            $ map
+                (\role -> triage role (Reading Pick PassOn) (asking Pick))
+                [Lead, Orchestrator]
                 `shouldBe` [Right (Forward (asking Pick)), Right (Forward (asking Pick))]
 
         it "refuses a forward at the user, the top of the chain" $
@@ -99,24 +117,43 @@ spec = describe "State.Run.Ask" $ do
                 `shouldBe` Left (NeverAskedOf User Fact)
 
         it "lets the LLM rule or forward where the row answers under a condition" $
-            map (\choice -> isRuled (triage Orchestrator (Reading Design choice) (asking Design))) [RuleOn proposal, PassOn]
+            map
+                (\choice -> isRuled (triage Orchestrator (Reading Design choice) (asking Design)))
+                [RuleOn proposal, PassOn]
                 `shouldBe` [True, False]
 
     describe "andThen" $ do
         it "lets the parent rule on what the child forwards" $
-            fmap ruledQid ((triage Lead (Reading Design PassOn) `andThen` triage Orchestrator (Reading Design (RuleOn proposal))) (asking Design))
+            fmap
+                ruledQid
+                ( ( triage Lead (Reading Design PassOn)
+                        `andThen` triage Orchestrator (Reading Design (RuleOn proposal))
+                  )
+                    (asking Design)
+                )
                 `shouldBe` Right (Just qid)
 
         it "stops at the first ruling, so the parent never sees it" $
-            fmap ruledQid ((triage Lead (Reading Fact (RuleOn proposal)) `andThen` triage User (Reading Fact PassOn)) (asking Fact))
+            fmap
+                ruledQid
+                ( ( triage Lead (Reading Fact (RuleOn proposal))
+                        `andThen` triage User (Reading Fact PassOn)
+                  )
+                    (asking Fact)
+                )
                 `shouldBe` Right (Just qid)
 
     describe "ask" $ do
-        it "sends a role's own question its row forwards to the user who started the run" $
-            ask (ByUser OwnPr) Lead Design `shouldBe` Up TheUser
+        it
+            "sends a role's own question its row forwards to the user who started the run"
+            $ ask (ByUser OwnPr) Lead Design `shouldBe` Up TheUser
 
         it "hands a forwarded question back to the parent run" $
-            ask (ByRole (Parent (runId "p1") (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
+            ask
+                (ByRole (Parent (runId "p1") (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms)
+                Lead
+                Design
+                `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
             ask (ByUser OwnPr) Lead Fact `shouldBe` AnswerSelf
@@ -124,27 +161,39 @@ spec = describe "State.Run.Ask" $ do
         it "forwards the engineer's Confirm at every Fuel: its row never answers it" $
             ask (ByUser OwnPr) Lead Confirm `shouldBe` Up TheUser
 
-        it "forwards the 10x's own Confirm: no confirmed breakdown exists yet for it to fit" $
-            ask (ByUser OwnPr) Orchestrator Confirm `shouldBe` Up TheUser
+        it
+            "forwards the 10x's own Confirm: no confirmed breakdown exists yet for it to fit"
+            $ ask (ByUser OwnPr) Orchestrator Confirm `shouldBe` Up TheUser
 
     it "spells a question on one line as #360's wire format" $
         questionLine (Question qid Design (oneLine "change the data model?"))
             `shouldBe` "Design r7f2:3: change the data model?"
 
     it "writes a hand-back's first line, its run, then a line per ruling" $
-        fmap (\ruling -> handback "READY https://example.test/pr/1" (runId "r7f2") [ruling]) (rule Orchestrator Security (asking Security) based)
-            `shouldBe` Right "READY https://example.test/pr/1\nRun: r7f2\nRuling r7f2:3 Security: yes - reversible - an hour - basis: obvious: the user named the key\n"
+        fmap
+            (\ruling -> handback "READY https://example.test/pr/1" (runId "r7f2") [ruling])
+            (rule Orchestrator Security (asking Security) based)
+            `shouldBe` Right
+                "READY https://example.test/pr/1\nRun: r7f2\nRuling r7f2:3 Security: yes - reversible - an hour - basis: obvious: the user named the key\n"
 
     it "keeps every hand-back line one line" . hedgehog $ do
         question <- forAll genQuestion
-        ruling <- forAll (Gen.mapMaybe (either (const Nothing) Just) (rule Orchestrator Pick <$> genQuestion <*> genProposal))
+        ruling <-
+            forAll
+                ( Gen.mapMaybe
+                    (either (const Nothing) Just)
+                    (rule Orchestrator Pick <$> genQuestion <*> genProposal)
+                )
         assert (not (Text.any breaksLine (questionLine question)))
         let handbackLines = Text.lines (handback "READY ref" (runId "r7f2") [ruling])
         length handbackLines === 3
         filter (Text.any breaksLine) handbackLines === []
 
     it "refuses a line break in a line of text" $
-        map (parseOneLine . ("a" <>) . Text.singleton) ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'] `shouldBe` replicate 7 Nothing
+        map
+            (parseOneLine . ("a" <>) . Text.singleton)
+            ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029']
+            `shouldBe` replicate 7 Nothing
 
     it "parses a line back" . hedgehog $ do
         text <- forAll genOneLine
@@ -155,7 +204,8 @@ spec = describe "State.Run.Ask" $ do
         tripping questionId qidText parseQId
 
     it "refuses a question id with no number, a bad number or a bad run" $
-        map parseQId ["r7f2", "r7f2:", "r7f2:3x", "h:3", ":3"] `shouldBe` replicate 5 Nothing
+        map parseQId ["r7f2", "r7f2:", "r7f2:3x", "h:3", ":3"]
+            `shouldBe` replicate 5 Nothing
 
     it "parses a kind's wire name back" . hedgehog $ do
         kind <- forAll Gen.enumBounded

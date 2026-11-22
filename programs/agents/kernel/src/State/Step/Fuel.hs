@@ -15,8 +15,7 @@ module State.Step.Fuel (
 ) where
 
 import Data.Aeson ((.:), (.=))
-import Data.Type.Equality ((:~:) (..))
-import Data.Typeable (Typeable, eqT)
+import Data.Typeable (Typeable)
 import State.Category.Flow (Name, nameText)
 import State.Category.Fuel (PerFuel, SkipWhen, fuelName)
 import State.Category.Fuel qualified as Level
@@ -40,7 +39,8 @@ instance StepSet FuelStep where
     data Sing s where
         Fuel :: Sing Fuel
         -- \| Named after the block it may skip, with the levels that may: its state is @skip_<block>@.
-        Skip :: (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Sing (Skip a)
+        Skip ::
+            (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Sing (Skip a)
 
     data Outcome s l where
         -- \| The run's Fuel, from here on.
@@ -61,20 +61,10 @@ instance StepSet FuelStep where
         Fuel -> Continues (OutcomeName "set")
         Skip _ _ -> Branches
 
-    special = \case
-        Fuel -> Ordinary
-        Skip _ _ -> Ordinary
-
-    sameStep a b = case (a, b) of
-        (Fuel, Fuel) -> Just Refl
-        (Fuel, Skip _ _) -> Nothing
-        (Skip @x _ _, Skip @y _ _) -> (\Refl -> Refl) <$> eqT @x @y
-        (Skip _ _, Fuel) -> Nothing
-
     pack = \case
         o@(LevelSet _) -> packed Fuel o
-        o@(Skipping skip) -> packed skip o
-        o@(Running skip) -> packed skip o
+        o@(Skipping skip@(Skip _ _)) -> packed skip o
+        o@(Running skip@(Skip _ _)) -> packed skip o
 
     encodeOutcome = \case
         LevelSet level -> "level" .= fuelName level
@@ -82,7 +72,14 @@ instance StepSet FuelStep where
         Running _ -> mempty
 
     -- A skip's events are its block's, read where the flow is known ('skipOutcomes').
-    decoders = [Decoder Fuel (\o -> LevelSet <$> (o .: "level" >>= maybe (fail "no such level") pure . Level.parseFuel))]
+    decoders =
+        [ Decoder
+            Fuel
+            ( \o ->
+                LevelSet
+                    <$> (o .: "level" >>= maybe (fail "no such level") pure . Level.parseFuel)
+            )
+        ]
 
 {- | A skip's two outcomes, which a run may record at it: its block names
 the skip, so the layer has no reader of them ('decoders'). 'Fuel''s carries

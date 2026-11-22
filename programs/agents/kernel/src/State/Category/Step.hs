@@ -18,6 +18,7 @@ module State.Category.Step (
     LegOf (..),
     Fits (..),
     SomeOutcome (..),
+    sameOutcome,
     packed,
     outcomeEvent,
     builtEvent,
@@ -26,8 +27,8 @@ module State.Category.Step (
     decoderEvent,
     decodeWith,
     SomeStep (..),
-    Special (..),
-    Cue (..),
+    opsOf,
+    stepAwaits,
     confirmText,
     StateName (..),
     stateNameText,
@@ -50,11 +51,20 @@ import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Type.Equality ((:~:) (..))
-import Data.Typeable (Typeable)
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, sameSymbol, symbolVal)
-import State.Category.Effect (Eff)
-import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..), TyVal, labelledTys)
+import State.Category.Effect (KnownOps (..), Op, OpVal, awaiting)
+import State.Category.Ty (
+    HasLabel,
+    KnownTy,
+    NotSum,
+    Summands,
+    Ty,
+    TyOf (..),
+    TyVal,
+    labelledTys,
+ )
+import Type.Reflection (Typeable, eqTypeRep, typeRep, (:~~:) (HRefl))
 
 -- | A step's signature: @(in, exit, continue)@.
 type Sig3 = (Ty, Maybe Ty, Ty)
@@ -73,20 +83,27 @@ type family CodOf sig where
 
 {- | A layer of steps. No method has a default, so a layer that leaves one
 out does not build, and each is total over the layer's steps or outcomes,
-so a new one breaks the build at every match. 'Typeable' lets a meter
-('State.Category.Meter') tell its own step's outcomes from another layer's. 'pack' guards the outcomes:
-GHC accepts an outcome whose leg does not fit its step where it is declared
-and refuses it only where it is packed, so 'pack' packs every one, and a
-missing arm is an incomplete match.
+so a new one breaks the build at every match. 'Typeable' lets a term
+('State.Step.Catalog') tell a pick or a skip from another layer's step.
+'pack' guards the outcomes: GHC accepts an outcome whose leg does not fit
+its step where it is declared and refuses it only where it is packed, so
+'pack' packs every one, and a missing arm is an incomplete match.
 -}
-class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
+class
+    ( Typeable k
+    , forall (s :: k). Show (Sing s)
+    , forall (s :: k) l. Show (Outcome s l)
+    , forall (s :: k) l. Eq (Outcome s l)
+    ) =>
+    StepSet k
+    where
     type Sig (s :: k) :: Sig3
 
-    {- | The effects the step raises besides a question: every step may put
-    one, so 'State.Category.Flow.Effects' adds 'AskE' itself. A pick also
-    picks.
+    {- | The operations the step raises besides a question: every step may
+    put one, so 'State.Category.Flow.Effects' adds 'AskE' itself. A pick
+    also picks; a step raises at most one entry operation (see 'Op').
     -}
-    type Raises (s :: k) :: [Eff]
+    type Raises (s :: k) :: [Op]
 
     -- | The value of a step: 'State.Category.Flow.Do' takes it.
     data Sing (s :: k) :: Type
@@ -102,10 +119,6 @@ class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outc
 
     -- | The names of the step's exit and continuing outcomes.
     outcomes :: Sing (s :: k) -> Outcomes (ExitOf (Sig s)) (CodOf (Sig s))
-
-    special :: Sing (s :: k) -> Special
-
-    sameStep :: Sing (a :: k) -> Sing (b :: k) -> Maybe (a :~: b)
 
     pack :: Outcome (s :: k) l -> SomeOutcome k
 
@@ -127,7 +140,8 @@ data Leg = Exited | Continued | Took Symbol | Opened | Closed
 data LegOf (sig :: Sig3) (l :: Leg) where
     ByExit :: LegOf '(i, 'Just x, o) 'Exited
     ByContinuing :: (NotSum o) => LegOf '(i, e, o) 'Continued
-    ByTaking :: (KnownSymbol l, HasLabel l ss ~ 'True) => LegOf '(i, e, 'Sum ss) ('Took l)
+    ByTaking ::
+        (KnownSymbol l, HasLabel l ss ~ 'True) => LegOf '(i, e, 'Sum ss) ('Took l)
     ByOpening :: LegOf '(i, 'Nothing, i) 'Opened
     ByClosing :: LegOf '(i, 'Nothing, i) 'Closed
 
@@ -144,7 +158,14 @@ class Fits (sig :: Sig3) (l :: Leg) where
 instance Fits '(i, 'Just x, o) 'Exited where
     legOf = ByExit
 
-instance (Unsatisfiable ('Text "Outcome leg Exited does not fit step signature " ':<>: 'ShowType '(i, 'Nothing, o))) => Fits '(i, 'Nothing, o) 'Exited where
+instance
+    ( Unsatisfiable
+        ( 'Text "Outcome leg Exited does not fit step signature "
+            ':<>: 'ShowType '(i, 'Nothing, o)
+        )
+    ) =>
+    Fits '(i, 'Nothing, o) 'Exited
+    where
     legOf = unsatisfiable
 
 instance (NotSum o) => Fits '(i, e, o) 'Continued where
@@ -160,37 +181,52 @@ instance (i ~ o) => Fits '(i, 'Nothing, o) 'Opened where
 instance (i ~ o) => Fits '(i, 'Nothing, o) 'Closed where
     legOf = ByClosing
 
--- | An outcome of some step of the layer, with the proof its leg fits.
+{- | An outcome of some step of the layer, with the proof its leg fits.
+'Typeable' tells its step from another's ('sameOutcome'), 'KnownOps' its
+operations ('opsOf').
+-}
 data SomeOutcome k where
-    SomeOutcome :: Sing (s :: k) -> LegOf (Sig s) l -> Outcome s l -> SomeOutcome k
+    SomeOutcome ::
+        (Typeable s, KnownOps (Raises s)) =>
+        Sing (s :: k) -> LegOf (Sig s) l -> Outcome s l -> SomeOutcome k
 
 instance (StepSet k) => Show (SomeOutcome k) where
-    showsPrec d (SomeOutcome s _ o) = showParen (d > 10) $ showString "SomeOutcome " . showsPrec 11 s . showChar ' ' . showsPrec 11 o
+    showsPrec d (SomeOutcome s _ o) =
+        showParen (d > 10) $
+            showString "SomeOutcome " . showsPrec 11 s . showChar ' ' . showsPrec 11 o
 
--- | Equal when of one step and one leg, with equal reports.
 instance (StepSet k) => Eq (SomeOutcome k) where
-    SomeOutcome s leg o == SomeOutcome s' leg' o' = case sameStep s s' of
-        Nothing -> False
-        Just Refl -> case (leg, leg') of
-            (ByExit, ByExit) -> o == o'
-            (ByExit, _) -> False
-            (ByContinuing, ByContinuing) -> o == o'
-            (ByContinuing, _) -> False
-            (ByTaking, ByTaking) -> case sameTaken leg leg' of
-                Just Refl -> o == o'
-                Nothing -> False
-            (ByTaking, _) -> False
-            (ByOpening, ByOpening) -> o == o'
-            (ByOpening, _) -> False
-            (ByClosing, ByClosing) -> o == o'
-            (ByClosing, _) -> False
+    (==) = sameOutcome
+
+-- | Equal when of one step and one leg, with equal reports: of steps of two layers, never.
+sameOutcome :: (StepSet k) => SomeOutcome k -> SomeOutcome j -> Bool
+sameOutcome (SomeOutcome (_ :: Sing s) leg o) (SomeOutcome (_ :: Sing t) leg' o') = case eqTypeRep (typeRep @s) (typeRep @t) of
+    Nothing -> False
+    Just HRefl -> case (leg, leg') of
+        (ByExit, ByExit) -> o == o'
+        (ByExit, _) -> False
+        (ByContinuing, ByContinuing) -> o == o'
+        (ByContinuing, _) -> False
+        (ByTaking, ByTaking) -> case sameTaken leg leg' of
+            Just Refl -> o == o'
+            Nothing -> False
+        (ByTaking, _) -> False
+        (ByOpening, ByOpening) -> o == o'
+        (ByOpening, _) -> False
+        (ByClosing, ByClosing) -> o == o'
+        (ByClosing, _) -> False
 
 -- | Whether two legs into a sum take one summand.
-sameTaken :: forall sig l m. LegOf sig ('Took l) -> LegOf sig ('Took m) -> Maybe ('Took l :~: 'Took m)
+sameTaken ::
+    forall sig l m.
+    LegOf sig ('Took l) -> LegOf sig ('Took m) -> Maybe ('Took l :~: 'Took m)
 sameTaken ByTaking ByTaking = (\Refl -> Refl) <$> sameSymbol (Proxy @l) (Proxy @m)
 
 -- | The packing 'pack' does per outcome, where the leg must fit the step.
-packed :: forall k (s :: k) l. (Fits (Sig s) l) => Sing s -> Outcome s l -> SomeOutcome k
+packed ::
+    forall k (s :: k) l.
+    (Fits (Sig s) l, Typeable s, KnownOps (Raises s)) =>
+    Sing s -> Outcome s l -> SomeOutcome k
 packed s = SomeOutcome s legOf
 
 -- | The graph's name for the edge an outcome takes: its step's, then its leg's.
@@ -217,7 +253,9 @@ takenLabel ByTaking = Text.pack (symbolVal (Proxy @l))
 a reader cannot sit under another outcome's name.
 -}
 data Decoder k where
-    Decoder :: (Fits (Sig s) l) => Sing (s :: k) -> (Object -> Parser (Outcome s l)) -> Decoder k
+    Decoder ::
+        (Fits (Sig s) l, Typeable s, KnownOps (Raises s)) =>
+        Sing (s :: k) -> (Object -> Parser (Outcome s l)) -> Decoder k
 
 decoderEvent :: (StepSet k) => Decoder k -> EventName
 decoderEvent (Decoder s (_ :: Object -> Parser (Outcome s l))) = legEvent s (legOf @(Sig s) @l)
@@ -226,7 +264,9 @@ decoderEvent (Decoder s (_ :: Object -> Parser (Outcome s l))) = legEvent s (leg
 any argument is at hand. Like a 'Decoder' key it is derived from the
 constructor's type, so it cannot name another outcome's event.
 -}
-builtEvent :: forall k (s :: k) l a. (StepSet k, Fits (Sig s) l) => Sing s -> (a -> Outcome s l) -> EventName
+builtEvent ::
+    forall k (s :: k) l a.
+    (StepSet k, Fits (Sig s) l) => Sing s -> (a -> Outcome s l) -> EventName
 builtEvent s _ = legEvent s (legOf @(Sig s) @l)
 
 decodeWith :: Decoder k -> Object -> Parser (SomeOutcome k)
@@ -234,35 +274,25 @@ decodeWith (Decoder s parse) = fmap (packed s) . parse
 
 -- | A step of the layer with its types known, so the steps can sit in one list.
 data SomeStep k where
-    SomeStep :: (KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s))) => Sing (s :: k) -> SomeStep k
+    SomeStep ::
+        (KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s)), KnownOps (Raises s)) =>
+        Sing (s :: k) -> SomeStep k
 
--- | What the advice at a step does instead of running it as its row says.
-data Special
-    = -- | Run it as its row says.
-      Ordinary
-    | -- | Ask the user to confirm this, once, before recording: @the simplified plan@.
-      AsksConfirm Cue Text
-    | -- | Wait on the PR's CI.
-      AwaitsCi
-    | -- | Wait on the tasks' PRs to merge.
-      AwaitsMerge
-    | -- | Name the url the run recorded last, what the request ended in.
-      TellsResult
-    | -- | Run it as its row says, its work the user's questions: offer @state ask@ beside its records.
-      Discusses
-    deriving stock (Eq, Show)
+-- | The operations a step raises, as values.
+opsOf :: forall k (s :: k). (KnownOps (Raises s)) => Sing s -> [OpVal]
+opsOf _ = opsVal @(Raises s)
+
+-- | Whether the step waits on something outside the run.
+stepAwaits :: forall k (s :: k). (KnownOps (Raises s)) => Sing s -> Bool
+stepAwaits s = any awaiting (opsOf s)
 
 -- | A Confirm's question: its answers are the step's outcomes, so it names what is recorded.
 confirmText :: (StepSet k) => Sing (s :: k) -> Text -> Text
-confirmText s what = what <> ": " <> Text.intercalate ", or " [o | OutcomeName o <- outcomeNames (outcomes s)] <> "?"
-
--- | When a step's Confirm question is asked.
-data Cue
-    = -- | On entering the step.
-      OnEntry
-    | -- | Once the user says the discussion is done: until then the agent talks free-form.
-      OnUserWord
-    deriving stock (Eq, Show)
+confirmText s what =
+    what
+        <> ": "
+        <> Text.intercalate ", or " [o | OutcomeName o <- outcomeNames (outcomes s)]
+        <> "?"
 
 -- | A state of a flow's graph, by name: what people read, and an override's target.
 newtype StateName = StateName Text
@@ -282,7 +312,8 @@ no step needs both yet.
 data Outcomes (e :: Maybe Ty) (o :: Ty) where
     Continues :: (NotSum o) => OutcomeName -> Outcomes 'Nothing o
     -- | The exit outcome, then the continuing one.
-    ExitsOr :: (KnownTy x, NotSum o) => OutcomeName -> OutcomeName -> Outcomes ('Just x) o
+    ExitsOr ::
+        (KnownTy x, NotSum o) => OutcomeName -> OutcomeName -> Outcomes ('Just x) o
     -- | One outcome per summand, named by its label, in the sum's order.
     Branches :: (Summands ss) => Outcomes 'Nothing ('Sum ss)
     {- | A step that spawns a child, which hands back: drawn only by a
@@ -310,7 +341,8 @@ eventText :: EventName -> Text
 eventText (EventName (StateName step) (OutcomeName outcome)) = step <> "." <> outcome
 
 -- | The event a step's continuing outcome appends: a step that branches has two, by 'Inl' and 'Inr'.
-continueEvent :: (StepSet k, NotSum (CodOf (Sig s))) => Sing (s :: k) -> EventName
+continueEvent ::
+    (StepSet k, NotSum (CodOf (Sig s))) => Sing (s :: k) -> EventName
 continueEvent s = EventName (stepName s) $ case outcomes s of
     Continues continue -> continue
     ExitsOr _ continue -> continue

@@ -23,9 +23,22 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Text.IO qualified as Text
-import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
+import Effectful (
+    Dispatch (Dynamic),
+    DispatchOf,
+    Eff,
+    Effect,
+    IOE,
+    liftIO,
+    (:>),
+ )
 import Effectful.Dispatch.Dynamic (interpret, localSeqUnliftIO, send)
-import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile, withCurrentDirectory)
+import System.Directory (
+    createDirectoryIfMissing,
+    doesFileExist,
+    renameFile,
+    withCurrentDirectory,
+ )
 import System.Directory qualified as Directory
 import System.FilePath (takeDirectory, takeFileName)
 import System.IO (hClose, openTempFile)
@@ -80,7 +93,8 @@ removeFile = send . RemoveFile
 createDirectory :: (WrFileSystem :> es) => FilePath -> Eff es ()
 createDirectory = send . CreateDirectory
 
-runFileSystemIO :: (IOE :> es) => Eff (WrFileSystem : RoFileSystem : es) a -> Eff es a
+runFileSystemIO ::
+    (IOE :> es) => Eff (WrFileSystem : RoFileSystem : es) a -> Eff es a
 runFileSystemIO = runRoFileSystemIO . runWrFileSystemIO
 
 runRoFileSystemIO :: (IOE :> es) => Eff (RoFileSystem : es) a -> Eff es a
@@ -103,7 +117,8 @@ runWrFileSystemIO = interpret $ \_ -> \case
             bracketOnError
                 (openTempFile (takeDirectory path) (takeFileName path <> ".tmp"))
                 (\(temp, handle) -> hClose handle >> Directory.removeFile temp)
-                (\(temp, handle) -> Text.hPutStr handle text >> hClose handle >> renameFile temp path)
+                ( \(temp, handle) -> Text.hPutStr handle text >> hClose handle >> renameFile temp path
+                )
     RemoveFile path -> liftIO (orIfAbsent () (Directory.removeFile path))
     CreateDirectory path -> liftIO (createDirectoryIfMissing True path)
 

@@ -60,7 +60,20 @@ import Data.Maybe (isJust, isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import State.Run.Ask (QId)
-import State.Run.Event (Child (..), ChildTask (..), RunId, Said (..), Shape (..), Stop, Task (..), TaskId, TaskState (..), Tasks, Url, taskList)
+import State.Run.Event (
+    Child (..),
+    ChildTask (..),
+    RunId,
+    Said (..),
+    Shape (..),
+    Stop,
+    Task (..),
+    TaskId,
+    TaskState (..),
+    Tasks,
+    Url,
+    taskList,
+ )
 
 data Fan = Fan
     { tasks :: [Task]
@@ -117,7 +130,15 @@ data Refusal
     deriving stock (Eq, Show)
 
 emptyFan :: Fan
-emptyFan = Fan {tasks = [], children = [], moves = Map.empty, held = [], atWork = Set.empty, rounds = Map.empty}
+emptyFan =
+    Fan
+        { tasks = []
+        , children = []
+        , moves = Map.empty
+        , held = []
+        , atWork = Set.empty
+        , rounds = Map.empty
+        }
 
 -- | A breakdown starts a fresh fan-out: refused while an agent works on a task of the old one.
 broken :: Tasks -> Fan -> Either Refusal Fan
@@ -170,7 +191,10 @@ spawned asking child fan = case child.task of
 stop is triaged, and no question of its children is open (@asking@).
 -}
 free :: [RunId] -> Task -> Fan -> Either Refusal ()
-free asking task fan = case (runningOn task.id fan, find ((== Tasked task.id) . (.task) . fst) (untriaged fan), askingUp) of
+free asking task fan = case ( runningOn task.id fan
+                            , find ((== Tasked task.id) . (.task) . fst) (untriaged fan)
+                            , askingUp
+                            ) of
     (Just other, _, _) -> Left (StillRunning task.id other.child.run)
     (Nothing, Just (stopped, _), _) -> Left (StopUntriaged stopped.run)
     (Nothing, Nothing, Just run) -> Left (AwaitsUser run)
@@ -195,7 +219,9 @@ triaged :: RunId -> Fan -> Fan
 triaged run fan = fan {children = map mark fan.children}
   where
     mark childRun = case reverse childRun.said of
-        Heard (Ended stop) : before | childRun.child.run == run -> childRun {said = reverse (TriagedStop stop : before)}
+        Heard (Ended stop) : before
+            | childRun.child.run == run ->
+                childRun {said = reverse (TriagedStop stop : before)}
         _ -> childRun
 
 -- | A child's hand-back: its task has no agent at work until the 10x sends one.
@@ -203,7 +229,8 @@ handedBack :: RunId -> Said -> Fan -> Either Refusal Fan
 handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
     Nothing -> Left (UnknownChild run)
     Just found
-        | live found -> Right fan {children = map add fan.children, atWork = idle found.child.task}
+        | live found ->
+            Right fan {children = map add fan.children, atWork = idle found.child.task}
         | otherwise -> Left (ChildOver run)
   where
     add childRun
@@ -254,7 +281,11 @@ moved task state fan = case Map.lookup task fan.moves of
         Kept _ -> fan.atWork
         Round _ -> fan.atWork
     rounded after = case state of
-        Round url -> after {tasks = map (onRound url) after.tasks, rounds = Map.insertWith (+) task 1 after.rounds}
+        Round url ->
+            after
+                { tasks = map (onRound url) after.tasks
+                , rounds = Map.insertWith (+) task 1 after.rounds
+                }
         Parked _ _ -> after
         InCi _ -> after
         InReview _ -> after
@@ -329,7 +360,12 @@ runningOn task fan = find ((== Tasked task) . (.child.task)) (running fan)
 
 -- | The running children no agent works for: each waits on the 10x.
 waiting :: Fan -> [ChildRun]
-waiting fan = [childRun | childRun <- running fan, Tasked task <- [childRun.child.task], Set.notMember task fan.atWork]
+waiting fan =
+    [ childRun
+    | childRun <- running fan
+    , Tasked task <- [childRun.child.task]
+    , Set.notMember task fan.atWork
+    ]
 
 -- | The stopped children whose stop the 10x has yet to triage, oldest first: each its task's latest child.
 untriaged :: Fan -> [(Child, Stop)]
@@ -474,11 +510,20 @@ mergesAwaited fan = [dep.id | dep <- fan.tasks, opened dep.id, any (elem dep.id 
 
 -- | The PRs in CI of the tasks with no agent at work, in the breakdown's order: the 10x waits for their CI.
 ciAwaited :: Fan -> [Url]
-ciAwaited fan = [url | task <- fan.tasks, task.id `notElem` map (.id) (busy fan), Just (InCi url) <- [Map.lookup task.id fan.moves]]
+ciAwaited fan =
+    [ url
+    | task <- fan.tasks
+    , task.id `notElem` map (.id) (busy fan)
+    , Just (InCi url) <- [Map.lookup task.id fan.moves]
+    ]
 
 -- | The tasks with an agent at work or a child running, in the breakdown's order.
 busy :: Fan -> [Task]
-busy fan = [task | task <- fan.tasks, Set.member task.id fan.atWork || isJust (runningOn task.id fan)]
+busy fan =
+    [ task
+    | task <- fan.tasks
+    , Set.member task.id fan.atWork || isJust (runningOn task.id fan)
+    ]
 
 -- | The children spawned for the task so far.
 tries :: Fan -> TaskId -> Int

@@ -21,7 +21,7 @@ module State.Step.Fan (
 import Data.Aeson ((.:))
 import Data.List (find)
 import Data.Text (Text)
-import Data.Type.Equality ((:~:) (..))
+import State.Category.Effect qualified as Effect
 import State.Category.Flow (Name, nameText, namedState)
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
@@ -31,7 +31,10 @@ import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
 type data FanStep = Breakdown | Merge
 
 instance StepSet FanStep where
-    type Raises s = '[]
+    type Raises Breakdown = '[]
+
+    -- This layer's step 'Merge' shares its name with 'Effect.Waiting''s, so that one is qualified.
+    type Raises Merge = '[ 'Effect.Awaits 'Effect.Merge]
 
     type Sig Breakdown = '( 'Plan, 'Nothing, 'List 'Ctx)
     type Sig Merge = '( 'List 'PR, 'Just 'PR, 'Ctx)
@@ -62,16 +65,6 @@ instance StepSet FanStep where
         Breakdown _ -> Continues (OutcomeName "done")
         Merge _ -> ExitsOr (OutcomeName "done") (OutcomeName "next_round")
 
-    special = \case
-        Breakdown _ -> Ordinary
-        Merge _ -> AwaitsMerge
-
-    sameStep a b = case (a, b) of
-        (Breakdown _, Breakdown _) -> Just Refl
-        (Breakdown _, _) -> Nothing
-        (Merge _, Merge _) -> Just Refl
-        (Merge _, _) -> Nothing
-
     pack = \case
         o@(BreakdownDone fan _) -> packed (Breakdown fan) o
         o@(MergeDone fan _) -> packed (Merge fan) o
@@ -84,7 +77,9 @@ instance StepSet FanStep where
 
     decoders =
         concat
-            [ [ Decoder (Breakdown fan) (\obj -> BreakdownDone fan <$> (obj .: "tasks" >>= breakdownOf))
+            [ [ Decoder
+                    (Breakdown fan)
+                    (\obj -> BreakdownDone fan <$> (obj .: "tasks" >>= breakdownOf))
               , Decoder (Merge fan) (fmap (MergeDone fan) . urlOf)
               , Decoder (Merge fan) (const (pure (MergeNextRound fan)))
               ]
@@ -124,7 +119,10 @@ fanStepName step fan
 
 -- | The fan-out whose state this is: its breakdown, its await or its merge.
 fanOf :: StateName -> Maybe Name
-fanOf name = find (\fan -> name `elem` [breakdownName fan, namedState fan, mergeName fan]) fanOuts
+fanOf name =
+    find
+        (\fan -> name `elem` [breakdownName fan, namedState fan, mergeName fan])
+        fanOuts
 
 -- | The fan-out whose 'State.Category.Flow.Await' state, named by its group, this is.
 fanNamed :: StateName -> Maybe Name

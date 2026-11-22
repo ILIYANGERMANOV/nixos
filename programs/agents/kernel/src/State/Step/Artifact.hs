@@ -69,7 +69,16 @@ module State.Step.Artifact (
 
 import Control.Applicative ((<|>))
 import Control.Monad (foldM)
-import Data.Aeson (Object, Value, eitherDecodeStrictText, parseJSON, withObject, (.:), (.:?), (.=))
+import Data.Aeson (
+    Object,
+    Value,
+    eitherDecodeStrictText,
+    parseJSON,
+    withObject,
+    (.:),
+    (.:?),
+    (.=),
+ )
 import Data.Aeson.Encoding (Encoding, list, pair, pairs)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
@@ -305,7 +314,10 @@ urlData :: Url -> Series
 urlData url = "url" .= urlText url
 
 draftData :: DraftPr -> Series
-draftData draft = urlData draft.url <> "base" .= branchText draft.base <> "branch" .= branchText draft.branch
+draftData draft =
+    urlData draft.url
+        <> "base" .= branchText draft.base
+        <> "branch" .= branchText draft.branch
 
 commitData :: Commit -> Series
 commitData commit = headData commit.head <> "touches" .= map areaText (Set.toList commit.touches)
@@ -368,18 +380,33 @@ urlOf :: Object -> Parser Url
 urlOf obj = Url <$> obj .: "url"
 
 draftOf :: Object -> Parser DraftPr
-draftOf obj = DraftPr <$> urlOf obj <*> (Branch <$> obj .: "base") <*> (Branch <$> obj .: "branch")
+draftOf obj =
+    DraftPr
+        <$> urlOf obj
+        <*> (Branch <$> obj .: "base")
+        <*> (Branch <$> obj .: "branch")
 
 commitOf :: Object -> Parser Commit
-commitOf obj = Commit <$> headOf obj <*> (Set.fromList <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaText))))
+commitOf obj =
+    Commit
+        <$> headOf obj
+        <*> ( Set.fromList
+                <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaText)))
+            )
 
 picksOf :: Object -> Parser Picks
 picksOf obj =
     Picks
         <$> (obj .: "rows" >>= distinct "row" . map Label)
-        <*> (obj .: "verdicts" >>= traverse (withObject "verdict" verdictOf) >>= keyed "requirement")
+        <*> ( obj .: "verdicts"
+                >>= traverse (withObject "verdict" verdictOf)
+                >>= keyed "requirement"
+            )
   where
-    verdictOf verdict = (,) . Requirement <$> verdict .: "requirement" <*> (verdict .: "outcome" >>= named "outcome" (parseByName judgementText))
+    verdictOf verdict =
+        (,) . Requirement
+            <$> verdict .: "requirement"
+            <*> (verdict .: "outcome" >>= named "outcome" (parseByName judgementText))
 
 -- | A breakdown file: the JSON array @breakdown.done@ logs as its @tasks@.
 decodeBreakdown :: Text -> Either Text Tasks
@@ -416,21 +443,48 @@ taskFieldsOf obj = do
     fuel <- obj .: "fuel" >>= named "fuel" parseFuel
     qa <- obj .: "qa"
     heavy <- obj .: "heavy"
-    security <- obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic"
+    security <-
+        obj .: "security"
+            >>= traverse (named "topic" (parseByName topicText))
+            >>= distinct "topic"
     shape <- shapeOf obj
     plan <- planOf obj
     repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
-    flow <- fromMaybe defaultFlow <$> (obj .:? "flow" >>= traverse (named "flow" (parseByName flowText)))
-    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, plan, repo, worktree, flow}
+    flow <-
+        fromMaybe defaultFlow
+            <$> (obj .:? "flow" >>= traverse (named "flow" (parseByName flowText)))
+    pure
+        Task
+            { id = taskId
+            , deps
+            , base
+            , branch
+            , fuel
+            , qa
+            , heavy
+            , security
+            , shape
+            , plan
+            , repo
+            , worktree
+            , flow
+            }
   where
-    worktreeOf path = maybe (fail ("a worktree is " <> shellPathRule <> ", not " <> show path)) pure (shellPath path)
+    worktreeOf path =
+        maybe
+            (fail ("a worktree is " <> shellPathRule <> ", not " <> show path))
+            pure
+            (shellPath path)
 
 shapeOf :: Object -> Parser Shape
 shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"
 
 targetOf :: Object -> Parser Target
-targetOf obj = OnPr . Url <$> obj .: "pr" <|> OnBranch . Branch <$> obj .: "branch" <|> OnTicket . Url <$> obj .: "ticket"
+targetOf obj =
+    OnPr . Url <$> obj .: "pr"
+        <|> OnBranch . Branch <$> obj .: "branch"
+        <|> OnTicket . Url <$> obj .: "ticket"
 
 planOf :: Object -> Parser PlanCall
 planOf obj = bool ChildConfirms ParentDecided . fromMaybe False <$> obj .:? "planDecided"

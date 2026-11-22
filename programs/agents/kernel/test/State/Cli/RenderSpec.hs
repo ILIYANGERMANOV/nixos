@@ -18,7 +18,10 @@ spec = describe "State.Cli.Render" $ do
     describe "states" $ do
         it "has a row per state, in the flow's order" $
             (length rows, take 1 rows, take 1 (reverse rows))
-                `shouldBe` (Set.size (places g), ["| fuel | you | set: gather |"], ["| ready | you | done: end; skipped: end |"])
+                `shouldBe` ( Set.size (places g)
+                           , ["| fuel | you | set: gather |"]
+                           , ["| ready | you | done: end; skipped: end |"]
+                           )
 
         it "names who runs each state and where each outcome goes" $
             rows
@@ -30,8 +33,9 @@ spec = describe "State.Cli.Render" $ do
             take 1 (drop 2 (Text.lines (states threeWayGraph steps)))
                 `shouldBe` ["| route | you | big: big/refactor; other: other/describe; small: describe |"]
 
-    it "renders the Fuel rows from the Fuel table: the meters by state, a choice's in the order it declares them, then Low's skips in the flow's order" $
-        fuel (termSkips engineer) g
+    it
+        "renders the Fuel rows from the Fuel table: the meters by state, a choice's in the order it declares them, then Low's skips in the flow's order"
+        $ fuel (termSkips engineer) g
             `shouldBe` Text.unlines
                 [ "| Researchers | 1 for all, 8 calls, notes past the hand-back limit | up to 5, 15 calls, notes | one per group, 30 calls, notes, top 5 facts re-checked |"
                 , "| Interview questions | up to 15 | up to 30 | up to 50 |"

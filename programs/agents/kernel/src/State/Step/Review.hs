@@ -9,11 +9,20 @@ module State.Step.Review (
     Outcome (..),
 ) where
 
-import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
-import State.Step.Artifact (Commit, Picks, Sha, commitData, commitOf, headData, headOf, picksData, picksOf)
+import State.Step.Artifact (
+    Commit,
+    Picks,
+    Sha,
+    commitData,
+    commitOf,
+    headData,
+    headOf,
+    picksData,
+    picksOf,
+ )
 
 type data ReviewStep = Review | PickRows | Fix | ReReview
 
@@ -61,22 +70,6 @@ instance StepSet ReviewStep where
         PickRows -> ExitsOr (OutcomeName "final") (OutcomeName "loop")
         Fix -> Continues (OutcomeName "done")
         ReReview -> ExitsOr (OutcomeName "clean") (OutcomeName "rows")
-
-    special = \case
-        Review -> Ordinary
-        PickRows -> Ordinary
-        Fix -> Ordinary
-        ReReview -> Ordinary
-
-    sameStep a b = case (a, b) of
-        (Review, Review) -> Just Refl
-        (Review, _) -> Nothing
-        (PickRows, PickRows) -> Just Refl
-        (PickRows, _) -> Nothing
-        (Fix, Fix) -> Just Refl
-        (Fix, _) -> Nothing
-        (ReReview, ReReview) -> Just Refl
-        (ReReview, _) -> Nothing
 
     pack = \case
         o@(ReviewClean _) -> packed Review o

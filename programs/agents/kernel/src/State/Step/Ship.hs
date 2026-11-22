@@ -10,16 +10,28 @@ module State.Step.Ship (
 import Data.Aeson ((.:), (.=))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Type.Equality ((:~:) (..))
+import State.Category.Effect (OpOf (Awaits), Waiting (Ci))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
-import State.Step.Artifact (Check (..), Sha, Url, headData, headOf, urlData, urlOf)
+import State.Step.Artifact (
+    Check (..),
+    Sha,
+    Url,
+    headData,
+    headOf,
+    urlData,
+    urlOf,
+ )
 
 type data ShipStep = Describe | SimplifyPR | AwaitCi | FixPR | Ready
 
 instance StepSet ShipStep where
-    type Raises s = '[]
+    type Raises Describe = '[]
+    type Raises SimplifyPR = '[]
+    type Raises AwaitCi = '[ 'Awaits 'Ci]
+    type Raises FixPR = '[]
+    type Raises Ready = '[]
 
     type Sig Describe = '( 'Diff, 'Nothing, 'PR)
     type Sig SimplifyPR = '( 'PR, 'Nothing, 'PR)
@@ -45,7 +57,13 @@ instance StepSet ShipStep where
         -- \| The PR left as it is: a round on an existing PR keeps it so.
         ReadySkipped :: Url -> Outcome Ready ('Took "skipped")
 
-    layerSteps = [SomeStep Describe, SomeStep SimplifyPR, SomeStep AwaitCi, SomeStep FixPR, SomeStep Ready]
+    layerSteps =
+        [ SomeStep Describe
+        , SomeStep SimplifyPR
+        , SomeStep AwaitCi
+        , SomeStep FixPR
+        , SomeStep Ready
+        ]
       where
         _listsEvery :: Sing (s :: ShipStep) -> ()
         _listsEvery = \case
@@ -70,25 +88,6 @@ instance StepSet ShipStep where
         FixPR -> Continues (OutcomeName "done")
         Ready -> Branches
 
-    special = \case
-        Describe -> Ordinary
-        SimplifyPR -> Ordinary
-        AwaitCi -> AwaitsCi
-        FixPR -> Ordinary
-        Ready -> Ordinary
-
-    sameStep a b = case (a, b) of
-        (Describe, Describe) -> Just Refl
-        (Describe, _) -> Nothing
-        (SimplifyPR, SimplifyPR) -> Just Refl
-        (SimplifyPR, _) -> Nothing
-        (AwaitCi, AwaitCi) -> Just Refl
-        (AwaitCi, _) -> Nothing
-        (FixPR, FixPR) -> Just Refl
-        (FixPR, _) -> Nothing
-        (Ready, Ready) -> Just Refl
-        (Ready, _) -> Nothing
-
     pack = \case
         o@(DescribeDone _) -> packed Describe o
         o@(SimplifyPrDone _) -> packed SimplifyPR o
@@ -102,7 +101,9 @@ instance StepSet ShipStep where
         DescribeDone sha -> headData sha
         SimplifyPrDone sha -> headData sha
         AwaitCiGreen sha -> headData sha
-        AwaitCiRed sha failing -> headData sha <> "failing" .= map (\(Check check) -> check) (NonEmpty.toList failing)
+        AwaitCiRed sha failing ->
+            headData sha
+                <> "failing" .= map (\(Check check) -> check) (NonEmpty.toList failing)
         FixPrDone sha -> headData sha
         ReadyDone url -> urlData url
         ReadySkipped url -> urlData url
@@ -111,7 +112,9 @@ instance StepSet ShipStep where
         [ Decoder Describe (fmap DescribeDone . headOf)
         , Decoder SimplifyPR (fmap SimplifyPrDone . headOf)
         , Decoder AwaitCi (fmap AwaitCiGreen . headOf)
-        , Decoder AwaitCi (\obj -> AwaitCiRed <$> headOf obj <*> (fmap Check <$> obj .: "failing"))
+        , Decoder
+            AwaitCi
+            (\obj -> AwaitCiRed <$> headOf obj <*> (fmap Check <$> obj .: "failing"))
         , Decoder FixPR (fmap FixPrDone . headOf)
         , Decoder Ready (fmap ReadyDone . urlOf)
         , Decoder Ready (fmap ReadySkipped . urlOf)

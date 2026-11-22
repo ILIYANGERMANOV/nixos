@@ -11,15 +11,14 @@ module State.Flow.Attend (
     Outcome (Attended),
 ) where
 
-import Data.Type.Equality ((:~:) (..))
-import State.Category.Effect (Eff (..))
+import State.Category.Effect (OpOf (Focuses))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 
 type data AttendStep = Attend
 
 instance StepSet AttendStep where
-    type Raises s = '[FocusE]
+    type Raises s = '[ 'Focuses]
 
     type Sig Attend = '( 'Ctx, 'Nothing, 'Ctx)
 
@@ -34,10 +33,6 @@ instance StepSet AttendStep where
     stepName Attend = StateName "attend"
 
     outcomes Attend = Continues (OutcomeName "done")
-
-    special Attend = Ordinary
-
-    sameStep Attend Attend = Just Refl
 
     pack = \case
         o@Attended -> packed Attend o

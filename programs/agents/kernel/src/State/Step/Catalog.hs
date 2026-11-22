@@ -26,11 +26,52 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
-import State.Category.Flow (CapTarget (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Handle, Id, Into, Loop, Scope, (:>)), Name, branchesWith)
+import State.Category.Flow (
+    CapTarget (..),
+    Flow (
+        Await,
+        Capped,
+        Case,
+        Catch,
+        Do,
+        Each,
+        Fork,
+        Handle,
+        Id,
+        Into,
+        Loop,
+        Scope,
+        (:>)
+    ),
+    Name,
+    branchesWith,
+ )
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel, SkipWhen)
-import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..), outOf)
-import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
+import State.Category.Graph (
+    Cap (..),
+    Edge,
+    Metered (..),
+    Node (..),
+    OpenGraph (..),
+    Place (..),
+    outOf,
+ )
+import State.Category.Step (
+    CodOf,
+    Decoder,
+    DomOf,
+    EventName (..),
+    Sig,
+    SomeOutcome,
+    SomeStep (..),
+    StateName,
+    StepSet (..),
+    decodeWith,
+    decoderEvent,
+    payload,
+    sameOutcome,
+ )
 import State.Category.Step qualified as Step
 import State.Category.Ty (KnownTy)
 import State.Step.Build (BuildStep)
@@ -76,7 +117,18 @@ instance KnownLayer FuelStep where layer = FuelLayer
 
 -- | The layers, in the order the flows run them.
 layers :: [SomeLayer]
-layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer TicketLayer, SomeLayer RequestLayer, SomeLayer FanLayer, SomeLayer PickLayer, SomeLayer FuelLayer]
+layers =
+    [ SomeLayer GatherLayer
+    , SomeLayer PlanLayer
+    , SomeLayer BuildLayer
+    , SomeLayer ReviewLayer
+    , SomeLayer ShipLayer
+    , SomeLayer TicketLayer
+    , SomeLayer RequestLayer
+    , SomeLayer FanLayer
+    , SomeLayer PickLayer
+    , SomeLayer FuelLayer
+    ]
   where
     _listsEvery :: Layer k -> ()
     _listsEvery = \case
@@ -94,29 +146,6 @@ layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, Some
 data SomeLayer where
     SomeLayer :: (KnownLayer k) => Layer k -> SomeLayer
 
-sameLayer :: Layer a -> Layer b -> Maybe (a :~: b)
-sameLayer a b = case (a, b) of
-    (GatherLayer, GatherLayer) -> Just Refl
-    (GatherLayer, _) -> Nothing
-    (PlanLayer, PlanLayer) -> Just Refl
-    (PlanLayer, _) -> Nothing
-    (BuildLayer, BuildLayer) -> Just Refl
-    (BuildLayer, _) -> Nothing
-    (ReviewLayer, ReviewLayer) -> Just Refl
-    (ReviewLayer, _) -> Nothing
-    (ShipLayer, ShipLayer) -> Just Refl
-    (ShipLayer, _) -> Nothing
-    (TicketLayer, TicketLayer) -> Just Refl
-    (TicketLayer, _) -> Nothing
-    (RequestLayer, RequestLayer) -> Just Refl
-    (RequestLayer, _) -> Nothing
-    (FanLayer, FanLayer) -> Just Refl
-    (FanLayer, _) -> Nothing
-    (PickLayer, PickLayer) -> Just Refl
-    (PickLayer, _) -> Nothing
-    (FuelLayer, FuelLayer) -> Just Refl
-    (FuelLayer, _) -> Nothing
-
 -- | A step's outcome, or a mode's skip, with the layer it is of.
 data AnyOutcome where
     AnyOutcome :: (KnownLayer k) => Layer k -> SomeOutcome k -> AnyOutcome
@@ -125,9 +154,7 @@ instance Show AnyOutcome where
     showsPrec d (AnyOutcome _ o) = showsPrec d o
 
 instance Eq AnyOutcome where
-    AnyOutcome a o == AnyOutcome b o' = case sameLayer a b of
-        Just Refl -> o == o'
-        Nothing -> False
+    AnyOutcome _ o == AnyOutcome _ o' = sameOutcome o o'
 
 -- | An outcome of its layer, packed by the layer's total 'pack'.
 outcome :: (KnownLayer k) => Step.Outcome (s :: k) l -> AnyOutcome
@@ -148,7 +175,9 @@ outcomeDecoders :: [(EventName, Object -> Parser AnyOutcome)]
 outcomeDecoders = concatMap readers layers
   where
     readers (SomeLayer l) = map (reader l) decoders
-    reader :: (KnownLayer k) => Layer k -> Decoder k -> (EventName, Object -> Parser AnyOutcome)
+    reader ::
+        (KnownLayer k) =>
+        Layer k -> Decoder k -> (EventName, Object -> Parser AnyOutcome)
     reader l d = (decoderEvent d, fmap (AnyOutcome l) . decodeWith d)
 
 -- | A step of some layer, with its types known.
@@ -186,10 +215,14 @@ termSteps = \case
 
 -- | Each optional block of a term, by its name, with the levels that skip it: in the term's order.
 termSkips :: Flow s i e o -> [(Name, PerFuel SkipWhen)]
-termSkips flow = [(name, when) | AnyStep FuelLayer (SomeStep (Skip name when)) <- termSteps flow]
+termSkips flow =
+    [(name, when) | AnyStep FuelLayer (SomeStep (Skip name when)) <- termSteps flow]
 
 -- | The step, when it is a pick or a skip: a layer that lists its steps has it in 'allSteps'.
-drawnStep :: forall k (s :: k). (StepSet k, KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s))) => Sing s -> [AnyStep]
+drawnStep ::
+    forall k (s :: k).
+    (StepSet k, KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s))) =>
+    Sing s -> [AnyStep]
 drawnStep s = case (eqT @k @PickStep, eqT @k @FuelStep) of
     (Just Refl, _) -> [AnyStep PickLayer (SomeStep s)]
     (_, Just Refl) -> [AnyStep FuelLayer (SomeStep s) | not (null (skipOutcomes s))]
@@ -222,7 +255,13 @@ its step declares them; then the state's own, by name.
 shownEdges :: OpenGraph -> Place -> [(EventName, Edge Node)]
 shownEdges g place = sortOn (shown . fst) (outOf place g.edges)
   where
-    ranks = Map.fromList [(metered.step, cap.rank) | (metered, cap) <- Map.toList g.caps, metered.place == place, metered.step /= place.name]
+    ranks =
+        Map.fromList
+            [ (metered.step, cap.rank)
+            | (metered, cap) <- Map.toList g.caps
+            , metered.place == place
+            , metered.step /= place.name
+            ]
     shown event = case Map.lookup event.step ranks of
         Just rank -> (0 :: Int, rank, declared event)
         Nothing -> (1, 0, 0)

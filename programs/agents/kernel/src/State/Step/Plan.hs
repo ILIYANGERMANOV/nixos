@@ -8,7 +8,7 @@ module State.Step.Plan (
 ) where
 
 import Data.Aeson ((.:), (.=))
-import Data.Type.Equality ((:~:) (..))
+import State.Category.Effect (OpOf (Confirms))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -16,7 +16,9 @@ import State.Category.Ty (TyOf (..))
 type data PlanStep = PlanS | SimplifyP | Confirm
 
 instance StepSet PlanStep where
-    type Raises s = '[]
+    type Raises PlanS = '[]
+    type Raises SimplifyP = '[]
+    type Raises Confirm = '[ 'Confirms "the simplified plan"]
 
     type Sig PlanS = '( 'Ctx, 'Nothing, 'Plan)
     type Sig SimplifyP = '( 'Plan, 'Nothing, 'Plan)
@@ -52,19 +54,6 @@ instance StepSet PlanStep where
         PlanS -> Continues (OutcomeName "done")
         SimplifyP -> Continues (OutcomeName "done")
         Confirm -> ExitsOr (OutcomeName "confirmed") (OutcomeName "adjusted")
-
-    special = \case
-        PlanS -> Ordinary
-        SimplifyP -> Ordinary
-        Confirm -> AsksConfirm OnEntry "the simplified plan"
-
-    sameStep a b = case (a, b) of
-        (PlanS, PlanS) -> Just Refl
-        (PlanS, _) -> Nothing
-        (SimplifyP, SimplifyP) -> Just Refl
-        (SimplifyP, _) -> Nothing
-        (Confirm, Confirm) -> Just Refl
-        (Confirm, _) -> Nothing
 
     pack = \case
         o@(PlanDone _) -> packed PlanS o
