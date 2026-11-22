@@ -33,6 +33,7 @@
     };
     casks = [
       "ghostty"
+      "handy" # push-to-talk dictation, preset by modules/home/handy.nix
     ];
   };
 }

@@ -18,6 +18,7 @@ setup() {
 
   export instructions_file="$WORK/instructions" settings_file="$WORK/settings"
   export mcp_static_file="$WORK/mcp.json"
+  script_on_path keyed-json-update "$BATS_TEST_DIRNAME/../../keyed-json/update.sh"
 }
 
 link() {

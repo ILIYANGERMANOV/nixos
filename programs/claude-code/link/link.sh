@@ -20,9 +20,5 @@ install -m 600 "$settings_file" "$HOME/.claude/settings.json"
 # Atomically update ~/.claude.json with this flavor's MCP servers.
 # mcp_static_file is a Nix store path with the static JSON (env var references only).
 # Replaces mcpServers entirely so switching flavors is always clean.
-[ -f "$HOME/.claude.json" ] || echo '{}' >"$HOME/.claude.json"
-_claude_tmp=$(mktemp "$HOME/.claude.json.XXXXXX")
-trap 'rm -f "$_claude_tmp"' EXIT
-jq --slurpfile mcp "$mcp_static_file" ".mcpServers = \$mcp[0]" \
-  "$HOME/.claude.json" >"$_claude_tmp"
-mv "$_claude_tmp" "$HOME/.claude.json"
+# shellcheck disable=SC2016 # $nix is jq's variable, not the shell's
+keyed-json-update "$HOME/.claude.json" '.mcpServers = $nix[0]' "$mcp_static_file"
