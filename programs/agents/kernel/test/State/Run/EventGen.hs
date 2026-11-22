@@ -49,7 +49,7 @@ import Numeric.Natural (Natural)
 import State.Category.FlowGen (genScopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
-import State.Flow.Drawn (drawnOutcomes)
+import State.Role (drawnOutcomes)
 import State.Run.Ask (
     Above (..),
     Basis (..),

@@ -1204,7 +1204,7 @@ fanIn fans fan = Map.findWithDefault emptyFan fan fans
 currentFan :: RunState -> Fan
 currentFan state = maybe emptyFan (fanIn state.fans) (fanAt state.at)
 
-{- | A child of a 'State.Flow.Library.parallel' is spawned while the run waits
+{- | A child of a 'State.Flow.Combinator.parallel' is spawned while the run waits
 for its group, at its 'State.Category.Flow.Await': the 10x spawns an
 engineer once its task's dependencies merged.
 -}
@@ -1568,7 +1568,7 @@ movedTo g state to =
         }
 
 {- | A run whose flow switches requests, the chief's, going on: its flow
-handles 'FocusE' ("State.Flow.Chief").
+handles 'FocusE' ("State.Flow.Role.Chief").
 -}
 focusable :: RunState -> Either Refusal ()
 focusable state = case (state.start.flow, over state) of

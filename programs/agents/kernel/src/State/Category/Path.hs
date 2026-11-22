@@ -37,7 +37,7 @@ awaitDone g place = case Map.lookup place g.groupStates of
     Just (Forking _) -> Nothing
     Nothing -> Nothing
 
-{- | The edge a 'State.Flow.Library.parallel''s fork state goes on by at once:
+{- | The edge a 'State.Flow.Combinator.parallel''s fork state goes on by at once:
 its 'State.Category.Flow.Each' forks one child per item, each started
 later from the group's 'State.Category.Flow.Await' (the 10x spawns an
 engineer once its task's dependencies merged), so no event records the

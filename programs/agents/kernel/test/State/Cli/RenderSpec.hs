@@ -5,7 +5,7 @@ import Data.Text qualified as Text
 import State.Category.FlowGen (threeWayGraph)
 import State.Category.Graph (places)
 import State.Cli.Render
-import State.Flow.Engineer (engineer)
+import State.Flow.Role.Engineer (engineer)
 import State.Run.RunGen (g, loadSteps)
 import State.Step.Catalog (termSkips)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldContain)

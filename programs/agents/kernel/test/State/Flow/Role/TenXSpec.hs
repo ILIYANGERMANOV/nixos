@@ -1,17 +1,17 @@
-module State.Flow.TenXSpec (spec) where
+module State.Flow.Role.TenXSpec (spec) where
 
 import Data.Either (isRight)
 import State.Category.Flow (Flow (..), Group (..), Name, branchesWith, scoped)
 import State.Category.FlowGen (skipsKept)
 import State.Category.Graph (graph)
 import State.Category.Step (StateName (..))
-import State.Flow.TenX (tenX)
+import State.Flow.Role.TenX (tenX)
 import State.Role (FlowName (EngineerFlow), RoleDef (..), SomeFlow (..), role)
 import State.Step.Fan (engineers)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
 spec :: Spec
-spec = describe "State.Flow.TenX" $ do
+spec = describe "State.Flow.Role.TenX" $ do
     it "builds: no state has two edges on one event, no loop id is used twice" $
         graph tenX `shouldSatisfy` isRight
 

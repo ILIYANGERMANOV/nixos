@@ -66,10 +66,10 @@ import State.Category.Step (
     StateName,
  )
 import State.Category.Ty (KnownTy, NotSum, TyOf (..))
-import State.Flow.Library (
+import State.Flow.Block (gather)
+import State.Flow.Combinator (
     ChoiceS,
     choice,
-    gather,
     parallel,
     skippableBlock,
     upTo,

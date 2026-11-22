@@ -76,7 +76,7 @@ import State.Category.Step (
     stateNameText,
  )
 import State.Category.Ty (NotSum, TyOf (..))
-import State.Flow.Library (choice, choiceLoop, nameOf, parallel, upTo)
+import State.Flow.Combinator (choice, choiceLoop, nameOf, parallel, upTo)
 import State.Flow.Triage (Sing (..), TriageStep (..))
 import State.Role (RoleDef (..), SomeFlow (..), roles)
 import State.Step.Build (BuildStep (..), Sing (..))

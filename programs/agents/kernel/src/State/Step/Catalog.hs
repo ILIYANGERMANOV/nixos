@@ -169,7 +169,7 @@ outcomeData :: AnyOutcome -> Series
 outcomeData (AnyOutcome _ o) = payload o
 
 {- | A reader per outcome of every layer, each keyed by the event it reads:
-a flow's picks and skips are read where the flows are known ("State.Flow.Drawn").
+a flow's picks and skips are read where the flows are known ("State.Role").
 -}
 outcomeDecoders :: [(EventName, Object -> Parser AnyOutcome)]
 outcomeDecoders = concatMap readers layers

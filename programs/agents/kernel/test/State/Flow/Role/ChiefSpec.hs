@@ -1,4 +1,4 @@
-module State.Flow.ChiefSpec (spec) where
+module State.Flow.Role.ChiefSpec (spec) where
 
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -10,7 +10,7 @@ import State.Category.Step (
     StepSet (stepName),
     stateNameText,
  )
-import State.Flow.Drawn (drawnOutcomes, isPick)
+import State.Role (drawnOutcomes, isPick)
 import State.Run.RunGen (chiefGraph)
 import State.Step.Catalog (
     AnyOutcome (..),
@@ -23,7 +23,7 @@ import Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec =
-    describe "State.Flow.Chief" $ do
+    describe "State.Flow.Role.Chief" $ do
         it
             "names no pick as any step is named, so a pick's event never reads as a step's"
             $ Set.intersection (Set.map fst decodedPicks) stepNames `shouldBe` Set.empty

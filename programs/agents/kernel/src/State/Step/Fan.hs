@@ -2,7 +2,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {- | The 10x's steps around a fan-out: break the plan into tasks, then,
-after its 'State.Flow.Library.parallel' of engineers, merge the PRs into one, or
+after its 'State.Flow.Combinator.parallel' of engineers, merge the PRs into one, or
 end the round for the next. Each names its fan-out, so a run's fan-outs keep
 their own tasks and children.
 -}
@@ -100,11 +100,11 @@ events. Its order is the one the step table and the generators list.
 fanOuts :: [Name]
 fanOuts = [engineers]
 
--- | The state of the fan-out's breakdown, before its 'State.Flow.Library.parallel'.
+-- | The state of the fan-out's breakdown, before its 'State.Flow.Combinator.parallel'.
 breakdownName :: Name -> StateName
 breakdownName = fanStepName "breakdown"
 
--- | The state of the fan-out's merge, after its 'State.Flow.Library.parallel'.
+-- | The state of the fan-out's merge, after its 'State.Flow.Combinator.parallel'.
 mergeName :: Name -> StateName
 mergeName = fanStepName "merge"
 

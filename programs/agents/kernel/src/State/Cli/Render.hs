@@ -97,7 +97,7 @@ which carries its term's budgets, and 'fullReview', with each level's depth pros
 after it. A meter is a row by its name, in the flow's order, a choice's
 actions in the order the term declares them. One
 capped alike at every level is no row. A step the flow draws as optional
-('State.Flow.Library.skippable') is skippable by its block's name.
+('State.Flow.Combinator.skippable') is skippable by its block's name.
 -}
 fuel :: [(Name, PerFuel SkipWhen)] -> OpenGraph -> Text
 fuel skips g =

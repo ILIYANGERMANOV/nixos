@@ -50,7 +50,7 @@ from a higher layer, lowest first:
 | Layer | Holds |
 |---|---|
 | `State/Category/`, `State/Step/` | types, flow terms, graph, mode; the step layers and their `Catalog` |
-| `State/Flow/` (with `Library.hs`), `State/Role.hs`, `State/Table.hs` | the named flows, the roles that lead them, the step table |
+| `State/Flow/` (roles under `Role/`), `State/Role.hs`, `State/Table.hs` | the named flows, the roles that lead them, the step table |
 | `State/Run/` | log, codec, fold, who answers (`Ask`) |
 | `State/Protocol/` | advice, hand-backs, hooks, the `record` grammar |
 | `State/Cli/` | commands, views, the effect shell |
@@ -67,9 +67,9 @@ and skills derive from it (`lib/derive.nix`). Why:
 `docs/adr/0021-flow-effects.md`.
 
 A flow is a term of `Flow s i e o` (`State/Category/Flow.hs`), `s` its
-structure (`Shape`); a named flow
-composes the small flows of `State/Flow/Library.hs`. Its core words, each
-with a law in `LawsSpec`:
+structure (`Shape`); a named flow composes the blocks of
+`State/Flow/Block.hs`, glued by `State/Flow/Combinator.hs`. Its core words,
+each with a law in `LawsSpec`:
 
 - `Do s`: one step. `Id`: no step. `Into`: retype as `Result`. `f :> g`: series.
 - `Case bs`: one branch per label of a `Sum`, in its order (a missing or

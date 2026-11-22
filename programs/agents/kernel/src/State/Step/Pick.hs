@@ -3,7 +3,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {- | The agent's pick of one labelled branch: the step a
-'State.Flow.Library.choice' runs before its 'State.Category.Flow.Case'. Its one
+'State.Flow.Combinator.choice' runs before its 'State.Category.Flow.Case'. Its one
 state is the pick's name, its events @<name>.<label>@, one per branch, each
 going on with the input unchanged. The pick only decides; the branch it
 names does the work, as steps of their own.

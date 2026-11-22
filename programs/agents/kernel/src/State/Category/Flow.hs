@@ -5,7 +5,7 @@
 indexes make an ill-typed gluing a compile error (law Typed gluing), and
 'Loop' exists only on the shapes #351 allows. Every
 budget is a 'Capped' step's meter (decision 13). A flow
-is built by composing small flows ("State.Flow.Library"), each reusable in
+is built by composing small flows ("State.Flow.Block"), each reusable in
 any flow.
 -}
 module State.Category.Flow (
@@ -351,7 +351,7 @@ unqualify qualified = case Text.breakOnEnd "/" qualified of
     ("", name) -> (mempty, name)
     (scopes, name) -> (scopePath (Name (Text.dropEnd 1 scopes)), name)
 
--- | The pick that leaves a 'State.Flow.Library.choiceLoop': @gather.enough@.
+-- | The pick that leaves a 'State.Flow.Combinator.choiceLoop': @gather.enough@.
 enoughOutcome :: OutcomeName
 enoughOutcome = OutcomeName "enough"
 

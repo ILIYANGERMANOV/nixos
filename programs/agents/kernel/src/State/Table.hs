@@ -37,8 +37,14 @@ import State.Category.Step (
     stateNameText,
     stepName,
  )
-import State.Flow.Drawn (drawnDecoders, drawnSteps)
-import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
+import State.Role (
+    AgentRole (..),
+    RoleDef (..),
+    drawnDecoders,
+    drawnSteps,
+    roleText,
+    roles,
+ )
 import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders)
 
 -- | A row for every step of the layers and no other. Only 'parseSteps' builds one.

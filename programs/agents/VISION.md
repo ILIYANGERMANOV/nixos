@@ -67,8 +67,8 @@ Rule of thumb: the more agents run on `state` and the kernel, the more
 deterministic the flows.
 
 - Today: fixed flows, and that is good. `/engineer` and `/10x` do their jobs
-  well (`State/Flow/Engineer.hs`, `State/Flow/TenX.hs`) and stay fixed.
-- The general-purpose chief flow exists (`State/Flow/Chief.hs`): it routes
+  well (`State/Flow/Role/Engineer.hs`, `State/Flow/Role/TenX.hs`) and stay fixed.
+- The general-purpose chief flow exists (`State/Flow/Role/Chief.hs`): it routes
   each request to a flow, a block, a discussion or a direct fix.
 - Then: a library of flows, one per use case that proved itself. Agents choose
   between flows and compose them to do arbitrary tasks.

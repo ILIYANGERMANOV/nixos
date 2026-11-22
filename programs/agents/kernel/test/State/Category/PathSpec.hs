@@ -28,7 +28,7 @@ import State.Category.Step (
     StateName (..),
  )
 import State.Category.Ty (TyOf (..), TyVal)
-import State.Flow.Library (skippable)
+import State.Flow.Combinator (skippable)
 import State.Step.Build (Sing (..))
 import State.Step.Review (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldNotBe)

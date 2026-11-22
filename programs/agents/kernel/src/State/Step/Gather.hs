@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeData #-}
 
 {- | The actions of a task's gather, as the agent picks them
-('State.Flow.Library.choiceLoop'): research a fact gap by a researcher in the
+('State.Flow.Combinator.choiceLoop'): research a fact gap by a researcher in the
 background, or interview the user; or, at a design discussion, ask the user
 design questions. The researchers' notes merge into the context once every
 one handed back.
