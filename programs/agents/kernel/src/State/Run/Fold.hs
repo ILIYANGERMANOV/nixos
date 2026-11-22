@@ -200,7 +200,7 @@ import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
 import State.Step.Fuel (FuelStep, Outcome (..), Sing (Fuel, Skip))
 import State.Step.Pick (PickStep)
-import State.Step.Plan (Sing (SimplifyP))
+import State.Step.Plan (refineName)
 import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Request qualified as Request
 import State.Step.Review (Outcome (..), ReviewStep)
@@ -1127,7 +1127,7 @@ fanOutcome scope outcome fans = case outcome of
   where
     here = ScopedFan scope
 
-{- | A skip the run may take: one its Fuel allows, @simplify_plan@'s for a
+{- | A skip the run may take: one its Fuel allows, @skip_refine@'s for a
 plan settled without the user, and @ready@'s on a round on an existing PR
 at every Fuel, which leaves the PR as it is, by the task's shape.
 -}
@@ -1166,9 +1166,9 @@ planSettled state =
     principalPlan state.start.principal == ParentDecided
         || maybe False (not . (.designAsked)) state.onTarget
 
--- | Whether a settled plan skips the block: @simplify_plan@'s, at any Fuel.
+-- | Whether a settled plan skips the block: the refine passes, at any Fuel.
 settledSkips :: RunState -> Name -> Bool
-settledSkips state block = namedState block == stepName SimplifyP && planSettled state
+settledSkips state block = block == refineName && planSettled state
 
 {- | A task added, or a round asked, at a fan-out's merge reopens the fan-out, where it is
 spawned as any task is; the fan-out is left again once every task is settled.

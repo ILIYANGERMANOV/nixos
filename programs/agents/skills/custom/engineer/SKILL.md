@@ -114,9 +114,12 @@ every child handed back: wait there, never record it.
 | gather/notes | you | done: plan |
 | gather/research | researcher | spawned: gather |
 | interview | you | asked: gather |
-| plan | you | done: skip_simplify_plan |
-| skip_simplify_plan | you | run: simplify_plan; skip: confirm |
-| simplify_plan | researcher | done: confirm |
+| plan | you | done: skip_refine |
+| skip_refine | you | run: simplify_plan; skip: present |
+| simplify_plan | researcher | done: standards_plan |
+| standards_plan | researcher | done: align_plan |
+| align_plan | reviewer | done: present |
+| present | you | done: confirm |
 | confirm | you | adjusted: gather; confirmed: draft |
 | draft | you | done: implement |
 | implement | implementer | done: skip_refactor |

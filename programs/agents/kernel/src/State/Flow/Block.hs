@@ -47,12 +47,13 @@ import State.Flow.Combinator (
     SkippableS,
     choiceLoop,
     skippable,
+    skippableBlock,
     upTo,
  )
 import State.Step.Build (BuildStep (..), Sing (..))
 import State.Step.Gather (GatherStep (..), Sing (..))
 import State.Step.Pick (Over, PickLabels)
-import State.Step.Plan (PlanStep (..), Sing (..))
+import State.Step.Plan (PlanStep (..), Sing (..), refineName)
 import State.Step.Review (ReviewStep (..), Sing (..))
 import State.Step.Ship (ShipStep (..), Sing (..))
 
@@ -163,21 +164,25 @@ gatherResearcherLimit :: PerFuel Limit
 gatherResearcherLimit = PerFuel (UpTo 1) (UpTo 5) PerGroup
 
 {- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm
-is asked at every level. Besides its Fuel, a plan settled without the user
-skips @simplify_plan@ ('State.Run.Fold.settledSkips'): the run matches
-the skip by its step's name.
+is asked at every level, after the plan is presented to the user.
 -}
 propose :: Flow ProposeS 'Ctx ('Just 'Plan) 'Ctx
-propose =
-    Do PlanS
-        :> skippable SimplifyP skippableAtLow
-        :> upTo 3 Stop (Step Confirm)
-  where
-    -- Low may skip the step of a trivial task; Balanced and Max run it.
-    skippableAtLow = PerFuel Skippable Never Never
+propose = Do PlanS :> refine :> Do Present :> upTo 3 Stop (Step Confirm)
 
 type ProposeS =
-    DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS Confirm)
+    DoS PlanS :>> SkippableS 'Plan RefineS :>> DoS Present :>> CappedS (DoS Confirm)
+
+{- | The passes that refine a plan, in order: add or drop one here. Each
+hands back findings; the lead alone edits the plan. Low may skip the block
+on a trivial task; Balanced and Max run it. Besides its Fuel, a plan
+settled without the user skips it ('refineName').
+-}
+refine :: Flow (SkippableS 'Plan RefineS) 'Plan 'Nothing 'Plan
+refine =
+    skippableBlock refineName (PerFuel Skippable Never Never) $
+        Do SimplifyP :> Do StandardsP :> Do AlignP
+
+type RefineS = DoS SimplifyP :>> DoS StandardsP :>> DoS AlignP
 
 {- | @draft@ opens the draft PR before the first commit. Balanced skips the
 refactor at or below 100 changed lines, Low on a trivial task.

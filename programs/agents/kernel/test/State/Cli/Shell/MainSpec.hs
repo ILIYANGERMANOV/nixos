@@ -291,20 +291,13 @@ spec = describe "state over the doubles" $ do
                 take 1 done `shouldBe` ["DONE " <> prUrl]
 
             for_ ["balanced", "max"] $ \fuel ->
-                it ("goes from the simplified plan straight to confirm at " <> Text.unpack fuel) $ \world -> do
+                it ("walks the refine passes, then present, to confirm at " <> Text.unpack fuel) $ \world -> do
                     transcript <-
                         drive
                             world
-                            ( [Record ["fuel.set", fuel]]
-                                <> gathered
-                                <> [Planned, Handback "researcher" ready]
-                            )
+                            ([Record ["fuel.set", fuel]] <> gathered <> [Planned] <> refinePasses)
 
-                    drop 3 transcript
-                        `shouldBe` [ "plan.done -> skip_simplify_plan"
-                                   , "skip_simplify_plan.run -> simplify_plan"
-                                   , "simplify_plan.done -> confirm"
-                                   ]
+                    drop 3 transcript `shouldBe` refinedTranscript
 
             -- The agent's call, a fact line of next: never recorded for it, so at Low the agent runs the proposal, and Confirm is asked all the same.
             for_
@@ -314,7 +307,7 @@ spec = describe "state over the doubles" $ do
                 ]
                 $ \(fuel, skips, acts) ->
                     it
-                        ( "leaves simplify_plan and refactor to the agent only at Low, and asks Confirm, at "
+                        ( "leaves the refine passes and refactor to the agent only at Low, and asks Confirm, at "
                             <> Text.unpack fuel
                         )
                         $ \world -> do
@@ -327,7 +320,7 @@ spec = describe "state over the doubles" $ do
                                 , filter ("ASK Confirm" `Text.isPrefixOf`) said
                                 , map ("ASK user" `Text.isPrefixOf`) confirm
                                 )
-                                `shouldBe` (skips, ["ASK Confirm the simplified plan: confirmed, or adjusted?"], [True])
+                                `shouldBe` (skips, ["ASK Confirm the presented plan: confirmed, or adjusted?"], [True])
 
             it "prints each record it advises with its arguments" $ \world -> do
                 _ <- drive world (Record ["fuel.set", "balanced"] : gathered)
@@ -482,7 +475,7 @@ spec = describe "state over the doubles" $ do
                 ran <- stateIn world "READY\nDone.\n" ["handback", "researcher"]
 
                 (ran.code, ran.err) `shouldBe` (0, [])
-                recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
+                recorded ran.out `shouldBe` ["simplify_plan.done -> standards_plan"]
 
             it
                 "records a researcher's simplify report from stdin, which opens with no token"
@@ -496,7 +489,7 @@ spec = describe "state over the doubles" $ do
                             ["handback", "researcher"]
 
                     (ran.code, ran.err) `shouldBe` (0, [])
-                    recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
+                    recorded ran.out `shouldBe` ["simplify_plan.done -> standards_plan"]
 
             it "advises a worker's BLOCKED for triage until the run asks it as its own" $ \world -> do
                 _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
@@ -620,7 +613,7 @@ spec = describe "state over the doubles" $ do
                     `shouldBe` ( 2
                                ,
                                    [ "state override: override to nowhere - the flow has no single state of that name"
-                                   , "fix: state override <fuel|gather|gather/researchers|gather/notes|gather/research|interview|plan|skip_simplify_plan|simplify_plan|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                                   , "fix: state override <fuel|gather|gather/researchers|gather/notes|gather/research|interview|plan|skip_refine|simplify_plan|standards_plan|align_plan|present|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                    ]
                                )
 
@@ -1272,13 +1265,14 @@ spec = describe "state over the doubles" $ do
             for_
                 [
                     ( ChildConfirms
-                    , ["plan.done -> skip_simplify_plan", "skip_simplify_plan.run -> simplify_plan"]
+                    , ["plan.done -> skip_refine", "skip_refine.run -> simplify_plan"]
                     )
                 ,
                     ( ParentDecided
                     ,
-                        [ "plan.done -> skip_simplify_plan"
-                        , "skip_simplify_plan.skip -> confirm"
+                        [ "plan.done -> skip_refine"
+                        , "skip_refine.skip -> present"
+                        , "present.done -> confirm"
                         , "confirm.confirmed -> draft"
                         ]
                     )
@@ -1719,7 +1713,7 @@ spec = describe "state over the doubles" $ do
                 (refused.code, refused.err)
                     `shouldBe` ( 2
                                ,
-                                   [ "state brief: section implement - the role's sections are research, simplify_plan"
+                                   [ "state brief: section implement - the role's sections are research, simplify_plan, standards_plan"
                                    , "fix: state brief researcher --section <step>"
                                    ]
                                )
@@ -1871,20 +1865,19 @@ balancedTranscript =
     , "gather/research.handed_back -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
-    , "plan.done -> skip_simplify_plan"
-    , "skip_simplify_plan.run -> simplify_plan"
-    , "simplify_plan.done -> confirm"
-    , "confirm.confirmed -> draft"
-    , "draft.done -> implement"
-    , "implement.done -> skip_refactor"
-    , "skip_refactor.skip -> review"
-    , "review.rows -> pick"
-    , "pick.final -> describe"
-    , "describe.done -> simplify_pr"
-    , "simplify_pr.done -> await_ci"
-    , "await_ci.green -> ready"
-    , "ready.done -> out"
     ]
+        <> refinedTranscript
+        <> [ "confirm.confirmed -> draft"
+           , "draft.done -> implement"
+           , "implement.done -> skip_refactor"
+           , "skip_refactor.skip -> review"
+           , "review.rows -> pick"
+           , "pick.final -> describe"
+           , "describe.done -> simplify_pr"
+           , "simplify_pr.done -> await_ci"
+           , "await_ci.green -> ready"
+           , "ready.done -> out"
+           ]
 
 -- | Low, a trivial task: the agent gathers nothing, skips the proposal and the refactor, so no hand-back of theirs.
 trivialPath :: [Act]
@@ -1892,7 +1885,8 @@ trivialPath =
     Record ["fuel.set", "low"]
         : gathered
             <> [ Planned
-               , Record ["skip_simplify_plan.skip"]
+               , Record ["skip_refine.skip"]
+               , Record ["present.done"]
                , Record ["confirm.confirmed"]
                , OpenPr
                , Commit
@@ -1911,8 +1905,9 @@ trivialTranscript =
     [ "fuel.set -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
-    , "plan.done -> skip_simplify_plan"
-    , "skip_simplify_plan.skip -> confirm"
+    , "plan.done -> skip_refine"
+    , "skip_refine.skip -> present"
+    , "present.done -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
     , "implement.done -> skip_refactor"
@@ -1925,16 +1920,27 @@ trivialTranscript =
     , "ready.done -> out"
     ]
 
--- | What next says a Low run's agent may skip, at simplify_plan and refactor.
+-- | The refine passes and the presentation, from @plan@'s done to @confirm@.
+refinedTranscript :: [Text]
+refinedTranscript =
+    [ "plan.done -> skip_refine"
+    , "skip_refine.run -> simplify_plan"
+    , "simplify_plan.done -> standards_plan"
+    , "standards_plan.done -> align_plan"
+    , "align_plan.done -> present"
+    , "present.done -> confirm"
+    ]
+
+-- | What next says a Low run's agent may skip, at the refine passes and refactor.
 lowSkips :: [Text]
 lowSkips =
-    [ "  Low: skip it when the task is trivial: state record skip_simplify_plan.skip"
+    [ "  Low: skip it when the task is trivial: state record skip_refine.skip"
     , "  Low: skip it when the task is trivial: state record skip_refactor.skip"
     ]
 
 -- | 'toImplement' with the proposal's run recorded by the agent, as at Low, where the kernel leaves it the skip.
 ranProposal :: [Act]
-ranProposal = planned <> [Record ["skip_simplify_plan.run"]] <> proposed
+ranProposal = planned <> [Record ["skip_refine.run"]] <> proposed
   where
     (planned, proposed) = splitAt 6 toImplement
 

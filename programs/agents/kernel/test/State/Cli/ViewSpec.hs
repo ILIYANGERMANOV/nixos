@@ -37,7 +37,7 @@ spec = describe "the texts that need no run" $ do
                 briefOf steps role `shouldSatisfy` \text -> all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
 
         it "names every hand-back token for line 1 at a step the role runs" $ do
-            let atImplement = runAt (fuelSet Balanced : take 10 happyPath)
+            let atImplement = runAt (fuelSet Balanced : take 13 happyPath)
             brief steps g atImplement (AgentRole "implementer") Nothing `shouldSatisfy` \case
                 Right text ->
                     take 1 (Text.lines text) == ["## implement"]
@@ -70,14 +70,15 @@ spec = describe "the texts that need no run" $ do
         it "is the role's sections, for every section, in order" $
             mapM
                 (briefSection steps researcher)
-                [StateName "research", StateName "simplify_plan"]
+                [StateName "research", StateName "simplify_plan", StateName "standards_plan"]
                 `shouldSatisfy` either
                     (const False)
                     (\texts -> concatMap headings texts == headings (briefOf steps researcher))
 
         it "names the role's sections when it runs no such step" $
             briefSection steps researcher (StateName "implement")
-                `shouldBe` Left [StateName "research", StateName "simplify_plan"]
+                `shouldBe` Left
+                    [StateName "research", StateName "simplify_plan", StateName "standards_plan"]
 
     describe "state show" $ do
         it

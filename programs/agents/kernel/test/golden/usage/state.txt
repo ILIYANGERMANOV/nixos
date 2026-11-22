@@ -30,7 +30,7 @@ Available commands:
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck
 stop reasons: blocked|failed|replan|rounds
-roles: researcher implementer refactorer review-lead fixer
+roles: researcher reviewer implementer refactorer review-lead fixer
 areas (--touches): interface|data-model|auth
 
 Exit 0 ok; 2 bad usage, a bad log line or a refused event; 1 a git or disk failure.

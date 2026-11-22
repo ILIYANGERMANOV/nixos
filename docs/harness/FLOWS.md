@@ -110,10 +110,13 @@ stateDiagram-v2
   gather__notes --> plan: done
   gather__research --> gather: spawned
   interview --> gather: asked
-  plan --> skip_simplify_plan: done
-  skip_simplify_plan --> simplify_plan: run
-  skip_simplify_plan --> confirm: skip
-  simplify_plan --> confirm: done
+  plan --> skip_refine: done
+  skip_refine --> simplify_plan: run
+  skip_refine --> present: skip
+  simplify_plan --> standards_plan: done
+  standards_plan --> align_plan: done
+  align_plan --> present: done
+  present --> confirm: done
   confirm --> gather: adjusted
   confirm --> draft: confirmed
   draft --> implement: done
@@ -170,10 +173,13 @@ stateDiagram-v2
   gather__notes --> plan: done
   gather__research --> gather: spawned
   interview --> gather: asked
-  plan --> skip_simplify_plan: done
-  skip_simplify_plan --> simplify_plan: run
-  skip_simplify_plan --> confirm: skip
-  simplify_plan --> confirm: done
+  plan --> skip_refine: done
+  skip_refine --> simplify_plan: run
+  skip_refine --> present: skip
+  simplify_plan --> standards_plan: done
+  standards_plan --> align_plan: done
+  align_plan --> present: done
+  present --> confirm: done
   confirm --> gather: adjusted
   confirm --> breakdown: confirmed
   breakdown --> spawn_engineers: done
@@ -309,8 +315,11 @@ stateDiagram-v2
   state "engineer/gather/research" as engineer__gather__research
   state "engineer/interview" as engineer__interview
   state "engineer/plan" as engineer__plan
-  state "engineer/skip_simplify_plan" as engineer__skip_simplify_plan
+  state "engineer/skip_refine" as engineer__skip_refine
   state "engineer/simplify_plan" as engineer__simplify_plan
+  state "engineer/standards_plan" as engineer__standards_plan
+  state "engineer/align_plan" as engineer__align_plan
+  state "engineer/present" as engineer__present
   state "engineer/confirm" as engineer__confirm
   state "engineer/draft" as engineer__draft
   state "engineer/implement" as engineer__implement
@@ -332,8 +341,11 @@ stateDiagram-v2
   state "10x/gather/research" as 10x__gather__research
   state "10x/interview" as 10x__interview
   state "10x/plan" as 10x__plan
-  state "10x/skip_simplify_plan" as 10x__skip_simplify_plan
+  state "10x/skip_refine" as 10x__skip_refine
   state "10x/simplify_plan" as 10x__simplify_plan
+  state "10x/standards_plan" as 10x__standards_plan
+  state "10x/align_plan" as 10x__align_plan
+  state "10x/present" as 10x__present
   state "10x/confirm" as 10x__confirm
   state "10x/breakdown" as 10x__breakdown
   state "10x/spawn_engineers" as 10x__spawn_engineers
@@ -354,12 +366,18 @@ stateDiagram-v2
   state "agreeing/gather/research" as agreeing__gather__research
   state "agreeing/interview" as agreeing__interview
   state "agreeing/plan" as agreeing__plan
-  state "agreeing/skip_simplify_plan" as agreeing__skip_simplify_plan
+  state "agreeing/skip_refine" as agreeing__skip_refine
   state "agreeing/simplify_plan" as agreeing__simplify_plan
+  state "agreeing/standards_plan" as agreeing__standards_plan
+  state "agreeing/align_plan" as agreeing__align_plan
+  state "agreeing/present" as agreeing__present
   state "agreeing/confirm" as agreeing__confirm
   state "proposing/plan" as proposing__plan
-  state "proposing/skip_simplify_plan" as proposing__skip_simplify_plan
+  state "proposing/skip_refine" as proposing__skip_refine
   state "proposing/simplify_plan" as proposing__simplify_plan
+  state "proposing/standards_plan" as proposing__standards_plan
+  state "proposing/align_plan" as proposing__align_plan
+  state "proposing/present" as proposing__present
   state "proposing/confirm" as proposing__confirm
   state "building/open_plan" as building__open_plan
   state "building/draft" as building__draft
@@ -412,10 +430,13 @@ stateDiagram-v2
   engineer__gather__notes --> engineer__plan: done
   engineer__gather__research --> engineer__gather: spawned
   engineer__interview --> engineer__gather: asked
-  engineer__plan --> engineer__skip_simplify_plan: done
-  engineer__skip_simplify_plan --> engineer__simplify_plan: run
-  engineer__skip_simplify_plan --> engineer__confirm: skip
-  engineer__simplify_plan --> engineer__confirm: done
+  engineer__plan --> engineer__skip_refine: done
+  engineer__skip_refine --> engineer__simplify_plan: run
+  engineer__skip_refine --> engineer__present: skip
+  engineer__simplify_plan --> engineer__standards_plan: done
+  engineer__standards_plan --> engineer__align_plan: done
+  engineer__align_plan --> engineer__present: done
+  engineer__present --> engineer__confirm: done
   engineer__confirm --> engineer__gather: adjusted
   engineer__confirm --> engineer__draft: confirmed
   engineer__draft --> engineer__implement: done
@@ -446,10 +467,13 @@ stateDiagram-v2
   10x__gather__notes --> 10x__plan: done
   10x__gather__research --> 10x__gather: spawned
   10x__interview --> 10x__gather: asked
-  10x__plan --> 10x__skip_simplify_plan: done
-  10x__skip_simplify_plan --> 10x__simplify_plan: run
-  10x__skip_simplify_plan --> 10x__confirm: skip
-  10x__simplify_plan --> 10x__confirm: done
+  10x__plan --> 10x__skip_refine: done
+  10x__skip_refine --> 10x__simplify_plan: run
+  10x__skip_refine --> 10x__present: skip
+  10x__simplify_plan --> 10x__standards_plan: done
+  10x__standards_plan --> 10x__align_plan: done
+  10x__align_plan --> 10x__present: done
+  10x__present --> 10x__confirm: done
   10x__confirm --> 10x__gather: adjusted
   10x__confirm --> 10x__breakdown: confirmed
   10x__breakdown --> 10x__spawn_engineers: done
@@ -489,16 +513,22 @@ stateDiagram-v2
   agreeing__gather__notes --> agreeing__plan: done
   agreeing__gather__research --> agreeing__gather: spawned
   agreeing__interview --> agreeing__gather: asked
-  agreeing__plan --> agreeing__skip_simplify_plan: done
-  agreeing__skip_simplify_plan --> agreeing__simplify_plan: run
-  agreeing__skip_simplify_plan --> agreeing__confirm: skip
-  agreeing__simplify_plan --> agreeing__confirm: done
+  agreeing__plan --> agreeing__skip_refine: done
+  agreeing__skip_refine --> agreeing__simplify_plan: run
+  agreeing__skip_refine --> agreeing__present: skip
+  agreeing__simplify_plan --> agreeing__standards_plan: done
+  agreeing__standards_plan --> agreeing__align_plan: done
+  agreeing__align_plan --> agreeing__present: done
+  agreeing__present --> agreeing__confirm: done
   agreeing__confirm --> agreeing__gather: adjusted
   agreeing__confirm --> next: confirmed
-  proposing__plan --> proposing__skip_simplify_plan: done
-  proposing__skip_simplify_plan --> proposing__simplify_plan: run
-  proposing__skip_simplify_plan --> proposing__confirm: skip
-  proposing__simplify_plan --> proposing__confirm: done
+  proposing__plan --> proposing__skip_refine: done
+  proposing__skip_refine --> proposing__simplify_plan: run
+  proposing__skip_refine --> proposing__present: skip
+  proposing__simplify_plan --> proposing__standards_plan: done
+  proposing__standards_plan --> proposing__align_plan: done
+  proposing__align_plan --> proposing__present: done
+  proposing__present --> proposing__confirm: done
   proposing__confirm --> proposing__plan: adjusted
   proposing__confirm --> next: confirmed
   building__open_plan --> building__draft: done

@@ -486,8 +486,8 @@ spec = describe "State.Cli.Command" $ do
               ).fix
             | fuel <- [Balanced, Low]
             ]
-                `shouldBe` [ "state record skip_simplify_plan.run"
-                           , "state record skip_simplify_plan.run | state record skip_simplify_plan.skip"
+                `shouldBe` [ "state record skip_refine.run"
+                           , "state record skip_refine.run | state record skip_refine.skip"
                            ]
 
         it
@@ -579,15 +579,15 @@ spec = describe "State.Cli.Command" $ do
         it "of an unknown hook" $
             golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
-    -- At the gather, past the root's Fuel; then with a researcher open, at simplify_plan's skip, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
+    -- At the gather, past the root's Fuel; then with a researcher open, at the refine block's skip, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
     fueled = [fuelSet Balanced]
     researched = fueled <> take 2 happyPath
     researching = fueled <> [Took mempty (pickOf "gather" "research")]
     interviewing = fueled <> [Took mempty (pickOf "gather" "interview")]
     skipping = fueled <> take 6 happyPath
     simplifying = fueled <> take 7 happyPath
-    planned = fueled <> take 8 happyPath
-    picking = fueled <> take 13 happyPath <> [stepTook (ReviewRows sha)]
+    planned = fueled <> take 11 happyPath
+    picking = fueled <> take 16 happyPath <> [stepTook (ReviewRows sha)]
     -- The engineer's cap of this meter.
     capOf :: Text -> Cap
     capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of

@@ -194,7 +194,7 @@ spec = describe "the hooks" $ do
                 )
                 `shouldBe` Right (Just (Asks (SpawnRole (Just (AgentRole "implementer")))))
 
-        it "records a step runner's hand-back, not a reviewer's or a child run's" $
+        it "records a step runner's hand-back, not a checker's or a child run's" $
             [ wants
                 steps
                 HandbackHook
@@ -205,7 +205,7 @@ spec = describe "the hooks" $ do
                 )
             | agent <-
                 [ reviewLead
-                , Agent (Just (AgentId "a2")) (Just (AgentRole "reviewer"))
+                , Agent (Just (AgentId "a2")) (Just (AgentRole "checker"))
                 , Agent (Just (AgentId "a3")) (Just (AgentRole "engineer"))
                 ]
             ]
@@ -314,7 +314,7 @@ spec = describe "the hooks" $ do
                     ]
 
         it "says nothing to an agent the flows do not spawn, or one with no role" $
-            map startOf [Just "reviewer", Just "Explore", Nothing]
+            map startOf [Just "checker", Just "Explore", Nothing]
                 `shouldBe` replicate 3 (Right Nothing)
 
         it "begins the engineer's and the 10x's skills, typed or called" $

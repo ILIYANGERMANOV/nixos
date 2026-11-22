@@ -119,13 +119,14 @@ import State.Run.RunGen (
     outcomeOf,
     pickOf,
     plainTask,
+    refined,
     researchedIn,
     roundTask,
-    runOf,
     scopedIn,
     securityGraph,
     securityScope,
     sha,
+    skipOf,
     spawnedIn,
     tenXAt,
     tenXGraph,
@@ -620,17 +621,17 @@ spec = describe "State.Run.Fold" $ do
                         <> enoughIn "gather"
                         <> map
                             (Took mempty)
-                            [ outcome (PlanDone "p")
-                            , runOf "simplify_plan"
-                            , outcome SimplifyPlanDone
-                            , outcome ConfirmAdjusted
-                            ]
+                            ( [outcome (PlanDone "p")]
+                                <> refined
+                                <> [outcome ConfirmAdjusted]
+                            )
                         <> gather
             Map.map length . (.rounds)
                 <$> replay g (logOf (started :| fuelSet Balanced : gathered))
                 `shouldBe` Right (Map.fromList [("gather", 2), ("plan", 2)])
 
     gatherBudgets
+    proposeWalk
     tenXRounds
     architectRun
     chiefRequests
@@ -998,12 +999,12 @@ ofRun other (Envelope source n ts _ sha' session event) = Envelope source n ts o
 
 -- | From the start to the first review.
 toReview :: [Event]
-toReview = take 13 happyPath
+toReview = take 16 happyPath
 
 -- | From the start to the first CI result.
 toCi :: [Event]
 toCi =
-    take 13 happyPath
+    take 16 happyPath
         <> map
             (Took mempty)
             [ outcome (ReviewClean sha)
@@ -1302,11 +1303,9 @@ gatherBudgets = describe "the gather's choice" $ do
                     spent
                         <> replicate 5 handedBack
                         <> enoughIn "gather"
-                        <> [ stepTook (PlanDone "p")
-                           , Took mempty (runOf "simplify_plan")
-                           , stepTook SimplifyPlanDone
-                           , stepTook ConfirmAdjusted
-                           ]
+                        <> [stepTook (PlanDone "p")]
+                        <> map (Took mempty) refined
+                        <> [stepTook ConfirmAdjusted]
             replay
                 g
                 (logOf (started :| fuelSet Balanced : adjusted <> asks 31 30 <> spawns 5))
@@ -1326,7 +1325,7 @@ gatherBudgets = describe "the gather's choice" $ do
     it "refuses extend outside the gather" $
         replay
             g
-            (logOf (started :| fuelSet Balanced : take 10 happyPath <> [Extended "why"]))
+            (logOf (started :| fuelSet Balanced : take 13 happyPath <> [Extended "why"]))
             `shouldBe` Left NothingToExtend
   where
     -- Each spawn bound to its agent, as the bind hook logs it: its entry in the ledger.
@@ -1659,6 +1658,44 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
     childTasks state = [(.id) <$> Fan.childTask fan (runId "c1") | fan <- Map.elems state.fans]
     mergedIn state = [Fan.merged fan t1 | fan <- Map.elems state.fans]
 
+{- | A written plan's way to confirm: its refine passes in order, which Low
+alone may skip, and a plan settled without the user skips at every Fuel,
+then its presentation.
+-}
+proposeWalk :: Spec
+proposeWalk = describe "the propose block" $ do
+    for_ [minBound .. maxBound] $ \fuel ->
+        it ("walks the refine passes, then present, to confirm at " <> show fuel) $
+            atName <$> planned (ByUser OwnPr) fuel refined
+                `shouldBe` Right (Just (StateName "confirm"))
+
+    it "skips the refine block, straight to present, at Low only" $
+        [ atName <$> planned (ByUser OwnPr) fuel [skipOf "refine"]
+        | fuel <- [minBound .. maxBound]
+        ]
+            `shouldBe` [ Right (Just (StateName "present"))
+                       , Left (NotSkippable "refine")
+                       , Left (NotSkippable "refine")
+                       ]
+
+    for_ [minBound .. maxBound] $ \fuel ->
+        it
+            ("skips a settled plan's refine block, straight to present, at " <> show fuel)
+            $ atName <$> planned settled fuel [skipOf "refine"]
+                `shouldBe` Right (Just (StateName "present"))
+  where
+    settled =
+        ByRole (Parent (runId "p1") (InFan (Tasked (TaskId "t1")))) OwnPr ParentDecided
+    -- The engineer's run past its plan's done, then these outcomes.
+    planned principal fuel outcomes =
+        replay
+            g
+            ( logOf
+                ( Started (startOf EngineerFlow principal) :| fuelSet fuel
+                    : take 6 happyPath <> map (Took mempty) outcomes
+                )
+            )
+
 {- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
 or loops back to gather for the next round, with fresh budgets.
 -}
@@ -1763,10 +1800,9 @@ tenXRounds = describe "the 10x's rounds" $ do
     agreed = spawnedIn "gather" <> [stepTook ResearchHandedBack] <> planned
     planned =
         enoughIn "gather"
-            <> [ stepTook (PlanDone "p")
-               , Took mempty (runOf "simplify_plan")
-               , stepTook SimplifyPlanDone
-               , stepTook ConfirmConfirmed
+            <> [stepTook (PlanDone "p")]
+            <> map (Took mempty) refined
+            <> [ stepTook ConfirmConfirmed
                , stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))
                ]
     onPr = roundTask "t1" "https://pr/1"

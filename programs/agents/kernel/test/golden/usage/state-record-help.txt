@@ -17,6 +17,9 @@ Available commands:
   extend                   <why>
   plan.done                <path>
   simplify_plan.done       no arguments
+  standards_plan.done      no arguments
+  align_plan.done          no arguments
+  present.done             no arguments
   confirm.confirmed        no arguments
   confirm.adjusted         no arguments
   draft.done               <url> <base> <branch>
@@ -57,8 +60,8 @@ Available commands:
   gather.enough            no arguments
   gather.research          no arguments
   gather.interview         no arguments
-  skip_simplify_plan.skip  no arguments
-  skip_simplify_plan.run   no arguments
+  skip_refine.skip         no arguments
+  skip_refine.run          no arguments
   skip_refactor.skip       no arguments
   skip_refactor.run        no arguments
   architect.enough         no arguments

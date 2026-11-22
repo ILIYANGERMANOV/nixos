@@ -251,6 +251,9 @@ recordables =
                         )
                 _ -> Left "the plan's path"
            , nothing SimplifyPlanDone
+           , nothing StandardsPlanDone
+           , nothing AlignPlanDone
+           , nothing PresentDone
            , nothing ConfirmConfirmed
            , nothing ConfirmAdjusted
            , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of
