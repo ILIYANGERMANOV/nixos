@@ -69,14 +69,24 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
 
 ## Writing for people
 
-PR bodies, explanations, replies and reports a person reads:
+PR bodies, plans, questions, replies and reports a person reads:
 
-- Simple words, short sentences. No walls of text: little prose, bullets
-  over paragraphs.
-- One or more visuals where they help: a diagram, a table, pseudo-code.
-- Text you post (PR comments, reviews, replies) without the user approving
-  it opens with `🤖 Posted by an AI agent. No human has read it yet.` Text
-  the user approved carries no disclosure.
+- Simple words. Short sentences. One idea per sentence.
+- Few commas. Split a long sentence in two.
+- Bullets over paragraphs. No walls of text.
+- Pick the best visual and put it first. Add another only
+  when it shows something new. Many texts need none.
+  - Code: an API, a call site, a config.
+  - Diagram: a flow, steps in order, who calls whom.
+  - Table: options side by side, before and after.
+  - File tree: files added or moved.
+- In a terminal or chat, draw with text: a code block, a
+  table, a vertical `a --> b` flow. Mermaid only where it
+  renders, such as a GitHub PR.
+- Text you post (PR comments, reviews, replies) without the
+  user approving it opens with `🤖 Posted by an AI agent. No
+  human has read it yet.` Text the user approved carries no
+  disclosure.
 
 ## Writing style
 

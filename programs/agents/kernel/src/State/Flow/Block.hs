@@ -218,11 +218,13 @@ fixReReview =
 
 type FixReReviewS = LoopS (CappedS (DoS PickRows) :>> DoS Fix :>> DoS ReReview)
 
--- | @describe@ is the final fixer, so @simplify_pr@ is never skipped: the Keep law.
+{- | @describe@ writes the prose, @visual@ adds its visuals and @simplify_pr@
+trims it: @visual@ and @simplify_pr@ are never skipped (the Keep law).
+-}
 describe :: Flow DescribeS 'Diff 'Nothing 'PR
-describe = Do Describe :> Do SimplifyPR
+describe = Do Describe :> Do Visual :> Do SimplifyPR
 
-type DescribeS = DoS Describe :>> DoS SimplifyPR
+type DescribeS = DoS Describe :>> DoS Visual :>> DoS SimplifyPR
 
 {- | No level skips @ready@: a round on an existing PR leaves its PR as it
 is, by its task's shape, and records the url it keeps.

@@ -35,6 +35,7 @@ Available commands:
   re_review.clean          no arguments
   re_review.rows           no arguments
   describe.done            no arguments
+  visual.done              no arguments
   simplify_pr.done         no arguments
   await_ci.green           no arguments
   await_ci.red             <check>...

@@ -169,7 +169,8 @@ is no arrow: it leaves a request at its state and turns to another.
 | engineer/pick | you | final: engineer/describe; loop: engineer/fix |
 | engineer/fix | fixer | done: engineer/re_review |
 | engineer/re_review | review-lead | clean: engineer/describe; rows: engineer/pick |
-| engineer/describe | fixer | done: engineer/simplify_pr |
+| engineer/describe | fixer | done: engineer/visual |
+| engineer/visual | fixer | done: engineer/simplify_pr |
 | engineer/simplify_pr | fixer | done: engineer/await_ci |
 | engineer/await_ci | you | green: engineer/ready; red: engineer/fix_pr |
 | engineer/fix_pr | fixer | done: engineer/await_ci |
@@ -231,7 +232,8 @@ is no arrow: it leaves a request at its state and turns to another.
 | reviewing/fix | fixer | done: reviewing/re_review |
 | reviewing/re_review | review-lead | clean: next; rows: reviewing/pick |
 | describing/open_branch | you | done: describing/describe |
-| describing/describe | fixer | done: describing/simplify_pr |
+| describing/describe | fixer | done: describing/visual |
+| describing/visual | fixer | done: describing/simplify_pr |
 | describing/simplify_pr | fixer | done: next |
 | shipping/open_pr | you | done: shipping/await_ci |
 | shipping/await_ci | you | green: shipping/ready; red: shipping/fix_pr |

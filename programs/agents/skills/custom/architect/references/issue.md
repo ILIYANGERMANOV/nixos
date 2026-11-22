@@ -9,9 +9,8 @@ how it is filed. One issue per deliverable a single PR can close.
 
 ## Format
 
-The top is for a person, in the style of `pr-description`'s What & Why: simple
-words, short sentences, a visual over prose. The rest is the contract the
-engineer plans from.
+The top is for a person, written as "Writing for people" in your instructions
+says. The rest is the contract the engineer plans from.
 
 ````markdown
 ## What & Why

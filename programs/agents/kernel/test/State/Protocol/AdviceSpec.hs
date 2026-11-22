@@ -274,7 +274,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "skips ready on a targeted PR, as GitHub reads it by its url" $
             due
                 withPr
-                (chiefAt (onPr : routed "engineer" <> inScope "engineer" (take 20 happyPath)))
+                (chiefAt (onPr : routed "engineer" <> inScope "engineer" (take 21 happyPath)))
                 `shouldBe` Just (Took (scopePath "engineer") (outcome (ReadySkipped prUrl)))
         it
             "explains each discussion question before it is asked, as the architect's discussion does"
@@ -536,7 +536,7 @@ spec = describe "State.Protocol.Advice" $ do
             $ [ due
                     withPr {pr = Just (PullRequest draftPr IsReady)}
                     (runUnder userRound (knobs Balanced <> take n happyPath))
-              | n <- [12, 20]
+              | n <- [12, 21]
               ]
                 `shouldBe` [Just (stepTook (DraftDone draftPr)), Just (stepTook (ReadySkipped prUrl))]
 
@@ -1110,7 +1110,7 @@ spec = describe "State.Protocol.Advice" $ do
             , "state record gather.interview"
             , "state record gather.research"
             ]
-    atReady = runAt (knobs Balanced <> take 20 happyPath)
+    atReady = runAt (knobs Balanced <> take 21 happyPath)
     -- One review round with a row, fixed, and the next round's rows.
     looped =
         [ stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty))

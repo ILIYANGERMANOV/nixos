@@ -67,7 +67,7 @@ request in focus and turn to another (`state focus`). The routes are in
 | `implementer` | `implement` | builds one slice of the plan |
 | `refactorer` | `refactor` | one refactor pass |
 | `review-lead` | `review`, `re_review` | one review pass (a re-review reads only the fix) |
-| `fixer` | `fix`, `describe`, `simplify_pr`, `fix_pr` | fixes rows, writes the PR text, fixes red CI |
+| `fixer` | `fix`, `describe`, `visual`, `simplify_pr`, `fix_pr` | fixes rows, writes the PR text and its visuals, fixes red CI |
 | await | `*/researchers`, `engineers`, `delegates` | waits for every worker or child to hand back |
 | fan-out | `spawn_engineers`, `spawn_delegates` | starts one child run per task |
 
@@ -132,7 +132,8 @@ stateDiagram-v2
   fix --> re_review: done
   re_review --> describe: clean
   re_review --> pick: rows
-  describe --> simplify_pr: done
+  describe --> visual: done
+  visual --> simplify_pr: done
   simplify_pr --> await_ci: done
   await_ci --> ready: green
   await_ci --> fix_pr: red
@@ -254,7 +255,7 @@ Source: [`blocks` in `Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a4
 |---|---|---|---|---|
 | `refine` (`simplify_plan`, `standards_plan`, `align_plan`) | agent's call, on a trivial task | runs | runs | the plan is settled without the user (`present` is skipped too): a parent run decided it, or it is feedback with no Design or Scope question open |
 | `refactor` | agent's call, on a trivial task | skipped at 100 changed lines or fewer | runs | - |
-| `describe`, `simplify_pr`, `ready` | never skipped | never skipped | never skipped | - |
+| `describe`, `visual`, `simplify_pr`, `ready` | never skipped | never skipped | never skipped | - |
 
 Fuel, the run's effort level ([GUARDRAILS](GUARDRAILS.md#fuel-and-caps)),
 sizes every cap (next section) and decides two skips. At a `skip_*` state
@@ -331,6 +332,7 @@ stateDiagram-v2
   state "engineer/fix" as engineer__fix
   state "engineer/re_review" as engineer__re_review
   state "engineer/describe" as engineer__describe
+  state "engineer/visual" as engineer__visual
   state "engineer/simplify_pr" as engineer__simplify_pr
   state "engineer/await_ci" as engineer__await_ci
   state "engineer/fix_pr" as engineer__fix_pr
@@ -392,6 +394,7 @@ stateDiagram-v2
   state "reviewing/re_review" as reviewing__re_review
   state "describing/open_branch" as describing__open_branch
   state "describing/describe" as describing__describe
+  state "describing/visual" as describing__visual
   state "describing/simplify_pr" as describing__simplify_pr
   state "shipping/open_pr" as shipping__open_pr
   state "shipping/await_ci" as shipping__await_ci
@@ -452,7 +455,8 @@ stateDiagram-v2
   engineer__fix --> engineer__re_review: done
   engineer__re_review --> engineer__describe: clean
   engineer__re_review --> engineer__pick: rows
-  engineer__describe --> engineer__simplify_pr: done
+  engineer__describe --> engineer__visual: done
+  engineer__visual --> engineer__simplify_pr: done
   engineer__simplify_pr --> engineer__await_ci: done
   engineer__await_ci --> engineer__ready: green
   engineer__await_ci --> engineer__fix_pr: red
@@ -547,7 +551,8 @@ stateDiagram-v2
   reviewing__re_review --> next: clean
   reviewing__re_review --> reviewing__pick: rows
   describing__open_branch --> describing__describe: done
-  describing__describe --> describing__simplify_pr: done
+  describing__describe --> describing__visual: done
+  describing__visual --> describing__simplify_pr: done
   describing__simplify_pr --> next: done
   shipping__open_pr --> shipping__await_ci: done
   shipping__await_ci --> shipping__ready: green

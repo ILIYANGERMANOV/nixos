@@ -101,10 +101,9 @@ directory without its trailing `/`, plus the `--parent` and
 them, on
 the same branch and PR, at the same Fuel: Gather for the open question
 only, never re-asking what was just answered, then Propose and confirm. The
-new plan and
-its `Considered options` go into the PR body. Existing commits stay and the
-new plan adds commits on top; its review starts again at round 1, so the
-re-review cap and the stuck guard reset.
+new plan goes into the PR body; its `Considered options` stay in the plan.
+Existing commits stay and the new plan adds commits on top; its review
+starts again at round 1, so the re-review cap and the stuck guard reset.
 
 ## Stops
 

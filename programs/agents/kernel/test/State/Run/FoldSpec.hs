@@ -1009,6 +1009,7 @@ toCi =
             (Took mempty)
             [ outcome (ReviewClean sha)
             , outcome (DescribeDone sha)
+            , outcome (VisualDone sha)
             , outcome (SimplifyPrDone sha)
             ]
 

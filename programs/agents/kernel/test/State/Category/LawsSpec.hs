@@ -463,7 +463,7 @@ stateNames = Set.map placeName . places
 
 {- | The steps law Keep never lets Fuel skip: the review that holds the
 security pass, the re-review that holds the blockers, fact research and the
-final fixer, @describe@ and @simplify_pr@.
+final fixer, @describe@, @visual@ and @simplify_pr@.
 -}
 kept :: [Name]
 kept =
@@ -471,6 +471,7 @@ kept =
     , nameOf ReReview
     , nameOf Research
     , nameOf Describe
+    , nameOf Visual
     , nameOf SimplifyPR
     ]
 

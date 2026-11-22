@@ -37,7 +37,7 @@ who owns each decision.
   This covers user-facing wording and naming you are unsure of (slash
   commands, labels); mechanical internal names are yours.
   Told to use your own judgment, you rule the rest and record each ruling,
-  with its reason, in the PR body.
+  with its reason, in the PR body's "Decided without you".
 - **Facts are yours.** Research facts with researchers. Only you spawn them;
   workers never do.
 - **Workers stop on a blocker.** `state brief <role>` prints the stop rule into
@@ -91,7 +91,8 @@ who owns each decision.
   a product, scope or design answer among them is its own kind. `refactor`'s
   big items come back as proposals: Build says what to do with them.
 - **Simplicity over completeness**, as the engineering instructions say. A rare
-  edge case you skip is recorded as out of scope in the PR body.
+  edge case you skip goes in the PR body's `Skipped edge cases` block, with
+  why.
 - **Protect your context window.** Subagents read, implement, verify and
   triage logs; keep only their conclusions. After launching a background
   agent, or on a wake that needs nothing, end the turn without a tool call and
@@ -129,7 +130,8 @@ every child handed back: wait there, never record it.
 | pick | you | final: describe; loop: fix |
 | fix | fixer | done: re_review |
 | re_review | review-lead | clean: describe; rows: pick |
-| describe | fixer | done: simplify_pr |
+| describe | fixer | done: visual |
+| visual | fixer | done: simplify_pr |
 | simplify_pr | fixer | done: await_ci |
 | await_ci | you | green: ready; red: fix_pr |
 | fix_pr | fixer | done: await_ci |
@@ -203,8 +205,8 @@ Out of scope and Acceptance criteria carry over as they stand.
 The refine passes run unless Low skips them: each hands back findings, never
 a plan. You alone edit `plan.md`: apply the rows you accept, never against a
 settled decision, and log every row, taken or not, in the plan's
-`## Considered options` table, `| Pass | Finding | Taken? | Why |`, which goes
-into the PR body.
+`## Considered options` table, `| Pass | Finding | Taken? | Why |`. It stays
+in the plan, never in the PR body.
 
 `present` composes the plan message; `confirm` sends it with one `Confirm`
 question as its final text, once: "Yes, build it (Recommended)" / "No,
@@ -249,12 +251,12 @@ chosen row, its `--verdict`s). `pick.loop` sends them to a fixer, then a
 fresh `re_review`, and spends one Re-review; `pick.final` goes on to
 describe, the final fixer.
 
-### Describe: describe, simplify_pr
+### Describe: describe, visual, simplify_pr
 
-The final fixer, row R0, writes the PR body. Then a fresh fixer on row S0
-shortens it as `pr-description`'s `## Simplify (row S0)` says; its
-`Simplified: <sha>` line is recorded and `ready` waits for it. A later R0
-edits in place. Then, in a run with no parent, notify: the draft is complete
+The final fixer, row R0, writes the PR body. A fresh fixer on row V0 adds
+its visuals. Then a fresh fixer on row S0 shortens it as `pr-description`'s
+`## Simplify (row S0)` says; its `Simplified: <sha>` line is recorded and
+`ready` waits for it. A later R0 edits in place. Then, in a run with no parent, notify: the draft is complete
 and CI runs.
 
 ### Ship: await_ci, fix_pr, ready

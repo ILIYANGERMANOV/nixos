@@ -1,6 +1,8 @@
 {-# LANGUAGE TypeData #-}
 
--- | The steps that ship the diff as a PR: describe it, simplify it, wait on CI, ready it.
+{- | The steps that ship the diff as a PR: describe it, add its visuals,
+simplify it, wait on CI, ready it.
+-}
 module State.Step.Ship (
     ShipStep (..),
     Sing (..),
@@ -24,16 +26,18 @@ import State.Step.Artifact (
     urlOf,
  )
 
-type data ShipStep = Describe | SimplifyPR | AwaitCi | FixPR | Ready
+type data ShipStep = Describe | Visual | SimplifyPR | AwaitCi | FixPR | Ready
 
 instance StepSet ShipStep where
     type Raises Describe = '[]
+    type Raises Visual = '[]
     type Raises SimplifyPR = '[]
     type Raises AwaitCi = '[ 'Awaits 'Ci]
     type Raises FixPR = '[]
     type Raises Ready = '[]
 
     type Sig Describe = '( 'Diff, 'Nothing, 'PR)
+    type Sig Visual = '( 'PR, 'Nothing, 'PR)
     type Sig SimplifyPR = '( 'PR, 'Nothing, 'PR)
     type Sig AwaitCi = '( 'PR, 'Just 'PR, 'PR)
     type Sig FixPR = '( 'PR, 'Nothing, 'PR)
@@ -41,6 +45,7 @@ instance StepSet ShipStep where
 
     data Sing s where
         Describe :: Sing Describe
+        Visual :: Sing Visual
         SimplifyPR :: Sing SimplifyPR
         AwaitCi :: Sing AwaitCi
         FixPR :: Sing FixPR
@@ -48,6 +53,7 @@ instance StepSet ShipStep where
 
     data Outcome s l where
         DescribeDone :: Sha -> Outcome Describe 'Continued
+        VisualDone :: Sha -> Outcome Visual 'Continued
         SimplifyPrDone :: Sha -> Outcome SimplifyPR 'Continued
         AwaitCiGreen :: Sha -> Outcome AwaitCi 'Exited
         -- \| Red has a failing check by definition.
@@ -59,6 +65,7 @@ instance StepSet ShipStep where
 
     layerSteps =
         [ SomeStep Describe
+        , SomeStep Visual
         , SomeStep SimplifyPR
         , SomeStep AwaitCi
         , SomeStep FixPR
@@ -68,6 +75,7 @@ instance StepSet ShipStep where
         _listsEvery :: Sing (s :: ShipStep) -> ()
         _listsEvery = \case
             Describe -> ()
+            Visual -> ()
             SimplifyPR -> ()
             AwaitCi -> ()
             FixPR -> ()
@@ -76,6 +84,7 @@ instance StepSet ShipStep where
     stepName =
         StateName . \case
             Describe -> "describe"
+            Visual -> "visual"
             SimplifyPR -> "simplify_pr"
             AwaitCi -> "await_ci"
             FixPR -> "fix_pr"
@@ -83,6 +92,7 @@ instance StepSet ShipStep where
 
     outcomes = \case
         Describe -> Continues (OutcomeName "done")
+        Visual -> Continues (OutcomeName "done")
         SimplifyPR -> Continues (OutcomeName "done")
         AwaitCi -> ExitsOr (OutcomeName "green") (OutcomeName "red")
         FixPR -> Continues (OutcomeName "done")
@@ -90,6 +100,7 @@ instance StepSet ShipStep where
 
     pack = \case
         o@(DescribeDone _) -> packed Describe o
+        o@(VisualDone _) -> packed Visual o
         o@(SimplifyPrDone _) -> packed SimplifyPR o
         o@(AwaitCiGreen _) -> packed AwaitCi o
         o@(AwaitCiRed _ _) -> packed AwaitCi o
@@ -99,6 +110,7 @@ instance StepSet ShipStep where
 
     encodeOutcome = \case
         DescribeDone sha -> headData sha
+        VisualDone sha -> headData sha
         SimplifyPrDone sha -> headData sha
         AwaitCiGreen sha -> headData sha
         AwaitCiRed sha failing ->
@@ -110,6 +122,7 @@ instance StepSet ShipStep where
 
     decoders =
         [ Decoder Describe (fmap DescribeDone . headOf)
+        , Decoder Visual (fmap VisualDone . headOf)
         , Decoder SimplifyPR (fmap SimplifyPrDone . headOf)
         , Decoder AwaitCi (fmap AwaitCiGreen . headOf)
         , Decoder

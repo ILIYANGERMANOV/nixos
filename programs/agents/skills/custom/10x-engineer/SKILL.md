@@ -262,7 +262,7 @@ Never relay worker text verbatim.
 **Resume.** On `RESUME`: `state record resumed <child>`, then `SendMessage` the child, or past about an idle
 hour a fresh `engineer` with its spawn prompt, saying "Answer to `<qid>`:
 `<a>`, in your run already. Run `state next`." A ruling also goes into its PR
-body's Key decisions.
+body's "Decided without you".
 
 **Re-plan.** An answer that changes the breakdown itself, a task added,
 dropped or reshaped across tasks, is the user's: ask it, then

@@ -149,7 +149,7 @@ Assumed and why.
 | Law | Backed by |
 |---|---|
 | Monotone | `LawsSpec` PerFuel, over every flow in `State.Role.roles`; `derived_role_grows_with_its_steps` for tools, skills and operations, not prose |
-| Keep | `LawsSpec`: no Fuel skip (`termSkips`) of any role's flow names `review`, `re_review`, `research`, `describe` or `simplify_pr`. A flow without one of these steps holds it vacuously |
+| Keep | `LawsSpec`: no Fuel skip (`termSkips`) of any role's flow names `review`, `re_review`, `research`, `describe`, `visual` or `simplify_pr`. A flow without one of these steps holds it vacuously |
 | Log | Replay: `FoldSpec` `replaying_a_prefix_then_appending_the_rest_is_replaying_the_whole` and `live_appends_reach_the_run_the_log_replays`. One writer: Assumed. Only `Effects.Store` inserts events, but nothing stops an agent writing the database with `sqlite3` |
 | Sufficient | `derived_role_holds_every_step_need`, in `checks.agents` (`derived-roles`) |
 | Lean | `derived_role_holds_nothing_else`, in `checks.agents` (`derived-roles`) |
