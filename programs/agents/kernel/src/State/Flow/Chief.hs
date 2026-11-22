@@ -36,17 +36,15 @@ chief = Handle AgentPicks . Handle FocusHere $ Loop "requests" (Do Fuel :> choic
             :& branch @"engineer" engineer
             :& branch @"10x" tenX
             :& (Label @"blocks" :-> choice "block" blocks)
-            :& branch @"discussion" discuss
+            :& branch @"discussion" (discuss "discussing" End)
             :& (Label @"other" :-> Do Direct :> Into)
             :& (Label @"delegate" :-> Fork delegates engineer :> Into)
             :& End
-
-{- | The requests handed on whole, each a child run beside the chief: its
-init (@state init --parent@) at the fork is its spawn. An engineer's, or a
-10x's: the child's own init names its flow, as the body is not drawn.
--}
-delegates :: Group 'PR
-delegates = Group "delegates" (AgentRole (flowText EngineerFlow))
+    -- The requests handed on whole, each a child run beside the chief: its
+    -- init (@state init --parent@) at the fork is its spawn. An engineer's, or a
+    -- 10x's: the child's own init names its flow, as the body is not drawn.
+    delegates :: Group 'PR
+    delegates = Group "delegates" (AgentRole (flowText EngineerFlow))
 
 type ChiefS = LoopS (DoS Fuel :>> ChoiceS 'Ctx Requests RequestFlows :>> CappedS (DoS Next)) :>> AwaitS :>> IntoS
 
@@ -68,7 +66,7 @@ type RequestFlows =
      , BranchS (HandleS PickE EngineerS)
      , BranchS (HandleS PickE TenXS)
      , ChoiceS 'Ctx Blocks BlocksS
-     , BranchS DiscussS
+     , BranchS (DiscussS '[] '[])
      , DoS Direct :>> IntoS
      , ForkS (HandleS PickE EngineerS) :>> IntoS
      ]

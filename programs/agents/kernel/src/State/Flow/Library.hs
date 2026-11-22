@@ -12,7 +12,6 @@ module State.Flow.Library (
     SkippableS,
     nameOf,
     upTo,
-    researchers,
     parallel,
     ParallelS,
     agree,
@@ -21,8 +20,6 @@ module State.Flow.Library (
     GatherS,
     research,
     ResearchS,
-    designResearchers,
-    designQuestions,
     researchLoop,
     ResearchLoopS,
     discuss,
@@ -136,7 +133,10 @@ their notes. Its meters are the researchers and the questions; at either cap
 the user is asked whether to go on, and @extend@ grants both again.
 -}
 gather :: Flow GatherS 'Ctx 'Nothing 'Ctx
-gather = researchLoop "gather" gatherResearchers (#interview :-> Capped questions Extend (Step Interview) :& End)
+gather = researchLoop "gather" gatherResearcherLimit (#interview :-> Capped questions Extend (Step Interview) :& End)
+  where
+    -- The questions the user is asked in an interview, by Fuel.
+    questions = UpTo <$> PerFuel 15 30 50
 
 type GatherS = ResearchLoopS '[ '("interview", 'Ctx)] '[CappedS (DoS Interview)]
 
@@ -149,14 +149,24 @@ research cap = researchLoop "exploring" cap End
 
 type ResearchS = ResearchLoopS '[] '[]
 
-{- | The design discussion: spawn a researcher on a fact gap, or ask the user
-design questions, each explained before it is asked; @extend@ grants both
-budgets again at the user's yes.
+{- | The design discussion named @name@: spawn a researcher on a fact gap, or
+ask the user design questions, each explained before it is asked, then the
+other actions; @extend@ grants both budgets again at the user's yes.
 -}
-discuss :: Flow DiscussS 'Ctx 'Nothing 'Ctx
-discuss = researchLoop "discussing" designResearchers (#discuss :-> Capped designQuestions Extend (Step Discuss) :& End)
+discuss ::
+    (Summands ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss), Over 'Ctx ss, PickLabels ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss) ('("enough", 'Ctx) ': '("research", 'Ctx) ': '("discuss", 'Ctx) ': ss), Typeable ss) =>
+    Name ->
+    Branches bs ss 'Nothing 'Ctx ->
+    Flow (DiscussS ss bs) 'Ctx 'Nothing 'Ctx
+discuss name actions = researchLoop name designResearcherLimit (#discuss :-> Capped designQuestionLimit Extend (Step Discuss) :& actions)
+  where
+    -- The researchers a design spawns, by Fuel: the architect's and the chief's discussion.
+    designResearcherLimit = UpTo <$> PerFuel 10 30 60
+    -- The design questions the user is asked in a discussion, by Fuel.
+    designQuestionLimit = UpTo <$> PerFuel 50 100 200
 
-type DiscussS = ResearchLoopS '[ '("discuss", 'Ctx)] '[CappedS (DoS Discuss)]
+type DiscussS :: [(Symbol, Ty)] -> [Shape] -> Shape
+type DiscussS ss bs = ResearchLoopS ('("discuss", 'Ctx) ': ss) (CappedS (DoS Discuss) ': bs)
 
 {- | A 'choiceLoop' named @name@ whose first action, @research@, spawns
 researchers up to the cap and whose @enough@ merges their notes, both in its
@@ -169,46 +179,27 @@ researchLoop ::
     PerFuel Limit ->
     Branches bs ss 'Nothing 'Ctx ->
     Flow (ResearchLoopS ss bs) 'Ctx 'Nothing 'Ctx
-researchLoop name cap actions = choiceLoop name (merged name) (#research :-> researchersOf name cap :& actions)
+researchLoop name cap actions = choiceLoop name merged (#research :-> researchersOf :& actions)
+  where
+    -- Researchers up to the cap: each spawn starts a child of the group. In
+    -- the choice's scope, as one flow may hold two choices that research.
+    researchersOf = Scope name (Capped cap Extend (ForkOf researchers Research))
+    -- Every researcher's hand-back, awaited, then merged into the notes: a choice's @enough@.
+    merged = Scope name (Await researchers :> Do Notes)
+    -- The researchers a choice spawns, each handing back its facts: the group's state is its 'Await'.
+    -- Run by @flows/steps.nix@'s runner of @research@, which "State.Table" checks.
+    researchers = Group "researchers" (AgentRole "researcher")
 
 type ResearchLoopS :: [(Symbol, Ty)] -> [Shape] -> Shape
 type ResearchLoopS ss bs = ChoiceLoopS 'Ctx ('("research", 'Ctx) ': ss) MergedS (ResearchersS ': bs)
 
-{- | Researchers up to the cap: each spawn starts a child of the group. In
-the choice's scope, as one flow may hold two choices that research.
--}
-researchersOf :: Name -> PerFuel Limit -> Flow ResearchersS 'Ctx 'Nothing 'Ctx
-researchersOf scope cap = Scope scope (Capped cap Extend (ForkOf researchers Research))
-
 type ResearchersS = ScopeS (CappedS (ForkS (DoS Research)))
-
--- | Every researcher's hand-back, awaited, then merged into the notes: a choice's @enough@.
-merged :: Name -> Flow MergedS 'Ctx 'Nothing 'Ctx
-merged scope = Scope scope (Await researchers :> Do Notes)
 
 type MergedS = ScopeS (AwaitS :>> DoS Notes)
 
-{- | The researchers a choice spawns, each handing back its facts: the group's state is its 'Await'.
-Run by @flows/steps.nix@'s runner of @research@, which "State.Table" checks.
--}
-researchers :: Group 'Ctx
-researchers = Group "researchers" (AgentRole "researcher")
-
--- | The questions the user is asked in an interview, by Fuel.
-questions :: PerFuel Limit
-questions = UpTo <$> PerFuel 15 30 50
-
 -- | The researchers a gathering spawns, by Fuel: one at Low, one per open fact group at Max.
-gatherResearchers :: PerFuel Limit
-gatherResearchers = PerFuel (UpTo 1) (UpTo 5) PerGroup
-
--- | The researchers a design spawns, by Fuel: the architect's and the chief's discussion.
-designResearchers :: PerFuel Limit
-designResearchers = UpTo <$> PerFuel 10 30 60
-
--- | The design questions the user is asked in a discussion, by Fuel.
-designQuestions :: PerFuel Limit
-designQuestions = UpTo <$> PerFuel 50 100 200
+gatherResearcherLimit :: PerFuel Limit
+gatherResearcherLimit = PerFuel (UpTo 1) (UpTo 5) PerGroup
 
 {- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm
 is asked at every level. Besides its Fuel, a plan settled without the user
@@ -220,6 +211,9 @@ propose =
     Do PlanS
         :> skippable SimplifyP skippableAtLow
         :> upTo 3 Stop (Step Confirm)
+  where
+    -- Low may skip the step of a trivial task; Balanced and Max run it.
+    skippableAtLow = PerFuel Skippable Never Never
 
 type ProposeS = DoS PlanS :>> SkippableS 'Plan (DoS SimplifyP) :>> CappedS (DoS Confirm)
 
@@ -272,7 +266,7 @@ never meet a whole flow's, and ends in 'Result'.
 -}
 blocks :: Branches BlocksS Blocks 'Nothing 'Result
 blocks =
-    branch @"researching" (research gatherResearchers)
+    branch @"researching" (research gatherResearcherLimit)
         :& branch @"gathering" gather
         :& branch @"agreeing" agree
         :& branch @"proposing" (Loop "proposals" propose)
@@ -316,7 +310,3 @@ type BranchS f = ScopeS f :>> IntoS
 -- | A step's wire name as a flow name: a skip named after its block's one step.
 nameOf :: (StepSet k) => Sing (s :: k) -> Name
 nameOf = Name . stateNameText . stepName
-
--- | Low may skip the step of a trivial task; Balanced and Max run it.
-skippableAtLow :: PerFuel SkipWhen
-skippableAtLow = PerFuel Skippable Never Never

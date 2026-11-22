@@ -8,20 +8,18 @@ url, if one was written.
 module State.Flow.Architect (architect, ArchitectS) where
 
 import State.Category.Effect (Eff (PickE), Handler (AgentPicks))
-import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Shape (..))
-import State.Category.Meter (AtCap (..))
+import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Library (ResearchLoopS, designQuestions, designResearchers, researchLoop)
+import State.Flow.Library (DiscussS, discuss)
 import State.Step.Fuel (FuelStep (Fuel), Sing (Fuel))
-import State.Step.Gather (GatherStep (Discuss), Sing (Discuss))
 import State.Step.Ticket (Sing (WriteTicket), TicketStep (WriteTicket))
 
 architect :: Flow (HandleS PickE ArchitectS) 'Ctx 'Nothing 'Ctx
 architect =
     Handle AgentPicks $
         Do Fuel
-            :> researchLoop "architect" designResearchers (#discuss :-> Capped designQuestions Extend (Step Discuss) :& #ticket :-> Do WriteTicket :& End)
+            :> discuss "architect" (#ticket :-> Do WriteTicket :& End)
 
 type ArchitectS =
     DoS Fuel
-        :>> ResearchLoopS '[ '("discuss", 'Ctx), '("ticket", 'Ctx)] '[CappedS (DoS Discuss), DoS WriteTicket]
+        :>> DiscussS '[ '("ticket", 'Ctx)] '[DoS WriteTicket]
