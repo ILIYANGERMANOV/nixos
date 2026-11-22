@@ -2,7 +2,7 @@
 engineer per task, and merge their PRs into one. A round that leaves its PRs
 open loops back to agree on the next round's plan, in the same run.
 -}
-module State.Flow.TenX (tenX, TenXS) where
+module State.Flow.Role.TenX (tenX, TenXS) where
 
 import State.Category.Effect (Eff (PickE), Handler (PickHandler))
 import State.Category.Flow (
@@ -14,8 +14,9 @@ import State.Category.Flow (
  )
 import State.Category.Meter (AtCap (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Engineer (EngineerS, engineer)
-import State.Flow.Library (AgreeS, ParallelS, agree, parallel, upTo)
+import State.Flow.Block (AgreeS, agree)
+import State.Flow.Combinator (ParallelS, parallel, upTo)
+import State.Flow.Role.Engineer (EngineerS, engineer)
 import State.FlowName (FlowName (EngineerFlow), flowText)
 import State.Step.Fan (
     FanStep (Breakdown, Merge),

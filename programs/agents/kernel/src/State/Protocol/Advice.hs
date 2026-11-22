@@ -99,7 +99,6 @@ import State.Category.Step (
     stateNameText,
  )
 import State.Category.Ty (KnownTy (..), TyOf (..), TyVal)
-import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
 import State.Protocol.Handback (
     Need (Asks),
     Token (NeedsDecision),
@@ -118,7 +117,14 @@ import State.Protocol.Record (
     recordOption,
     spawnChildOption,
  )
-import State.Role (FlowName (..), RoleDef (..))
+import State.Role (
+    FlowName (..),
+    RoleDef (..),
+    SkipHere (..),
+    fuelTakes,
+    isPick,
+    skipHere,
+ )
 import State.Role qualified as Role
 import State.Run.Ask (
     Above (..),

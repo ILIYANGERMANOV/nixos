@@ -76,12 +76,12 @@ import State.Category.Step (
     stateNameText,
  )
 import State.Category.Ty (NotSum, TyOf (..))
-import State.Flow.Architect (architect)
-import State.Flow.Chief (chief)
-import State.Flow.Drawn (drawnOutcomes)
-import State.Flow.Engineer (engineer)
-import State.Flow.Library (review)
-import State.Flow.TenX (tenX)
+import State.Flow.Block (review)
+import State.Flow.Role.Architect (architect)
+import State.Flow.Role.Chief (chief)
+import State.Flow.Role.Engineer (engineer)
+import State.Flow.Role.TenX (tenX)
+import State.Role (drawnOutcomes)
 import State.Run.Ask (Above (..), Kind (Confirm), QId (..), Question (..))
 import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event

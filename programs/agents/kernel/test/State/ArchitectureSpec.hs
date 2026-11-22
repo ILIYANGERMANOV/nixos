@@ -82,9 +82,10 @@ flowModules =
     , "State.Category.Path"
     , "State.Category.Step"
     , "State.Category.Ty"
-    , "State.Flow.Engineer"
-    , "State.Flow.Library"
-    , "State.Flow.TenX"
+    , "State.Flow.Block"
+    , "State.Flow.Combinator"
+    , "State.Flow.Role.Engineer"
+    , "State.Flow.Role.TenX"
     ]
 
 {- | The kernel's layers, lowest first, each a set of module prefixes: the

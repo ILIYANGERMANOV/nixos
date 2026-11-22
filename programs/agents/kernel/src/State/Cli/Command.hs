@@ -63,7 +63,6 @@ import State.Category.Step (
     handedBackOutcome,
     stateNameText,
  )
-import State.Flow.Drawn (fuelTakes)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (
     Args (..),
@@ -81,7 +80,7 @@ import State.Protocol.Record (
     spawnChildOption,
     usageOf,
  )
-import State.Role (RoleDef (..), defaultFlow)
+import State.Role (RoleDef (..), defaultFlow, fuelTakes)
 import State.Role qualified as Role
 import State.Run.Ask (
     Above (..),

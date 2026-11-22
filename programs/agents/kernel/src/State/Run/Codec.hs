@@ -73,8 +73,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (eventText)
-import State.Flow.Drawn (drawnDecoders)
-import State.Role (flowText)
+import State.Role (drawnDecoders, flowText)
 import State.Run.Ask (
     Above (..),
     Basis (..),

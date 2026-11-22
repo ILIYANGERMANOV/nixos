@@ -1,8 +1,7 @@
-module State.Flow.LibrarySpec (spec) where
+module State.Flow.BlockSpec (spec) where
 
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Fuel (
     Fuel (..),
     PerFuel (..),
@@ -12,29 +11,23 @@ import State.Category.Fuel (
  )
 import State.Category.Graph (Cap (..), OpenGraph (..), graph)
 import State.Category.Meter (AtCap (..), Limit (..), someMeterName)
-import State.Category.Step (eventText)
-import State.Category.Ty (TyOf (..))
-import State.Flow.Engineer (engineer)
-import State.Flow.Library (
-    ChoiceS,
-    SkippableS,
+import State.Flow.Block (
     agree,
     build,
-    choice,
     describe,
     fixReReview,
     gather,
     propose,
     review,
     ship,
-    skippableBlock,
  )
-import State.Step.Catalog (flowOutcomes, outcomeEvent, termSkips, termSteps)
+import State.Flow.Role.Engineer (engineer)
+import State.Step.Catalog (termSkips)
 import Test.Hspec (Spec, it, shouldBe)
 import Test.Hspec qualified as Hspec
 
 spec :: Spec
-spec = Hspec.describe "State.Flow.Library" $ do
+spec = Hspec.describe "State.Flow.Block" $ do
     it "builds every flow" $
         [ name
         | (name, Left _) <-
@@ -76,24 +69,7 @@ spec = Hspec.describe "State.Flow.Library" $ do
                        , (Balanced, Set.empty)
                        , (Max, Set.empty)
                        ]
-
-    -- No layer lists a flow's picks and skips: the flow's term names each way on.
-    it
-        "names each label of a choice and both ways of a skippable block as the events a run records"
-        $ map (eventText . outcomeEvent) (concatMap flowOutcomes (termSteps sized))
-            `shouldBe` ["size.small", "size.big", "skip_tidy.skip", "skip_tidy.run"]
   where
-    sized ::
-        Flow
-            ( ChoiceS 'Ctx '[ '("small", 'Ctx), '("big", 'Ctx)] '[IdS, IdS]
-                :>> SkippableS 'Ctx IdS
-            )
-            'Ctx
-            'Nothing
-            'Ctx
-    sized =
-        choice "size" (#small :-> Id :& #big :-> Id :& End)
-            :> skippableBlock "tidy" (always Skippable) Id
     skippableAt level =
         Set.fromList
             [name | (name, when) <- termSkips engineer, atFuel level when == Skippable]

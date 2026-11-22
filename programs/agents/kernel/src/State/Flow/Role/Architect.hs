@@ -5,12 +5,12 @@ of times. @enough@ waits for every researcher, merges their notes and ends
 the run, with or without a ticket: its end names the notes and the ticket's
 url, if one was written.
 -}
-module State.Flow.Architect (architect, ArchitectS) where
+module State.Flow.Role.Architect (architect, ArchitectS) where
 
 import State.Category.Effect (Eff (PickE), Handler (PickHandler))
 import State.Category.Flow (Branch (..), Branches (..), Flow (..), Shape (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Library (DiscussS, discuss)
+import State.Flow.Block (DiscussS, discuss)
 import State.Step.Fuel (FuelStep (Fuel), Sing (Fuel))
 import State.Step.Ticket (Sing (WriteTicket), TicketStep (WriteTicket))
 

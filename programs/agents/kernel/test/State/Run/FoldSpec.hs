@@ -62,10 +62,11 @@ import State.Category.Step (
     StepSet (stepName),
     stateNameText,
  )
-import State.Flow.Drawn (drawnOutcomes, fuelTakes)
-import State.Flow.Engineer (engineer)
-import State.Flow.Library qualified as Library
-import State.Flow.TenX (tenX)
+import State.Flow.Block qualified as Block
+import State.Flow.Combinator qualified as Combinator
+import State.Flow.Role.Engineer (engineer)
+import State.Flow.Role.TenX (tenX)
+import State.Role (drawnOutcomes, fuelTakes)
 import State.Role qualified as Role
 import State.Run.Ask (
     Above (..),
@@ -385,7 +386,7 @@ spec = describe "State.Run.Fold" $ do
                 `shouldBe` Right Out
 
     it "runs a scoped choice's actions, then leaves it by its scoped enough" $ do
-        let scopedGather = either (error . show) id (graph (Scope "x" Library.gather))
+        let scopedGather = either (error . show) id (graph (Scope "x" Block.gather))
             x = scopePath "x"
             inGather = scopePath "x/gather"
         (.at)
@@ -2121,7 +2122,7 @@ scopedFans =
   where
     fanned =
         Do (Breakdown engineers)
-            :> Library.parallel (Group engineers (AgentRole "engineer")) engineer
+            :> Combinator.parallel (Group engineers (AgentRole "engineer")) engineer
             :> Do (Merge engineers)
 
 {- | A flow with two fan-outs, the second a scoped copy that runs on the
@@ -2135,10 +2136,10 @@ twoFans =
         id
         ( graph
             ( Do (Breakdown engineers)
-                :> Library.parallel (Group engineers (AgentRole "engineer")) engineer
+                :> Combinator.parallel (Group engineers (AgentRole "engineer")) engineer
                 :> Scope
                     "second"
-                    (Library.parallel (Group engineers (AgentRole "engineer")) (Do SimplifyPR))
+                    (Combinator.parallel (Group engineers (AgentRole "engineer")) (Do SimplifyPR))
                 :> Do (Merge engineers)
             )
         )

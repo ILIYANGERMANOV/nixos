@@ -1,14 +1,14 @@
-module State.Flow.EngineerSpec (spec) where
+module State.Flow.Role.EngineerSpec (spec) where
 
 import Data.Either (isRight)
 import State.Category.FlowGen (skipsKept)
 import State.Category.Graph (graph)
 import State.Category.Step (StateName (..))
-import State.Flow.Engineer (engineer)
+import State.Flow.Role.Engineer (engineer)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
 spec :: Spec
-spec = describe "State.Flow.Engineer" $ do
+spec = describe "State.Flow.Role.Engineer" $ do
     it "builds: no state has two edges on one event, no loop id is used twice" $
         graph engineer `shouldSatisfy` isRight
 

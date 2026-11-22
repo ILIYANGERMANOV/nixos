@@ -44,8 +44,8 @@ import State.Category.Graph (
  )
 import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
-import State.Flow.Drawn (drawnOutcomes)
 import State.Protocol.Handback (parseTouches, refusalText)
+import State.Role (drawnOutcomes)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (

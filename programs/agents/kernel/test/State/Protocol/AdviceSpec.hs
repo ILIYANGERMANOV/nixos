@@ -13,7 +13,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Category.Fuel (Fuel (..))
-import State.Flow.TenX (tenX)
+import State.Flow.Role.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
 import State.Role (Rung (Lead))

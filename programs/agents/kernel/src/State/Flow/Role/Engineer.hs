@@ -1,10 +1,10 @@
 -- | The engineer flow of #351: from a task's context, at the Fuel given it, to a ready PR.
-module State.Flow.Engineer (engineer, EngineerS) where
+module State.Flow.Role.Engineer (engineer, EngineerS) where
 
 import State.Category.Effect (Eff (PickE), Handler (PickHandler))
 import State.Category.Flow (Flow (..), Shape (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Library (
+import State.Flow.Block (
     AgreeS,
     BuildS,
     DescribeS,

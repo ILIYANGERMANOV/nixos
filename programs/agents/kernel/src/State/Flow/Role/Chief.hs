@@ -5,7 +5,14 @@ run beside this one. Then the run takes the next request or ends, once
 every such child has. A whole flow's branch and scope are its flow's name, so
 a question asked inside it climbs from that flow's rung.
 -}
-module State.Flow.Chief (chief, ChiefS, discussion) where
+module State.Flow.Role.Chief (
+    chief,
+    ChiefS,
+    discussion,
+    blocks,
+    Blocks,
+    BlocksS,
+) where
 
 import State.Category.Effect (
     Eff (FocusE, PickE),
@@ -25,20 +32,31 @@ import State.Category.Flow (
 import State.Category.Fuel (PerFuel (..))
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Architect (ArchitectS, architect)
-import State.Flow.Engineer (EngineerS, engineer)
-import State.Flow.Library (
-    Blocks,
-    BlocksS,
-    BranchS,
-    ChoiceS,
+import State.Flow.Block (
+    AgreeS,
+    BuildS,
+    DescribeS,
     DiscussS,
-    blocks,
-    branch,
-    choice,
+    GatherS,
+    ProposeS,
+    ResearchS,
+    ReviewS,
+    ShipS,
+    agree,
+    build,
+    describe,
     discuss,
+    gather,
+    gatherResearcherLimit,
+    propose,
+    research,
+    review,
+    ship,
  )
-import State.Flow.TenX (TenXS, tenX)
+import State.Flow.Combinator (BranchS, ChoiceS, branch, choice)
+import State.Flow.Role.Architect (ArchitectS, architect)
+import State.Flow.Role.Engineer (EngineerS, engineer)
+import State.Flow.Role.TenX (TenXS, tenX)
 import State.FlowName (FlowName (EngineerFlow), flowText)
 import State.Step.Fuel (FuelStep (Fuel), Sing (Fuel))
 import State.Step.Request (RequestStep (..), Sing (..))
@@ -109,3 +127,44 @@ type RequestFlows =
 -- | The read-only discussion's branch and scope: "State.Role" runs it as the architect's.
 discussion :: Name
 discussion = "discussion"
+
+{- | Each block a request may run alone, as a branch of a 'choice': a block
+that starts past 'Ctx' opens its input first, from the issue, branch or PR
+the request names. Each sits in a scope of its branch's label, so its states
+never meet a whole flow's, and ends in 'Result'.
+-}
+blocks :: Branches BlocksS Blocks 'Nothing 'Result
+blocks =
+    branch @"researching" (research gatherResearcherLimit)
+        :& branch @"gathering" gather
+        :& branch @"agreeing" agree
+        :& branch @"proposing" (Loop "proposals" propose)
+        :& branch @"building" (Do OpenPlan :> build)
+        :& branch @"reviewing" (Do OpenBranch :> review)
+        :& branch @"describing" (Do OpenBranch :> describe)
+        :& branch @"shipping" (Do OpenPr :> ship)
+        :& End
+
+-- | The blocks' flows, in 'Blocks'' order.
+type BlocksS =
+    '[ BranchS ResearchS
+     , BranchS GatherS
+     , BranchS AgreeS
+     , BranchS (LoopS ProposeS)
+     , BranchS (DoS OpenPlan :>> BuildS)
+     , BranchS (DoS OpenBranch :>> ReviewS)
+     , BranchS (DoS OpenBranch :>> DescribeS)
+     , BranchS (DoS OpenPr :>> ShipS)
+     ]
+
+-- | The blocks' labels, each taking the request's context.
+type Blocks =
+    '[ '("researching", 'Ctx)
+     , '("gathering", 'Ctx)
+     , '("agreeing", 'Ctx)
+     , '("proposing", 'Ctx)
+     , '("building", 'Ctx)
+     , '("reviewing", 'Ctx)
+     , '("describing", 'Ctx)
+     , '("shipping", 'Ctx)
+     ]

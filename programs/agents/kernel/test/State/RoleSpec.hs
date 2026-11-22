@@ -8,11 +8,12 @@ import State.Category.Flow (Effects, Flow (Handle), Shape (HandleS), scopeNames)
 import State.Category.Graph (Place (..), graph, placeName, places)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Architect (ArchitectS)
-import State.Flow.Chief (ChiefS)
-import State.Flow.Engineer (EngineerS)
-import State.Flow.Library (ParallelS, agree)
-import State.Flow.TenX (TenXS)
+import State.Flow.Block (agree)
+import State.Flow.Combinator (ParallelS)
+import State.Flow.Role.Architect (ArchitectS)
+import State.Flow.Role.Chief (ChiefS)
+import State.Flow.Role.Engineer (EngineerS)
+import State.Flow.Role.TenX (TenXS)
 import State.Role (
     AgentRole (..),
     FlowName (..),
