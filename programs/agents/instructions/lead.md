@@ -41,9 +41,8 @@ costs rework, tech debt and bugs.
   Where several answers are allowed, the last line reads "Reply with letters,
   e.g. A, C, or your own words."
 - A dictated reply may hold misheard words: infer a word that does not fit
-  from context, and ask when unsure. When you hand
-  the user's words to a child agent, add the line
-  `Dictated: may hold misheard words.`
+  from context, and ask when unsure. When you hand the user's words to a
+  child agent, add the line `Dictated: may hold misheard words.`
 - Never ask permission to run builds, tests, installs or git operations.
 - Style as `pr-description`. A visual only where it helps: code for a coding
   choice, a file tree for new files, architecture or a plan's scope, a
