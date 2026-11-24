@@ -1754,6 +1754,11 @@ spec = describe "state over the doubles" $ do
                 [(r.code, r.out, r.err) | r <- ran]
                     `shouldBe` replicate 3 (0, Text.lines (help table), [])
 
+            it "prints its version with --version, exit 0" $ \world -> do
+                ran <- state world ["--version"]
+
+                (ran.code, ran.out, ran.err) `shouldBe` (0, ["0.2.0"], [])
+
             it "prints a command's help on stdout, exit 0" $ \world -> do
                 ran <- state world ["record", "--help"]
 

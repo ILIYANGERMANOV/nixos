@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name:          state
-version:       0.1.0.0
+version:       0.2.0
 synopsis:
   The kernel of the agent flows: typed steps, the run log and its advice
 
@@ -90,6 +90,8 @@ library
     State.Step.Ticket
     State.Table
 
+  other-modules:   Paths_state
+  autogen-modules: Paths_state
   build-depends:
     , aeson
     , bytestring

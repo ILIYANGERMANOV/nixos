@@ -9,6 +9,7 @@ Usage: state COMMAND
 
 Available options:
   -h,--help                Show this help text
+  --version                Show version information
 
 Available commands:
   init                     Start a run: a child of --parent, a round on --pr
