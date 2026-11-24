@@ -19,6 +19,6 @@ starting range: re-read only what you edit. At a different `sha`, check the
 pointer first.
 
 Your hand-back holds the commit, the proof, what remains, any question for the
-user you could not settle, each rare edge case you skipped, and any auth,
-session, authorization, database, secrets or CI work your brief did not flag as
-security-sensitive.
+user you could not settle, each known gap (what will not work or not be done),
+with why, and any auth, session, authorization, database, secrets or CI work
+your brief did not flag as security-sensitive.

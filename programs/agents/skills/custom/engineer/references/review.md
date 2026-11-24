@@ -31,7 +31,8 @@ You answer the questions by acting on the table yourself. Never reply to the
 review agent with an action. Choose the rows worth fixing. Every surviving
 house-rule row is fixed, or the reason for leaving it goes in the PR body.
 When your Fuel row fixes only blockers (security, irreversible damage,
-broken code), every other row goes in `## Follow-ups`. A Not met verdict
+broken code), every other row goes in `## Follow-ups`, or in `Known gaps`,
+with why, when ruled won't-fix. A Not met verdict
 never does: `Not met always` below. `pick.loop` sends the chosen rows to a
 fixer, then a `re_review`. `pick.final`, with no row chosen or no Re-review
 left, goes on to describe, the final fixer. Record every requirement's verdict.
@@ -54,7 +55,8 @@ The loop's one exit, at every Fuel. One fixer gets R0 and the last review's
 chosen rows, and nothing reviews it. Of those rows it fixes what is safe and
 small. Security rows are always fixed, and blockers only when your Fuel row
 says so, as Picking rows says. Every other surviving house-rule row or Major
-row you do not fix goes in `## Follow-ups`, with the reason. The fix's size
+row you do not fix goes in `## Follow-ups` when planned for later, or in
+`Known gaps` when ruled won't-fix, with the reason. The fix's size
 decides fix or record, never drop. A row that blocks the feature is a question.
 
 R0 writes the full facts. V0 adds the visuals. S0 owns the shape.

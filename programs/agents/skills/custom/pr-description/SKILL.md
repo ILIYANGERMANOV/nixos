@@ -72,9 +72,9 @@ the usage snippet among them.
 
 </details>
 
-<details><summary>Skipped edge cases</summary>
+<details><summary>Known gaps</summary>
 
-<each rare edge case left unhandled, with why it was skipped>
+<each known gap, with why it is accepted>
 
 </details>
 
@@ -114,17 +114,21 @@ Security-sensitive: <topics>
   commands run, their trimmed output, screenshots. Omit when there is none.
 - **Decided without you** - only the rulings the agent made without asking
   the user, one "why" each. Omit when there are none.
-- **Skipped edge cases** - each rare edge case the code leaves unhandled,
-  with why it was skipped. Omit when there are none.
-- **After merge**, **Follow-ups** (each with its reason), **Feedback log**,
-  **QA** - only when they have content. QA stays last: `qa` writes it. QA on
+- **Known gaps** - what will not work or will not be done once merged, in the
+  diff or the feature: an unhandled edge case or unhappy path, a risk, a known
+  bug, a trade-off, a shortcut. Each with why it is accepted. Unhappy paths
+  are handled by default. Only an edge case whose fix needs complexity, where
+  risk, effort and ROI say skip, is left and listed. Omit when there are none.
+- **After merge**, **Follow-ups** (only fixes planned for later, each with its
+  reason: a won't-fix is a known gap), **Feedback log**, **QA** - only when
+  they have content. QA stays last: `qa` writes it. QA on
   an older head says so in its summary: `(on <short sha>, before <change>)`.
 - **Bottom line** - `Security-sensitive: <topics>` only when set. Otherwise
   no bottom line.
 - **Drop** - rename tables, acceptance-criteria checklists and considered
   options (they live in the plan), test lists, "found in review / QA" lists,
   internal ids (projects, deployments, dashboards), general out-of-scope
-  lists (they live in the plan; a skipped edge case goes in its block), file
+  lists (they live in the plan; a known gap goes in its block), file
   names.
 
 ### Budget
@@ -175,10 +179,10 @@ it with `gh pr create --body-file <file>` for a new PR, or `gh pr edit <n>
 the file outside the repository, so it is never committed. A rewrite keeps
 the shape, the budget and the bottom line. It keeps each visual, except one
 that repeats another or shows nothing new. The focus visual stays visible.
-The Feedback log stays verbatim. Every open Follow-up, the Skipped edge cases
-and the QA block stay collapsed, never dropped. An old body's visible
+The Feedback log stays verbatim. Every open Follow-up, the Known gaps and the
+QA block stay collapsed, never dropped. An old body's visible
 `## Feedback log`, `## Follow-ups` or `## QA` moves into its `<details>`
-block.
+block. An old body's `Skipped edge cases` block becomes `Known gaps`.
 
 ## Visual (row V0)
 

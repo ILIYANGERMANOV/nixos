@@ -90,9 +90,9 @@ who owns each decision.
   (which findings survive, what to do) and its open questions are `Pick` questions;
   a product, scope or design answer among them is its own kind. `refactor`'s
   big items come back as proposals: Build says what to do with them.
-- **Simplicity over completeness**, as the engineering instructions say. A rare
-  edge case you skip goes in the PR body's `Skipped edge cases` block, with
-  why.
+- **Simplicity over completeness**, as the engineering instructions say. A
+  known gap from a hand-back or your own ruling goes to R0 for the PR body's
+  `Known gaps` block, with why.
 - **Protect your context window.** Subagents read, implement, verify and
   triage logs; keep only their conclusions. After launching a background
   agent, or on a wake that needs nothing, end the turn without a tool call and
