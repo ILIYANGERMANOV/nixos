@@ -65,7 +65,7 @@ let
     }:
     mkDerivation {
       pname = "state";
-      version = "0.1.0.0";
+      version = "0.2.0";
       # The lint configs too, so `haskell-lint` reads the source through `src`.
       src = lib.fileset.toSource {
         root = ./.;

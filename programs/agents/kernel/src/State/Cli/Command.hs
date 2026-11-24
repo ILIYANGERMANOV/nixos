@@ -42,10 +42,12 @@ import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Version (showVersion)
 import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Optparse
 import Options.Applicative.Help.Pretty (pretty, vsep)
+import Paths_state (version)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, parseByName)
 import State.Category.Graph (
@@ -346,7 +348,10 @@ hookInfo =
 commandInfo :: Steps -> ScopePath -> ParserInfo (Either Failure Command)
 commandInfo steps scope =
     Optparse.info
-        (Optparse.hsubparser commands <**> Optparse.helper)
+        ( Optparse.hsubparser commands
+            <**> Optparse.helper
+            <**> Optparse.simpleVersioner (showVersion version)
+        )
         ( Optparse.header "state - the run of an agent flow, kept in its run store"
             <> Optparse.footerDoc (Just (vsep (map pretty footer)))
         )
