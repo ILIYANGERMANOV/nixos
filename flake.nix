@@ -204,6 +204,15 @@
             inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) claude-kategory;
           };
         }
+        # opencode-kategory run offline against what it promises: see
+        # programs/opencode/check.sh. Where `llm-agents` has an OpenCode.
+        // pkgs.lib.optionalAttrs (self.packages.${pkgs.stdenv.hostPlatform.system} ? opencode-kategory) {
+          opencode =
+            (import ./adapters/opencode.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).check;
+        }
         # That a .kt file gets kotlin_lsp running the binary programs/kotlin
         # packages, ktlint as its formatter, and that <leader>tt runs
         # `./gradlew test` in a Gradle project. Only where a kotlin-lsp release
@@ -291,6 +300,13 @@
           # `nix profile add github:ILIYANGERMANOV/nixos#claude-kategory`.
           claude-kategory =
             (import ./adapters/claude-code.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).kategory;
+          # The same harness in OpenCode on DeepSeek, in ~/.opencode-kategory:
+          # `nix run github:ILIYANGERMANOV/nixos#opencode-kategory`.
+          opencode-kategory =
+            (import ./adapters/opencode.nix {
               inherit inputs pkgs;
               root = self;
             }).kategory;
