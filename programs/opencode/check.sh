@@ -11,7 +11,8 @@
 # - a role that may only read ($read_only_role) cannot run a shell or edit,
 #   and a skill that bars the model from it runs only as its command;
 # - the plugin loads from the store: a shell gets the user's XDG dirs back,
-#   keeps the moved state dir, and finds state, ctx and qa-node.
+#   keeps the moved state dir, and finds state, ctx and qa-node;
+# - its hooks reach the kernel: a lead may not edit before its run exists;
 # - no config dir OpenCode scans is writable, so it npm-installs nowhere.
 set -euo pipefail
 
@@ -116,6 +117,29 @@ printf '%s\n' "$HOME/user-config" "$HOME/.local/share" "$HOME/.cache" "$HOME/.op
 diff want.out shell.out || fail "a shell sees the XDG dirs or PATH above"
 [ -f "$HOME/.opencode-kategory/state/state/kernel.db" ] || fail "state did not use the moved state dir"
 [ ! -e "$HOME/.local/state" ] || fail "something wrote the user's state dir"
+
+# The plugin's hooks reach the kernel through the adapter. No hook fires
+# offline: `debug agent --tool` skips them, and a prompt needs a model. So the
+# plugin is imported by OpenCode's own runtime (BUN_BE_BUN makes its binary
+# bun), under the wrapper's env, and its hooks called as OpenCode calls them:
+# a lead that typed a flow's command may not edit before its run exists. A
+# failing adapter would let it.
+cat >hooks.mjs <<'EOF'
+const [plugin, directory] = process.argv.slice(2);
+const { Kategory } = await import(plugin);
+const hooks = await Kategory({ directory });
+const sessionID = "ses_lead";
+await hooks["command.execute.before"]({ command: "engineer", sessionID, arguments: "" }, { parts: [] });
+const edit = { filePath: `${directory}/a`, oldString: "a", newString: "b" };
+try {
+  await hooks["tool.execute.before"]({ tool: "edit", sessionID, callID: "call" }, { args: edit });
+  console.log("allowed");
+} catch (error) {
+  console.log(error.message);
+}
+EOF
+BUN_BE_BUN=1 "$kategory" hooks.mjs "$plugin" "$project" >hooks.out 2>&1 || fail "the plugin did not run: $(cat hooks.out)"
+grep -q "this lead has no run" hooks.out || fail "a lead edited before its run: $(cat hooks.out)"
 
 # Every skill is a command too: `serve` lists them over HTTP.
 "$kategory" serve --port 0 >serve.log 2>&1 &

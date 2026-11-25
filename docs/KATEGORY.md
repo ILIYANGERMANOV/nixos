@@ -108,7 +108,7 @@ copy for up to an hour and stay on an old version.
 ## OpenCode: opencode-kategory
 
 > [!NOTE]
-> Early. The skills and roles are there. The hooks are not wired yet: see
+> Early. The skills, roles and hooks are there, with a few gaps: see
 > [Known gaps](#known-gaps).
 
 `opencode-kategory` is the same harness in [OpenCode](https://opencode.ai),
@@ -254,6 +254,9 @@ the lead's model. The roles keep theirs.
 ### Permissions
 
 - Each role may use only the tools it needs. Everything else is denied.
+- The same hooks as `claude-kategory` run, through a plugin: the kernel's
+  gate, the guards and hand-back recording. A hook's deny fails the tool call
+  with its reason.
 - Outside the project, every agent may use `/tmp/**`, `~/.10x/**` and
   `/nix/store/**` without asking.
 - A skill marked `disable-model-invocation` (such as `chief`) runs only as
@@ -266,8 +269,15 @@ review pipeline must treat it as code under review. OpenCode can skip it with
 
 ### Known gaps
 
-- **No hooks yet.** The kernel's gate, the guards and hand-back recording do
-  not run. They come in the next step.
+- **Hooks differ from Claude Code's in places.**
+  - A subagent's start is its first message. Its stop is its result reaching
+    its caller. A subagent's last reply is its hand-back.
+  - The context guard acts only once OpenCode has reported a model call's
+    tokens.
+  - A tool call that fails runs no after-hook.
+  - `opencode debug agent --tool` runs no tool hook.
+  - A subagent from an earlier OpenCode run, resumed by its task id, counts
+    as a lead.
 - **`~/.opencode` is always read.** OpenCode has no switch to turn it off.
 - **A writable `.opencode/` costs an npm install.** OpenCode runs
   `npm install @opencode-ai/plugin` in every config dir it can write: a
