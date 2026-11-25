@@ -71,7 +71,7 @@ What that buys:
 | Payoff | How |
 |---|---|
 | **Deterministic** | Same log, same state; same state and facts, same advice. Replay and advice are pure functions. |
-| **Replayable** | Any run rebuilds from its log alone, after a crash or on a fresh agent. |
+| **Replayable** | Any run rebuilds from its log alone ([replay is a fold](RUN-LOOP.md#replay-is-a-fold)). |
 | **Observable** | `state show` (where the run is), `state dump` (every event, with time, seq, head sha and session), `state pending` (open questions), `state render` (the flow as a diagram). |
 
 The loop in detail: [RUN-LOOP](RUN-LOOP.md).
@@ -94,18 +94,10 @@ The loop in detail: [RUN-LOOP](RUN-LOOP.md).
  top = most deterministic, bottom = most flexible
 ```
 
-| Level | Holds | Tested by |
-|---|---|---|
-| CI | each project's own gate, outside the harness | the project's checks, on every PR |
-| Pure kernel | every decision: next action, refusals, caps, who answers | property, law and golden tests |
-| Effect shell | git, files, GitHub, clock, the run store | the same code on in-memory doubles |
-| Hooks | the moment only the client sees: a spawn, a hand-back, a write before `state init` | hook tests; works only when the client fires it |
-| Prose | judgment and taste | only a model reading and obeying it |
-
-The lower four levels are the logic ladder: each rule lives on the most
-deterministic of them that can hold it
-([rule](../../.claude/rules/agents-logic-ladder.md),
-[ARCHITECTURE](ARCHITECTURE.md#the-logic-ladder)).
+CI is each project's own gate, outside the harness. The lower four levels
+are the logic ladder: each rule lives on the most deterministic of them that
+can hold it. What each level holds and how it is tested:
+[ARCHITECTURE](ARCHITECTURE.md#the-logic-ladder).
 
 ## Principles
 
@@ -132,19 +124,18 @@ tells it to stop and to ask you to run `/chief resume` in a fresh session.
 
 ## What it guarantees
 
-Six properties from the
-[vision](../../programs/agents/VISION.md#properties-draft). They hold
+The [vision](../../programs/agents/VISION.md#properties-draft)'s
+properties. Replayable is above; the other five follow. They hold
 whatever the model. A weaker model lowers the quality of the judgment
 steps, never these.
 
 | Property | In one line | Read |
 |---|---|---|
-| **Bounded** | Every loop has a cap set by the run's Fuel; every cap refuses the spend past it; the Fuel mode only picks the exits offered (stop, or ask the user to extend). | [GUARDRAILS](GUARDRAILS.md#fuel-and-caps) |
+| **Bounded** | Every loop has a cap set by the run's Fuel; every cap refuses the spend past it; the cap's mode only picks the exits offered (stop, or ask the user to extend). | [GUARDRAILS](GUARDRAILS.md#fuel-and-caps) |
 | **Resumable** | The run lives in its log, not in an agent's context, so a fresh agent goes on after a crash or a full context. | [RUN-LOOP](RUN-LOOP.md#resume-after-a-crash-or-a-lost-context) |
 | **Lawful composition** | Flows are typed terms built from small flows; a wrong wiring does not compile, and each rule of the algebra has a test. | [FLOWS](FLOWS.md), [CATEGORY-THEORY](CATEGORY-THEORY.md#laws-and-tests) |
 | **Authority as code** | Who may answer each kind of question is a table in the kernel, not a sentence in a prompt. | [GUARDRAILS](GUARDRAILS.md#who-answers-which-question) |
 | **Nothing waits silently** | Every wait is a named line (`AWAIT`, `HANDBACK`); a loop that repeats itself becomes a question; blind sleeps are denied. | [RUN-LOOP](RUN-LOOP.md#what-state-next-prints), [GUARDRAILS](GUARDRAILS.md#the-stuck-rule) |
-| **Replayable** | What a run knows is a pure fold over its log: same log, same state. | [RUN-LOOP](RUN-LOOP.md#replay-is-a-fold) |
 
 ## Map of the docs
 

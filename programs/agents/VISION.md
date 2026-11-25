@@ -6,18 +6,9 @@ works today: [`docs/harness/`](../../docs/harness/README.md).
 
 ## What kategory is
 
-- **A harness-wrapper, not a low-level harness.** It wraps an existing
-  agent harness (Claude Code today) and does not reimplement the agent
-  loop. The kernel and hooks are agent-agnostic; each agent tool is a thin
-  backend. `claude-kategory` is its Claude Code build.
-- **Reliable through deterministic flows.** Each flow is a state machine:
-  a pure fold over an append-only event log. Hooks enforce the flow, best
-  effort.
-- **The best tooling for the job.** Each step hands the agent the command,
-  the context and the checks it needs, and nothing else.
-- **Named after Category Theory.** Flows are objects and arrows that
-  compose, and every rule is a law with a test
-  ([`docs/harness/CATEGORY-THEORY.md`](../../docs/harness/CATEGORY-THEORY.md)).
+A harness-wrapper: it wraps an agent harness, Claude Code today, and runs
+each flow as a state machine. The pitch, owned there:
+[`docs/harness/README.md`](../../docs/harness/README.md#what-kategory-is).
 
 ## North star
 

@@ -183,12 +183,10 @@ from the same state.
   at work, so the hook records `Restarted` and the advice sends them again;
   a compacted session lost none and records nothing
   ([`restartOf`][restartof]).
-- **A context past its budget.** The context guard tells the agent to
-  commit, push and hand back a short note
-  ([`context-guard.py`](../../programs/agents/hooks/guards/context-guard/context-guard.py)).
-  A subagent's caller spawns a fresh one. A top-level lead is told to ask
-  the user to run `/chief resume` in a fresh session. Either way the run's
-  log is untouched.
+- **A context past its budget.** The context guard stops the agent
+  ([what it says](GUARDRAILS.md#guards)). A subagent's caller spawns a
+  fresh one; for a top-level lead, the user runs `/chief resume` in a
+  fresh session. Either way the run's log is untouched.
 - **A child run.** A 10x or chief wakes a child that waits with `RESUME
   <child>`; the parent's log records `Resumed`.
 
