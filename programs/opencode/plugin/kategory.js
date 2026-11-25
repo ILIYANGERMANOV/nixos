@@ -231,7 +231,7 @@ function rootOf(sessions, id) {
 function agentsOf(sessions) {
   return Object.fromEntries(
     [...sessions]
-      .filter(([, session]) => session.agent != null)
+      .filter(([, session]) => session.agent !== null)
       .map(([id, session]) => [id, session.agent]),
   );
 }
