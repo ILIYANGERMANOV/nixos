@@ -3,7 +3,7 @@
 | Layer, strongest first | What | Can it be skipped? |
 |---|---|---|
 | CI (per project) | the project's own checks on every PR | no: the engineer flow marks a PR ready only after green CI |
-| Kernel code | Fuel and caps, the stuck rule, who answers which question | no: `state` refuses the event |
+| Kernel code | Fuel and caps, the stuck rule, who answers which question | no: `state` refuses the event; `state override` is the one recorded way round |
 | Hooks | the run's records, the route gate | best effort: they fail open |
 | Guards | secret, read, wait and context guards | best effort: they fail open |
 
@@ -198,7 +198,7 @@ Seven state hooks, each `state-hook <name>`
 ([`Route.hs`](../../programs/agents/kernel/src/State/Cli/Route.hs)). It denies:
 
 - a subagent's `state init` with no `--parent`;
-- a `state` call aimed at another run than the agent's own;
+- a `state` call aimed at another run than the agent's own or its child's;
 - a lead's edit, write, spawn, `git commit`, `git push`, `gh pr create` or
   `gh pr merge` before its `state init`;
 - in an architect run, or a chief request routed to the architect or a
@@ -259,7 +259,8 @@ about 4 minutes yourself. Past the stop:
 
 What is enforced for certain lives in the kernel: an event off the flow's
 graph, past a cap, or a ruling the authority table forbids is refused no
-matter what the model or a hook did.
+matter what the model or a hook did. The one exception is `state override
+<state> <why>`: it moves the run by hand, and the log keeps the why.
 
 ## CI on top
 

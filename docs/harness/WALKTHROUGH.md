@@ -296,6 +296,8 @@ Described from the flow; this step had not run when this page was written.
 - No rows: `review.clean` goes to `describe`.
 - Rows: `review.rows` goes to `pick`. The lead picks rows to fix
   (`pick.loop`), a `fixer` fixes them, and a re-review reads only the fix.
+  The exception: a fix that touches the data model or auth, or at Max an
+  interface, gets a review of the whole branch.
   `pick.final` ends the loop.
 - The loop is capped by the Fuel, and the stuck rule stops a loop that
   meets the same problem twice.

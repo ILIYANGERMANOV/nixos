@@ -259,7 +259,7 @@ functor between them.
 | `part` | `Flow s i e o -> Either Clash (Part i o)` | a partial functor, up to place renumbering |
 | `graph` | `whole . part`, whole flows only | not a functor: adds checks that do not compose |
 | `ty` | events from the in port to `Cap` edges | the edge labels of a graph map into `Cap` |
-| `fold` | `RunState -> [Envelope] -> Either Refusal RunState` | a partial action of `Log` on run states |
+| `fold` | `OpenGraph -> RunState -> [Envelope] -> Either Refusal RunState` | a partial action of `Log` on run states |
 | `cfg` | `Fuel` to a flow's caps, skips and review areas | monotone: a functor between preorders |
 | `profile` | step table rows to a role's profile | monotone on tools, skills and operations, not prose |
 | `mermaid` | `OpenGraph -> Text` | a plain function, pinned by golden files |
@@ -301,8 +301,8 @@ Each edge of `graph F` carries an `Arrow`: `Along e` for an outcome edge of
 `Cap`, or `Stay` for a child spawned or handed back, which stands for the
 identity.
 
-- On edges this is a graph map into `Cap`'s generating graph, with `Stay`
-  going to an identity.
+- On edges this is a graph map into the underlying graph of `Cap`, with
+  `Stay` going to an identity.
 - If each state's edges agree on its type, it extends to a functor
   `Run(F) -> Cap` by the free category's universal property (CWM II.7,
   Theorem 1).

@@ -139,7 +139,7 @@ To look inside a run:
 
 ```text
 replay g (started :| rest) = the state after every line, less voided lines
-fold g (log1 <> log2)     = fold g log1 >=> fold g log2
+fold g s (a <> b)         = fold g s a >>= \s' -> fold g s' b
 ```
 
 A run's state is never stored. It is rebuilt on each call by applying the
