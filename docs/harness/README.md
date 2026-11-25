@@ -22,7 +22,8 @@ flowchart TD
 - **A harness-wrapper, not a low-level harness.** It wraps an agent
   harness and does not rebuild the agent loop. It is agent-agnostic: today
   it wraps Claude Code (`claude-kategory`) and OpenCode
-  (`opencode-kategory`, hooks not wired yet); Codex is planned.
+  (`opencode-kategory`, and `opencode-kategory-headless` for CI; hooks not
+  wired yet); Codex is planned.
 - **Reliable through deterministic flows.** Each flow is a state machine.
   Hooks enforce it, best effort.
 - **The best tooling for the job.** Each step hands the agent the command,

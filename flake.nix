@@ -212,6 +212,13 @@
               inherit inputs pkgs;
               root = self;
             }).check;
+          # opencode-kategory-headless runs to the end with nobody there: see
+          # programs/opencode/check-headless.sh.
+          opencode-headless =
+            (import ./adapters/opencode.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).checkHeadless;
         }
         # That a .kt file gets kotlin_lsp running the binary programs/kotlin
         # packages, ktlint as its formatter, and that <leader>tt runs
@@ -310,6 +317,13 @@
               inherit inputs pkgs;
               root = self;
             }).kategory;
+          # The same for a run with nobody there, such as a CI job:
+          # `opencode-kategory-headless run --auto "<prompt>" </dev/null`.
+          opencode-kategory-headless =
+            (import ./adapters/opencode.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).kategoryHeadless;
         }
       );
 
