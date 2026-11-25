@@ -102,7 +102,7 @@ deterministic the flows.
 - Goal: any provider can drive a flow. The kernel and hooks are vendor-free;
   each agent tool is a thin backend (ADR 0011).
 - Today's backends: Claude Code (`../claude-code`) and OpenCode
-  (`../opencode`, hooks not wired yet). Planned: Codex.
+  (`../opencode`). Planned: Codex.
 
 ## Non-goals (draft)
 

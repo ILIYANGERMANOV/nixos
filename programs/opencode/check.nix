@@ -20,6 +20,7 @@ pkgs.runCommand "opencode-check"
     ];
     env = {
       kategory = lib.getExe kategory;
+      plugin = "${kategory.configDir}/plugin/kategory.js";
       read_only_role = readOnlyRole;
       tiers = builtins.toJSON tiers;
       skills = builtins.toJSON skills;

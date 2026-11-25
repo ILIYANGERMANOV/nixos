@@ -43,6 +43,8 @@ in
 {
   inherit (local) kategory;
   kategoryHeadless = headless.kategory;
+  # For `python-tests`: the opencode-kategory flavor's hook adapter.
+  inherit (local) hookAdapter;
 
   # checks.opencode: the wrapper run offline against everything above.
   check = import ./check.nix {
@@ -72,6 +74,8 @@ in
         ];
         env = {
           kategory = lib.getExe headless.kategory;
+          plugin = "${headless.kategory.configDir}/plugin/kategory.js";
+          hook_manifest = headless.hookAdapter.manifest;
           scripted_model = "${./scripted-model.py}";
         };
       }

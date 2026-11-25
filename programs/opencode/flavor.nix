@@ -23,8 +23,19 @@
 let
   shellCheck = import ../shell-check { inherit pkgs; };
   skillMd = import ./codegen/skill-md.nix { inherit lib; };
+  tools = import ./codegen/tools.nix;
+  adapter = import ./hooks/adapter.nix {
+    inherit pkgs tools;
+    agentHook = agents.hooks.module;
+  };
 
   profile = agents.fold profiles;
+  # The adapter running this flavor's hooks, the tool table it reads and the
+  # hooks it runs: each flavor runs its own profile's.
+  hookAdapter = {
+    inherit (adapter) bin toolsFile;
+    manifest = agents.hooks.manifest profile.hooks;
+  };
 
   # The lead and each role tier, as provider/model. The lead's is in
   # leadConfig, so a project's opencode.json or `--model` wins over it.
@@ -126,7 +137,14 @@ let
           "AGENTS.md" = pkgs.concatText "${name}-AGENTS.md" (
             agents.renderLead profile.instructions ++ [ (import ./codegen/glossary.nix { inherit pkgs lib; }) ]
           );
-          "plugin/kategory.js" = pkgs.replaceVars ./plugin/kategory.js { inherit userXdgVar; };
+          "plugin/kategory.js" = pkgs.replaceVars ./plugin/kategory.js {
+            inherit userXdgVar;
+            # The profile's hooks, which the plugin runs through the adapter.
+            hookAdapter = lib.getExe' adapter.bin "agent-hook-opencode";
+            hookTools = adapter.toolsFile;
+            hookManifest = hookAdapter.manifest;
+            shellTools = toString tools.shell.tools;
+          };
           ".gitignore" = gitignore;
         }
       ]
@@ -142,9 +160,8 @@ let
     jq --arg lead "$out/AGENTS.md" '.instructions = [$lead] + .instructions' ${config} >"$out/opencode.json"
   '';
 in
-# The hooks a profile lists (the kernel's gate, the guards) do not run yet:
-# OpenCode has no hook adapter, so they are left out, as docs/KATEGORY.md
-# says. The rest a backend could drop silently fails here instead.
+# The profile's hooks run through plugin/kategory.js and the adapter. What a
+# backend could drop silently fails here instead.
 assert lib.assertMsg (
   profile.secretFiles == { }
 ) "${name}: secret files have no OpenCode wiring: ${toString (lib.attrNames profile.secretFiles)}";
@@ -192,8 +209,9 @@ assert lib.assertMsg (lib.intersectAttrs shared permission == { })
       # The XDG dirs every shell gets back as the user's, for the hook
       # adapter's own spawns.
       restoredXdg = lib.attrNames userXdgDefaults;
-      # OpenCode's tools by vendor-free name, as JSON for the hook adapter.
-      toolsFile = pkgs.writeText "opencode-tools.json" (builtins.toJSON (import ./codegen/tools.nix));
     };
   };
+
+  # For `python-tests`: none of it needs the OpenCode package.
+  inherit hookAdapter;
 }
