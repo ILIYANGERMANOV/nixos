@@ -385,6 +385,8 @@ otherwise. Names are the current test names.
 | Reachable | every state is reached from the start and reaches the end | `GraphSpec` `every_state_is_reached_from_the_start_and_reaches_the_end` |
 | Bounded | a loop whose body caps no step is refused; no run spends past a cap | `GraphSpec` "refuses a loop whose body caps no step: nothing bounds it"; `Run/FoldSpec.hs` `never_spends_past_a_cap` |
 | Structured concurrency | a fork with a way out that passes no await is refused | `GraphSpec` "refuses a fork no await follows: its children would outlive the flow" |
+| Fixed targets | an event's target is a function of the graph, except an override | by construction in the fold |
+| Prose guard | the blocks the skills paste equal `state render` | `checks.agents` (`kernel/rendered.nix`) |
 
 ### Cap and ty
 
@@ -403,9 +405,9 @@ otherwise. Names are the current test names.
 | Associativity | `(a andThen b) andThen c = a andThen (b andThen c)` | `AskSpec` `andThen_is_associative` |
 | Chain | the parent rules on what the child forwards | `AskSpec` `handlers_compose`, "lets the parent rule on what the child forwards" |
 | Ceiling | no event lowers a `Security` question; a `Security` ruling names its basis | `AskSpec` `no_event_retags_security`, `security_ruling_needs_basis`; `FoldSpec` `no_event_retags_security` |
-| Total authority | every rung and kind has a rule | `AskSpec` `authority_table_is_total` |
+| Total authority | every rung and kind has a rule | `AskSpec` `authority_table_is_total`; `-Wall -Werror` refuses a missed case |
 | Total asks | every question ends answered or stopped | `FoldSpec` `every_ask_ends_answered_or_stopped` |
-| Principal-blind | the advice is the same whoever started the run, up to delivery | `AdviceSpec` `advice_is_equal_under_any_principal_of_one_task_shape_up_to_delivery` |
+| Principal-blind | the advice is the same whoever started the run, up to delivery | `ArchitectureSpec.hs` keeps the principal out of every flow module; `AdviceSpec` `advice_is_equal_under_any_principal_of_one_task_shape_up_to_delivery` |
 
 ### Fuel
 
@@ -423,6 +425,8 @@ otherwise. Names are the current test names.
 | Log is a fold | replaying a prefix, then folding the rest, is replaying the whole | `FoldSpec` `state_is_a_fold`, `replaying_a_prefix_then_appending_the_rest_is_replaying_the_whole`, `live_appends_reach_the_run_the_log_replays` |
 | Idempotent append | a line whose id is already logged changes nothing | `FoldSpec` `append_is_idempotent_by_id`, "logs a hook record fired twice once" |
 | Void | a voided line replays as if never logged | `FoldSpec` `a_void_replays_as_the_line_never_logged` |
+| Total fold | an event with no edge where the run is gets a `Refusal`, never a throw | `FoldSpec` "refuses an event with no edge where the run is"; `-Wall -Werror` refuses a missed case |
+| Dense seq | a run's seqs run densely from 1 | the store throws on a gap or duplicate ([Store.hs][store]) |
 | Round trip | a log line decodes to what was encoded | `Run/CodecSpec.hs` `codec_round_trips` |
 | One writer | only the kernel appends to a run's log | Assumed: only `Effects.Store` inserts events ([Store.hs][store]) |
 

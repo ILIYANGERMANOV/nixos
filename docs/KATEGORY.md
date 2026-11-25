@@ -77,13 +77,8 @@ To remove it: `nix profile remove claude-kategory`.
 
 ## What you get
 
-- `/engineer` - the recommended start. One task end to end: plan, build,
-  review, ready PR with green CI.
-- `/chief <prompt>` - routes many requests: each to a flow, a discussion or
-  a direct fix.
-- `/architect` - a read-only design talk that can end in a GitHub issue.
-- `/qa <PR>` - drives the app in a headless browser and posts the proof.
-- `/refactor`, `/pragmatic-review` - clean up or review a branch or PR.
+The skills to run, `/engineer` first:
+[Where to start](harness/README.md#where-to-start).
 
 It is built for the author's headless "software factory" server. On a laptop
 the factory-only parts do not apply: `/10x-engineer`, push notifications and

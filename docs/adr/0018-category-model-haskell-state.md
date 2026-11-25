@@ -9,15 +9,7 @@ flow core, ADR 0021 its effects, ADR 0014 how a run is kept.
 
 ## The model
 
-| Category | Objects | Arrows | Plain words |
-|---|---|---|---|
-| `Cap` | artifact types: `Ctx`, `Plan`, `Diff`, `Findings`, `PR`, `Ticket`, `Result`, lists and labelled sums | paths of outcome edges `step.outcome : A -> B` | the vocabulary |
-| `Flow` | the same types | flow terms (ADR 0020), taken up to "draws the same graph" | how steps are wired |
-| `Run(F)` | the states of flow `F`'s graph | paths: the free category on the graph | what happened |
-| `Ifc` | one object, a question | question handlers, composed in sequence | who answers |
-| `Fuel` | `Low`, `Balanced`, `Max` | `<=`: a chain, a preorder | how much work |
-| `Log` | one object | lists of events: the free monoid | memory |
-| `Prof` | tools, prose, operations | inclusion: a preorder | what an agent is given |
+The categories: [CATEGORY-THEORY, The categories](../harness/CATEGORY-THEORY.md#the-categories).
 
 Two `Flow` terms are equal when their graphs are isomorphic up to place
 renumbering, or bisimilar for loops. That this relation is a congruence
@@ -111,21 +103,7 @@ Maps link them. Only what holds is claimed, and the tests check it:
 
 ## Laws
 
-| Law | Backed by |
-|---|---|
-| Typed gluing | compile errors, pinned by should-not-typecheck cases in `FlowSpec` |
-| Skip is endo | a skip is an edge `A -> A`, never the identity (`PathSpec` `skipped_maps_to_identity`: despite its name, it fails unless the skip is a real edge) |
-| Trace soundness | `FoldSpec` `every_accepted_log_is_a_path`, `every_accepted_log_of_a_scoped_flow_is_a_path` |
-| Monotone | `LawsSpec` PerFuel, over every flow in `State.Role.roles`; `derived_role_grows_with_its_steps` for tools, skills and operations, not prose |
-| Keep | `LawsSpec`: no Fuel skip of any role's flow names `review`, `re_review`, `research`, `describe`, `visual` or `simplify_pr` |
-| Principal-blind | `ArchitectureSpec` keeps the principal out of every flow module; `AdviceSpec` `advice_is_equal_under_any_principal_of_one_task_shape_up_to_delivery` |
-| Ceiling | `AskSpec` `no_event_retags_security` |
-| Total | `AskSpec` `authority_table_is_total`; `-Wall -Werror` refuses a missed case |
-| Bounded | every loop holds a capped step (`GraphSpec` refuses one that does not); the stuck rule (`FoldSpec`) |
-| Log | `FoldSpec` replay laws (ADR 0014). One writer: Assumed. Only `Effects.Store` inserts events, but nothing stops an agent writing the database with `sqlite3` |
-| Sufficient | `derived_role_holds_every_step_need`, in `checks.agents` (`derived-roles`) |
-| Lean | `derived_role_holds_nothing_else`, in `checks.agents` (`derived-roles`) |
-| Budget | `budget-compare` over every size and ceiling, which fails `checks.claude-config` |
+The laws and their tests: [CATEGORY-THEORY, Laws and tests](../harness/CATEGORY-THEORY.md#laws-and-tests).
 
 ## Considered options
 

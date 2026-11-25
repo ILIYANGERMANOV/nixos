@@ -1,16 +1,9 @@
 # Flows
 
-| Flow | Skill | From | To | Diagram |
-|---|---|---|---|---|
-| **engineer** | `/engineer` | a task | a ready pull request | [Engineer](#engineer) |
-| **10x** | `/10x-engineer` | a plan | many engineers in parallel, their PRs merged | [10x](#10x) |
-| **architect** | `/architect` | an idea | a design, no code changed | [Architect](#architect) |
-| **chief** | `/chief` | a stream of requests | each request routed once | [The chief routes requests](#the-chief-routes-requests), [Chief](#chief) |
-
-**Start with `/engineer`** for one task: it takes the task to a ready PR.
-Given an existing PR, it works on that PR. Use `/chief` when you want one session
-to take many requests, talk a design over, or fix something small by
-hand ([The chief routes requests](#the-chief-routes-requests)).
+Which skill to run: [README, Where to start](README.md#where-to-start).
+This page draws each flow: [Engineer](#engineer), [10x](#10x),
+[Architect](#architect), [The chief routes requests](#the-chief-routes-requests)
+and [Chief](#chief).
 
 A flow is the path one run walks: a state machine. Its states are steps
 (plan, implement, review, ...); its arrows are the outcomes a step can end

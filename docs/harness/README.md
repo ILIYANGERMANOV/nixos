@@ -114,10 +114,12 @@ them:
 
 | You want | Run |
 |---|---|
-| One task to a ready PR. **Start here.** | `/engineer <task>` |
+| One task to a ready PR, or an existing PR finished. **Start here.** | `/engineer <task>` |
 | Many requests in one session, a discussion, a direct fix | `/chief <prompt>` |
 | An epic: many PRs, built in parallel | `/10x-engineer` (factory only) |
-| A design talk, maybe ending in a GitHub issue | `/architect` |
+| A read-only design talk, maybe ending in a GitHub issue | `/architect` |
+| The app driven in a headless browser, the proof posted on the PR | `/qa <PR>` |
+| A branch or PR cleaned up or reviewed | `/refactor`, `/pragmatic-review` |
 
 When a top-level lead's context runs past its budget, the context guard
 tells it to stop and to ask you to run `/chief resume` in a fresh session.

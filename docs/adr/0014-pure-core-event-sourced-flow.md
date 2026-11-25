@@ -97,16 +97,8 @@ ADR applies them to the program that drives the agents.
 
 ## Laws
 
-| Law | Statement | Test |
-|---|---|---|
-| replay | the same log gives the same state anywhere | `FoldSpec` `live_appends_reach_the_run_the_log_replays` |
-| unit | replaying `a ++ b` is replaying `a`, then appending `b` | `FoldSpec` `replaying_a_prefix_then_appending_the_rest_is_replaying_the_whole` |
-| append-only | only `Effects.Store` inserts; `seq` is dense from 1 | the store throws on a gap or duplicate; one writer is assumed (ADR 0018) |
-| idempotent | a hook record fired twice is logged once | `FoldSpec` `append_is_idempotent_by_id` |
-| void | a void replays as the line never logged | `FoldSpec` `a_void_replays_as_the_line_never_logged` |
-| total | a pair with no edge is a `Refusal`, never a throw; `-Wall -Werror` refuses a missed case | `FoldSpec` `refuses an event with no edge where the run is` |
-| fixed targets | an event's target is a function of the graph, except an override | the fold |
-| prose guard | the blocks the skills paste equal `state render` | `checks.agents` (`kernel/rendered.nix`) |
+The replay laws and their tests: [CATEGORY-THEORY, Log](../harness/CATEGORY-THEORY.md#log) and
+[part, graph and Run(F)](../harness/CATEGORY-THEORY.md#part-graph-and-runf).
 
 ## The agent keeps its judgment
 

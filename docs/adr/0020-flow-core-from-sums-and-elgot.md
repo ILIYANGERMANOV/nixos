@@ -101,24 +101,8 @@ fixReReview =
 
 ## Laws
 
-Each is a property test in `kernel/test/State/Category/LawsSpec.hs`
-unless noted. "Walks as" means the two terms draw the same graph, up to
-place renumbering, or bisimilar ones for loops.
-
-| Law | Statement |
-|---|---|
-| identity | `Id :> f = f = f :> Id`; `f :> Into` walks as `f` |
-| associativity | `(f :> g) :> h = f :> (g :> h)` |
-| case beta | a step into a sum, its edge `l` walks as branch `l` |
-| case fusion | `Case bs :> h = Case (each b, b :> h)` |
-| case eta | not expressible: the core has no injection, and a flow out of a sum is already a `Case` |
-| case order | the order of a choice's branches changes nothing a run walks |
-| Catch | `Catch (f :> g) = f :> Catch g` for `f` with no exit; `Catch` distributes over a case; `Catch Exit = Id` |
-| Elgot fixpoint | `Loop n f = Catch (f :> Loop n f)`; a `choiceLoop` walks as its choice unrolled once |
-| choiceLoop | the order of the actions changes nothing a run walks |
-| parallel identity, composition | `parallel g Id`, `parallel g f` and `parallel g (f :> h)` draw one parent graph; `Merge` gets the results in fork order (`AdviceSpec`) |
-| Scope | keeps the graph but its names; distributes over series; `Scope s . Scope t = Scope (s/t)` |
-| PerFuel monotone | each Fuel allows at least the spends and runs of the level below, in every named flow |
+The laws and their tests: [CATEGORY-THEORY, Flow](../harness/CATEGORY-THEORY.md#flow)
+and [Fuel](../harness/CATEGORY-THEORY.md#fuel).
 
 Not claimed: `Loop` has the shape of Elgot iteration and its fixpoint law
 is tested, but naturality, codiagonal and uniformity are not. `Case` is
