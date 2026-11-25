@@ -39,6 +39,8 @@ done
 # fetch: the build has no network, and OpenCode ships a snapshot.
 provider=$(jq -cn --arg url "http://127.0.0.1:$(cat port)/v1" '{provider: {deepseek: {options: {baseURL: $url}}}}')
 status=0
+# </dev/null is load-bearing: when stdin is not a TTY, `run` reads it to EOF
+# for a piped message, so an open pipe stalls it after "init" forever.
 OPENCODE_CONFIG_CONTENT=$provider DEEPSEEK_API_KEY=dummy OPENCODE_DISABLE_MODELS_FETCH=1 \
   timeout 120 "$kategory" run --auto "run the scripted command" </dev/null >run.out 2>run.err || status=$?
 [ "$status" = 0 ] || fail "run exited $status: $(tail -c 2000 run.out run.err)"
