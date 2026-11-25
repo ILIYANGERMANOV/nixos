@@ -13,14 +13,14 @@ long-term design.**
   error, and `state init --notes <a new dir>` starts afresh. No legacy graph
   fallback and no log migration.
 - Prefer general, category-theory-aligned designs (sums, cases, Elgot
-  iteration and their laws) over special-case building blocks. The model and
-  its laws live in `docs/adr/0018-category-model-haskell-state.md`,
-  `docs/adr/0019-composable-flows.md` and, for the flow core that replaces
-  0019's word table, `docs/adr/0020-flow-core-from-sums-and-elgot.md`; its
-  effects, `docs/adr/0021-flow-effects.md`.
-- Example: ADR 0019 kept `Choice` and `Route` partly for log and graph
-  compatibility. ADR 0020 dropped them for `choice` and `choiceLoop` built
-  from `Case`, `Exit` and `Loop`.
+  iteration and their laws) over special-case building blocks. The model,
+  the flow core and its effects are ADRs 0018, 0020 and 0021: the ADR table
+  in `docs/harness/ARCHITECTURE.md#the-adrs` lists them all.
+- Example: `Choice` and `Route` were once constructors, kept partly for log
+  and graph compatibility. ADR 0020 dropped them for `choice` and
+  `choiceLoop` built from `Case`, `Exit` and `Loop`.
+- How the harness works, for people and agents: `docs/harness/` (README,
+  ARCHITECTURE, FLOWS, CATEGORY-THEORY).
 - `state` keeps a **necessary and sufficient** command set: every command
   the chief and the flows need, nothing more. Each command's output carries
   the context to act on it, so an agent drives `state` from its output alone.

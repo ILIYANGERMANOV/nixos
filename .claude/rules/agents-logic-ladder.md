@@ -19,7 +19,9 @@ Each rung further from the kernel is less deterministic and less testable:
 pure code has property and golden tests, the shell runs on the doubles in
 `test/Doubles/`, a hook works only when the client fires it, and prose only
 when a model reads and obeys it. The logic ladder refines
-`docs/adr/0013-deterministic-programs-over-instructions.md`.
+`docs/adr/0013-deterministic-programs-over-instructions.md`. Above the
+ladder sits each project's own CI, outside the harness: the reliability
+pyramid in `docs/harness/README.md`.
 
 Pick the rung by asking, in order:
 

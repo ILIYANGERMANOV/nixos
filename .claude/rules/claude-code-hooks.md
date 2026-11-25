@@ -94,15 +94,11 @@ The kernel's (`kernel/hooks.nix`, ADR 0016); what Claude gives them:
   role.
 - **Begin.** `SubagentStart` tells a lead role its run starts at the
   `state init` line in its prompt, and a worker role its `state brief`.
-  `UserPromptExpansion` of a typed `/engineer` or `/10x-engineer`, and
-  `PreToolUse` on `Skill` naming one, tell it to begin with `state` and mark
-  it a lead.
+  `UserPromptExpansion` of a typed lead skill (`/engineer`,
+  `/10x-engineer`, `/architect` or `/chief`), and `PreToolUse` on `Skill`
+  naming one, tell it to begin with `state` and mark it a lead.
 
 ### Secret files
 
-The wrapper exports a secret file's **path**. Where one is exported,
-`withSecretFileGuard` adds `Read` deny rules over `/run/secrets` and
-`/run/secrets.d`; the frontend's `secret-guard` covers the shell. **This is
-protection against accidental reads, not a security boundary**: every
-`qa-node` script must read the variable, so no filter over command text can
-close it.
+The `Read` deny rules and the shell's `secret-guard` are in
+`claude-code-codegen.md` ("Secret file guard").
