@@ -139,7 +139,7 @@ steps, never these.
 
 | Property | In one line | Read |
 |---|---|---|
-| **Bounded** | Every loop has a cap set by the run's Fuel; past it the run refuses the step, stops, or asks the user. | [GUARDRAILS](GUARDRAILS.md#fuel-and-caps) |
+| **Bounded** | Every loop has a cap set by the run's Fuel; every cap refuses the spend past it; the Fuel mode only picks the exits offered (stop, or ask the user to extend). | [GUARDRAILS](GUARDRAILS.md#fuel-and-caps) |
 | **Resumable** | The run lives in its log, not in an agent's context, so a fresh agent goes on after a crash or a full context. | [RUN-LOOP](RUN-LOOP.md#resume-after-a-crash-or-a-lost-context) |
 | **Lawful composition** | Flows are typed terms built from small flows; a wrong wiring does not compile, and each rule of the algebra has a test. | [FLOWS](FLOWS.md), [CATEGORY-THEORY](CATEGORY-THEORY.md#laws-and-tests) |
 | **Authority as code** | Who may answer each kind of question is a table in the kernel, not a sentence in a prompt. | [GUARDRAILS](GUARDRAILS.md#who-answers-which-question) |
