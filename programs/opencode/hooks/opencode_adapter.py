@@ -216,7 +216,7 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 tool_cwd(cwd, tool, args),
                 agent,
                 tool,
-                renamed(args, NEUTRAL_KEYS.get(tool, {})),
+                neutral_input(tool, args),
                 tuple(as_str(command) for command in history)
                 if tool == Tool.SHELL
                 else (),
@@ -235,7 +235,7 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 tool_cwd(cwd, tool, args),
                 agent,
                 tool,
-                renamed(args, NEUTRAL_KEYS.get(tool, {})),
+                neutral_input(tool, args),
                 output,
                 parse_context_size(context),
             )
@@ -252,7 +252,7 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 event
                 for result in background_results(parts)
                 for event in task_ended(
-                    session, cwd, result, role_of(agents, result.child), still
+                    session, cwd, result, optional_role(agents.get(result.child)), still
                 )
             )
         case {"hook": "command", "command": str(command)}:
@@ -276,12 +276,11 @@ def tool_ran(
             return (replace(ran, output={"stdout": as_str(output)}),)
         case Tool.DELEGATE:
             result = parse_task(as_str(output))
-            role = ran.input.get("subagent_type")
             ended = task_ended(
                 ran.session,
                 ran.cwd,
                 result,
-                Role(role) if isinstance(role, str) else None,
+                optional_role(ran.input.get("subagent_type")),
                 running,
             )
             return (*ended, replace(ran, output={"agentId": result.child}))
@@ -317,6 +316,10 @@ def tool_cwd(cwd: Path, tool: Tool, args: JsonObject) -> Path:
             return cwd
 
 
+def neutral_input(tool: Tool, args: JsonObject) -> JsonObject:
+    return renamed(args, NEUTRAL_KEYS.get(tool, {}))
+
+
 def renamed(fields: JsonObject, names: Mapping[str, str]) -> JsonObject:
     return {names.get(key, key): value for key, value in fields.items()}
 
@@ -325,8 +328,9 @@ def running_ids(running: list[Json]) -> tuple[AgentId, ...]:
     return tuple(AgentId(as_str(child)) for child in running)
 
 
-def role_of(agents: JsonObject, child: AgentId) -> Role | None:
-    match agents.get(child):
+def optional_role(agent: Json) -> Role | None:
+    """An agent name, if OpenCode has told it."""
+    match agent:
         case str(role):
             return Role(role)
         case _:

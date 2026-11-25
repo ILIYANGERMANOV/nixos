@@ -11,6 +11,7 @@ from typing import cast
 
 import pytest
 from agent_hook import Json, JsonObject
+from plugin_envelopes import CHILD, LEAD, after, before, envelope, in_child, task_output
 
 ADAPTER = os.environ["AGENT_HOOK_OPENCODE"]
 TOOLS_FILE = os.environ["AGENT_HOOK_OPENCODE_TOOLS"]
@@ -28,9 +29,6 @@ SECRET_GUARD: JsonObject = {
     ],
 }
 
-LEAD = "ses_lead"
-CHILD = "ses_child"
-
 
 @pytest.fixture(autouse=True)
 def own_state_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -45,7 +43,7 @@ def own_state_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_a_lead_edit_waits_for_its_run(tmp_path: Path) -> None:
     own = worktree(tmp_path / "own")
-    _ = answer(envelope(own, "command", command="engineer"))
+    _ = answer(envelope("command", own, command="engineer"))
 
     told = answer(edit(own))
 
@@ -54,7 +52,7 @@ def test_a_lead_edit_waits_for_its_run(tmp_path: Path) -> None:
 
 def test_a_lead_edit_goes_on_once_its_state_init_ran(tmp_path: Path) -> None:
     own = worktree(tmp_path / "own")
-    _ = answer(envelope(own, "command", command="engineer"))
+    _ = answer(envelope("command", own, command="engineer"))
     _ = answer(
         ran_shell(
             own,
@@ -69,22 +67,14 @@ def test_a_lead_edit_goes_on_once_its_state_init_ran(tmp_path: Path) -> None:
 def test_a_finished_tasks_hand_back_reaches_the_kernel(
     tmp_path: Path, own_state_home: Path
 ) -> None:
-    task = (
-        f'<task id="{CHILD}" state="completed">\n'
-        "<task_result>\nREADY abc\n</task_result>\n</task>"
-    )
+    task = task_output("completed", "READY abc")
+    args: JsonObject = {
+        "description": "d",
+        "prompt": "p",
+        "subagent_type": "implementer",
+    }
 
-    _ = answer(
-        envelope(
-            tmp_path,
-            "after",
-            tool="task",
-            args={"description": "d", "prompt": "p", "subagent_type": "implementer"},
-            output={"title": "d", "output": task, "metadata": {}},
-            context=None,
-            running=[],
-        )
-    )
+    _ = answer(after("task", args, task, directory=tmp_path))
 
     # The lead is bound to no run, so the kernel keeps the hand-back for the
     # child's binding (State.Protocol.Binding).
@@ -115,11 +105,7 @@ def test_an_unbounded_read_of_a_large_file_is_denied_with_the_read_hint(
     huge = tmp_path / "huge"
     _ = huge.write_bytes(bytes(20_000))
 
-    told = answer(
-        envelope(
-            tmp_path, "before", tool="read", args={"filePath": str(huge)}, history=[]
-        )
-    )
+    told = answer(before("read", {"filePath": str(huge)}, directory=tmp_path))
 
     assert "rg -n first" in cast("str", told["deny"])
 
@@ -129,9 +115,7 @@ def test_a_bounded_read_of_a_large_file_goes_on(tmp_path: Path) -> None:
     _ = huge.write_bytes(bytes(20_000))
     args: JsonObject = {"filePath": str(huge), "offset": 1, "limit": 20}
 
-    assert (
-        answer(envelope(tmp_path, "before", tool="read", args=args, history=[])) == {}
-    )
+    assert answer(before("read", args, directory=tmp_path)) == {}
 
 
 def test_a_subagents_ci_watch_is_denied(tmp_path: Path) -> None:
@@ -159,17 +143,9 @@ def test_a_secret_path_is_denied(tmp_path: Path) -> None:
 
 
 def test_crossing_300k_gives_the_lead_the_notice(tmp_path: Path) -> None:
-    told = answer(
-        envelope(
-            tmp_path,
-            "after",
-            tool="glob",
-            args={"pattern": "*"},
-            output={"title": "*", "output": "a.py", "metadata": {}},
-            context={"tokens": 300_500, "previous": 298_000},
-            running=[],
-        )
-    )
+    context: JsonObject = {"tokens": 300_500, "previous": 298_000}
+
+    told = answer(after("glob", {"pattern": "*"}, "a.py", context, directory=tmp_path))
 
     assert "Context 300k" in cast("str", told["context"])
 
@@ -190,44 +166,14 @@ def answer(payload: JsonObject, manifest: Path = MANIFEST) -> JsonObject:
     return cast("JsonObject", json.loads(done.stdout))
 
 
-def envelope(directory: Path, hook: str, **fields: Json) -> JsonObject:
-    """The lead's envelope: its session is its own root."""
-    common: JsonObject = {
-        "hook": hook,
-        "sessionID": LEAD,
-        "rootID": LEAD,
-        "agent": "build",
-        "directory": str(directory),
-    }
-    return common | fields
-
-
-def in_child(payload: JsonObject) -> JsonObject:
-    return payload | {"sessionID": CHILD, "agent": "implementer"}
-
-
 def shell(
-    directory: Path, command: str, history: list[Json] | None = None
+    directory: Path, command: str, history: list[str] | None = None
 ) -> JsonObject:
-    return envelope(
-        directory,
-        "before",
-        tool="bash",
-        args={"command": command},
-        history=history or [],
-    )
+    return before("bash", {"command": command}, history or [], directory)
 
 
 def ran_shell(directory: Path, command: str, output: str) -> JsonObject:
-    return envelope(
-        directory,
-        "after",
-        tool="bash",
-        args={"command": command},
-        output={"title": command, "output": output, "metadata": {}},
-        context=None,
-        running=[],
-    )
+    return after("bash", {"command": command}, output, directory=directory)
 
 
 def edit(directory: Path) -> JsonObject:
@@ -236,7 +182,7 @@ def edit(directory: Path) -> JsonObject:
         "oldString": "x",
         "newString": "y",
     }
-    return envelope(directory, "before", tool="edit", args=args, history=[])
+    return before("edit", args, directory=directory)
 
 
 def worktree(path: Path) -> Path:

@@ -1,7 +1,5 @@
 """agent-hook-opencode: the plugin's envelope in, the neutral events to the
-hooks, their folded result back as what the plugin does. Envelopes carry
-OpenCode 1.19.5's own hook input and output (packages/opencode/src/session/
-tools.ts, session/prompt.ts, tool/*.ts)."""
+hooks, their folded result back as what the plugin does."""
 
 import contextlib
 import json
@@ -40,6 +38,16 @@ from hypothesis import given
 from hypothesis import strategies as st
 from json_strategies import json_objects, json_values
 from opencode_adapter import parse_opencode, parse_tools, verdict_to_opencode
+from plugin_envelopes import (
+    CHILD,
+    CWD,
+    LEAD,
+    after,
+    before,
+    envelope,
+    in_child,
+    task_output,
+)
 
 # The built adapters, and the tool tables they are deployed with.
 ADAPTER = os.environ["AGENT_HOOK_OPENCODE"]
@@ -49,52 +57,11 @@ CLAUDE_TOOLS_FILE = os.environ["AGENT_HOOK_CLAUDE_TOOLS"]
 
 TOOLS = parse_tools(Path(TOOLS_FILE).read_text())
 
-LEAD = "ses_lead"
-CHILD = "ses_child"
 SESSION = SessionId(LEAD)
-CWD = Path("/work/repo")
 WORKER = Agent(AgentId(CHILD), Role("implementer"))
 
 
 # ---- Envelopes, as the plugin sends them --------------------------------------------
-
-
-def envelope(hook: str, **fields: Json) -> JsonObject:
-    """The lead's envelope: its session is its own root."""
-    common: JsonObject = {
-        "hook": hook,
-        "sessionID": LEAD,
-        "rootID": LEAD,
-        "agent": "build",
-        "directory": str(CWD),
-    }
-    return common | fields
-
-
-def in_child(payload: JsonObject, agent: Json = "implementer") -> JsonObject:
-    return payload | {"sessionID": CHILD, "agent": agent}
-
-
-def before(tool: str, args: JsonObject, history: Sequence[str] = ()) -> JsonObject:
-    return envelope("before", tool=tool, args=args, history=[*history])
-
-
-def after(
-    tool: str,
-    args: JsonObject,
-    output: str,
-    context: Json = None,
-    running: Sequence[str] = (),
-) -> JsonObject:
-    ran: JsonObject = {"title": "t", "output": output, "metadata": {}}
-    return envelope(
-        "after",
-        tool=tool,
-        args=args,
-        output=ran,
-        context=context,
-        running=[*running],
-    )
 
 
 def message(
@@ -109,14 +76,6 @@ def message(
         agents={CHILD: "implementer"},
         running=[*running],
     )
-
-
-def task_output(state: str, text: str, summary: str | None = None) -> str:
-    """tool/task.ts renderOutput: a failed task's text is a task_error."""
-    tag = "task_error" if state == "error" else "task_result"
-    lines = [f'<task id="{CHILD}" state="{state}">']
-    lines += [] if summary is None else [f"<summary>{summary}</summary>"]
-    return "\n".join([*lines, f"<{tag}>", text, f"</{tag}>", "</task>"])
 
 
 SPAWN_ARGS: JsonObject = {
@@ -518,11 +477,23 @@ def test_every_envelope_gives_events_the_hooks_read_back_as_sent(
     assert [parse_event(emit_event(event)) for event in events] == list(events)
 
 
-@given(well_formed.filter(lambda payload: payload["hook"] in ("before", "after")))
+unnamed_tools = st.text().filter(lambda name: name not in TOOLS)
+
+
+@given(
+    st.builds(
+        called_by,
+        st.builds(before, unnamed_tools, json_objects, st.lists(st.text()))
+        | st.builds(
+            after, unnamed_tools, json_objects, st.text(), contexts, st.lists(ids)
+        ),
+        callers,
+    )
+)
 def test_a_tool_the_table_does_not_name_is_other(payload: JsonObject) -> None:
     match parse_opencode(payload, TOOLS):
-        case BeforeTool(tool=tool) | (*_, AfterTool(tool=tool)):
-            assert tool == TOOLS.get(cast("str", payload["tool"]), Tool.OTHER)
+        case BeforeTool(tool=tool) | (AfterTool(tool=tool),):
+            assert tool == Tool.OTHER
         case other:
             pytest.fail(f"no tool event: {other!r}")
 
