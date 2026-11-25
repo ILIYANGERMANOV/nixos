@@ -1,11 +1,11 @@
 # claude-kategory
 
-`claude-kategory` is Claude Code with this repository's agent harness: skills,
-subagent roles, hooks, guards and the `state` program that drives them. You
-describe a task to `/chief`. It researches, asks you the decisions, builds the
-change through subagents, reviews it and opens a pull request. Everything
-lives in `~/.claude-kategory`, so your own `~/.claude` and `~/.claude.json`
-stay untouched.
+`claude-kategory` is kategory's Claude Code build: a harness-wrapper that
+runs each task as a state machine. Give `/engineer` a task and it hands back
+a pull request. Why it is built this way: [docs/harness/README.md](harness/README.md).
+
+Everything lives in `~/.claude-kategory`, so your own `~/.claude` and
+`~/.claude.json` stay untouched.
 
 > [!WARNING]
 > Experimental and use at your own risk: agents read files, run commands and
@@ -13,9 +13,6 @@ stay untouched.
 > [Disclaimer](#disclaimer) first.
 
 Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
-
-How it works, and how it compares to Claude Code alone:
-[docs/harness/README.md](harness/README.md).
 
 ## Prerequisites
 
@@ -47,14 +44,24 @@ How it works, and how it compares to Claude Code alone:
 
    Keep the quotes: zsh, the macOS shell, treats `#` as a special character.
 
-2. Ask `/chief` for anything:
+2. Give `/engineer` one task:
+
+   ```text
+   /engineer <task: what you want changed>
+   ```
+
+   It researches, asks you each decision as a question, builds the change
+   through subagents, reviews it and hands back a pull request with green
+   CI.
+
+3. Many requests in one session, a question to discuss or a quick fix? Use
+   `/chief`. It routes each request to the right flow:
 
    ```text
    /chief <prompt: anything you want>
    ```
 
-   It picks the right flow, asks you each decision as a question and hands
-   back a pull request. Stopped halfway? `/chief resume` picks it up.
+   Stopped halfway? `/chief resume` picks it up.
 
 ## Install for good
 
@@ -70,8 +77,10 @@ To remove it: `nix profile remove claude-kategory`.
 
 ## What you get
 
-- `/chief <prompt>` - the entry point. Routes each request to the flows below.
-- `/engineer` - a task end to end: plan, build, review, ready PR with green CI.
+- `/engineer` - the recommended start. One task end to end: plan, build,
+  review, ready PR with green CI.
+- `/chief <prompt>` - routes many requests: each to a flow, a discussion or
+  a direct fix.
 - `/architect` - a read-only design talk that can end in a GitHub issue.
 - `/qa <PR>` - drives the app in a headless browser and posts the proof.
 - `/refactor`, `/pragmatic-review` - clean up or review a branch or PR.

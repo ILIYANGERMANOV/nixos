@@ -10,16 +10,9 @@
 
 ## The logic ladder
 
-```mermaid
-flowchart TD
-  kernel["Pure kernel: decides from the log and arguments"]
-  shell["Effect shell: git, files, GitHub, clock"]
-  hooks["Hooks: the moment only the client sees"]
-  prose["Prose: judgment and taste"]
-  kernel -->|"needs IO"| shell
-  shell -->|"needs the client's moment"| hooks
-  hooks -->|"needs judgment"| prose
-```
+The ladder is the lower four levels of the reliability pyramid, drawn in
+the [README](README.md#the-reliability-pyramid). Above it sits each
+project's own CI, outside the harness.
 
 Each behaviour lives on the first rung that can hold it. Each rung down is
 less deterministic and harder to test.
@@ -47,7 +40,7 @@ refining [ADR 0013](../adr/0013-deterministic-programs-over-instructions.md).
 ```mermaid
 flowchart BT
   cat["Category and Step: types, steps, flow terms, graph, Fuel, meters"]
-  flow["Flow: named flows, roles, the step table"]
+  flow["Flow, Role, Table: named flows, the roles that lead them, the step table"]
   run["Run: the event log, its fold, questions, fan-out"]
   protocol["Protocol: advice, records, hand-backs, hook replies"]
   cli["Cli: commands, the effect shell, render"]
@@ -58,21 +51,26 @@ flowchart BT
 ```
 
 The kernel is `state` and its hook entry point `state-hook`
-(`programs/agents/kernel`). A module imports only its own layer or one below;
-a test holds it ([layers test][archlayers], [`layers`][layers]).
+(`programs/agents/kernel`). A module imports only its own layer or a lower
+one; a test holds it ([layers test][archlayers], [`layers`][layers]).
+Paths below are under `programs/agents/kernel/src/`.
 
 | Layer | Holds | Start reading |
 |---|---|---|
-| `Category` | the model: artifact types, typed steps, the `Flow` term, its graph, Fuel, meters | [`Flow.hs`][flowhs], [CATEGORY-THEORY](CATEGORY-THEORY.md) |
-| `Step` | the concrete steps by layer: plan, build, review, ship, gather, fan-out | [`Catalog.hs`][catalog] |
-| `Flow` | the named flows built from a small library: engineer, 10x, architect, chief | [`Library.hs`][library], [FLOWS](FLOWS.md) |
-| `Run` | the log's events, its codec, the fold that turns a log into state, the authority table | [`Fold.hs`][fold], [RUN-LOOP](RUN-LOOP.md) |
-| `Protocol` | what a run says to its agents: the next action, the record grammar, hand-backs, hooks | [`Advice.hs`][advice] |
-| `Cli` | the command line, the effect shell, the Mermaid render | [`Command.hs`][command] |
+| `State/Category/`, `State/Step/` | the model: artifact types, typed steps, the `Flow` term, its graph, Fuel, meters; the concrete steps by layer (plan, build, review, ship, gather, fan-out) | [`Flow.hs`][flowhs], [`Catalog.hs`][catalog], [CATEGORY-THEORY](CATEGORY-THEORY.md) |
+| `State/Flow/`, `State/Role.hs`, `State/Table.hs` | the blocks every flow shares, the combinators that glue them, the named flows under `Role/` (engineer, 10x, architect, chief), the roles that lead them, the step table | [`Block.hs`][block], [`Combinator.hs`][combinator], [`Role/`][roles], [FLOWS](FLOWS.md) |
+| `State/Run/` | the log's events, its codec, the fold that turns a log into state, the authority table | [`Fold.hs`][fold], [RUN-LOOP](RUN-LOOP.md) |
+| `State/Protocol/` | what a run says to its agents: the next action, the record grammar, hand-backs, hooks | [`Advice.hs`][advice] |
+| `State/Cli/` | the command line, the effect shell, the Mermaid render | [`Command.hs`][command] |
 
-Only the shell and `Effects/` (store, git, GitHub, clock, files) do IO;
-the rest is pure, and a test holds that too ([IO test][archio]). The run
-store is one SQLite file ([ADR 0022](../adr/0022-sqlite-run-store.md)).
+IO lives only in the effect shell, [`State/Cli/Shell.hs`][shell], and in
+[`Effects/`][effects]. There are nine effects, each one file with its IO
+interpreter, built on the [`effectful`](https://hackage.haskell.org/package/effectful)
+library: `Clock`, `Console`, `Environment`, `FileSystem`, `Gh`, `Git`,
+`Log`, `Random` and `Store` (the only module that speaks SQL). Tests run
+the shell on in-memory doubles in [`test/Doubles/`][doubles]. The rest is
+pure, and a test holds that too ([IO test][archio]). The run store is one
+SQLite file ([ADR 0014](../adr/0014-pure-core-event-sourced-flow.md)).
 
 ## The agent compiler
 
@@ -148,38 +146,53 @@ and the tools, skills, operations and prose it needs.
 
 ## The ADRs
 
+The one list of the harness's decisions. Some ADRs were merged into a
+later one; each merged number keeps its row and links its old text at the
+last commit that had it. Numbers are never reused: the next new ADR is
+0023.
+
 | ADR | Decides |
 |---|---|
-| [0011](../adr/0011-agent-compiler.md) | the agent config is a compiler: vendor-free frontend, thin backends |
-| [0013](../adr/0013-deterministic-programs-over-instructions.md) | programs over prose for mechanical steps |
-| [0014](../adr/0014-pure-core-event-sourced-flow.md) | a pure core over an event log |
-| [0015](../adr/0015-state-program.md) | the `state` program |
-| [0016](../adr/0016-hooks-drive-the-state-record.md) | hooks write the derivable records; the lead records only decisions |
-| [0017](../adr/0017-pr-state-from-github.md) | PR facts are read from GitHub |
-| [0018](../adr/0018-category-model-haskell-state.md) | the category model |
-| [0019](../adr/0019-composable-flows.md) | flows composed from small flows |
-| [0020](../adr/0020-flow-core-from-sums-and-elgot.md) | the flow core: sums, cases and loops |
-| [0021](../adr/0021-flow-effects.md) | pick, ask and focus as typed flow effects |
-| [0022](../adr/0022-sqlite-run-store.md) | one SQLite run store |
+| [0011](../adr/0011-agent-compiler.md) | agent config is a compiler: one vendor-free frontend, thin vendor backends |
+| [0012][adr0012] | merged into 0018 |
+| [0013](../adr/0013-deterministic-programs-over-instructions.md) | prefer deterministic programs over agent instructions |
+| [0014](../adr/0014-pure-core-event-sourced-flow.md) | a run is a pure fold over an event log in one SQLite store |
+| [0015][adr0015] | merged into 0014 |
+| [0016](../adr/0016-hooks-drive-the-state-record.md) | hooks drive the `state` record; PR state comes from GitHub |
+| [0017][adr0017] | merged into 0016 |
+| [0018](../adr/0018-category-model-haskell-state.md) | the agent flows follow a category model, checked by a Haskell `state` |
+| [0019][adr0019] | merged into 0020 |
+| [0020](../adr/0020-flow-core-from-sums-and-elgot.md) | the flow core: sums, cases, Elgot-shaped loops and step meters |
+| [0021](../adr/0021-flow-effects.md) | flow effects: Pick, Ask, Focus and Await in a flow's type |
+| [0022][adr0022] | merged into 0014 |
 
-[advise]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L263
-[shell]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Cli/Shell.hs#L1
-[kernelhooks]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/hooks.nix#L1
-[guardshooks]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/hooks/guards/hooks.nix#L1
-[archlayers]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/ArchitectureSpec.hs#L23
-[layers]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/ArchitectureSpec.hs#L75
-[archio]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/ArchitectureSpec.hs#L39
-[flowhs]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Category/Flow.hs#L1
-[catalog]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Step/Catalog.hs#L1
-[library]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Flow/Library.hs#L1
-[fold]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Run/Fold.hs#L1
-[advice]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Protocol/Advice.hs#L1
-[command]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/src/State/Cli/Command.hs#L1
-[novendor]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/deslop/rules/architecture.yaml#L30
-[katdefault]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/claude-code/kategory/default.nix#L1
-[linksh]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/claude-code/kategory/link.sh#L1
-[steps]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/flows/steps.nix#L1
-[derive]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L1
-[stepsmatch]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/kernel/test/State/TableSpec.hs#L27
-[derive106]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L106
-[derive109]: https://github.com/ILIYANGERMANOV/nixos/blob/2c6ba6df6c2a9cc70bbd299cdbd8efd1b6df1edc/programs/agents/lib/derive.nix#L109
+[adr0012]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/docs/adr/0012-engineer-state-machine.md
+[adr0015]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/docs/adr/0015-state-program.md
+[adr0017]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/docs/adr/0017-pr-state-from-github.md
+[adr0019]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/docs/adr/0019-composable-flows.md
+[adr0022]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/docs/adr/0022-sqlite-run-store.md
+[advise]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Protocol/Advice.hs#L455
+[shell]: ../../programs/agents/kernel/src/State/Cli/Shell.hs
+[effects]: ../../programs/agents/kernel/src/Effects
+[doubles]: ../../programs/agents/kernel/test/Doubles
+[kernelhooks]: ../../programs/agents/kernel/hooks.nix
+[guardshooks]: ../../programs/agents/hooks/guards/hooks.nix
+[archlayers]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/test/State/ArchitectureSpec.hs#L28
+[layers]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/test/State/ArchitectureSpec.hs#L96
+[archio]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/test/State/ArchitectureSpec.hs#L53
+[flowhs]: ../../programs/agents/kernel/src/State/Category/Flow.hs
+[catalog]: ../../programs/agents/kernel/src/State/Step/Catalog.hs
+[block]: ../../programs/agents/kernel/src/State/Flow/Block.hs
+[combinator]: ../../programs/agents/kernel/src/State/Flow/Combinator.hs
+[roles]: ../../programs/agents/kernel/src/State/Flow/Role
+[fold]: ../../programs/agents/kernel/src/State/Run/Fold.hs
+[advice]: ../../programs/agents/kernel/src/State/Protocol/Advice.hs
+[command]: ../../programs/agents/kernel/src/State/Cli/Command.hs
+[novendor]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/deslop/rules/architecture.yaml#L30
+[katdefault]: ../../programs/claude-code/kategory/default.nix
+[linksh]: ../../programs/claude-code/kategory/link.sh
+[steps]: ../../programs/agents/flows/steps.nix
+[derive]: ../../programs/agents/lib/derive.nix
+[stepsmatch]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/test/State/TableSpec.hs#L38
+[derive106]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/lib/derive.nix#L125
+[derive109]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/lib/derive.nix#L128
