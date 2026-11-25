@@ -13,6 +13,9 @@ rules:
   - id: python-scripts-have-tests
     description: A Python script has its test beside it, keeping its name literally.
     target: "**/{{script-name}}.py"
+    exclude:
+      # Exercised by a suite with another name: a rule below requires that suite.
+      - "programs/opencode/scripted-model.py"
     exists:
       - module: "{{TARGET_DIR}}/test_{{script-name}}.py"
     fix: Add {{TARGET_DIR}}/test_{{script-name}}.py.
@@ -76,6 +79,7 @@ rules:
 
       # A flake check's own script: it is the test.
       - "programs/opencode/check.sh"
+      - "programs/opencode/check-headless.sh"
 
       # Accepted without a test: what each needs cannot run in a check.
       # Runs on the server, and is read by eye.
@@ -173,6 +177,13 @@ rules:
     exists:
       - module: "programs/claude-code/config-check.nix"
     fix: Restore config-check.nix, or test budget-compare elsewhere and say so here.
+
+  - id: scripted-model-has-its-check
+    description: The scripted model is exercised by checks.opencode-headless, which runs OpenCode against it.
+    target: "programs/opencode/scripted-model.py"
+    exists:
+      - module: "programs/opencode/check-headless.sh"
+    fix: Restore check-headless.sh, or add test_scripted-model.py.
 
   - id: qa-evidence-tools-have-their-check
     description: qa-mp4 and qa-frames are exercised by checks.qa through qa-check-tools.ts.
