@@ -175,6 +175,26 @@
             inherit pkgs;
             src = self;
           };
+
+          # Markdown links to a missing file or #anchor fail the build.
+          # --offline: local links only, so the sandbox needs no network.
+          # --include-fragments: #anchor targets must exist.
+          # --hidden: scan .claude/ and .github/ too.
+          # cacert: lychee builds its HTTP client even offline, and that needs
+          # CA certificates.
+          links =
+            pkgs.runCommand "links-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.lychee
+                  pkgs.cacert
+                ];
+              }
+              ''
+                cd ${self}
+                lychee --offline --include-fragments --hidden .
+                touch "$out"
+              '';
         }
         # claude-kategory builds and guards both logins: see
         # kategory/check.nix. Where `llm-agents` has a Claude Code.

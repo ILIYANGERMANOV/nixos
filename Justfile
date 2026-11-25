@@ -67,6 +67,9 @@ quick-check: lint architecture (format "--ci") (_build-checks ".*")
 # Run one technology's checks, every `<NAME>-*` flake check, with no host evaluation
 tech NAME: (_build-checks (NAME + "-.*"))
 
+# Check Markdown links and anchors offline, as CI does
+links: (_build-checks "links")
+
 # CMD is quick-typecheck, quick-test, build, test, lint or format; see
 # .claude/rules/haskell.md.
 #
