@@ -105,7 +105,7 @@ program needs a flake input.
    An added, moved or re-pointed import: `nix develop -c just architecture`.
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
    `just tech shell`.
-5. Any `.md` edit, or a moved or renamed file: `just links`.
+5. A `.md` edit or a moved file: `just links`.
 6. A script or recipe: `nix develop -c just tech <name>` (`shell`, `python`).
 7. `just quick-check` before handing back mid-work: lint, architecture, format and every
    `checks` derivation for this system. On Linux that evaluates each factory
