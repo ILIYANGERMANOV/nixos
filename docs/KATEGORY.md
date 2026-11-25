@@ -152,6 +152,8 @@ nix run "github:ILIYANGERMANOV/nixos#opencode-kategory-headless" -- \
 - Its final text lists every decision (question, answer, why) and every
   action: commits, pull requests, reviews posted.
 - OpenCode's question tool is off.
+- The same hooks run as in `opencode-kategory`: see
+  [Permissions](#permissions).
 - Its data, state and cache live in `~/.opencode-kategory-headless`.
 
 #### Example: review pull requests in GitHub Actions
@@ -255,8 +257,8 @@ the lead's model. The roles keep theirs.
 
 - Each role may use only the tools it needs. Everything else is denied.
 - The same hooks as `claude-kategory` run, through a plugin: the kernel's
-  gate, the guards and hand-back recording. A hook's deny fails the tool call
-  with its reason.
+  gate, the guards and hand-back recording. Both flavors run them, the
+  headless one too. A hook's deny fails the tool call with its reason.
 - Outside the project, every agent may use `/tmp/**`, `~/.10x/**` and
   `/nix/store/**` without asking.
 - A skill marked `disable-model-invocation` (such as `chief`) runs only as

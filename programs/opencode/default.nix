@@ -74,6 +74,8 @@ in
         ];
         env = {
           kategory = lib.getExe headless.kategory;
+          plugin = "${headless.kategory.configDir}/plugin/kategory.js";
+          hook_manifest = headless.hookAdapter.manifest;
           scripted_model = "${./scripted-model.py}";
         };
       }
