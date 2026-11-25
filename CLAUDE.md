@@ -105,11 +105,12 @@ program needs a flake input.
    An added, moved or re-pointed import: `nix develop -c just architecture`.
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
    `just tech shell`.
-5. A script or recipe: `nix develop -c just tech <name>` (`shell`, `python`).
-6. `just quick-check` before handing back mid-work: lint, architecture, format and every
+5. Any `.md` edit, or a moved or renamed file: `just links`.
+6. A script or recipe: `nix develop -c just tech <name>` (`shell`, `python`).
+7. `just quick-check` before handing back mid-work: lint, architecture, format and every
    `checks` derivation for this system. On Linux that evaluates each factory
    (`<factory>-activation`).
-7. `just check` once on the final state, run as the Checks rules in
+8. `just check` once on the final state, run as the Checks rules in
    `programs/agents/instructions/lead.md` say. Never after a docs-only edit or
    behind a chained build, lint or test.
 
