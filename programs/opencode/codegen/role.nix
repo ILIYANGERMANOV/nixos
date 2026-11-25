@@ -29,7 +29,7 @@ let
   # allowlist. So a role opens with a deny of everything, and its capabilities
   # lift it key by key; a dropped capability can only narrow the role. OpenCode
   # takes the last rule that matches, in the order written, and toJSON writes
-  # keys sorted, so `*` (and `*` within `skill`) comes first.
+  # keys sorted, so `*` (and `*` within `read` and `skill`) comes first.
   permission =
     capabilities:
     {
@@ -40,6 +40,16 @@ let
     )
     // {
       inherit (shared) external_directory;
+    }
+    # OpenCode's own default for read, which a bare "allow" would replace: a
+    # .env file still asks. Sorted, its keys stay in OpenCode's order.
+    // lib.optionalAttrs (lib.elem "read" capabilities) {
+      read = {
+        "*" = "allow";
+        "*.env" = "ask";
+        "*.env.*" = "ask";
+        "*.env.example" = "allow";
+      };
     }
     // lib.optionalAttrs (lib.elem "skill" capabilities) {
       skill = {

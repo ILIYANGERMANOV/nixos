@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart TD
-  lead["Lead agent: Claude Code today"]
+  lead["Lead agent: Claude Code or OpenCode"]
   state["state: the kernel"]
   log[("one append-only event log per run")]
   worker["Subagents: small, focused jobs"]

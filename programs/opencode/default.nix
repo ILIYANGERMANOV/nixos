@@ -26,8 +26,8 @@ let
     agents.profiles.local
   ];
 
-  # The lead and each role tier, as provider/model. A project's opencode.json
-  # or `--model` still wins over the lead's.
+  # The lead and each role tier, as provider/model. The lead's is in
+  # leadConfig, so a project's opencode.json or `--model` wins over it.
   models = {
     lead = "deepseek/deepseek-v4-pro";
     small = "deepseek/deepseek-flash";
@@ -89,12 +89,22 @@ let
   };
   roleSources = renderRoles agents.roles profile.instructions;
 
+  # The lead's model, as the OPENCODE_CONFIG file. OpenCode 1.19.5 merges that
+  # file before a project's opencode.json and .opencode/ dirs, and
+  # OPENCODE_CONFIG_DIR's opencode.json after them all, so only this one
+  # yields to the project.
+  leadConfig = pkgs.writeText "${name}-lead.json" (
+    builtins.toJSON {
+      "$schema" = "https://opencode.ai/config.json";
+      model = models.lead;
+    }
+  );
+
   # opencode.json without the lead's instructions, which live beside it: the
   # build below puts their store path first.
   config = pkgs.writeText "${name}-opencode.json" (
     builtins.toJSON {
       "$schema" = "https://opencode.ai/config.json";
-      model = models.lead;
       # The deepest chain the flows spawn: lead -> engineer -> review-lead ->
       # reviewer. OpenCode's default, 1, keeps a subagent from spawning.
       subagent_depth = 3;
@@ -155,6 +165,7 @@ rec {
     ];
     runtimeEnv = {
       OPENCODE_CONFIG_DIR = configDir;
+      OPENCODE_CONFIG = leadConfig;
       # Neither ~/.claude nor ~/.agents: the harness brings its own skills and
       # instructions, and a project's CLAUDE.md comes back through
       # opencode.json's `instructions`.

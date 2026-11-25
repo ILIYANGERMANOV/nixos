@@ -141,7 +141,8 @@ the sandbox.
 | Lead, large roles | `deepseek/deepseek-v4-pro` |
 | Small and medium roles | `deepseek/deepseek-flash` |
 
-`--model` or a project `opencode.json` wins over the lead's model.
+`--model`, a project `opencode.json` or `.opencode/opencode.json` wins over
+the lead's model. The roles keep theirs.
 
 ### Isolation
 

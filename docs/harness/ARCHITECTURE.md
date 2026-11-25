@@ -4,7 +4,7 @@
 |---|---|
 | [The logic ladder](#the-logic-ladder) | each rule lives on the most testable rung that can hold it |
 | [Kernel layers](#kernel-layers) | `state` in layers; only the shell does IO |
-| [The agent compiler](#the-agent-compiler) | one vendor-free config compiles to Claude Code's files |
+| [The agent compiler](#the-agent-compiler) | one vendor-free config compiles to Claude Code's and OpenCode's files |
 | [Roles derived from the step table](#roles-derived-from-the-step-table) | no role's tools are written by hand |
 | [The ADRs](#the-adrs) | the decisions behind it; this page does not repeat them |
 

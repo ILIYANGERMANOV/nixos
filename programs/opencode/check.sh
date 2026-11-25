@@ -3,7 +3,8 @@
 # and asserts on what OpenCode itself reports - `debug config`, `debug skill`,
 # `debug agent`, a tool run as one agent, and the commands `serve` lists:
 #
-# - every role ($tiers) is a subagent, on its tier's model or its spawner's;
+# - every role ($tiers) is a subagent, on its tier's model or its spawner's,
+#   and a project's opencode.json sets the lead's;
 # - every skill ($skills) is there and is a command, and none of the user's
 #   ~/.claude, ~/.agents or ~/.config/opencode is read;
 # - subagent_depth is set, and every instructions path in the store exists;
@@ -78,6 +79,14 @@ for role in $(jq -r 'keys[]' <<<"$tiers"); do
 done
 "$kategory" debug agent leak >/dev/null 2>&1 && fail "the agent from ~/.config/opencode loaded"
 [ "$(jq -r .model config.json)" = deepseek/deepseek-v4-pro ] || fail "the lead is not on deepseek-v4-pro"
+
+# A project's own opencode.json picks the lead's model over the harness's.
+own_model=$HOME/own-model
+mkdir -p "$own_model"
+echo '{"model": "deepseek/deepseek-flash"}' >"$own_model/opencode.json"
+(cd "$own_model" && "$kategory" debug config) >own-model.json
+[ "$(jq -r .model own-model.json)" = deepseek/deepseek-flash ] ||
+  fail "a project's opencode.json does not set the lead's model"
 
 # A tool run as an agent prints the result as JSON, or a line saying why not.
 run_tool() {

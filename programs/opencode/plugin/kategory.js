@@ -1,6 +1,9 @@
 // opencode-kategory's plugin: plain JavaScript with no imports, so OpenCode
 // loads it from the read-only config dir with nothing to install.
 //
+// The one plugin the harness ships: the hook adapter adds its tool and
+// session hooks here. For now it only implements shell.env.
+//
 // The wrapper (launch.sh) moved XDG_CONFIG_HOME, XDG_DATA_HOME and
 // XDG_CACHE_HOME away from the user's for OpenCode itself, and saved the
 // user's own as one JSON object in the variable below. Every shell OpenCode
