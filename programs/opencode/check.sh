@@ -11,6 +11,7 @@
 #   and a skill that bars the model from it runs only as its command;
 # - the plugin loads from the store: a shell gets the user's XDG dirs back,
 #   keeps the moved state dir, and finds state, ctx and qa-node.
+# - no config dir OpenCode scans is writable, so it npm-installs nowhere.
 set -euo pipefail
 
 export HOME=$PWD/home
@@ -31,13 +32,13 @@ done
 mkdir -p "$HOME/.config/opencode/agents"
 printf -- '---\ndescription: must not load\nmode: subagent\n---\n' >"$HOME/.config/opencode/agents/leak.md"
 
-# The read-only role in OpenCode's own config dir under the moved
-# XDG_CONFIG_HOME, which is then made read-only: OpenCode installs its plugin
-# SDK into a writable config dir, and offline that waits about a minute.
-own_config=$HOME/.opencode-kategory/config/opencode
-mkdir -p "$own_config/agents"
-cp "$read_only_role" "$own_config/agents/read-only.md"
-chmod -R a-w "$own_config"
+# The read-only role in the project's config dir, which is then made
+# read-only: OpenCode installs its plugin SDK into a writable config dir, and
+# offline that waits about a minute.
+project_config=$project/.opencode
+mkdir -p "$project_config/agents"
+cp "$read_only_role" "$project_config/agents/read-only.md"
+chmod -R a-w "$project_config"
 
 # One dir the user set and two left to their defaults.
 export XDG_CONFIG_HOME=$HOME/user-config
@@ -120,5 +121,10 @@ done
 curl -sf "$url/command" >commands.json
 missing=$(jq -c --argjson want "$skills" '$want - map(select(.source == "skill") | .name)' commands.json)
 [ "$missing" = "[]" ] || fail "skills with no command: $missing"
+
+# OpenCode writes a .gitignore into each config dir it can write, then runs
+# npm install there. So none in HOME means no launch above waited on npm.
+written=$(find "$HOME" -name .gitignore)
+[ -z "$written" ] || fail "OpenCode wrote a config dir, so it npm-installs there: $written"
 
 echo "opencode-check: all good"

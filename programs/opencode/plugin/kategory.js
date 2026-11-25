@@ -2,7 +2,7 @@
 // loads it from the read-only config dir with nothing to install.
 //
 // The wrapper (launch.sh) moved XDG_CONFIG_HOME, XDG_DATA_HOME and
-// XDG_CACHE_HOME under ~/.opencode-kategory for OpenCode itself, and saved the
+// XDG_CACHE_HOME away from the user's for OpenCode itself, and saved the
 // user's own as one JSON object in the variable below. Every shell OpenCode
 // runs gets them back, so gh and git read the user's config. XDG_STATE_HOME
 // stays moved: `state` keeps OpenCode's own run store.

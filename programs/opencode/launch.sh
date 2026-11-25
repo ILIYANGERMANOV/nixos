@@ -1,8 +1,9 @@
 # shellcheck shell=bash disable=SC2154 # set by default.nix: the assembled script is checked whole
-# opencode-kategory's effect: OpenCode gets its own XDG dirs under
-# ~/$kategory_dir, so it reads and writes nothing of the user's own
-# ~/.config/opencode. The user's dirs ride along in $user_xdg_var as one JSON
-# object, for plugin/kategory.js to hand back to every shell OpenCode runs.
+# opencode-kategory's effect: OpenCode gets its own XDG dirs, data, state and
+# cache under ~/$kategory_dir and config in the read-only $config_home, so it
+# reads and writes nothing of the user's own ~/.config/opencode. The user's
+# dirs ride along in $user_xdg_var as one JSON object, for plugin/kategory.js
+# to hand back to every shell OpenCode runs.
 #
 # Untouched: ~/$kategory_dir and the user's dirs. OpenCode and `state` create
 # what they need under the moved dirs; nothing here writes a file.
@@ -21,5 +22,6 @@ export "$user_xdg_var=$saved"
 for var in "${!moved_xdg[@]}"; do
   export "$var=$HOME/$kategory_dir/${moved_xdg[$var]}"
 done
+export XDG_CONFIG_HOME=$config_home
 
 exec opencode "$@"

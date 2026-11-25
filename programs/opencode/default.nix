@@ -1,6 +1,6 @@
 # OpenCode, as one flavor: opencode-kategory, the base and local profiles in
-# OpenCode's format, on DeepSeek, with OpenCode's own XDG dirs under
-# ~/.opencode-kategory.
+# OpenCode's format, on DeepSeek, with OpenCode's own data, state and cache
+# under ~/.opencode-kategory.
 #
 # codegen/ renders the profiles into one read-only config dir in the store,
 # which the wrapper hands OpenCode as OPENCODE_CONFIG_DIR. So there is no
@@ -37,7 +37,6 @@ let
 
   # The XDG base dirs OpenCode gets under ~/.opencode-kategory.
   movedXdg = {
-    XDG_CONFIG_HOME = "config";
     XDG_DATA_HOME = "data";
     XDG_STATE_HOME = "state";
     XDG_CACHE_HOME = "cache";
@@ -50,6 +49,18 @@ let
     XDG_DATA_HOME = ".local/share";
     XDG_CACHE_HOME = ".cache";
   };
+  # OpenCode's XDG_CONFIG_HOME: an empty, read-only opencode/ in the store.
+  # OpenCode runs `npm install @opencode-ai/plugin` in every config dir it can
+  # write, its global one too: a few seconds online, about 70 offline, on every
+  # first launch, which in a CI runner is every launch. It skips a read-only
+  # one. The harness config is the store dir OPENCODE_CONFIG_DIR names.
+  configHome = pkgs.runCommand "${name}-config-home" { } ''
+    mkdir -p "$out/opencode"
+    cp ${gitignore} "$out/opencode/.gitignore"
+  '';
+  # OpenCode writes a .gitignore into each config dir that lacks one. It skips
+  # only a denied write, so in a read-only store dir one ships instead.
+  gitignore = pkgs.writeText "${name}-gitignore" "*\n";
   # Where the wrapper saves them, as one JSON object.
   userXdgVar = "OPENCODE_KATEGORY_USER_XDG";
 
@@ -97,7 +108,7 @@ let
   );
 
   # The config dir's files, folded so one path with two sources is an eval
-  # error. The .gitignore spares OpenCode writing one into the store.
+  # error.
   links = pkgs.linkFarm "${name}-links" (
     agents.foldTargets (
       [
@@ -106,7 +117,7 @@ let
             agents.renderLead profile.instructions ++ [ (import ./codegen/glossary.nix { inherit pkgs lib; }) ]
           );
           "plugin/kategory.js" = pkgs.replaceVars ./plugin/kategory.js { inherit userXdgVar; };
-          ".gitignore" = pkgs.writeText "${name}-gitignore" "*\n";
+          ".gitignore" = gitignore;
         }
       ]
       ++ map (skill: { "skills/${skill}" = agents.skills.all.${skill}; }) profile.skills
@@ -155,6 +166,7 @@ rec {
     text = lib.concatLines [
       (lib.toShellVars {
         kategory_dir = ".${name}";
+        config_home = configHome;
         moved_xdg = movedXdg;
         user_xdg_defaults = userXdgDefaults;
         user_xdg_var = userXdgVar;
@@ -175,7 +187,7 @@ rec {
   check = import ./check.nix {
     inherit pkgs lib kategory;
     tiers = lib.mapAttrs (_: role: role.tier) agents.roles;
-    skills = profile.skills;
+    inherit (profile) skills;
     # A role that may only read, rendered as the real ones are: none of them
     # is that narrow, as every one may run a shell.
     readOnlyRole =

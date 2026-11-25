@@ -20,7 +20,8 @@ echo "user: $OPENCODE_KATEGORY_USER_XDG"'
 launch() {
   {
     echo 'kategory_dir=.opencode-kategory'
-    echo 'declare -A moved_xdg=([XDG_CACHE_HOME]=cache [XDG_CONFIG_HOME]=config [XDG_DATA_HOME]=data [XDG_STATE_HOME]=state)'
+    echo 'config_home=/nix/store/config-home'
+    echo 'declare -A moved_xdg=([XDG_CACHE_HOME]=cache [XDG_DATA_HOME]=data [XDG_STATE_HOME]=state)'
     echo 'declare -A user_xdg_defaults=([XDG_CACHE_HOME]=.cache [XDG_CONFIG_HOME]=.config [XDG_DATA_HOME]=.local/share)'
     echo 'user_xdg_var=OPENCODE_KATEGORY_USER_XDG'
     echo "source '$BATS_TEST_DIRNAME/launch.sh'"
@@ -33,13 +34,13 @@ saved() {
   sed -n 's/^user: //p' <<<"$1" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | sort
 }
 
-@test "OpenCode gets all four dirs under its own dir, whatever the user set" {
+@test "OpenCode gets its own data, state and cache dirs and the store's config dir, whatever the user set" {
   export XDG_CONFIG_HOME="$WORK/mine" XDG_STATE_HOME="$WORK/my-state"
 
   run launch
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"XDG_CONFIG_HOME=$HOME/.opencode-kategory/config"* ]]
+  [[ "$output" == *"XDG_CONFIG_HOME=/nix/store/config-home"* ]]
   [[ "$output" == *"XDG_DATA_HOME=$HOME/.opencode-kategory/data"* ]]
   [[ "$output" == *"XDG_STATE_HOME=$HOME/.opencode-kategory/state"* ]]
   [[ "$output" == *"XDG_CACHE_HOME=$HOME/.opencode-kategory/cache"* ]]

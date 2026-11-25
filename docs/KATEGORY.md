@@ -145,9 +145,10 @@ the sandbox.
 
 ### Isolation
 
-- OpenCode's own config, data, state and cache live in `~/.opencode-kategory`.
+- OpenCode's own data, state and cache live in `~/.opencode-kategory`.
 - It never reads `~/.claude`, `~/.agents` or `~/.config/opencode`.
-- The harness config is one read-only dir in the Nix store.
+- Its config is read-only dirs in the Nix store: the harness config and an
+  empty global config dir. So OpenCode installs no npm package on launch.
 - Your project's `CLAUDE.md` still loads. It stacks with an `AGENTS.md`.
 - Shells it runs get your own config, data and cache dirs back. So `gh` and
   `git` use your login and config.
@@ -173,8 +174,11 @@ review pipeline must treat it as code under review. OpenCode can skip it with
 - **No hooks yet.** The kernel's gate, the guards and hand-back recording do
   not run. They come in the next step.
 - **`~/.opencode` is always read.** OpenCode has no switch to turn it off.
-- **First offline launch is slow.** It waits about 70 seconds on an npm
-  install that cannot reach the network.
+- **A writable `.opencode/` costs an npm install.** OpenCode runs
+  `npm install @opencode-ai/plugin` in every config dir it can write: a
+  project's `.opencode/` or `~/.opencode`, where one exists. Online that takes seconds. Offline
+  it waits about 70 seconds. In GitHub Actions, cache that dir's
+  `node_modules` or make the dir read-only.
 - **Missing tools.** No agent can stop another. No push notifications or
   PR-activity wake-ups: those steps are skipped.
 - **macOS.** Shells get `XDG_CONFIG_HOME` set. A tool that reads `~/Library`
