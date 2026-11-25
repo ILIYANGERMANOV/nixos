@@ -1,8 +1,9 @@
 # No user is present
 
 This run is headless, such as a CI job. Nobody reads your questions and
-nobody replies. These rules win over the Asking rules above and over any
-skill step that waits for the user.
+nobody replies. These rules win over any rule or skill step above that
+ends the turn to wait: for the user, a worker, a child or CI (`AWAIT`
+included). Wait in the foreground instead.
 
 ## Answer every question yourself
 
@@ -21,7 +22,8 @@ skill step that waits for the user.
 Ending your turn ends the run. So never end it while work remains.
 
 - Wait for workers and children in the foreground, not by ending the turn.
-- Wait on CI with `gh pr checks <n> --watch` in the foreground.
+- Wait on CI with `gh pr checks <n> --watch` in the foreground. The wait
+  guard lets the lead do this, but denies a loop around `sleep`.
 - A step you cannot finish: record why with `state`, then go on.
 
 ## Final text
