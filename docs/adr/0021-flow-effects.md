@@ -44,6 +44,10 @@ effects of the term. Design: #461 (slice S2); implementation: PR #470.
 - **`Effects` is a flag set.** `EffectSet s :: Effs`, with
   `type data Effs = Flags Bool Bool Bool Bool`, one flag per `Eff`; a union is
   four `||`s, and `Effects s = ToList (EffectSet s)` reads the list off.
+- **Flows are graded by their effects.** `Id` raises none, `:>` takes the
+  union, and `Handle` removes the effect it handles: a grading by the
+  monoid (effect sets, union, empty). This describes the types; it is not
+  a tested law.
 
 ## S3: Ask bubbles up
 
@@ -61,8 +65,9 @@ flow's, as an unhandled operation goes to the enclosing handler:
   answers; `AskHandler` means the run's `Principal`, which
   `Ask.deliver` already reads: the user for a run of their own, the parent
   run for a linked child.
-- **A parent link is a sum.** `Parent {run, link}`, `data Link = AtFan
-  TaskId | Direct`: a fan-out's child takes one of its tasks; a direct
+- **A parent link is a sum.** `Parent {run, link}`, `data Link = InFan
+  ChildTask | Direct` (`State/Run/Ask.hs`): a fan-out's child takes one of
+  its tasks, or the request the chief handed on whole; a direct
   child (`state init --parent <run>`, no `--task`) is linked to a parent at
   no fan-out, the chief delegating one engineer. Its question reaches the
   parent's log as `Asked (ChildRun child)`; the parent rules or forwards
@@ -158,3 +163,10 @@ read outside the flow algebra. A step's needs now live in its type alone:
   `State.Category.Flow`, which reads `Raises`, so that place cannot import
   them back. It stays an associated family, as `Sig` is: one equation per
   layer instance, which a layer cannot leave out.
+
+## History
+
+- #459, #461, #468, #470, #474: effects in a flow's type; Ask bubbles up;
+  the Focus handler.
+- #478: inline handlers.
+- #541: operations replace `Special`; the Await handler.

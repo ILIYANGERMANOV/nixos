@@ -50,6 +50,12 @@ paths:
   `flows/steps.nix`, its `steps` and `offFlow` work; `engineer` and `review-lead` preload only the prose
   every step needs. Its check holds the laws `derived_role_holds_every_step_need`,
   `derived_role_holds_nothing_else` and `derived_equals_recorded_golden`.
+- `merge.nix` - keyed sets as a union where one key holds one value: two
+  values a predicate calls unequal throw, naming each conflict.
+- `targets.nix` - what a setup places under `$HOME`, target path to store
+  path. Backends combine parts with its `fold` only; one target claimed by
+  two sources throws.
+- `throws.nix` - for a check: whether forcing a value all the way throws.
 - `mcp.nix` - MCP without a wire format: `mkLocal`, `mkRemote`, `selectServers`
   (an unknown name throws), `availableServers` (a server whose secret the host
   lacks is dropped silently) and `provided` (the same for secret files).

@@ -20,12 +20,12 @@ programs/<vendor>  default.nix: flavors (profile list + vendor settings)
 ## Decisions
 
 - **A profile is one setup's vendor-free part**: `skills`, `instructions`,
-  `mcp`, `runtime`, `secretFiles`. One folder each,
-  `profiles/<name>/profile.nix`, found by `readDir`: `base`, `web-ui`, `pm`,
-  `factory`. There is no `ts` profile: `claude-ts` is `base` plus a Claude
+  `mcp`, `runtime`, `secretFiles`, `hooks`. One folder each,
+  `profiles/<name>/profile.nix`, found by `readDir`: `base`, `local`,
+  `web-ui`, `pm`, `factory`. There is no `ts` profile: `claude-ts` is `base` plus a Claude
   plugin, which is a vendor setting.
 - **A flavor lists profiles and folds them with `append`**
-  (`claude-all = [ base web-ui pm ]`). Profiles are deltas and never import each
+  (`claude-all = [ base web-ui pm local ]`). Profiles are deltas and never import each
   other, so what a flavor gets is read off one list, not an import chain.
 - **Conflicts throw.** One key with two different values is an eval error, never
   last-writer-wins; the same value twice is fine. Silent precedence would make
@@ -79,3 +79,8 @@ Follow-ups, not done:
   `claude remote-control` honours them.
 - **OpenCode and Codex backends** do not exist yet; their paths are already in
   the backend rule's scope.
+
+## History
+
+- #300: the agent compiler.
+- #345: the `claude-all` flavor.

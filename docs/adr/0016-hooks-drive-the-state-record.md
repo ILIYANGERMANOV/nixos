@@ -1,135 +1,147 @@
-# Hooks drive the `state` record
+# Hooks drive the `state` record; PR state comes from GitHub
 
-ADR 0015 made `state` the engineer flow's record, written by the lead as each
-step happens, and left hooks out "for now": the enforcing ones measured 0
-violations. This ADR amends that. Advisory hooks now write every event a
-program can derive, and inject `state` and `ctx` context where it is used. The
-lead records only what it decides. Design and implementation: #335, PR #339.
-ADR 0017 amends it: PR state is read from GitHub, not from shell commands,
-and the `pr` hook is gone. ADR 0018 amends it: the Haskell `state-hook`
-replaces the Python hooks, and keys each event on a content hash, so a hook
-that fires twice appends once. #402 and #403 amend it: hooks bind every agent
-to its run, so they reach subagents at any depth; the first deny, a `state`
-call aimed at another run; and context as work begins. #378 amends it: a
-guard denies a lead's writes until its `state init`.
+A run's record must not depend on the model remembering to write it. Hooks
+write every event a program can derive from a tool call, and inject `state`
+and `ctx` context where it is used. The lead records only what it decides.
+What GitHub shows about the run's PR is read from GitHub, not from the
+lead's shell commands.
+
+```mermaid
+flowchart LR
+  A[agent tool call] --> H[hook event]
+  H --> D[agent_hook dispatcher]
+  D --> S[state-hook]
+  S --> K[(kernel.db)]
+  S --> C[context or deny]
+  C --> A
+```
 
 ## Evidence
 
-ADR 0013 asks for the measured cost a hook removes. Run 33c5fcbd (#333), an
-`/engineer` run under `state`:
+Run 33c5fcbd (#333), an `/engineer` run with `state` and no hooks:
 
 - No `state` call for the first 61 minutes, then back-filled.
 - 37 calls, all from the lead: 4 overrides and 4 failures.
-- 5 hand-backs retyped into `state handback`, one of them failing to parse.
-- Steps 9 and 10 ran with no `state` call at all.
+- 5 hand-backs retyped into `state handback`, one failing to parse.
+- The last two steps ran with no `state` call at all.
 
-So the record drifts the way ADR 0015's progress file did: the model forgets
-to write it. What it forgets is mechanical: a hand-back's status and head, a
-`gh pr create` URL, a question asked. A hook derives each from the tool call.
+The model forgets the record, and what it forgets is mechanical: a
+hand-back's status and head, a spawn, a PR. A hook derives each from the
+tool call.
 
 ## Decisions
 
-- **Advisory, fail open and tell.** One hook denies (below): `route`, a
-  `state` call aimed at another run than the agent's, and an unbound lead's
-  writes. A hook that fails, or a `state` refusal, lets the call go on and
-  adds `state hook <name>: <error>` and the refusal's `fix:` line to the
-  agent's context.
-- **The hooks** (`programs/agents/kernel/hooks.nix`, `state-hook <name>`). Each
-  does nothing in a worktree with no run, or with a run at `Done`.
+- **Best effort, fail open and tell.** A hook that fails, or a `state`
+  refusal, lets the call go on and adds `state hook <name>: <error>` and the
+  refusal's `fix:` line to the agent's context. No skill assumes a hook
+  fired: prose names the fallback (`state record <step>.spawned`,
+  `state handback <role>`).
+- **The state hooks** (`programs/agents/kernel/hooks.nix`, each runs
+  `state-hook <name>`; `State.Protocol.Hook`). Each does nothing for an
+  agent bound to no run, or for a run that is over.
 
   | Hook | When | Does |
   |---|---|---|
-  | resume | session start, resume, compact | adds `state show` and `state next` |
-  | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; never rewrites the prompt: auto mode refuses a rewritten spawn once, so `state brief` gives a refactorer, review-lead or fixer a `Diff:` line to run `ctx diff` itself |
-  | handback | before a worker hands back | records it, and adds what it recorded, or the refusal and `fix:`, as context: auto mode refuses a rewritten report. A child run's own `state` records its hand-back in the parent's run |
-  | pr | after `gh pr create`, `gh pr ready` run as a command | records `drafted`, `ready`; removed by ADR 0017 |
-  | asked | after the lead asks, in Ctx | records `asked`; removed (#502): questions are plain text, which no hook sees |
-  | bind | after a shell call ran `state init`; after a spawn of a flow role | binds the agent to the run init printed; binds the worker to its spawner's run |
-  | route | before a shell call, an edit, a write or a spawn | denies a `state` call aimed at another run than the agent is bound to, `fix: cd <its worktree> && state ...`; denies an unbound lead's writes, `fix:` its `state init` |
-  | begin | a subagent starts; a typed `/engineer` or `/10x-engineer`, or a Skill call of one | marks a lead that typed or called a lead skill; tells a spawned lead its run starts at its prompt's `state init` line, a worker its `state brief`, a lead skill to begin with `state` |
+  | resume | session start | prints `state show` and `state next`; records `Restarted` when a fresh session lost the agents a run had at work |
+  | spawn | before a delegate | at a choice, records the spawn (a researcher's `spawned`); adds `state next` and a warning when a role off the advice is spawned; never rewrites the prompt |
+  | handback | before a hand-back | records it and adds what it recorded, or the refusal and `fix:` |
+  | bind | after a shell that ran `state init`; after a spawn | binds the agent to the run init printed; binds a worker to its spawner's run |
+  | route | before a shell, an edit, a write or a delegate | the one denying hook (below) |
+  | begin | a subagent starts; a typed lead skill; a Skill call of one | tells a spawned lead its run starts at its prompt's `state init` line, a worker its `state brief`, a lead skill (`engineer`, `10x-engineer`, `architect`, `chief`) to begin with `state`, and marks it a lead |
+  | stop | an agent stops; after a stop call | records that a child run's agent ended with no hand-back |
 
-- **What stays manual** is what only the model decides: Size, Quality,
-  `planned`, `proposed`, `confirmed`, `adjusted`, a review's `picked` rows and
-  verdicts, a question's `blocked <kind>` triage, `resolved`, `ci`. A
-  hand-back question stays untriaged until the lead records its kind, and
-  `state next` advises it. `handback --head`, `--row`, `--verdict` and
-  `--touches` are gone: the head is the worktree's, a review-lead's report
-  carries `Reviewed head:`, a fixer's a `Touches:` line.
-- **A vendor-free hook abstraction.** `programs/agents/hooks/` declares hooks
-  with the Nix module system: `hooks.<name> = { on; tools; command; order; }`,
-  events and tools from `vocabulary.json`, every option `uniq`, so a duplicate
-  name, an unknown event, tool or field is an eval error. A profile lists hook
-  module files in its `hooks` field.
-- **A neutral contract.** A hook is a program reading one event as JSON
-  (`event, tool, input, output, cwd, session, agent, source, skill, running`)
-  and printing one result or nothing (`agent_hook.py`). Each event has its own
-  result type: a beforeTool hook prints a verdict (`decision, reason, context,
-  updatedInput`); a sessionStart, afterTool, agentStart or promptExpansion
-  hook only a note (`context`), since nothing is left to deny or rewrite. An
-  agentStop hook's output is dropped: the agent has stopped.
-- **One dispatcher per event, in the frontend.** A backend registers one entry
-  per event; its adapter hands the event to `agent_hook.dispatch_verdict` or
-  `agent_hook.dispatch_note`, which run the matching hooks in `order` and fold
-  their results as a monoid: deny wins, contexts join, a rewritten input
-  reaches the next hook. Claude runs its
-  own hooks in parallel with no defined winner for a rewrite; OpenCode runs
-  them in order. The dispatcher makes both the same.
-- **Claude Code is the first backend.** `codegen/hooks.nix` maps the events to
-  `SessionStart`, `PreToolUse`, `PostToolUse`, `SubagentStart`,
+- **`route` is the one hook that denies.** Each deny prevents a wrong or
+  missing record, and its fix is one command:
+  - a `state` call aimed at another run than the agent's, `fix: cd
+    <its worktree> && state ...`; a child's run is read by that child;
+  - a subagent's `state init` with no parent run;
+  - a lead's write before its `state init`: an edit, a write, a spawn,
+    `git commit`, `git push`, `gh pr create` and `gh pr merge` (#378);
+  - a code write, commit, push or PR in a read-only flow (the architect,
+    or the chief in its discussion), outside the notes directory.
+
+  Reads, research and `state` pass. A shell command the simple reader
+  cannot follow passes: the guard is a nudge, not a sandbox.
+- **What stays manual** is what only the model decides: the Fuel, a step's
+  outcome that is a choice (confirm or adjust, which review rows, CI green
+  or red), a question's kind and ruling. `state next` advises each.
+- **Read GitHub, record into the log.** `state next`, `state show` and
+  every state hook read `gh pr view` for the run's PR, then append only the
+  event the run waits for: the draft PR at the draft step, the ready PR at
+  the ready step (`due`, `State.Protocol.Advice`). Anything else appends
+  nothing, so a sync twice is a sync once. The log stays the one replayable
+  record (ADR 0014): a derive from GitHub would replay differently once the
+  PR changes.
+- **Which PR.** A run's own PR is its branch's. A round on an existing PR
+  (`state init --pr <url>`) reads that PR by URL.
+- **Offline is not a failure.** No `gh`, a 10 second timeout or an error:
+  the log is used as it is, and the output says `PR sync skipped - <why>`.
+- **A run is bound to its branch.** The hooks go silent, cheapest check
+  first, when the run is over, HEAD is on another branch than its draft
+  PR's, or the PR is merged or closed.
+- **Hooks bind agents to runs.** A subagent's hook `cwd` is its spawner's
+  folder, and no payload field names a subagent's spawner. So the hooks
+  find a run through a binding, not the cwd:
+  `$XDG_STATE_HOME/state/bindings/<session>/<agent id or main>` holds the
+  line `state init` prints. An agent binds itself by its own `state init`;
+  a worker, which never inits, is bound by its spawner's after-spawn hook.
+  A hand-back seen before that binding is stashed and recorded once it
+  exists. Only the main session falls back to its cwd. Every reply names
+  its run: `run <id>: ...`.
+- **Idempotent records.** A hook record is keyed on a content hash of the
+  run, agent and message, so a hook that fires twice appends once
+  (ADR 0014).
+- **A vendor-free hook abstraction.** `programs/agents/hooks/` declares
+  hooks with the Nix module system: `hooks.<name> = { on; tools; command;
+  order; }`, events and tools from `vocabulary.json`, every option `uniq`,
+  so a duplicate name, an unknown event, tool or field is an eval error. A
+  profile lists hook module files in its `hooks` field.
+- **A neutral contract.** A hook is a program reading one event as JSON and
+  printing one result or nothing (`agent_hook.py`). A beforeTool hook
+  prints a verdict (`decision, reason, context, updatedInput`); a
+  sessionStart, afterTool, agentStart or promptExpansion hook only a note
+  (`context`). An agentStop hook's output is dropped: the agent has stopped.
+- **One dispatcher per event, in the frontend.** A backend registers one
+  entry per event; its adapter hands the event to the dispatcher, which
+  runs the matching hooks in `order` and folds their results as a monoid:
+  deny wins, contexts join, a rewritten input reaches the next hook. Claude
+  runs its own hooks in parallel with no defined winner for a rewrite;
+  OpenCode runs them in order. The dispatcher makes both the same.
+- **Claude Code is the first backend.** `codegen/hooks.nix` maps the events
+  to `SessionStart`, `PreToolUse`, `PostToolUse`, `SubagentStart`,
   `UserPromptExpansion`, and `agentStop` to both `SubagentStop` and `Stop`,
-  and the tools to a matcher
-  through `codegen/tools.nix`, the one tool table roles use too; a tool with no
-  Claude name throws. `hooks/adapter` (`agent-hook-claude`) translates Claude's
-  JSON to the contract and back. Claude honours `updatedInput` on
-  `SubagentHandback` and on `Agent`'s prompt (probed with 2.1.314).
-
-## Scope
-
-A subagent's hook `cwd` is the folder its spawner was in at the spawn, and its
-own `cd` resets after each call (probed with 2.1.314). No payload field names
-a subagent's spawner. So the hooks find a run through a binding, not the cwd:
-`$XDG_STATE_HOME/state/bindings/<session>/<agent id or main>` holds the
-`run <id> <notes> <toplevel>` line `state init` prints. An agent binds itself
-by its own `state init`; a worker, which never inits, is bound by its
-spawner's `PostToolUse` on `Agent`, whose `tool_response.agentId` names it. A
-worker's hand-back seen before that binding is stashed and recorded once it
-exists, so neither order of the two hooks is needed. Only the main session
-falls back to its cwd; an unbound subagent's hooks stay quiet. Every reply
-names its run: `run <id>: ...`. Considered and out of scope: delegated
-engineers as top-level sessions, and Claude's internal `subagents/*.meta.json`
-link.
+  and the tools to a matcher through `codegen/tools.nix`; a tool with no
+  Claude name throws. `hooks/adapter` (`agent-hook-claude`) translates
+  Claude's JSON to the contract and back.
 
 ## Considered options
 
 - **Keep prose only.** Rejected: run #333 above.
-- **One settings entry per hook, no dispatcher.** Simplest codegen, but order
-  and input rewrites would differ per vendor.
+- **Read PR state from the lead's shell commands** (a `pr` hook lexing
+  `gh pr create`). Rejected: it missed a PR made any other way and took a
+  PR body that mentions `gh pr ready` for the command.
+- **One settings entry per hook, no dispatcher.** Simplest codegen, but
+  order and input rewrites would differ per vendor.
 - **Claude-native hook commands.** Less code now, but an OpenCode backend
   would rewrite every hook.
-- **Hooks that deny** (a spawn out of order, a Stop hook refusing "done").
-  Still out: ADR 0015's reason holds, and a refusal that blocks work costs
-  more than one that tells. Two denies pass that bar: each prevents a wrong
-  or missing record, not a slower step, and its fix is one command. The
-  first is a `state` call aimed at another run, fixed by a `cd`. Every
-  run-reading command counts, `show`, `pending` and `brief` too: a child's
-  run is read by that child, in its own worktree. The second, the guard
-  (#378), is a lead's write before its run exists: an agent bound to no run
-  that began `/engineer` or `/10x-engineer`, or a spawned role that leads a
-  flow, is denied an edit, a write, a spawn, `git commit`, `git push`,
-  `gh pr create` and `gh pr merge`, fixed by its `state init`. Reads,
-  research and `state` pass, and every other agent is never guarded. A shell
-  command the simple reader cannot follow passes: the guard is a nudge, not
-  a sandbox. NotebookEdit is not guarded: naming it for the hook would grant
-  it to every editing role (`codegen/tools.nix`).
+- **More denying hooks** (a spawn out of order, a Stop hook refusing
+  "done"). Out for now: a refusal that blocks work costs more than one that
+  tells. The kernel refuses an event off its flow instead (ADR 0014).
 
 ## Consequences
 
-- The engineer skill teaches what each hook adds and how to act on it, and
-  keeps only the records the lead decides. `state help`, `show` and `next`
-  still work by hand.
-- A diff-reading worker runs the `ctx diff origin/<base>` its brief's `Diff:`
-  line names, then reads its `index` first and the diff ranges.
-- The 4 Claude-native guards stay as they are; porting them to the contract
-  is #338. An OpenCode backend reuses every hook through a generated plugin.
-- Logs written before `picked` existed, whose `reviewed` event held rows and
-  verdicts, no longer parse. They live in `/tmp` and are not migrated.
+- The skills teach what each hook adds and keep only the records the lead
+  decides. `state help`, `show` and `next` still work by hand.
+- The guards (`hooks/guards/`: secret, read, wait and context) run on the
+  same contract, so every flavor gets them.
+- An OpenCode backend reuses every hook through a generated plugin.
+
+## History
+
+- #335, #339: hooks drive the record.
+- #341, #343: PR state from GitHub; runs bound to a branch.
+- #350: the guards move onto the neutral contract.
+- #376: the Haskell `state-hook` replaces the Python hooks.
+- #378: the guard on a lead's writes before `state init`.
+- #402, #403, #411: bindings reach subagents at any depth.
+- #489, #502, #525: the asked hook goes; questions are plain text.

@@ -1,11 +1,9 @@
 # Flows
 
-| Flow | From | To | Diagram |
-|---|---|---|---|
-| **engineer** | a task | a ready pull request | [Engineer](#engineer) |
-| **10x** | a plan | many engineers in parallel, their PRs merged | [10x](#10x) |
-| **architect** | an idea | a design, no code changed | [Architect](#architect) |
-| **chief** | a stream of requests | each request routed once | [The chief routes requests](#the-chief-routes-requests), [Chief](#chief) |
+Which skill to run: [README, Where to start](README.md#where-to-start).
+This page draws each flow: [Engineer](#engineer), [10x](#10x),
+[Architect](#architect), [The chief routes requests](#the-chief-routes-requests)
+and [Chief](#chief).
 
 A flow is the path one run walks: a state machine. Its states are steps
 (plan, implement, review, ...); its arrows are the outcomes a step can end
@@ -15,84 +13,21 @@ The diagrams are not drawn by hand. Each is the output of
 `state render mermaid --flow <flow>`, and a Nix check fails when the page and
 the kernel disagree ([Keeping this page true](#keeping-this-page-true)).
 
-## The chief routes requests
-
-```mermaid
-flowchart TD
-  start(["request"]) --> fuel["fuel"]
-  fuel --> route{"route"}
-  route -->|"engineer"| engineer["engineer flow"]
-  route -->|"10x"| tenx["10x flow"]
-  route -->|"architect"| architect["architect flow"]
-  route -->|"blocks"| block["one block"]
-  route -->|"discussion"| discussion["discussion"]
-  route -->|"other"| direct["direct"]
-  route -->|"delegate"| child["engineer child run"]
-  engineer --> next{"next"}
-  tenx --> next
-  architect --> next
-  block --> next
-  discussion --> next
-  direct --> next
-  child --> next
-  next -->|"request"| fuel
-  next -->|"done"| delegates["await delegates"]
-  delegates --> done(["end"])
-```
-
-Most sessions start in the chief. It takes requests one at a time, sets each
-one's Fuel, and routes it once. The sketch above is drawn by hand; the full
-render is [at the end](#chief).
-
-| Route | What runs | Where |
-|---|---|---|
-| `engineer`, `10x`, `architect` | the whole flow, inline in the chief's run | below |
-| `blocks` | one part of the engineer flow, alone | [Blocks](#blocks) |
-| `discussion` | a read-only talk with researchers, no code | the architect's loop, without the ticket |
-| `other` | a request no flow fits (`direct`) | - |
-| `delegate` | an engineer as a child run beside the chief | the chief waits for it at the end |
-
-A request's states sit under its route's name (`engineer/plan`,
-`10x/merge`), so two requests never share a state. The chief can park the
-request in focus and turn to another (`state focus`). The routes are in
-[`Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L72).
-
-## Who runs each state
-
-| Runner | States | What it does |
-|---|---|---|
-| lead (`you` in `state render states`) | `fuel`, `gather`, `interview`, `plan`, `present`, `confirm`, `draft`, `pick`, `await_ci`, `ready`, `breakdown`, `merge`, `route`, `next`, ... | decides, asks the user, records outcomes |
-| `researcher` | `research`, `simplify_plan`, `standards_plan` | finds facts; reports where a plan could be simpler or follow a standard |
-| `reviewer` | `align_plan` | reports where a plan breaks the engineering instructions |
-| `implementer` | `implement` | builds one slice of the plan |
-| `refactorer` | `refactor` | one refactor pass |
-| `review-lead` | `review`, `re_review` | one review pass (a re-review reads only the fix) |
-| `fixer` | `fix`, `describe`, `visual`, `simplify_pr`, `fix_pr` | fixes rows, writes the PR text and its visuals, fixes red CI |
-| await | `*/researchers`, `engineers`, `delegates` | waits for every worker or child to hand back |
-| fan-out | `spawn_engineers`, `spawn_delegates` | starts one child run per task |
-
-The lead is the agent that ran the flow's skill (`/engineer`,
-`/10x-engineer`, `/architect`, `/chief`); every other runner is a subagent
-with a narrow role. Each step's runner is one row of
-[`flows/steps.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/flows/steps.nix#L1),
-and each role's tools are derived from the rows it runs
-([`lib/derive.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/lib/derive.nix#L1);
-see [ARCHITECTURE](ARCHITECTURE.md)).
-
 ## Engineer
 
-From a task to a ready pull request:
+The recommended flow for one task. From a task to a ready pull request:
 
 1. Set the Fuel.
 2. **Agree** on a plan: gather facts, interview the user, plan, refine,
    present, confirm.
 3. **Build**: draft PR, implement, refactor.
-4. **Review**: pick, fix, re-review, in a loop.
-5. **Describe** the PR.
+4. **Review**: one review. If it finds rows: pick, fix, re-review, in a
+   loop.
+5. **Describe** the PR: describe, add visuals, simplify the text.
 6. **Ship**: wait for CI, fix it, mark the PR ready.
 
-Source: [`Engineer.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Engineer.hs#L21),
-built from the blocks in [`Block.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L64).
+Source: [`Engineer.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Role/Engineer.hs#L21),
+built from the blocks in [`Block.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Block.hs#L64).
 
 ```mermaid
 
@@ -156,7 +91,7 @@ Many engineers in parallel:
 3. Wait for all of them; merge their PRs.
 4. `merge.next_round` loops back to plan the next round in the same run.
 
-Source: [`TenX.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/TenX.hs#L29).
+Source: [`TenX.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Role/TenX.hs#L29).
 
 ```mermaid
 
@@ -206,7 +141,7 @@ From an idea to a design, changing no code. Each round the agent picks one:
 - write or edit the ticket.
 
 `enough` waits for every researcher, merges their notes and ends the run.
-Source: [`Architect.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Architect.hs#L17).
+Source: [`Architect.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Role/Architect.hs#L17).
 
 ```mermaid
 
@@ -230,6 +165,58 @@ stateDiagram-v2
 
 ```
 
+## The chief routes requests
+
+```mermaid
+flowchart TD
+  start(["request"]) --> fuel["fuel"]
+  fuel --> route{"route"}
+  route -->|"engineer"| engineer["engineer flow"]
+  route -->|"10x"| tenx["10x flow"]
+  route -->|"architect"| architect["architect flow"]
+  route -->|"blocks"| block["one block"]
+  route -->|"discussion"| discussion["discussion"]
+  route -->|"other"| direct["direct"]
+  route -->|"delegate"| child["engineer or 10x child run, in the background"]
+  engineer --> next{"next"}
+  tenx --> next
+  architect --> next
+  block --> next
+  discussion --> next
+  direct --> next
+  child --> next
+  next -->|"request"| fuel
+  next -->|"done"| delegates["await delegates"]
+  delegates --> done(["end"])
+```
+
+The chief is a router. It takes requests one at a time in one session,
+sets each one's Fuel, and routes it once. The sketch above is drawn by
+hand; the full render is [at the end](#chief).
+
+| Route | What runs | Where |
+|---|---|---|
+| `engineer`, `10x`, `architect` | the whole flow, inline in the chief's run | above |
+| `blocks` | one part of the engineer flow, alone | [Blocks](#blocks) |
+| `discussion` | a read-only talk with researchers, no code | the architect's loop, without the ticket |
+| `other` | a request no flow fits: the chief does it itself (`direct`) | - |
+| `delegate` | an engineer or a 10x as a background child run | the chief takes the next request at once and waits for it at the end |
+
+What only the chief does:
+
+- **A loop of requests.** Up to 50, 100 or 200 by Fuel; then it asks
+  whether to go on ([GUARDRAILS](GUARDRAILS.md#fuel-and-caps)).
+- **Focus.** One request is in focus. `state focus --summary <where it
+  stands>` parks it at any state and opens a new one; `state focus rK`
+  turns back to parked request `rK`.
+- **Resume.** `/chief resume` picks the newest chief run back up in a
+  fresh session. The context guard asks the user to run it when a
+  top-level lead runs out of context.
+
+A request's states sit under its route's name (`engineer/plan`,
+`10x/merge`), so two requests never share a state. The routes are in
+[`Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L72).
+
 ## Blocks
 
 | Block | Runs | Starts from |
@@ -240,14 +227,36 @@ stateDiagram-v2
 | `proposing` | plan, refine, present, confirm | context |
 | `building` | draft, implement, refactor | a plan (`open_plan`) |
 | `reviewing` | review, pick, fix, re-review | a branch (`open_branch`) |
-| `describing` | describe, simplify the PR | a branch (`open_branch`) |
+| `describing` | describe, visual, simplify the PR | a branch (`open_branch`) |
 | `shipping` | await CI, fix CI, ready | a PR (`open_pr`) |
 
 A block is one part of the engineer flow that the chief runs alone, when a
 request needs only that part. A block that starts past the task's context
 first opens its input from the issue, branch or PR the request names.
 
-Source: [`blocks` in `Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L136).
+Source: [`blocks` in `Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L136).
+
+## Who runs each state
+
+| Runner | States | What it does |
+|---|---|---|
+| lead (`you` in `state render states`) | `fuel`, `gather`, `interview`, `plan`, `present`, `confirm`, `draft`, `pick`, `await_ci`, `ready`, `breakdown`, `merge`, `route`, `next`, ... | decides, asks the user, records outcomes |
+| `researcher` | `research`, `simplify_plan`, `standards_plan` | finds facts; reports where a plan could be simpler or follow a standard |
+| `reviewer` | `align_plan` | reports where a plan breaks the engineering instructions |
+| `implementer` | `implement` | builds one slice of the plan |
+| `refactorer` | `refactor` | one refactor pass |
+| `review-lead` | `review`, `re_review` | one review pass (a re-review reads only the fix) |
+| `fixer` | `fix`, `describe`, `visual`, `simplify_pr`, `fix_pr` | fixes rows, writes the PR text and its visuals, fixes red CI |
+| await | `*/researchers`, `engineers`, `delegates` | waits for every worker or child to hand back |
+| fan-out | `spawn_engineers`, `spawn_delegates` | starts one child run per task |
+
+The lead is the agent that ran the flow's skill (`/engineer`,
+`/10x-engineer`, `/architect`, `/chief`); every other runner is a subagent
+with a narrow role. Each step's runner is one row of
+[`flows/steps.nix`](../../programs/agents/flows/steps.nix),
+and each role's tools are derived from the rows it runs
+([`lib/derive.nix`](../../programs/agents/lib/derive.nix);
+see [ARCHITECTURE](ARCHITECTURE.md)).
 
 ## Where Fuel skips a step
 
@@ -258,38 +267,24 @@ Source: [`blocks` in `Chief.hs`](https://github.com/ILIYANGERMANOV/nixos/blob/a4
 | `describe`, `visual`, `simplify_pr`, `ready` | never skipped | never skipped | never skipped | - |
 
 Fuel, the run's effort level ([GUARDRAILS](GUARDRAILS.md#fuel-and-caps)),
-sizes every cap (next section) and decides two skips. At a `skip_*` state
+sizes every cap ([The caps](#the-caps)) and decides two skips. At a `skip_*` state
 the kernel records `run` or `skip` itself when the Fuel or the facts decide;
 the agent decides only where the table says "agent's call".
 
-Sources: [`propose`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L169) and
-[`refine`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L180) for
-the `refine` block; [`build`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L190)
-for `refactor`; [`settledSkips`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Run/Fold.hs#L1170)
+Sources: [`propose`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Block.hs#L169) and
+[`refine`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Block.hs#L180) for
+the `refine` block; [`build`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Flow/Block.hs#L190)
+for `refactor`; [`settledSkips`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L1171)
 for the settled plan; the kernel takes the skip in
-[`due`](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Protocol/Advice.hs#L360).
+[`due`](https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Protocol/Advice.hs#L360).
 A run that never set its Fuel counts as Balanced.
 
 ## The caps
 
-| Meter | Step that spends it | Flow | Low | Balanced | Max | At the cap |
-|---|---|---|---|---|---|---|
-| Plan rounds | `confirm.adjusted` | engineer, 10x | 3 | 3 | 3 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L170) |
-| Re-reviews | `pick.loop` | engineer | 1 | 3 | 5 | [Refuse](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L217): only `pick.final` is left |
-| CI fixes | `fix_pr.done` | engineer | 5 | 5 | 5 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L232) |
-| Rounds | `merge.next_round` | 10x | 9 | 9 | 9 | [Stop](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/TenX.hs#L39): 10 rounds in all |
-| Requests | `next.request` | chief | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/src/State/Flow/Role/Chief.hs#L79) |
-| Researchers | `research` (gather) | engineer, 10x | 1 | 5 | one per fact group | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L147) |
-| Interview questions | `interview` | engineer, 10x | 15 | 30 | 50 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L80) |
-| Researchers | `research` (design) | architect, chief discussion | 10 | 30 | 60 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L147) |
-| Discussion questions | `discuss` | architect, chief discussion | 50 | 100 | 200 | [Extend](https://github.com/ILIYANGERMANOV/nixos/blob/main/programs/agents/kernel/src/State/Flow/Block.hs#L115) |
-
 Every loop in a flow holds a capped step, so no run loops forever. Each cap
-counts one thing (a meter); used up, it refuses the spend, stops the run or
-asks the user to extend it ([GUARDRAILS](GUARDRAILS.md#fuel-and-caps)
-explains the three). The chief's request cap guards against a runaway loop;
-it is not a budget.
-Each request keeps the caps of its own path.
+counts one thing (a meter) and is sized by the run's Fuel. The nine meters,
+their limits and what happens at each cap are in
+[GUARDRAILS: Fuel and caps](GUARDRAILS.md#fuel-and-caps).
 
 ## Chief
 
@@ -297,7 +292,7 @@ The whole chief flow, as the kernel renders it: every route above, with each
 whole flow and block inlined under its route's name.
 
 <details>
-<summary>Full chief render (245 lines)</summary>
+<summary>Full chief render</summary>
 
 ```mermaid
 
@@ -582,7 +577,7 @@ stateDiagram-v2
 ## Keeping this page true
 
 The four state diagrams above are checked, not trusted. The Nix check
-`rendered` ([`kernel/rendered.nix`](https://github.com/ILIYANGERMANOV/nixos/blob/a423a6e02eb476ec1bf7d519c70392c2d36c8001/programs/agents/kernel/rendered.nix#L1), part of
+`rendered` ([`kernel/rendered.nix`](../../programs/agents/kernel/rendered.nix), part of
 `checks.<system>.agents`) runs `state render mermaid --flow <flow>` for each
 flow and fails when this page does not hold the output exactly, as a whole
 block between blank lines. To update the page after a flow change, paste
@@ -590,7 +585,7 @@ what the check prints.
 
 ## Decisions
 
-The design of flows is in [ADR 0019](../adr/0019-composable-flows.md) and
-[ADR 0020](../adr/0020-flow-core-from-sums-and-elgot.md); how a run moves
+The flow core is in [ADR 0020](../adr/0020-flow-core-from-sums-and-elgot.md)
+and its effects in [ADR 0021](../adr/0021-flow-effects.md); how a run moves
 through one is in [RUN-LOOP](RUN-LOOP.md); the caps and who answers what are
 in [GUARDRAILS](GUARDRAILS.md).

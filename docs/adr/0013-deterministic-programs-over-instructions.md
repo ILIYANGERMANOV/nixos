@@ -33,7 +33,7 @@ exists.
   times in 30 days, though it is already in their context. A read-guard hook
   would be deterministic, but it would block the read `Edit` needs and
   `git show origin/main:CLAUDE.md` in a stale worktree. So it is one line in
-  `programs/agents/instructions/agent.md` with those two exceptions.
+  `programs/agents/instructions/lead.md` with those two exceptions.
 
 ## Considered options
 
@@ -47,3 +47,9 @@ exists.
 - A new `ctx` kind, hook or script states the measured cost it removes.
 - `.claude/rules/agents-frontend.md` and the self-improve playbook point here,
   so a proposal from either side meets the rule.
+- `.claude/rules/agents-logic-ladder.md` refines this rule: it says which
+  rung holds a rule, from pure kernel code down to prose.
+
+## History
+
+- #319, #324, #326: `ctx diff` and this rule.

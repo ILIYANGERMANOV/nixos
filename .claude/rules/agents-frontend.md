@@ -60,46 +60,20 @@ run store: one SQLite database, `$XDG_STATE_HOME/state/kernel.db`
 (`Effects/Store.hs`); `state dump <run>` prints them. The `self-improve`
 analyzer reads the events, so a format change updates `analyze.py` too. The step table is `flows/steps.nix`, handed
 to the kernel as JSON (`State/Table.hs`) and to the roles, whose capabilities
-and skills derive from it (`lib/derive.nix`). Why:
-`docs/adr/0018-category-model-haskell-state.md`,
-`docs/adr/0019-composable-flows.md`,
-`docs/adr/0020-flow-core-from-sums-and-elgot.md` and
-`docs/adr/0021-flow-effects.md`.
+and skills derive from it (`lib/derive.nix`). Why: the ADR table in
+`docs/harness/ARCHITECTURE.md#the-adrs`.
 
 A flow is a term of `Flow s i e o` (`State/Category/Flow.hs`), `s` its
-structure (`Shape`); a named flow composes the blocks of
-`State/Flow/Block.hs`, glued by `State/Flow/Combinator.hs`. Its core words,
-each with a law in `LawsSpec`:
-
-- `Do s`: one step. `Id`: no step. `Into`: retype as `Result`. `f :> g`: series.
-- `Case bs`: one branch per label of a `Sum`, in its order (a missing or
-  mislabelled branch does not compile). `Exit`: leave to the innermost
-  `Catch f` or `Loop name f`, whose out it is; uncaught, it does not compile.
-- `Loop name f`: repeat until the exit; a `Capped` step in it bounds it.
-- `Capped limits atCap c`: a step, or a `Fork` of one, whose `Meter` spends
-  a budget per Fuel.
-- `Fork g f`: start `f` as a child in group `g`, go on at once. `Await g`:
-  wait for every child of `g`, their results in fork order. A path out of a
-  `Fork` that skips its `Await` is refused. `Each f`: `f` once per item.
-- `Scope name f`: its states record `name/step.outcome`.
-- `Handle h f`: `h` answers one flow effect (Pick, Ask, Focus, Await) that `f`'s
-  steps raise (their layer's `Raises`); a whole flow answers every one. A
-  flow effect is an `Eff` with its `Handler` (`State/Category/Effect.hs`),
-  answered purely in `State/Run/Fold.hs` by `handle` and `applyEvent`. An
-  IO effect is another thing: `src/Effects/*`, run by `runShellIO` in
-  `State/Cli/Shell.hs`, faked in tests by `test/Doubles`.
-
-The library builds the rest from them:
-
-- `choice name bs` = `Do (Pick name) :> Case bs`: the agent picks one
-  branch by `<name>.<label>`, then the branch runs.
-- `choiceLoop name enough actions`: a `Loop` over a `choice` whose `enough`
-  branch ends in `Exit`: actions in any order, then `<name>.enough`.
-- `skippable step skips`, `skippableBlock name skips f`: a `skip_<name>`
-  state, `skip` or `run`; Fuel says when `skip` is taken.
-- `parallel g f` = `Each (Fork g f) :> Await g`: one child per item.
-- `upTo n atCap c` = `Capped (always (UpTo n)) atCap c`: the same cap at
-  every Fuel.
+structure (`Shape`), built from a small core (`Do`, `Id`, `Into`, `:>`,
+`Case`, `Exit`, `Catch`, `Loop`, `Capped`, `Fork`, `Await`, `Each`,
+`Scope`, `Handle`), each word with a law in `LawsSpec`. A named flow
+composes the blocks of `State/Flow/Block.hs`, glued by the library in
+`State/Flow/Combinator.hs` (`choice`, `choiceLoop`, `skippable`,
+`parallel`, `upTo`). A flow effect (Pick, Ask, Focus, Await) is an `Eff`
+with its `Handler`, answered purely in `State/Run/Fold.hs`; an IO effect
+is `src/Effects/*`, run by `State/Cli/Shell.hs`. The words, their laws and
+the drawn flows: `docs/harness/FLOWS.md` and
+`docs/harness/CATEGORY-THEORY.md`.
 
 How to extend it; the compiler and `parseSteps` name what is missing:
 
@@ -119,8 +93,8 @@ How to extend it; the compiler and `parseSteps` name what is missing:
   branching step has no exit and plain summands; `Loop` refuses a sum, so
   close the branches with a `Case` first. The agent's own pick is a
   `choice`, no step of yours.
-- **A role that leads a flow:** a `FlowName` constructor and its `role` arm in
-  `State/Role.hs` (name, flow, rung), the name in `flowNames` of
+- **A role that leads a flow:** a `FlowName` constructor in
+  `State/FlowName.hs`, its `role` arm in `State/Role.hs` (name, flow, rung), the name in `flowNames` of
   `flows/default.nix` and in a row's `flows` in `flows/steps.nix`. A worker
   role is only a row's `runner`.
 
@@ -141,8 +115,10 @@ hooks run for their effect alone: what they print is dropped. The tool
 `stopAgent` is one agent stopping another. The state hooks are `kernel/hooks.nix`, run by the Haskell
 `state-hook`: each finds its run through the agent's binding, at any depth,
 and `route`, their one denying hook, refuses a `state` call aimed at another
-run and a lead's write before its `state init`.
-Why: `docs/adr/0016-hooks-drive-the-state-record.md`, amended by ADR 0018.
+run, a subagent's `state init` with no parent, a lead's write before its
+`state init`, and a code write in a read-only flow (the architect, the chief's
+discussion).
+Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
 
 `hooks/guards/` holds the guards, Python programs on the contract that stop an
 agent's accidents: `secret-guard`, `read-guard` and `wait-guard` deny a shell

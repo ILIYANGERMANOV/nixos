@@ -86,7 +86,10 @@ references that Claude Code expands from the wrapper's environment.
 
 ### Secret file guard
 
-Where a secret file's path is exported, `withSecretFileGuard` adds `Read` deny
-rules over `/run/secrets` and `/run/secrets.d`. The shell is the frontend's
-`secret-guard`, a hook every flavor gets through the adapter
-(`claude-code-hooks.md`).
+The wrapper exports a secret file's **path**. Where one is exported,
+`withSecretFileGuard` adds `Read` deny rules over `/run/secrets` and
+`/run/secrets.d`. The shell is the frontend's `secret-guard`, a hook every
+flavor gets through the adapter (`claude-code-hooks.md`). **This is
+protection against accidental reads, not a security boundary**: every
+`qa-node` script must read the variable, so no filter over command text can
+close it.
