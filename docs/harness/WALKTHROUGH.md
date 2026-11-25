@@ -25,8 +25,10 @@ draft           draft PR #553
   |
 implement       5 slices, one implementer each
   |
-refactor        (described from the flow)
-review          (described from the flow)
+refactor        2 refactorers, 1 question to the user
+  |
+review          6 rows, 1 fixer, 1 re-review
+  |
 describe        (described from the flow)
 CI              (described from the flow)
 ready           (described from the flow)
@@ -51,9 +53,9 @@ Each step shows up to three blocks:
 | 6 | 12:45 | [Present and confirm](#6-present-and-confirm) |
 | 7 | 12:49 | [Draft](#7-draft) |
 | 8 | 12:49 | [Implement: five slices](#8-implement-five-slices) |
-| 9 | later | [Refactor](#9-refactor) |
-| 10 | later | [Review](#10-review) |
-| 11 | later | [Describe](#11-describe) |
+| 9 | 13:21 | [Refactor](#9-refactor) |
+| 10 | 13:41 | [Review](#10-review) |
+| 11 | 13:47 | [Describe](#11-describe) |
 | 12 | later | [CI and ready](#12-ci-and-ready) |
 
 ## 1 Fuel
@@ -280,34 +282,79 @@ one event the graph does not decide).
 
 ## 9 Refactor
 
-Described from the flow; this step had not run when this page was written.
+```text
+state next:  SPAWN refactorer background: yes
+state next:  ASK Scope 9387cd01:6: Refactorer proposals: ... - notify the user, then write the question as your final text, ...
+```
 
-- After slice 5, the run goes on to `skip_refactor`. At Max it runs.
-- A `refactorer` subagent makes one refactor pass over the branch.
-- Its hand-back records `refactor.done`, and the run moves to `review`.
+- After slice 5, the kernel took `skip_refactor.run`: at Max the refactor
+  runs.
+- A `refactorer` made one pass and committed it. It handed back three
+  bigger proposals, each as a `Scope` question: its task says so.
+- The hook recorded `refactor.done`, and the run moved on to `review`.
+- The lead put two of the proposals to the user as one `Scope` question.
+  The user chose A: do both in this PR.
+- That work is a refactor, but the run was past it. So the lead ran
+  `state override refactor "<why>"` and spawned a second refactorer.
+  Its `refactor.done` moved the run to `review` again.
 
-Read: [FLOWS: where Fuel skips a step](FLOWS.md#where-fuel-skips-a-step).
+```json
+{"seq":87,"ts":"13:21:18","type":"skip_refactor.run","data":{}}
+{"seq":88,"ts":"13:21:29","type":"worker_spawned","data":{"role":"refactorer","agent":"..."}}
+{"seq":89,"ts":"13:23:59","type":"refactor.done","data":{"head":"88fdef8f..."}}
+{"seq":91,"ts":"13:24:04","type":"asked","data":{"qid":"9387cd01:6","kind":"Scope","question":"Refactorer proposals: law/model tables are repeated in ADRs 0014/0018/0020 and CATEGORY-THEORY; the skill list is repeated in README, KATEGORY and FLOWS. A) In this PR: ... (Recommended) B) Only the law tables C) Leave as is","step":"review","from":"self"}}
+{"seq":92,"ts":"13:24:04","type":"forwarded","data":{"qid":"9387cd01:6","to":"user"}}
+{"seq":93,"ts":"13:39:34","type":"answered","data":{"qid":"9387cd01:6","reply":"chose","answer":"A) Both in this PR: CATEGORY-THEORY owns law/model tables, ADRs link; README owns skill list, KATEGORY and FLOWS link","by":"user"}}
+{"seq":94,"ts":"13:39:34","type":"overridden","data":{"to":"refactor","why":"user chose to apply refactor proposals 1 and 3 in this PR"}}
+{"seq":95,"ts":"13:39:35","type":"worker_spawned","data":{"role":"refactorer","agent":"..."}}
+{"seq":96,"ts":"13:41:14","type":"refactor.done","data":{"head":"3f857497..."}}
+```
+
+Read: [FLOWS: where Fuel skips a step](FLOWS.md#where-fuel-skips-a-step),
+[GUARDRAILS: who answers which question](GUARDRAILS.md#who-answers-which-question).
 
 ## 10 Review
 
-Described from the flow; this step had not run when this page was written.
+```text
+state next:  SPAWN review-lead background: yes
+state next:  RUN one option below      (picked: state record pick.loop --row ct-fold-type --row ...)
+state next:  SPAWN fixer background: yes
+state next:  SPAWN review-lead background: yes   (re_review)
+state next:  RUN one option below      (picked: state record pick.final)
+```
 
-- A `review-lead` subagent reviews the PR once.
-- No rows: `review.clean` goes to `describe`.
-- Rows: `review.rows` goes to `pick`. The lead picks rows to fix
-  (`pick.loop`), a `fixer` fixes them, and a re-review reads only the fix.
-  The exception: a fix that touches the data model or auth, or at Max an
-  interface, gets a review of the whole branch.
-  `pick.final` ends the loop.
-- The loop is capped by the Fuel, and the stuck rule stops a loop that
-  meets the same problem twice.
+- A `review-lead` reviewed the branch. It spawned nine `reviewer`s.
+- Its hook recorded `review.rows`. The hook always records `rows`:
+  whether a row is worth a fix is the lead's pick.
+- Round 1 had six Minor rows. The lead picked all six: `pick.loop` with
+  six `--row`s.
+- A `fixer` fixed them in one commit. Its `fix.done` names no
+  `touches`, so the re-review read only the fix, not the whole branch.
+- The re-review found nothing new. The lead recorded `pick.final` with
+  no rows, and the run went on to `describe`.
+
+```json
+{"seq":98,"ts":"13:41:32","type":"worker_spawned","data":{"role":"review-lead","agent":"..."}}
+{"seq":99,"ts":"13:42:45","type":"worker_spawned","data":{"role":"reviewer","agent":"..."}}
+{"seq":117,"ts":"13:45:14","type":"review.rows","data":{"head":"3f857497..."}}
+{"seq":119,"ts":"13:45:23","type":"pick.loop","data":{"rows":["ct-fold-type","ct-ty-target","override-exception","route-child","runloop-fold-law","walkthrough-rereview"],"verdicts":[]}}
+{"seq":120,"ts":"13:45:31","type":"worker_spawned","data":{"role":"fixer","agent":"..."}}
+{"seq":121,"ts":"13:46:21","type":"fix.done","data":{"head":"597f9289...","touches":[]}}
+{"seq":123,"ts":"13:46:31","type":"worker_spawned","data":{"role":"review-lead","agent":"..."}}
+{"seq":124,"ts":"13:47:02","type":"re_review.rows","data":{"head":"597f9289..."}}
+{"seq":126,"ts":"13:47:06","type":"pick.final","data":{"rows":[],"verdicts":[]}}
+```
+
+The loop is capped by the Fuel, and the stuck rule stops a loop that
+meets the same problem twice. This run needed one round.
 
 Read: [FLOWS: the caps](FLOWS.md#the-caps),
 [GUARDRAILS: the stuck rule](GUARDRAILS.md#the-stuck-rule).
 
 ## 11 Describe
 
-Described from the flow; this step had not run when this page was written.
+Described from the flow. This page was written in this very step, by the
+`fixer` the lead spawned at 13:47:24 (`seq` 127).
 
 - A `fixer` runs three steps: `describe` writes the PR text, `visual` adds
   its pictures, `simplify_pr` makes the text plainer.
@@ -331,8 +378,8 @@ Read: [RUN-LOOP: what `state next` prints](RUN-LOOP.md#what-state-next-prints),
 
 ## About the excerpts
 
-- Source: `state dump 9387cd01`, 83 events up to the start of slice 5, and
-  `state show` and `state next` run in the run's worktree.
+- Source: `state dump 9387cd01`, 127 events up to the describe fixer's
+  spawn, and `state show` and `state next` run in the run's worktree.
 - Each event keeps its `seq`, `ts`, `type` and `data`. The envelope (`v`,
   `id`, `run`, `head`, `session`) is dropped. Times are cut to `HH:MM:SS`,
   all on 2026-11-25.
