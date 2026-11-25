@@ -97,8 +97,8 @@ installs.
   vendor backend, even through another program; Deslop enforces it
   ([`agents-name-no-vendor`][novendor]). The kernel knows nothing of Claude
   Code either.
-- **Claude Code backend.** Today the only one. OpenCode and Codex are
-  planned ([COMPARISON](COMPARISON.md#planned-not-built)).
+- **Claude Code and OpenCode backends.** OpenCode runs without hooks yet.
+  Codex is planned ([COMPARISON](COMPARISON.md#planned-not-built)).
 - **Conflicts throw.** Two profiles that set one key to different values are
   an evaluation error, never last-writer-wins (ADR 0011).
 

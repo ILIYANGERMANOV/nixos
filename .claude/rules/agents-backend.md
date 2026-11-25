@@ -4,6 +4,7 @@ paths:
   - "programs/opencode/**"
   - "programs/codex/**"
   - "adapters/claude-code.nix"
+  - "adapters/opencode.nix"
 ---
 
 ## Agent backends
@@ -12,7 +13,9 @@ paths:
 installs it. Catalogs, selection, secret gating, validation, ordering, dedup
 and the agnostic budget live in `programs/agents`
 (`.claude/rules/agents-frontend.md`).** Why: `docs/adr/0011-agent-compiler.md`.
-Claude Code is the only backend today.
+Two backends today: Claude Code and OpenCode (`programs/opencode`, hooks not
+wired yet). OpenCode reads its config dir from the store, so it has no `link/`
+or `load/`.
 
 A backend is `programs/<vendor>/`, imported only by `adapters/<vendor>.nix`:
 
