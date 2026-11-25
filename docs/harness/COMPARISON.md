@@ -49,7 +49,7 @@ today.
 | Agents choose from a library of flows and compose them for any task | Flows are fixed: chief, engineer, 10x, architect and the blocks ([FLOWS](FLOWS.md)) |
 | A cheap, fast model reaches a top model's quality, because each flow hands it small jobs | Claude is the main model |
 | Harder enforcement of `state` | Hooks gate a lead's work until `state init`, not every action after ([`Route.hs`][route]) |
-| OpenCode and Codex backends | Claude Code is the only backend ([ADR 0011](../adr/0011-agent-compiler.md)) |
+| Codex backend, and hooks in OpenCode | Claude Code, and OpenCode without hooks ([KATEGORY](../KATEGORY.md#opencode-opencode-kategory)) |
 
 ## What it costs
 

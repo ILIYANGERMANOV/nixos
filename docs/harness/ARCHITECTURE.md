@@ -4,7 +4,7 @@
 |---|---|
 | [The logic ladder](#the-logic-ladder) | each rule lives on the most testable rung that can hold it |
 | [Kernel layers](#kernel-layers) | `state` in layers; only the shell does IO |
-| [The agent compiler](#the-agent-compiler) | one vendor-free config compiles to Claude Code's files |
+| [The agent compiler](#the-agent-compiler) | one vendor-free config compiles to Claude Code's and OpenCode's files |
 | [Roles derived from the step table](#roles-derived-from-the-step-table) | no role's tools are written by hand |
 | [The ADRs](#the-adrs) | the decisions behind it; this page does not repeat them |
 
@@ -97,8 +97,8 @@ installs.
   vendor backend, even through another program; Deslop enforces it
   ([`agents-name-no-vendor`][novendor]). The kernel knows nothing of Claude
   Code either.
-- **Claude Code backend.** Today the only one. OpenCode and Codex are
-  planned ([COMPARISON](COMPARISON.md#planned-not-built)).
+- **Claude Code and OpenCode backends.** OpenCode runs without hooks yet.
+  Codex is planned ([COMPARISON](COMPARISON.md#planned-not-built)).
 - **Conflicts throw.** Two profiles that set one key to different values are
   an evaluation error, never last-writer-wins (ADR 0011).
 

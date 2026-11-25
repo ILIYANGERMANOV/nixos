@@ -74,6 +74,9 @@ rules:
       - "programs/playwright/qa-frames.sh"
       - "programs/playwright/qa-mp4.sh"
 
+      # A flake check's own script: it is the test.
+      - "programs/opencode/check.sh"
+
       # Accepted without a test: what each needs cannot run in a check.
       # Runs on the server, and is read by eye.
       - "just/scripts/factory-status.sh"

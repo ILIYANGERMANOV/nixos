@@ -14,6 +14,8 @@ Everything lives in `~/.claude-kategory`, so your own `~/.claude` and
 
 Runs on macOS (Apple silicon) and Linux (x86_64, aarch64).
 
+Rather OpenCode on DeepSeek? See [opencode-kategory](#opencode-opencode-kategory).
+
 ## Prerequisites
 
 - **Nix.** Already installed? Skip this. Otherwise install it with the
@@ -102,6 +104,87 @@ New commits land on `main` often. One command takes the latest:
 
 `--refresh` makes Nix check GitHub again. Without it Nix may reuse a cached
 copy for up to an hour and stay on an old version.
+
+## OpenCode: opencode-kategory
+
+> [!NOTE]
+> Early. The skills and roles are there. The hooks are not wired yet: see
+> [Known gaps](#known-gaps).
+
+`opencode-kategory` is the same harness in [OpenCode](https://opencode.ai),
+on DeepSeek models. Same skills, same roles, same `state` program.
+
+### Run it
+
+Set your DeepSeek key, then start it from your project:
+
+```sh
+export DEEPSEEK_API_KEY=<your key>
+nix run "github:ILIYANGERMANOV/nixos#opencode-kategory"
+```
+
+Every skill is also a command. Arguments pass through to `opencode`. Run one
+headless, with no UI:
+
+```sh
+opencode-kategory run --command engineer "<task>"
+```
+
+In a CI runner such as GitHub Actions, add OpenCode's `--auto` to `run`: it
+allows what would otherwise wait for a yes. Use it only where the runner is
+the sandbox.
+
+### Models
+
+| Who | Model |
+|---|---|
+| Lead, large roles | `deepseek/deepseek-v4-pro` |
+| Small and medium roles | `deepseek/deepseek-flash` |
+
+`--model`, a project `opencode.json` or `.opencode/opencode.json` wins over
+the lead's model. The roles keep theirs.
+
+### Isolation
+
+- OpenCode's own data, state and cache live in `~/.opencode-kategory`.
+- It never reads `~/.claude`, `~/.agents` or `~/.config/opencode`.
+- Its config is read-only dirs in the Nix store: the harness config and an
+  empty global config dir. So OpenCode installs no npm package on launch.
+- Your project's `CLAUDE.md` still loads. It stacks with an `AGENTS.md`.
+- Shells it runs get your own config, data and cache dirs back. So `gh` and
+  `git` use your login and config.
+- `state` keeps its own `kernel.db`, in
+  `~/.opencode-kategory/state/state/kernel.db`. Sharing one with
+  `claude-kategory` is a follow-up.
+
+### Permissions
+
+- Each role may use only the tools it needs. Everything else is denied.
+- Outside the project, every agent may use `/tmp/**`, `~/.10x/**` and
+  `/nix/store/**` without asking.
+- A skill marked `disable-model-invocation` (such as `chief`) runs only as
+  its command. The model cannot invoke it.
+
+A project's own OpenCode config (`.opencode/`, `opencode.json`) loads and
+runs, plugins too. So a pull request that changes it runs that change. A later
+review pipeline must treat it as code under review. OpenCode can skip it with
+`OPENCODE_DISABLE_PROJECT_CONFIG`. `opencode-kategory` does not set it.
+
+### Known gaps
+
+- **No hooks yet.** The kernel's gate, the guards and hand-back recording do
+  not run. They come in the next step.
+- **`~/.opencode` is always read.** OpenCode has no switch to turn it off.
+- **A writable `.opencode/` costs an npm install.** OpenCode runs
+  `npm install @opencode-ai/plugin` in every config dir it can write: a
+  project's `.opencode/` or `~/.opencode`, where one exists. Online that
+  takes seconds. Offline it waits about 70 seconds. In GitHub Actions, cache
+  that dir's `node_modules` or make the dir read-only.
+- **Missing tools.** No agent can stop another. No push notifications or
+  PR-activity wake-ups: those steps are skipped.
+- **macOS.** Shells get `XDG_CONFIG_HOME` set. A tool that reads `~/Library`
+  when it is unset reads `~/.config` instead. `gh` and `git` read `~/.config`
+  either way.
 
 ## Disclaimer
 
