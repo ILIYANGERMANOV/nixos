@@ -44,6 +44,7 @@ from plugin_envelopes import (
     LEAD,
     after,
     before,
+    call_tokens,
     envelope,
     in_child,
     task_output,
@@ -65,13 +66,16 @@ WORKER = Agent(AgentId(CHILD), Role("implementer"))
 
 
 def message(
-    start: str | None = None,
     parts: Sequence[Json] = (),
     running: Sequence[str] = (),
+    *,
+    first: bool = False,
+    created: bool = True,
 ) -> JsonObject:
     return envelope(
         "message",
-        start=start,
+        first=first,
+        created=created,
         parts=[*parts],
         agents={CHILD: "implementer"},
         running=[*running],
@@ -93,6 +97,7 @@ def test_the_deployed_table_names_each_opencode_tool_once() -> None:
         "bash": Tool.SHELL,
         "read": Tool.READ,
         "edit": Tool.EDIT,
+        "apply_patch": Tool.EDIT,
         "write": Tool.WRITE,
         "webfetch": Tool.WEB,
         "websearch": Tool.WEB,
@@ -221,7 +226,7 @@ def test_a_shell_result_is_its_stdout_with_the_context_size() -> None:
         "bash",
         {"command": "state init --task t1"},
         "run 0a1b2c3d /n /w\n",
-        {"tokens": 300_500, "previous": 298_000},
+        [call_tokens(298_000), call_tokens(300_500)],
     )
 
     assert parse_opencode(payload, TOOLS) == (
@@ -300,17 +305,29 @@ def test_a_task_output_that_is_no_task_block_is_refused() -> None:
 # ---- Messages, commands, stops -------------------------------------------------------
 
 
-@pytest.mark.parametrize("source", list(Source))
-def test_the_leads_first_message_starts_the_session(source: Source) -> None:
-    assert parse_opencode(message(start=source.value), TOOLS) == (
+@pytest.mark.parametrize(
+    ("created", "source"), [(True, Source.STARTUP), (False, Source.RESUME)]
+)
+def test_the_leads_first_message_starts_the_session_new_or_resumed(
+    created: bool,  # noqa: FBT001 - a parameter of the test
+    source: Source,
+) -> None:
+    assert parse_opencode(message(first=True, created=created), TOOLS) == (
         SessionStart(SESSION, CWD, None, source),
     )
 
 
-def test_a_child_sessions_first_message_starts_the_agent() -> None:
-    assert parse_opencode(in_child(message(start="startup")), TOOLS) == (
-        AgentStart(SESSION, CWD, WORKER),
-    )
+@pytest.mark.parametrize("created", [True, False])
+def test_a_child_sessions_first_message_starts_the_agent(
+    created: bool,  # noqa: FBT001 - a parameter of the test
+) -> None:
+    payload = in_child(message(first=True, created=created))
+
+    assert parse_opencode(payload, TOOLS) == (AgentStart(SESSION, CWD, WORKER),)
+
+
+def test_a_later_message_starts_nothing() -> None:
+    assert parse_opencode(message(first=False, created=False), TOOLS) == ()
 
 
 def test_a_background_tasks_end_in_the_parents_message_hands_back_and_stops() -> None:
@@ -342,8 +359,100 @@ def test_a_command_expands_a_skill() -> None:
 
 
 def test_the_root_going_idle_stops_the_lead_with_its_running_children() -> None:
-    assert parse_opencode(envelope("stop", running=[CHILD]), TOOLS) == (
+    assert parse_opencode(envelope("idle", running=[CHILD]), TOOLS) == (
         AgentStop(SESSION, CWD, None, (AgentId(CHILD),)),
+    )
+
+
+def test_a_child_going_idle_stops_nothing() -> None:
+    assert parse_opencode(in_child(envelope("idle", running=[])), TOOLS) == ()
+
+
+# ---- A model call's context --------------------------------------------------------
+
+
+def context_of(tokens: Sequence[Json]) -> ContextSize | None:
+    match parse_opencode(after("glob", {}, "x", tokens), TOOLS):
+        case (AfterTool(context=context),):
+            return context
+        case other:
+            pytest.fail(f"not one afterTool: {other!r}")
+
+
+def test_the_context_is_the_newest_calls_input_and_cache_after_the_one_before() -> None:
+    tokens = [
+        call_tokens(9),
+        call_tokens(100, read=20, write=3, output=50),
+        call_tokens(200, read=40, write=5, output=60),
+    ]
+
+    assert context_of(tokens) == ContextSize(245, 123)
+
+
+def test_a_call_with_no_tokens_counted_yet_is_skipped() -> None:
+    tokens = [call_tokens(100), call_tokens(200), call_tokens(0)]
+
+    assert context_of(tokens) == ContextSize(200, 100)
+
+
+@pytest.mark.parametrize(
+    ("tokens", "context"),
+    [
+        ([], None),
+        ([call_tokens(0)], None),
+        ([call_tokens(100)], ContextSize(100, None)),
+    ],
+)
+def test_a_session_with_fewer_than_two_counted_calls_has_less_context(
+    tokens: list[Json], context: ContextSize | None
+) -> None:
+    assert context_of(tokens) == context
+
+
+# ---- apply_patch, OpenCode's edit on gpt- models -----------------------------------
+
+
+def patch(*lines: str) -> JsonObject:
+    return {"patchText": "\n".join(["*** Begin Patch", *lines, "*** End Patch"])}
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ["*** Add File: notes.md", "+*** Delete File: other.md"],
+        ["*** Update File: notes.md", "@@", "-a", "+b"],
+        ["*** Delete File:notes.md"],
+        [
+            "*** Update File: notes.md",
+            "@@",
+            " *** Add File: other.md",
+            "*** Update File: notes.md",
+        ],
+    ],
+)
+def test_a_patch_of_one_file_is_an_edit_of_it(lines: list[str]) -> None:
+    args = patch(*lines)
+
+    assert parse_opencode(before("apply_patch", args), TOOLS) == BeforeTool(
+        SESSION, CWD, None, Tool.EDIT, args | {"file_path": "notes.md"}
+    )
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ["*** Add File: a.md", "+x", "*** Delete File: b.md"],
+        ["*** Update File: a.md", "*** Move to: b.md", "@@", "-a", "+b"],
+        [],
+    ],
+)
+def test_a_patch_of_several_files_or_none_is_an_edit_of_no_one_file(
+    lines: list[str],
+) -> None:
+    args = patch(*lines)
+
+    assert parse_opencode(before("apply_patch", args), TOOLS) == BeforeTool(
+        SESSION, CWD, None, Tool.EDIT, args
     )
 
 
@@ -356,17 +465,18 @@ def test_the_root_going_idle_stops_the_lead_with_its_running_children() -> None:
             for k, v in before("bash", {"command": "ls"}).items()
             if k != "directory"
         },
-        envelope("idle", running=[]),
-        in_child(envelope("stop", running=[])) | {"agent": 3},
+        envelope("halt", running=[]),
+        in_child(envelope("idle", running=[])) | {"agent": 3},
         {
             k: v
-            for k, v in in_child(envelope("stop", running=[])).items()
+            for k, v in in_child(envelope("idle", running=[])).items()
             if k != "agent"
         },
-        message(start="boot"),
-        message() | {"start": True},
+        message() | {"first": "yes"},
+        message() | {"created": None},
         before("bash", {"command": "ls"}) | {"history": [3]},
-        after("bash", {"command": "ls"}, "x", context={"tokens": "many"}),
+        after("bash", {"command": "ls"}, "x", [{"input": "many"}]),
+        after("bash", {"command": "ls"}, "x", [call_tokens(1) | {"cache": {}}]),
     ],
 )
 def test_an_envelope_it_cannot_read_is_refused(payload: Json) -> None:
@@ -400,11 +510,7 @@ def test_a_verdict_becomes_what_the_plugin_does(
 
 tool_names = st.sampled_from(sorted(TOOLS)) | st.text()
 ids = st.text(min_size=1)
-sources = st.sampled_from([source.value for source in Source])
-
-
-def context_size(tokens: int, previous: int | None) -> Json:
-    return {"tokens": tokens, "previous": previous}
+counts = st.integers(min_value=0)
 
 
 def text_part(synthetic: bool, text: str) -> Json:  # noqa: FBT001 - a builder's field
@@ -416,24 +522,31 @@ def child_caller(child: str, agent: str | None) -> JsonObject:
 
 
 def task_ran(output: str, running: list[str]) -> JsonObject:
-    return after("task", SPAWN_ARGS, output, None, running)
+    return after("task", SPAWN_ARGS, output, (), running)
 
 
 def command(name: str) -> JsonObject:
     return envelope("command", command=name)
 
 
-def stop(running: list[str]) -> JsonObject:
-    return envelope("stop", running=[*running])
+def idle(running: list[str]) -> JsonObject:
+    return envelope("idle", running=[*running])
+
+
+def message_of(
+    parts: list[Json],
+    running: list[str],
+    first: bool,  # noqa: FBT001 - a builder's field
+    created: bool,  # noqa: FBT001 - a builder's field
+) -> JsonObject:
+    return message(parts, running, first=first, created=created)
 
 
 def called_by(shape: JsonObject, caller: JsonObject) -> JsonObject:
     return shape | caller
 
 
-contexts = st.none() | st.builds(
-    context_size, st.integers(min_value=0), st.none() | st.integers(min_value=0)
-)
+tokens_lists = st.lists(st.builds(call_tokens, counts, counts, counts, counts))
 task_texts = st.builds(
     task_output,
     st.sampled_from(["running", "completed", "error"]),
@@ -455,13 +568,13 @@ well_formed = st.builds(
             tool_names.filter(lambda tool: tool != "task"),
             json_objects,
             st.text(),
-            contexts,
+            tokens_lists,
             st.lists(ids),
         ),
         st.builds(task_ran, task_texts, st.lists(ids)),
-        st.builds(message, st.none() | sources, parts, st.lists(ids)),
+        st.builds(message_of, parts, st.lists(ids), st.booleans(), st.booleans()),
         st.builds(command, st.text()),
-        st.builds(stop, st.lists(ids)),
+        st.builds(idle, st.lists(ids)),
     ),
     callers,
 )
@@ -485,7 +598,7 @@ unnamed_tools = st.text().filter(lambda name: name not in TOOLS)
         called_by,
         st.builds(before, unnamed_tools, json_objects, st.lists(st.text()))
         | st.builds(
-            after, unnamed_tools, json_objects, st.text(), contexts, st.lists(ids)
+            after, unnamed_tools, json_objects, st.text(), tokens_lists, st.lists(ids)
         ),
         callers,
     )
@@ -509,9 +622,10 @@ FIELDS = [
     "args",
     "history",
     "output",
-    "context",
+    "tokens",
     "running",
-    "start",
+    "first",
+    "created",
     "parts",
     "agents",
     "command",
@@ -648,7 +762,7 @@ def test_the_built_adapter_joins_the_notes_of_a_message(tmp_path: Path) -> None:
     }
     text = task_output("completed", "READY abc", "Background task completed: x")
     payload = message(
-        start="startup", parts=[{"type": "text", "synthetic": True, "text": text}]
+        [{"type": "text", "synthetic": True, "text": text}], first=True, created=True
     )
 
     assert opencode(tmp_path, manifest, payload) == {"context": "sessionStart"}
@@ -668,7 +782,7 @@ def test_the_built_adapter_knows_every_tool_the_table_deploys(
 def test_the_built_adapter_refuses_what_it_cannot_read_and_lets_opencode_go_on(
     tmp_path: Path,
 ) -> None:
-    done = run(ADAPTER, TOOLS_FILE, tmp_path, {}, envelope("idle"))
+    done = run(ADAPTER, TOOLS_FILE, tmp_path, {}, envelope("halt"))
 
     assert done.returncode == 1
     assert done.stderr.startswith("agent-hook-opencode: not a before, after")

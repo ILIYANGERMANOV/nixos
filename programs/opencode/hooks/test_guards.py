@@ -11,7 +11,16 @@ from typing import cast
 
 import pytest
 from agent_hook import Json, JsonObject
-from plugin_envelopes import CHILD, LEAD, after, before, envelope, in_child, task_output
+from plugin_envelopes import (
+    CHILD,
+    LEAD,
+    after,
+    before,
+    call_tokens,
+    envelope,
+    in_child,
+    task_output,
+)
 
 ADAPTER = os.environ["AGENT_HOOK_OPENCODE"]
 TOOLS_FILE = os.environ["AGENT_HOOK_OPENCODE_TOOLS"]
@@ -143,9 +152,9 @@ def test_a_secret_path_is_denied(tmp_path: Path) -> None:
 
 
 def test_crossing_300k_gives_the_lead_the_notice(tmp_path: Path) -> None:
-    context: JsonObject = {"tokens": 300_500, "previous": 298_000}
+    tokens = [call_tokens(1_000, read=297_000), call_tokens(500, read=300_000)]
 
-    told = answer(after("glob", {"pattern": "*"}, "a.py", context, directory=tmp_path))
+    told = answer(after("glob", {"pattern": "*"}, "a.py", tokens, directory=tmp_path))
 
     assert "Context 300k" in cast("str", told["context"])
 

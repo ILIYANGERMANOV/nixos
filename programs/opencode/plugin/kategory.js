@@ -16,9 +16,10 @@
 // call's args, context reaches the model in the tool's output or, for the
 // session's events, in the next request's system prompt. The adapter owns
 // every mapping to the neutral contract. This file keeps only what an
-// envelope needs from earlier calls: each session's parent and agent, its
-// bash commands, its last model calls' tokens, the background children
-// running, and the context waiting for its place.
+// envelope needs from earlier calls: each session's parent and agent, whether
+// it was created and has had a message, its bash commands, its last model
+// calls' tokens, the background children running, and the context waiting for
+// its place.
 //
 // The adapter runs synchronously, with the user's XDG dirs as a shell gets
 // them and XDG_STATE_HOME moved, so the hooks' `state` shares the shells'
@@ -30,7 +31,7 @@
 //   reaches its parent: close to Claude Code's SubagentStart and Stop, not
 //   the same.
 // - The context guard acts only once message.updated has told a model call's
-//   tokens; until then `context` is null and it lets the call go.
+//   tokens; until then it lets the call go.
 // - A tool that fails skips tool.execute.after: its after-hooks never run.
 // - `opencode debug agent --tool` runs the tool directly: no tool hook runs.
 // - A child session created by an earlier OpenCode process, resumed with
@@ -52,14 +53,18 @@ const shellTools = new Set("@shellTools@".split(" "));
 // looks back at the last few.
 const historyLength = 50;
 
+// The model calls whose tokens an envelope carries. The newest may still be
+// streaming, with none counted yet: the adapter needs the two before it.
+const callsKept = 3;
+
 export const Kategory = async ({ directory }) => {
   // id -> {parentID, agent, created, started}: created once session.created
   // was seen, started once its first chat.message was.
   const sessions = new Map();
   // id -> its bash commands, oldest first.
   const commands = new Map();
-  // id -> {message, tokens, previous}: its newest model calls' context.
-  const contexts = new Map();
+  // id -> [{message, tokens}]: its last model calls' tokens, oldest first.
+  const calls = new Map();
   // The background children started and not yet idle.
   const running = new Set();
   // callID -> a before-hook's context, for the call's output.
@@ -121,15 +126,11 @@ export const Kategory = async ({ directory }) => {
       if (output.metadata?.background === true) {
         running.add(output.metadata.sessionId);
       }
-      const context = contexts.get(sessionID);
       const said = ask(sessionID, "after", {
         tool,
         args,
         output,
-        context:
-          context === undefined
-            ? null
-            : { tokens: context.tokens, previous: context.previous },
+        tokens: (calls.get(sessionID) ?? []).map((call) => call.tokens),
         running: runningUnder(sessionID),
       });
       const notes = [held.get(callID), said.context].filter(
@@ -149,7 +150,8 @@ export const Kategory = async ({ directory }) => {
         started: true,
       });
       const said = ask(sessionID, "message", {
-        start: known.started ? null : known.created ? "startup" : "resume",
+        first: !known.started,
+        created: known.created,
         parts: output.parts,
         agents: agentsOf(sessions),
         running: runningUnder(sessionID),
@@ -181,12 +183,12 @@ export const Kategory = async ({ directory }) => {
           break;
         }
         case "message.updated": {
+          // Only a model call's message has tokens, a user's none.
           const { info } = event.properties;
-          const tokens = contextTokens(info);
-          if (tokens > 0) {
-            contexts.set(
+          if (info.tokens !== undefined) {
+            calls.set(
               info.sessionID,
-              measured(contexts.get(info.sessionID), info.id, tokens),
+              updated(calls.get(info.sessionID) ?? [], info.id, info.tokens),
             );
           }
           break;
@@ -194,13 +196,11 @@ export const Kategory = async ({ directory }) => {
         case "session.idle": {
           const { sessionID } = event.properties;
           running.delete(sessionID);
-          if (sessions.get(sessionID)?.parentID === undefined) {
-            queue(
-              sessionID,
-              ask(sessionID, "stop", { running: runningUnder(sessionID) })
-                .context,
-            );
-          }
+          queue(
+            sessionID,
+            ask(sessionID, "idle", { running: runningUnder(sessionID) })
+              .context,
+          );
           break;
         }
       }
@@ -246,24 +246,12 @@ function replaceKeys(target, source) {
   Object.assign(target, source);
 }
 
-// The tokens of context a model call sent, as Claude Code's adapter counts
-// them: input and cache, not output. 0 for a user message, and for a call
-// not finished yet.
-function contextTokens(message) {
-  return message.role === "assistant"
-    ? message.tokens.input +
-        message.tokens.cache.read +
-        message.tokens.cache.write
-    : 0;
-}
-
-// The session's newest model call and the one before it. OpenCode updates a
-// call's message as it streams, so a message replaces its own count.
-function measured(last, message, tokens) {
-  if (last === undefined) {
-    return { message, tokens, previous: null };
-  }
-  return last.message === message
-    ? { ...last, tokens }
-    : { message, tokens, previous: last.tokens };
+// A session's model calls with one call's newest tokens. OpenCode updates a
+// call's message as it streams, so a message replaces its own tokens.
+function updated(known, message, tokens) {
+  return known.some((call) => call.message === message)
+    ? known.map((call) =>
+        call.message === message ? { message, tokens } : call,
+      )
+    : [...known, { message, tokens }].slice(-callsKept);
 }

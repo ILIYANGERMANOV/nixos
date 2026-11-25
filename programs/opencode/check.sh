@@ -12,7 +12,11 @@
 #   and a skill that bars the model from it runs only as its command;
 # - the plugin loads from the store: a shell gets the user's XDG dirs back,
 #   keeps the moved state dir, and finds state, ctx and qa-node;
-# - its hooks reach the kernel: a lead may not edit before its run exists;
+# - its hooks reach the kernel and the guards: a lead may not edit or patch
+#   before its run exists, and a session's bash history and model calls reach
+#   the wait and context guards;
+# - it remembers the background children running, and a rewrite replaces the
+#   very args object OpenCode runs the call with;
 # - no config dir OpenCode scans is writable, so it npm-installs nowhere.
 set -euo pipefail
 
@@ -121,25 +125,126 @@ diff want.out shell.out || fail "a shell sees the XDG dirs or PATH above"
 # The plugin's hooks reach the kernel through the adapter. No hook fires
 # offline: `debug agent --tool` skips them, and a prompt needs a model. So the
 # plugin is imported by OpenCode's own runtime (BUN_BE_BUN makes its binary
-# bun), under the wrapper's env, and its hooks called as OpenCode calls them:
-# a lead that typed a flow's command may not edit before its run exists. A
-# failing adapter would let it.
+# bun), under the wrapper's env, and its hooks called as OpenCode calls them.
+# A failing adapter would let every call go.
 cat >hooks.mjs <<'EOF'
 const [plugin, directory] = process.argv.slice(2);
 const { Kategory } = await import(plugin);
 const hooks = await Kategory({ directory });
-const sessionID = "ses_lead";
-await hooks["command.execute.before"]({ command: "engineer", sessionID, arguments: "" }, { parts: [] });
-const edit = { filePath: `${directory}/a`, oldString: "a", newString: "b" };
-try {
-  await hooks["tool.execute.before"]({ tool: "edit", sessionID, callID: "call" }, { args: edit });
-  console.log("allowed");
-} catch (error) {
-  console.log(error.message);
-}
+const lead = "ses_lead";
+const child = "ses_child";
+let calls = 0;
+const created = (info) =>
+  hooks.event({ event: { type: "session.created", properties: { info } } });
+const modelCall = (id, input) =>
+  hooks.event({
+    event: {
+      type: "message.updated",
+      properties: {
+        info: {
+          id,
+          sessionID: lead,
+          role: "assistant",
+          tokens: { input, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        },
+      },
+    },
+  });
+// A call's error, or "allowed".
+const before = async (sessionID, tool, args) => {
+  try {
+    await hooks["tool.execute.before"]({ tool, sessionID, callID: `call_${++calls}` }, { args });
+    return "allowed";
+  } catch (error) {
+    return error.message;
+  }
+};
+// A tool's output once its after-hooks ran.
+const after = async (sessionID, tool, args) => {
+  const output = { title: "", output: "ran", metadata: {} };
+  await hooks["tool.execute.after"]({ tool, sessionID, callID: `call_${++calls}`, args }, output);
+  return output.output;
+};
+const status = { command: "gh run view 1", description: "CI status" };
+
+await created({ id: lead });
+await created({ id: child, parentID: lead, agent: "implementer" });
+await hooks["command.execute.before"]({ command: "engineer", sessionID: lead, arguments: "" }, { parts: [] });
+const said = {
+  edit: await before(lead, "edit", { filePath: `${directory}/a`, oldString: "a", newString: "b" }),
+  patch: await before(lead, "apply_patch", { patchText: "*** Begin Patch\n*** Add File: a\n+b\n*** End Patch" }),
+  status: await before(child, "bash", status),
+  statusAgain: await before(child, "bash", status),
+};
+await modelCall("msg_1", 305000);
+said.crossed = await after(lead, "glob", { pattern: "*" });
+await modelCall("msg_2", 306000);
+said.past = await after(lead, "glob", { pattern: "*" });
+console.log(JSON.stringify(said));
 EOF
 BUN_BE_BUN=1 "$kategory" hooks.mjs "$plugin" "$project" >hooks.out 2>&1 || fail "the plugin did not run: $(cat hooks.out)"
-grep -q "this lead has no run" hooks.out || fail "a lead edited before its run: $(cat hooks.out)"
+said() {
+  jq -r --arg key "$1" '.[$key]' hooks.out
+}
+# A lead that typed a flow's command may not edit before its run exists, by
+# edit or by apply_patch, the edit of gpt- models.
+[[ "$(said edit)" == *"this lead has no run"* ]] || fail "a lead edited before its run: $(cat hooks.out)"
+[[ "$(said patch)" == *"this lead has no run"* ]] || fail "a lead patched before its run: $(cat hooks.out)"
+# The session's bash history reaches the wait guard: a subagent reads CI once.
+[ "$(said status)" = allowed ] || fail "a subagent's first CI read was denied: $(cat hooks.out)"
+[[ "$(said statusAgain)" == *"a subagent never waits on CI"* ]] ||
+  fail "a subagent read CI twice: $(cat hooks.out)"
+# The session's model calls reach the context guard: it speaks as the context
+# crosses 300k, not again while it stays past.
+[[ "$(said crossed)" == *"Context 305k"* ]] || fail "crossing 300k told the lead nothing: $(cat hooks.out)"
+[ "$(said past)" = ran ] || fail "the lead was told again past 300k: $(cat hooks.out)"
+
+# The rest of the plugin's memory, read through a stub adapter: it answers each
+# envelope with the envelope itself, and rewrites every read to read b.
+stub=$PWD/stub-adapter
+{
+  echo "#!$BASH"
+  cat <<'EOF'
+envelope=$(cat)
+case $(jq -r '.hook + ":" + (.tool // "")' <<<"$envelope") in
+  before:read) echo '{"args": {"filePath": "b"}}' ;;
+  *) jq -c '{context: tojson}' <<<"$envelope" ;;
+esac
+EOF
+} >"$stub"
+chmod +x "$stub"
+sed "s|^const adapter = .*|const adapter = \"$stub\";|" "$plugin" >stub-plugin.mjs
+grep -q "\"$stub\"" stub-plugin.mjs || fail "the stub did not replace the plugin's adapter"
+cat >memory.mjs <<'EOF'
+const [plugin, directory] = process.argv.slice(2);
+const { Kategory } = await import(plugin);
+const hooks = await Kategory({ directory });
+const lead = "ses_lead";
+const child = "ses_child";
+const created = (info) =>
+  hooks.event({ event: { type: "session.created", properties: { info } } });
+// The envelope a task's after-hook sent: the stub's answer ends its output.
+const sent = async (metadata) => {
+  const output = { title: "", output: "ran", metadata };
+  await hooks["tool.execute.after"]({ tool: "task", sessionID: lead, callID: "call", args: {} }, output);
+  return JSON.parse(output.output.split("\n\n").at(-1));
+};
+
+await created({ id: lead });
+await created({ id: child, parentID: lead, agent: "implementer" });
+const started = await sent({ background: true, sessionId: child });
+await hooks.event({ event: { type: "session.idle", properties: { sessionID: child } } });
+const ended = await sent({});
+// OpenCode runs the call with the args object it passed the hook.
+const args = { filePath: "a", limit: 10 };
+await hooks["tool.execute.before"]({ tool: "read", sessionID: lead, callID: "read" }, { args });
+console.log(JSON.stringify({ started: started.running, ended: ended.running, args }));
+EOF
+BUN_BE_BUN=1 "$kategory" memory.mjs "$PWD/stub-plugin.mjs" "$project" >memory.out 2>&1 ||
+  fail "the stubbed plugin did not run: $(cat memory.out)"
+# A background child runs until it goes idle, and a rewrite replaces the args.
+jq -e '. == {started: ["ses_child"], ended: [], args: {filePath: "b"}}' memory.out >/dev/null ||
+  fail "the plugin forgot a running child or kept args the hooks dropped: $(cat memory.out)"
 
 # Every skill is a command too: `serve` lists them over HTTP.
 "$kategory" serve --port 0 >serve.log 2>&1 &

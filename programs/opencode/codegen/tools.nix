@@ -22,8 +22,12 @@
       "grep"
     ];
   };
+  # apply_patch replaces edit and write on gpt- models.
   edit = {
-    tools = [ "edit" ];
+    tools = [
+      "edit"
+      "apply_patch"
+    ];
     permission = [ "edit" ];
   };
   write = {

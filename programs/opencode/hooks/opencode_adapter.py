@@ -10,7 +10,7 @@ their vendor-free name; the manifest is the hooks, each event's in order.
 
 The envelope, one JSON object. Ids are OpenCode's session ids:
 
-    hook       before | after | message | command | stop
+    hook       before | after | message | command | idle
     sessionID  the session that called
     rootID     its root session, the lead's: sessionID itself for the lead
     agent      the calling session's agent name, null when not yet known
@@ -19,16 +19,17 @@ The envelope, one JSON object. Ids are OpenCode's session ids:
                history                 the session's earlier bash commands, oldest first
     after:     tool, args              tool.execute.after's
                output                  its {title, output, metadata}
-               context                 {tokens, previous} | null, the session's
-                                       last two model calls' context
+               tokens                  the `tokens` of the session's last model
+                                       calls, oldest first, as OpenCode reports them
                running                 the background children still running
-    message:   start                   startup | resume | compact | null: the
-                                       session's first chat.message, and why
+    message:   first                   whether it is the session's first
+                                       chat.message this OpenCode process saw
+               created                 whether this process saw session.created
                parts                   chat.message's parts
                agents                  {sessionID: agent name}, every session seen
                running
     command:   command                 command.execute.before's
-    stop:      running                 the root session went idle
+    idle:      running                 session.idle: the session went idle
 
 It prints, for the plugin:
 
@@ -64,6 +65,7 @@ from agent_hook import (
     AgentStop,
     Allow,
     BeforeTool,
+    ContextSize,
     Deny,
     Event,
     Json,
@@ -84,7 +86,6 @@ from agent_hook import (
     dispatch_note,
     dispatch_verdict,
     hooks_for,
-    parse_context_size,
     parse_json,
     parse_manifest,
     run_note_hook,
@@ -114,6 +115,13 @@ NEUTRAL_KEYS: Mapping[Tool, Mapping[str, str]] = {
     Tool.SKILL: {"name": "skill"},
     Tool.DELEGATE: {"background": "run_in_background"},
 }
+
+# A header of apply_patch's patch (OpenCode 1.19.5, patch/index.ts parsePatch):
+# the file it adds, updates, deletes or moves one to. Every other line of a
+# hunk starts with a space, +, - or @@, so none is a header.
+PATCH_FILE = re.compile(
+    r"^\*\*\* (?:Add File|Update File|Delete File|Move to):(.*)$", re.MULTILINE
+)
 
 # The task tool's output (OpenCode 1.19.5, tool/task.ts renderOutput). The
 # result text may hold anything, a closing tag too: it runs to the block's end.
@@ -226,7 +234,7 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
             "tool": str(name),
             "args": dict() as args,
             "output": dict() as output,
-            "context": context,
+            "tokens": list() as tokens,
             "running": list() as running,
         }:
             tool = vendor_free(tools, name)
@@ -237,18 +245,19 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 tool,
                 neutral_input(tool, args),
                 output,
-                parse_context_size(context),
+                context_size(tokens),
             )
             return tool_ran(ran, output.get("output"), running_ids(running))
         case {
             "hook": "message",
-            "start": start,
+            "first": bool(first),
+            "created": bool(created),
             "parts": list() as parts,
             "agents": dict() as agents,
             "running": list() as running,
         }:
             still = running_ids(running)
-            return started(session, cwd, agent, start) + tuple(
+            return started(session, cwd, agent, first=first, created=created) + tuple(
                 event
                 for result in background_results(parts)
                 for event in task_ended(
@@ -257,11 +266,11 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
             )
         case {"hook": "command", "command": str(command)}:
             return (PromptExpansion(session, cwd, agent, SkillName(command)),)
-        case {"hook": "stop", "running": list() as running}:
-            return (AgentStop(session, cwd, agent, running_ids(running)),)
+        case {"hook": "idle", "running": list() as running}:
+            return idled(session, cwd, agent, running_ids(running))
         case _:
             raise ValueError(
-                "not a before, after, message, command or stop envelope with its fields"
+                "not a before, after, message, command or idle envelope with its fields"
             )
 
 
@@ -317,7 +326,26 @@ def tool_cwd(cwd: Path, tool: Tool, args: JsonObject) -> Path:
 
 
 def neutral_input(tool: Tool, args: JsonObject) -> JsonObject:
-    return renamed(args, NEUTRAL_KEYS.get(tool, {}))
+    named = renamed(args, NEUTRAL_KEYS.get(tool, {}))
+    match tool, args.get("patchText"):
+        case Tool.EDIT, str(patch):
+            return named | patched_file(patch)
+        case _:
+            return named
+
+
+def patched_file(patch: str) -> JsonObject:
+    """apply_patch, OpenCode's edit on gpt- models, as the `file_path` the
+    kernel gates an edit by: the one file its patch changes. A patch naming
+    several has none, which the kernel takes for a file outside the
+    architect's notes dir. A hook's rewrite of it reaches OpenCode as a
+    `filePath` apply_patch ignores."""
+    files = {str(found[1]).strip() for found in PATCH_FILE.finditer(patch)} - {""}
+    match sorted(files):
+        case [file]:
+            return {"file_path": file}
+        case _:
+            return {}
 
 
 def renamed(fields: JsonObject, names: Mapping[str, str]) -> JsonObject:
@@ -338,18 +366,58 @@ def optional_role(agent: Json) -> Role | None:
 
 
 def started(
-    session: SessionId, cwd: Path, agent: Agent | None, start: Json
+    session: SessionId,
+    cwd: Path,
+    agent: Agent | None,
+    *,
+    first: bool,
+    created: bool,
 ) -> tuple[Event, ...]:
-    """A session's first message starts it: the lead's session, or a child."""
-    match start, agent:
-        case None, _:
+    """A session's first message starts it: the lead's session, or a child. A
+    lead this process did not see created was resumed. OpenCode has no hook
+    after a compaction, so no start is a compact one."""
+    match first, agent:
+        case False, _:
             return ()
-        case str(source), None:
-            return (SessionStart(session, cwd, None, Source(source)),)
-        case str(), Agent():
+        case True, None:
+            source = Source.STARTUP if created else Source.RESUME
+            return (SessionStart(session, cwd, None, source),)
+        case True, Agent():
             return (AgentStart(session, cwd, agent),)
+
+
+def idled(
+    session: SessionId, cwd: Path, agent: Agent | None, running: tuple[AgentId, ...]
+) -> tuple[Event, ...]:
+    """Only the lead going idle is a stop: a child stops when its result
+    reaches its parent (task_ended)."""
+    match agent:
+        case None:
+            return (AgentStop(session, cwd, None, running),)
+        case Agent():
+            return ()
+
+
+def context_size(tokens: list[Json]) -> ContextSize | None:
+    """The context the newest model call sent, and the one before it. A call
+    still streaming, or one that failed, has counted none yet: it is skipped."""
+    counted = [count for count in map(context_tokens, tokens) if count > 0]
+    *_, previous, newest = [None, None, *counted]
+    match newest:
+        case None:
+            return None
+        case int():
+            return ContextSize(newest, previous)
+
+
+def context_tokens(tokens: Json) -> int:
+    """The tokens of context a model call sent, as Claude Code's adapter counts
+    them: input and cache, not output."""
+    match tokens:
+        case {"input": int(sent), "cache": {"read": int(read), "write": int(write)}}:
+            return sent + read + write
         case _:
-            raise ValueError(f"start {start!r} is not a string")
+            raise ValueError(f"not a model call's tokens: {tokens!r}")
 
 
 # ---- A task's result ---------------------------------------------------------------

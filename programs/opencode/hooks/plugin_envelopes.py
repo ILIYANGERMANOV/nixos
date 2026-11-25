@@ -42,7 +42,7 @@ def after(  # noqa: PLR0913 - one parameter per envelope field
     tool: str,
     args: JsonObject,
     output: str,
-    context: Json = None,
+    tokens: Sequence[Json] = (),
     running: Sequence[str] = (),
     directory: Path = CWD,
 ) -> JsonObject:
@@ -53,9 +53,21 @@ def after(  # noqa: PLR0913 - one parameter per envelope field
         tool=tool,
         args=args,
         output=ran,
-        context=context,
+        tokens=[*tokens],
         running=[*running],
     )
+
+
+def call_tokens(
+    sent: int, read: int = 0, write: int = 0, output: int = 0
+) -> JsonObject:
+    """A model call's `tokens`, as message.updated tells them."""
+    return {
+        "input": sent,
+        "output": output,
+        "reasoning": 0,
+        "cache": {"read": read, "write": write},
+    }
 
 
 def task_output(state: str, text: str, summary: str | None = None) -> str:
