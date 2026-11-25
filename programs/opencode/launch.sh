@@ -1,6 +1,6 @@
 # shellcheck shell=bash disable=SC2154 # set by default.nix: the assembled script is checked whole
-# opencode-kategory's effect: OpenCode gets its own XDG dirs, data, state and
-# cache under ~/$kategory_dir and config in the read-only $config_home, so it
+# opencode-kategory's effect: OpenCode gets its own data, state and cache dirs
+# under ~/$kategory_dir and its config dir in the read-only $config_home, so it
 # reads and writes nothing of the user's own ~/.config/opencode. The user's
 # dirs ride along in $user_xdg_var as one JSON object, for plugin/kategory.js
 # to hand back to every shell OpenCode runs.

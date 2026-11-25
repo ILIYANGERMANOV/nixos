@@ -176,9 +176,9 @@ review pipeline must treat it as code under review. OpenCode can skip it with
 - **`~/.opencode` is always read.** OpenCode has no switch to turn it off.
 - **A writable `.opencode/` costs an npm install.** OpenCode runs
   `npm install @opencode-ai/plugin` in every config dir it can write: a
-  project's `.opencode/` or `~/.opencode`, where one exists. Online that takes seconds. Offline
-  it waits about 70 seconds. In GitHub Actions, cache that dir's
-  `node_modules` or make the dir read-only.
+  project's `.opencode/` or `~/.opencode`, where one exists. Online that
+  takes seconds. Offline it waits about 70 seconds. In GitHub Actions, cache
+  that dir's `node_modules` or make the dir read-only.
 - **Missing tools.** No agent can stop another. No push notifications or
   PR-activity wake-ups: those steps are skipped.
 - **macOS.** Shells get `XDG_CONFIG_HOME` set. A tool that reads `~/Library`
