@@ -58,9 +58,11 @@ pythonpath = [
   "just/cache-check",
   "programs/mutation",
   "programs/agents/ctx",
-  # The hook contract, and Claude's adapter, which imports it as it does at run time.
+  # The hook contract, and Claude's and OpenCode's adapters, which import it as
+  # they do at run time.
   "programs/agents/hooks",
   "programs/claude-code/hooks/adapter",
+  "programs/opencode/hooks",
   # The hook contract probe: probe.py imports the mock beside it.
   "programs/claude-code/hooks/contract",
 ]
@@ -74,6 +76,10 @@ pythonVersion = "3.13"
 # (adapter.nix).
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code/hooks/adapter"
+extraPaths = ["programs/agents/hooks"]
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/opencode/hooks"
 extraPaths = ["programs/agents/hooks"]
 
 # The probe imports the mock beside it.

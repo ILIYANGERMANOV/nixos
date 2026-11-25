@@ -5,6 +5,8 @@
 {
   pkgs,
   claude,
+  # OpenCode's hook adapter, which python-tests runs end to end.
+  opencode,
   # The guards, which python-tests runs end to end.
   guards,
   # The Haskell kernel package, whose build runs its own tests, and its dev
@@ -18,6 +20,7 @@ import ./shell.nix { inherit pkgs claude; }
   inherit
     pkgs
     claude
+    opencode
     guards
     ;
 }

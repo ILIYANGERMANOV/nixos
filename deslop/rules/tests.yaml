@@ -31,6 +31,7 @@ rules:
       - "programs/agents/hooks/guards/shared/bash_corpus.py"
       - "programs/claude-code/hooks/adapter/transcript_fixtures.py"
       - "programs/claude-code/hooks/adapter/recorded_events.py"
+      - "programs/agents/hooks/json_strategies.py"
     exists:
       - module: "{{TARGET_DIR}}/test_{{first-part}}_{{last-part}}.py"
     fix: Add {{TARGET_DIR}}/test_{{first-part}}_{{last-part}}.py.

@@ -23,6 +23,11 @@
 let
   shellCheck = import ../shell-check { inherit pkgs; };
   skillMd = import ./codegen/skill-md.nix { inherit lib; };
+  adapter = import ./hooks/adapter.nix {
+    inherit pkgs;
+    agentHook = agents.hooks.module;
+    tools = import ./codegen/tools.nix;
+  };
 
   profile = agents.fold profiles;
 
@@ -192,8 +197,13 @@ assert lib.assertMsg (lib.intersectAttrs shared permission == { })
       # The XDG dirs every shell gets back as the user's, for the hook
       # adapter's own spawns.
       restoredXdg = lib.attrNames userXdgDefaults;
-      # OpenCode's tools by vendor-free name, as JSON for the hook adapter.
-      toolsFile = pkgs.writeText "opencode-tools.json" (builtins.toJSON (import ./codegen/tools.nix));
     };
+  };
+
+  # The adapter running this flavor's hooks, the tool table it reads and the
+  # hooks it runs, for `python-tests`: none needs the OpenCode package.
+  hookAdapter = {
+    inherit (adapter) bin toolsFile;
+    manifest = agents.hooks.manifest profile.hooks;
   };
 }

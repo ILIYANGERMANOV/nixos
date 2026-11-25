@@ -250,6 +250,12 @@
         )
         // import ./programs/tech-checks {
           inherit pkgs;
+          # Only its hook adapter, which needs no OpenCode package: python-tests
+          # runs it on every system.
+          opencode = import ./adapters/opencode.nix {
+            inherit inputs pkgs;
+            root = self;
+          };
           claude = import ./adapters/claude-code.nix {
             inherit pkgs inputs;
             root = self;
