@@ -4,8 +4,8 @@
   pkgs,
   lib,
   kategory,
-  # The roles, by name, as records.
-  roles,
+  # name -> tier, null where the role inherits its spawner's model.
+  tiers,
   # The profile's skill names.
   skills,
   # A rendered role that may only read.
@@ -21,8 +21,7 @@ pkgs.runCommand "opencode-check"
     env = {
       kategory = lib.getExe kategory;
       read_only_role = readOnlyRole;
-      # name -> tier, null where the role inherits its spawner's model.
-      tiers = builtins.toJSON (lib.mapAttrs (_: role: role.tier) roles);
+      tiers = builtins.toJSON tiers;
       skills = builtins.toJSON skills;
     };
   }

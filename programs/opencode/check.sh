@@ -54,8 +54,8 @@ while read -r file; do
 done <absolute
 
 "$kategory" debug skill >skills.json
-jq -e --argjson want "$skills" '$want - map(.name) == []' skills.json >/dev/null ||
-  fail "skills missing: $(jq -c --argjson want "$skills" '$want - map(.name)' skills.json)"
+missing=$(jq -c --argjson want "$skills" '$want - map(.name)' skills.json)
+[ "$missing" = "[]" ] || fail "skills missing: $missing"
 jq -e 'map(.name) | index("leak-claude") == null and index("leak-agents") == null' skills.json >/dev/null ||
   fail "a skill from ~/.claude or ~/.agents loaded"
 
@@ -118,7 +118,7 @@ for _ in $(seq 600); do
 done
 [ -n "$url" ] || fail "serve did not start: $(cat serve.log)"
 curl -sf "$url/command" >commands.json
-jq -e --argjson want "$skills" '$want - map(select(.source == "skill") | .name) == []' commands.json >/dev/null ||
-  fail "skills with no command: $(jq -c --argjson want "$skills" '$want - map(select(.source == "skill") | .name)' commands.json)"
+missing=$(jq -c --argjson want "$skills" '$want - map(select(.source == "skill") | .name)' commands.json)
+[ "$missing" = "[]" ] || fail "skills with no command: $missing"
 
 echo "opencode-check: all good"

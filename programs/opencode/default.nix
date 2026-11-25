@@ -174,7 +174,7 @@ rec {
   # checks.opencode: the wrapper run offline against everything above.
   check = import ./check.nix {
     inherit pkgs lib kategory;
-    roles = agents.roles;
+    tiers = lib.mapAttrs (_: role: role.tier) agents.roles;
     skills = profile.skills;
     # A role that may only read, rendered as the real ones are: none of them
     # is that narrow, as every one may run a shell.

@@ -53,8 +53,8 @@ let
   # `${CLAUDE_SKILL_DIR}` becomes the frontend's spelling of that skill's
   # folder, which relocate.sh then points at the config dir.
   preload =
-    agentName: skill:
-    pkgs.writeText "${agentName}-preloads-${skill}.md" (
+    skill:
+    pkgs.writeText "${skill}-preload.md" (
       builtins.replaceStrings [ "\${CLAUDE_SKILL_DIR}" ] [ "~/.claude/skills/${skill}" ] (
         skillMd.body "${skillSources.${skill}}/SKILL.md"
       )
@@ -80,7 +80,7 @@ let
         '')
       ]
       ++ renderRole instructions agent.instructions
-      ++ map (preload agent.name) agent.skills
+      ++ map preload agent.skills
     );
 in
 # The roles' files, by name, each given `instructions`' forAll on top of its own.
