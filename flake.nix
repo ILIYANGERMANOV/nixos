@@ -204,6 +204,22 @@
             inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) claude-kategory;
           };
         }
+        # opencode-kategory run offline against what it promises: see
+        # programs/opencode/check.sh. Where `llm-agents` has an OpenCode.
+        // pkgs.lib.optionalAttrs (self.packages.${pkgs.stdenv.hostPlatform.system} ? opencode-kategory) {
+          opencode =
+            (import ./adapters/opencode.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).check;
+          # opencode-kategory-headless runs to the end with nobody there: see
+          # programs/opencode/check-headless.sh.
+          opencode-headless =
+            (import ./adapters/opencode.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).checkHeadless;
+        }
         # That a .kt file gets kotlin_lsp running the binary programs/kotlin
         # packages, ktlint as its formatter, and that <leader>tt runs
         # `./gradlew test` in a Gradle project. Only where a kotlin-lsp release
@@ -234,6 +250,12 @@
         )
         // import ./programs/tech-checks {
           inherit pkgs;
+          # Only its hook adapter, which needs no OpenCode package: python-tests
+          # runs it on every system.
+          opencode = import ./adapters/opencode.nix {
+            inherit inputs pkgs;
+            root = self;
+          };
           claude = import ./adapters/claude-code.nix {
             inherit pkgs inputs;
             root = self;
@@ -294,6 +316,20 @@
               inherit inputs pkgs;
               root = self;
             }).kategory;
+          # The same harness in OpenCode on DeepSeek, in ~/.opencode-kategory:
+          # `nix run github:ILIYANGERMANOV/nixos#opencode-kategory`.
+          opencode-kategory =
+            (import ./adapters/opencode.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).kategory;
+          # The same for a run with nobody there, such as a CI job:
+          # `opencode-kategory-headless run --auto "<prompt>" </dev/null`.
+          opencode-kategory-headless =
+            (import ./adapters/opencode.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).kategoryHeadless;
         }
       );
 

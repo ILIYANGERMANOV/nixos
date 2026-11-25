@@ -66,6 +66,7 @@ pkgs.treefmt.withConfig {
           "programs/playwright/*.ts"
           "programs/playwright/*.json"
           "programs/playwright/**/*.ts"
+          "programs/opencode/**/*.js"
         ];
       };
       ruff = {

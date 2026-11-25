@@ -20,6 +20,9 @@ flavor lists the ones it gets. `mkProfile` and `append` are in `agents-lib.md`.
   non-factory flavor.
 - `factory` - `10x-engineer`, `self-improve`, `android`, its `agent.md` in
   `forAll` and its `lead.md` for the lead only.
+- `headless` - its `lead.md` for the lead only: no user is present, so the
+  lead answers every question itself and never ends its turn while work
+  remains. A CI flavor adds it on top of `local`; no Claude flavor lists it.
 
 Every flavor gets every shared skill, `ui-coding` included: a model-invoked
 skill costs only its description.

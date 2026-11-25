@@ -22,7 +22,7 @@ programs/<vendor>  default.nix: flavors (profile list + vendor settings)
 - **A profile is one setup's vendor-free part**: `skills`, `instructions`,
   `mcp`, `runtime`, `secretFiles`, `hooks`. One folder each,
   `profiles/<name>/profile.nix`, found by `readDir`: `base`, `local`,
-  `web-ui`, `pm`, `factory`. There is no `ts` profile: `claude-ts` is `base` plus a Claude
+  `web-ui`, `pm`, `factory`, `headless`. There is no `ts` profile: `claude-ts` is `base` plus a Claude
   plugin, which is a vendor setting.
 - **A flavor lists profiles and folds them with `append`**
   (`claude-all = [ base web-ui pm local ]`). Profiles are deltas and never import each

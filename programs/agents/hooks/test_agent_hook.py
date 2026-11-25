@@ -51,6 +51,7 @@ from agent_hook import (
 )
 from hypothesis import given
 from hypothesis import strategies as st
+from json_strategies import json_objects, json_values
 
 VOCABULARY = Path(__file__).with_name("vocabulary.json")
 
@@ -64,15 +65,6 @@ STARTED = AgentStart(SESSION, CWD, WORKER)
 TYPED = PromptExpansion(SESSION, CWD, None, SkillName("engineer"))
 STOPPED = AgentStop(SESSION, CWD, WORKER, (AgentId("a1"), AgentId("a2")))
 
-json_values = st.recursive(
-    st.none() | st.booleans() | st.integers() | st.text(),
-    lambda children: (
-        st.lists(children, max_size=3)
-        | st.dictionaries(st.text(), children, max_size=3)
-    ),
-    max_leaves=8,
-)
-json_objects = st.dictionaries(st.text(), json_values, max_size=3)
 texts = st.text(min_size=1)
 subagents = st.builds(
     Agent, st.none() | st.text().map(AgentId), st.none() | st.text().map(Role)

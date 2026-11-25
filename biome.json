@@ -3,6 +3,7 @@
   "files": {
     "includes": [
       "programs/playwright/**",
+      "programs/opencode/**/*.js",
       "!**/node_modules",
       "!**/dist",
       "!**/pnpm-lock.yaml"

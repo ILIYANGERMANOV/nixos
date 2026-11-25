@@ -101,7 +101,8 @@ deterministic the flows.
 - Claude is the main model today and stays so.
 - Goal: any provider can drive a flow. The kernel and hooks are vendor-free;
   each agent tool is a thin backend (ADR 0011).
-- Today's backend: Claude Code (`../claude-code`). Planned: OpenCode and Codex.
+- Today's backends: Claude Code (`../claude-code`) and OpenCode
+  (`../opencode`). Planned: Codex.
 
 ## Non-goals (draft)
 

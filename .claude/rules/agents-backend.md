@@ -4,6 +4,7 @@ paths:
   - "programs/opencode/**"
   - "programs/codex/**"
   - "adapters/claude-code.nix"
+  - "adapters/opencode.nix"
 ---
 
 ## Agent backends
@@ -12,7 +13,13 @@ paths:
 installs it. Catalogs, selection, secret gating, validation, ordering, dedup
 and the agnostic budget live in `programs/agents`
 (`.claude/rules/agents-frontend.md`).** Why: `docs/adr/0011-agent-compiler.md`.
-Claude Code is the only backend today.
+Two backends today: Claude Code and OpenCode (`programs/opencode`).
+OpenCode reads its config dir from the store, so it has no `link/` or `load/`.
+Its hooks: `plugin/kategory.js` keeps only the memory across calls (sessions,
+bash history, tokens) and runs `hooks/opencode_adapter.py` on each OpenCode
+hook. The adapter owns every mapping to the neutral contract, as
+`claude_adapter.py` does for Claude Code. The gaps are listed in the plugin's
+header and docs/KATEGORY.md.
 
 A backend is `programs/<vendor>/`, imported only by `adapters/<vendor>.nix`:
 

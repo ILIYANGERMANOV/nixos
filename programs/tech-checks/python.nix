@@ -2,6 +2,7 @@
 {
   pkgs,
   claude,
+  opencode,
   guards,
 }:
 let
@@ -85,6 +86,11 @@ in
         )
       );
       AGENT_HOOK_CLAUDE_TOOLS = claude.hookAdapter.toolsFile;
+      AGENT_HOOK_OPENCODE = lib.getExe opencode.hookAdapter.bin;
+      AGENT_HOOK_OPENCODE_TOOLS = opencode.hookAdapter.toolsFile;
+      # The opencode-kategory profile's hooks: test_guards.py runs the
+      # real kernel and guards through them.
+      AGENT_HOOK_OPENCODE_MANIFEST = opencode.hookAdapter.manifest;
       STATUSLINE = lib.getExe claude.statusline;
       PYTHON_SOURCE = pythonSource;
     }
