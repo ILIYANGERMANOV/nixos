@@ -1434,6 +1434,11 @@ refusalCode =
             UnknownGap {} -> "unknown_gap"
             GapClosed {} -> "gap_closed"
             SpanNotOpen {} -> "span_not_open"
+            EpicRefused inner -> case inner of
+                Epic.EpicExists {} -> "epic_exists"
+                Epic.EpicNotOpen {} -> "epic_not_open"
+                Epic.EpicNotReady {} -> "epic_not_ready"
+                Epic.UnknownEpic {} -> "unknown_epic"
         FileUnreadable {} -> "file_unreadable"
         UnknownEvent {} -> "unknown_event"
 

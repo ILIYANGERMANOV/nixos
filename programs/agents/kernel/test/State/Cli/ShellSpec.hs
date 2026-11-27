@@ -16,6 +16,7 @@ import State.Run.Codec (taskIdText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (
+    bareGap,
     fuelSet,
     genTasks,
     logOf,
@@ -64,7 +65,7 @@ spec = describe "State.Cli.Shell" $ do
                     replayed
                         ( [fuelSet Balanced]
                             <> opens
-                            <> replicate gaps (Gapped "a gap")
+                            <> replicate gaps (Gapped (bareGap "a gap"))
                             <> [Overridden (StateName "breakdown") "agreed", broken]
                             <> concat [[Overridden (StateName "breakdown") "re-plan", broken] | again]
                         )

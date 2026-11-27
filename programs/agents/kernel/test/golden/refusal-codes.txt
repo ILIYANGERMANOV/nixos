@@ -45,5 +45,9 @@ focus_recorded
 unknown_gap
 gap_closed
 span_not_open
+epic_exists
+epic_not_open
+epic_not_ready
+unknown_epic
 file_unreadable
 unknown_event

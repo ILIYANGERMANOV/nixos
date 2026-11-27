@@ -1975,6 +1975,7 @@ recordedAs recording written = case recording of
     AtHead _ -> recorded written
     FromFile {} -> recorded written
     NamesFile {} -> recorded written
+    Filing _ -> recorded written
     OnTask _ _ -> recorded written
     OnChild _ _ -> recorded written
     AddsTask _ _ -> recorded written
@@ -2006,7 +2007,14 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
         let QId _ first = next
         event <-
             unlogged
-                (recordedEvent g state worktreeHead text (first + genericLength registered) recording)
+                ( recordedEvent
+                    g
+                    state
+                    worktreeHead
+                    text
+                    (first + genericLength registered)
+                    recording
+                )
         -- The file registered first, then the outcome that names it.
         Right
             ( Plan
@@ -3279,10 +3287,12 @@ spawnedIn parent child task worktree =
                     stamp
                     run
                     [source]
-                    ( Bifunctor.bimap
-                        (explain run.g (Fold.fuelOf run.state) run.state.at)
-                        (\ref -> Plan [Spawned (Child child ref worktree)] (\_ _ -> mempty))
-                        (traverse (Fold.taskRefIn run.state) task)
+                    ( unlogged
+                        ( Bifunctor.bimap
+                            (explain run.g (Fold.fuelOf run.state) run.state.at)
+                            (\ref -> Plan [Spawned (Child child ref worktree)] (\_ _ -> mempty))
+                            (traverse (Fold.taskRefIn run.state) task)
+                        )
                     )
             )
             parent
