@@ -189,15 +189,15 @@ spec = describe "State.Cli.Command" $ do
                 _ -> expectationFailure "not an unknown event"
 
         it
-            "reads a plan's path to register it as a plan, refusing a plan not written yet"
+            "names a plan's path to register it as a plan, its event not read from the file"
             $ case parse ["record", "plan.done", "/notes/plan.md"] of
-                Right (OnRun (Record (FromFile kind path parsed))) ->
-                    (kind, path, parsed "")
+                Right (OnRun (Record (NamesFile kind path event))) ->
+                    (kind, path, event)
                         `shouldBe` ( Artifact.Plan
                                    , "/notes/plan.md"
-                                   , Right (stepTook (PlanDone "/notes/plan.md"))
+                                   , stepTook (PlanDone "/notes/plan.md")
                                    )
-                _ -> expectationFailure "not a recording read from a file"
+                _ -> expectationFailure "not a recording that names a file"
 
         it "refuses an option the event does not take" $
             recorded ["implement.done", "--row", "R1"]

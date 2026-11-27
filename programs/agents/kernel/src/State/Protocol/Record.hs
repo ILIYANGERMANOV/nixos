@@ -80,13 +80,16 @@ import State.Step.Ship (Outcome (..), Sing (..))
 import State.Step.Ticket (Outcome (..), Sing (..))
 
 {- | An event to record. Most carry the commit the worktree is at, which only
-the shell can read; a plan, a breakdown or an added task is read from a
-file, by the shell too, which registers the file as an artifact of this kind.
+the shell can read; a breakdown or an added task is read from a file, by the
+shell too, which registers the file as an artifact of this kind. A plan's
+event only names its file: the shell registers it if it can read it, and a
+file it cannot read refuses nothing.
 -}
 data Recording
     = Plain Event
     | AtHead (Sha -> Event)
     | FromFile FileKind FilePath (Text -> Either Text Event)
+    | NamesFile FileKind FilePath Event
 
 {- | The @state record@ line for an event, its arguments' usage after it. An
 event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
@@ -245,13 +248,12 @@ recordables =
                 _ -> Left "one level"
            , extend
            , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
-                -- Read as a file only to refuse a plan not written yet.
                 [path] ->
                     Right
-                        ( FromFile
+                        ( NamesFile
                             Artifact.Plan
                             (Text.unpack path)
-                            (const (Right (tookIn a.scope (PlanDone (Text.unpack path)))))
+                            (tookIn a.scope (PlanDone (Text.unpack path)))
                         )
                 _ -> Left "the plan's path"
            , nothing SimplifyPlanDone

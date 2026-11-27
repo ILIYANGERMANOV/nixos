@@ -36,6 +36,7 @@ import System.Directory (
     createDirectory,
     createDirectoryIfMissing,
     doesFileExist,
+    emptyPermissions,
     findExecutable,
     getPermissions,
     removeFile,
@@ -355,17 +356,22 @@ spec = describe "the state binary" $ do
                     )
                     `shouldBe` (True, True, ["v2"], ["b"])
 
-        -- A written plan is taken on every path the transcripts below drive.
-        it "refuses a plan.done whose plan is not written" $ \repo -> do
-            _ <- drive bin repo (Record ["fuel.set", "balanced"] : gathered)
-            missing <- state bin repo ["record", "plan.done", "/no/such"]
-            (missing.code, missing.err)
-                `shouldBe` ( 2
-                           ,
-                               [ "state record: file_unreadable /no/such - it does not exist, or may not be read"
-                               , "fix: write it first, or name the file at its path"
-                               ]
-                           )
+        it
+            "logs a plan.done whose plan may not be read, with no artifact, and names the path"
+            $ \repo -> do
+                _ <- drive bin repo (Record ["fuel.set", "balanced"] : gathered)
+                let plan = repo.work </> "plan.md"
+                writeFile plan "the plan"
+                setPermissions plan emptyPermissions
+                ran <- succeeded =<< state bin repo ["record", "plan.done", plan]
+                (take 1 ran, filter ("recorded " `Text.isPrefixOf`) ran)
+                    `shouldBe` (
+                                   [ "file_unreadable "
+                                        <> Text.pack plan
+                                        <> ": gone or unreadable, no artifact logged"
+                                   ]
+                               , ["recorded 5 plan.done -> skip_refine"]
+                               )
 
         it
             "closes a researcher's child as it returns with its report, which has no token, so the waiting gather goes on to its notes"

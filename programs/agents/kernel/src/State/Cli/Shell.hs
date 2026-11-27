@@ -748,7 +748,7 @@ ledRun slot = do
 handsBackNow :: Steps -> Stamp -> Loaded -> Bool
 handsBackNow steps stamp run = handsBack (deliver settled.state.start advice.action)
   where
-    (_, settled, _, _, advice) = settledAdvice steps (Facts Nothing Nothing []) [] stamp run
+    (_, settled, _, advice) = settledAdvice steps (Facts Nothing Nothing []) stamp run
 
 {- | The worker's spawn, appended to its spawner's log under that run's lock
 by an id hashed from the run and the worker, so a bind seen twice appends it
@@ -913,7 +913,7 @@ runAnswer steps call bound found want = case want of
                     (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
                 )
             Right (restart, after) ->
-                let (new, _, out) = adviceOf steps facts told [] Nothing stamp after
+                let (new, _, out) = adviceOf steps facts told Nothing stamp after
                  in ( map (.envelope) restart <> new
                     , recordedLines restart <> showRun steps after.g after.state <> out.text
                     )
@@ -933,7 +933,7 @@ runAnswer steps call bound found want = case want of
                     , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
                     )
                 Right (opened, after) ->
-                    let (new, action, out) = adviceOf steps facts told [] Nothing stamp after
+                    let (new, action, out) = adviceOf steps facts told Nothing stamp after
                         warning = case (action, spawned) of
                             (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
                             _ -> Nothing
@@ -1081,13 +1081,13 @@ execute steps = \case
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
         top <- either (const Nothing) Just <$> Git.toplevel
-        again <- rereadable
+        -- Next reads no registered file: what it decides comes from the fold.
         orNoRun
             <$> handingBack
                 steps
                 ( \stamp run ->
-                    let (new, _, out) = adviceOf steps facts told again top stamp run
-                     in withBlobs (readBytes again) (new, Right out)
+                    let (new, _, out) = adviceOf steps facts told top stamp run
+                     in (eventsOnly new, Right out)
                 )
     HandbackOf role child -> do
         input <- Console.readStdin
@@ -1106,31 +1106,30 @@ execute steps = \case
                                 run
                                 (handbackPlan steps stamp.head run.g run.state role Nothing child message)
                         )
-    OnRun command ->
+    OnRun command -> do
         -- Read before the lock, as GitHub is: the file the command names, and the run's files.
-        readNamed (fileOf command) >>= \case
-            Left failure -> pure (Left failure)
-            Right file -> do
-                again <- rereadable
-                handingBack
-                    steps
-                    ( \stamp run ->
-                        ending
-                            again
-                            (map snd (toList file))
-                            stamp
-                            run
-                            (planOf steps stamp.head file run.g run.state command)
-                    )
-                    <&> \case
-                        -- With no run, nothing says where the run is: every event is named.
-                        NoRun | RecordUnknown name <- command -> Left (anyEvent name)
-                        NoRun -> Left noRun
-                        Ran result -> result
+        file <- traverse readAt (fileOf command)
+        again <- rereadable
+        handingBack
+            steps
+            ( \stamp run ->
+                ending
+                    again
+                    (readBytes (toList file))
+                    stamp
+                    run
+                    (planOf steps stamp.head file run.g run.state command)
+            )
+            <&> \case
+                -- With no run, nothing says where the run is: every event is named.
+                NoRun | RecordUnknown name <- command -> Left (anyEvent name)
+                NoRun -> Left noRun
+                Ran result -> result
   where
     fileOf = \case
         Record recording -> case recording of
             FromFile _ path _ -> Just path
+            NamesFile _ path _ -> Just path
             Plain _ -> Nothing
             AtHead _ -> Nothing
         RecordUnknown _ -> Nothing
@@ -1306,9 +1305,9 @@ resnapshotOf run again =
             , (snd <$> Map.lookup file.ref.path latest) == Just file
             ]
 
--- | The bytes of the files read again.
-readBytes :: [(FileArtifact, Contents)] -> [ByteString]
-readBytes again = [bytes | (_, Readable bytes) <- again]
+-- | The bytes of the files read that could be read.
+readBytes :: [(a, Contents)] -> [ByteString]
+readBytes files = [bytes | (_, Readable bytes) <- files]
 
 {- | 'record' with the blobs of the files it registers, its plan
 'resnapshotting' first, from the files read before the lock.
@@ -1332,7 +1331,9 @@ ending again bytesRead stamp run plan =
 {- | The events a command writes, the run's changed files registered again
 ahead of them when they hand the run over or end it, as it leaves its flow
 or stops (R8); and the lines naming the files skipped. 'ArtifactLogged'
-moves no run, so whether the events end it does not depend on them.
+moves no run, so whether the events end it does not depend on them. Only
+the writes an agent asks for run it: @state next@, a hook and 'handedUp'
+read no file, so a flow they end re-snapshots none (a known gap).
 -}
 resnapshotting ::
     Stamp -> [(FileArtifact, Contents)] -> Loaded -> [Event] -> ([Event], Text)
@@ -1559,17 +1560,18 @@ nextLine = "next: state next\n"
 planOf ::
     Steps ->
     Maybe Sha ->
-    Maybe (AbsPath, ByteString) ->
+    Maybe (AbsPath, Contents) ->
     OpenGraph ->
     RunState ->
     RunCommand ->
     Either Failure Plan
 planOf steps worktreeHead file g state = \case
     Record recording -> do
-        text <- traverse utf8 file
+        (registered, unread, text) <- fileRead recording file
         event <- recordedEvent g state worktreeHead text recording
         -- The file registered first, then the outcome that names it.
-        Right (Plan (registering recording <> [event]) (const recorded))
+        Right
+            (Plan (registered <> [event]) (\_ written -> printed unread <> recorded written))
     NoteOn topic text ->
         Right
             ( Plan
@@ -1726,17 +1728,43 @@ planOf steps worktreeHead file g state = \case
                 <> kindName kind
                 <> " <question>, without --to: the run answers it"
             )
+
+{- | What a recording takes from the file it names, read before the lock:
+the artifact it registers, the line naming a file it may not read, and the
+text its event is parsed from. A file the event is parsed from must be read;
+one the event only names is registered when it can be, and refuses nothing.
+-}
+fileRead ::
+    Recording ->
+    Maybe (AbsPath, Contents) ->
+    Either Failure ([Event], Text, Maybe Text)
+fileRead recording file = case recording of
+    FromFile kind _ _ -> do
+        found <- traverse readable file
+        text <- traverse utf8 found
+        Right (registering kind found, "", text)
+    NamesFile kind _ _ -> case file of
+        Just (path, Unreadable) ->
+            Right
+                ( []
+                , "file_unreadable "
+                    <> pathText path
+                    <> ": gone or unreadable, no artifact logged\n"
+                , Nothing
+                )
+        Just (path, Readable bytes) -> Right (registering kind (Just (path, bytes)), "", Nothing)
+        Nothing -> Right ([], "", Nothing)
+    Plain _ -> Right ([], "", Nothing)
+    AtHead _ -> Right ([], "", Nothing)
+  where
     utf8 (path, bytes) =
         Bifunctor.first
             (const (Failure BadInput (pathText path) "it is not UTF-8 text" "fix the file"))
             (decodeUtf8' bytes)
-    registering = \case
-        FromFile kind _ _ ->
-            [ ArtifactLogged (File (register kind path bytes).file) Nothing
-            | (path, bytes) <- toList file
-            ]
-        Plain _ -> []
-        AtHead _ -> []
+    registering kind found =
+        [ ArtifactLogged (File (register kind path bytes).file) Nothing
+        | (path, bytes) <- toList found
+        ]
 
 -- | The events of an answer: forwarded first if still in triage, so one command takes it from triage to closed.
 answerEvents ::
@@ -1805,6 +1833,7 @@ namedEvent worktreeHead file = \case
         Just (Right event) -> Right event
         Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
         Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
+    NamesFile _ _ event -> Right event
 
 {- | A worker's hand-back as the run records it. One with no kind on its
 question, or a worker's BLOCKED or FAILED, is the run's to triage.
@@ -1865,16 +1894,15 @@ adviceOf ::
     Steps ->
     Facts ->
     [Text] ->
-    [(FileArtifact, Contents)] ->
     Maybe FilePath ->
     Stamp ->
     Loaded ->
     ([Envelope], Action, Output)
-adviceOf steps facts told again top stamp run = (map (.envelope) new, advice.action, out)
+adviceOf steps facts told top stamp run = (map (.envelope) new, advice.action, out)
   where
-    (new, settled, unsynced, skipped, advice) = settledAdvice steps facts again stamp run
+    (new, settled, unsynced, advice) = settledAdvice steps facts stamp run
     out =
-        printed (skipped <> recordedLines new)
+        printed (recordedLines new)
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( parentRuns top settled.state.start advice
@@ -1914,47 +1942,36 @@ parentRuns top start advice =
         ]
 
 {- | The run once what GitHub and its Fuel already decide is recorded ('due'):
-the lines written, the run, what was due but refused (told, not stored), the
-lines naming the files skipped where a due outcome ends the run
-('resnapshotting' the files read before the lock), and the advice there.
+the lines written, the run, what was due but refused (told, not stored), and
+the advice there. It reads only the fold: a due outcome that ends the run
+re-snapshots no file (a known gap).
 -}
 settledAdvice ::
-    Steps ->
-    Facts ->
-    [(FileArtifact, Contents)] ->
-    Stamp ->
-    Loaded ->
-    ([Written], Loaded, [Text], Text, Advice)
-settledAdvice steps facts again stamp run =
+    Steps -> Facts -> Stamp -> Loaded -> ([Written], Loaded, [Text], Advice)
+settledAdvice steps facts stamp run =
     ( new
     , settled
     , unsynced
-    , skipped
     , Advice.heldBy
         settled.state.start
         settled.state.workers
         (advise steps settled.g facts settled.state)
     )
   where
-    (new, settled, unsynced, skipped) = settle run
+    (new, settled, unsynced) = settle run
     settle current = case due facts current.state of
-        Nothing -> ([], current, [], "")
-        Just event ->
-            let (events, skippedNow) = resnapshotting stamp again current [event]
-             in case commit stamp current (map (Cli,) events) of
-                    -- Nobody asked for it, so it is told and not stored.
-                    Left refusal ->
-                        ( []
-                        , current
-                        ,
-                            [ "PR sync refused: "
-                                <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why
-                            ]
-                        , ""
-                        )
-                    Right (lines', after) ->
-                        let (more, final, notes, later) = settle after
-                         in (lines' <> more, final, notes, skippedNow <> later)
+        Nothing -> ([], current, [])
+        Just event -> case commit stamp current [(Cli, event)] of
+            -- Nobody asked for it, so it is told and not stored.
+            Left refusal ->
+                ( []
+                , current
+                ,
+                    [ "PR sync refused: "
+                        <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why
+                    ]
+                )
+            Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
 
 -- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
 delivered :: RunState -> Text -> Output
