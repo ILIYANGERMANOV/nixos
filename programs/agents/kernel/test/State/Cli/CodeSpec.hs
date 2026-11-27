@@ -115,6 +115,7 @@ samples =
         , FanRefused (Fan.NotARound task)
         , FanRefused (Fan.NotItsRound task (Url "https://github.com/o/r/pull/7"))
         , FanRefused (Fan.TaskExists task)
+        , FanRefused (Fan.TaskMerged task (Url "https://github.com/o/r/pull/7"))
         , NotAtFan
         , NotOneHolder task [TaskNo 1, TaskNo 2]
         , NotVoidable 4

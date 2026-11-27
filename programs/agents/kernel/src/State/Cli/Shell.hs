@@ -1381,6 +1381,7 @@ execute steps = \case
             HeadOf _ _ -> Nothing
             OnTasks _ _ -> Nothing
             NeedDone _ _ -> Nothing
+            MovesTask _ _ -> Nothing
         RecordUnknown _ -> Nothing
         Brief _ _ -> Nothing
         ShowRun -> Nothing
@@ -2044,6 +2045,7 @@ recordedAs recording written = case recording of
     AddsTask _ _ -> recorded written
     OnTasks _ _ -> recorded written
     NeedDone _ _ -> recorded written
+    MovesTask _ _ -> recorded written
 
 -- | What every write that prints no advice of its own says to run next.
 nextLine :: Text
@@ -2282,6 +2284,7 @@ fileRead recording file = case recording of
     HeadOf _ _ -> Right ([], "", Nothing)
     OnTasks _ _ -> Right ([], "", Nothing)
     NeedDone _ _ -> Right ([], "", Nothing)
+    MovesTask _ _ -> Right ([], "", Nothing)
   where
     parsedFrom kind = do
         found <- traverse readable file
@@ -2392,10 +2395,13 @@ namedEvent g state worktreeHead file n = \case
     OnTasks ids event -> event <$> traverse taskRef ids
     -- Never met: the shell appends a need's done in the need's own run first ('closeNeed').
     NeedDone ref note -> Right (UserNeededDone ref.seq note)
+    MovesTask task moved ->
+        onTask task (`TaskMoved` moved) <* refusedAs (Fold.movable state task moved)
   where
     onTask task event = event <$> taskRef task
-    taskRef =
-        Bifunctor.first (explain g (Fold.fuelOf state) state.at) . Fold.taskRefIn state
+    taskRef = refusedAs . Fold.taskRefIn state
+    refusedAs :: Either Fold.Refusal a -> Either Failure a
+    refusedAs = Bifunctor.first (explain g (Fold.fuelOf state) state.at)
     parsed :: FilePath -> (Text -> Either Text a) -> Either Failure a
     parsed path parse = case parse <$> file of
         Just (Right event) -> Right event

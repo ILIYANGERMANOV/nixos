@@ -32,6 +32,7 @@ module State.Run.Fan (
     triaged,
     handedBack,
     moved,
+    movable,
     held,
     actedOn,
     leave,
@@ -173,6 +174,8 @@ data Refusal
       NotItsRound TaskId Url
     | -- | A task added under an id the fan-out has already.
       TaskExists TaskId
+    | -- | The task merged already, by this PR: it moves no more.
+      TaskMerged TaskId Url
     deriving stock (Eq, Show)
 
 emptyFan :: Fan
@@ -406,6 +409,23 @@ moved task state fan = case Map.lookup task fan.moves of
         Merged _ -> after
         Kept _ -> after
         Delivered _ -> after
+
+{- | A move recorded now: refused once its task merged, as 'moved' ignores
+it. The same merge again succeeds: its goal holds. Checked at record time
+only, so a log holding a later move still replays.
+-}
+movable :: TaskId -> TaskState -> Fan -> Either Refusal ()
+movable task state fan = case Map.lookup task fan.moves of
+    Just (Merged url)
+        | state == Merged url -> Right ()
+        | otherwise -> Left (TaskMerged task url)
+    Just (Kept _) -> Right ()
+    Just (Parked _ _) -> Right ()
+    Just (Round _) -> Right ()
+    Just (InReview _) -> Right ()
+    Just (InCi _) -> Right ()
+    Just (Delivered _) -> Right ()
+    Nothing -> Right ()
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan

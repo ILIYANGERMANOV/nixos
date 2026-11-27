@@ -140,6 +140,10 @@ data Recording
       the run that logged it, under that run's lock.
       -}
       NeedDone EventRef (Maybe NonBlank)
+    | {- | The task's PR moves to this state, refused before it appends once
+      the task merged ('State.Run.Fold.movable').
+      -}
+      MovesTask TaskId TaskState
 
 {- | The @state record@ line for an event, its arguments' usage after it. An
 event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
@@ -494,7 +498,7 @@ recordables =
             _ -> Left "the tasks file, as --tasks <file.json>"
     stay name usageText build = named name usageText (fmap Plain . build)
     named name usageText build = atRoot (Recordable name usageText [] (build . (.positional)))
-    moving task = OnTask (TaskId task) . flip TaskMoved
+    moving task = MovesTask (TaskId task)
     prStateNames = Text.intercalate "|" (map fst Codec.prStates)
     outcome event = Recordable (eventText event)
     nothing done = outcome (Catalog.outcomeEvent (Catalog.outcome done)) "" [] $ \a -> case a.positional of

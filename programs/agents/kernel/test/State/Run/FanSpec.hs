@@ -285,6 +285,24 @@ spec = describe "State.Run.Fan" $ do
         let merged' = applied [moved t1 (Merged (Url "pr"))]
         (merged' >>= moved t1 later) === merged'
 
+    it "refuses a merged task's later move at record time, but the same merge again" $
+        map
+            (\later -> applied [moved t1 (Merged (Url "pr"))] >>= movable t1 later)
+            [Merged (Url "pr"), Merged (Url "other"), InReview (Url "pr"), Parked "wrong task" Nothing]
+            `shouldBe` Right ()
+            : replicate 3 (Left (TaskMerged t1 (Url "pr")))
+
+    it "takes_any_move_of_a_task_not_merged_at_record_time" . hedgehog $ do
+        -- A move taken that leaves the task unmerged.
+        before <-
+            forAll
+                ( Gen.filter
+                    (either (const False) (not . (`merged` t1)) . applied . pure . moved t1)
+                    genTaskState
+                )
+        later <- forAll genTaskState
+        (applied [moved t1 before] >>= movable t1 later) === Right ()
+
     it "awaits the merge of a dependency in review" $
         mergesAwaited <$> moved t1 (InReview (Url "pr")) twoTasks `shouldBe` Right [t1]
 

@@ -73,6 +73,7 @@ import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, choices, parseByName)
 import State.Category.Graph (
     Cap (..),
+    Edge,
     Node (..),
     OpenGraph (..),
     Place (..),
@@ -80,6 +81,7 @@ import State.Category.Graph (
     places,
  )
 import State.Category.Meter (someMeterName)
+import State.Category.Path (unrecorded)
 import State.Category.Step (
     EventName (..),
     eventText,
@@ -1320,7 +1322,10 @@ explain g fuel at = \case
             refused
                 ("an agent for task " <> Codec.taskIdText task)
                 "one works on it already, until its child hands back"
-                "state next"
+                ( "state next, until it hands back | its child died: state stop failed <why> in the child's worktree, then state retry "
+                    <> Codec.taskIdText task
+                    <> " --why <w>"
+                )
         Fan.StopUntriaged child ->
             refused
                 ("a retry of child " <> runIdText child)
@@ -1337,7 +1342,7 @@ explain g fuel at = \case
                 ( "an agent is at work on tasks: "
                     <> Text.unwords (map Codec.taskIdText (toList tasks))
                 )
-                "state next"
+                "state override engineers <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r>"
         Fan.Unmerged tasks ->
             refused
                 "the round's end"
@@ -1364,6 +1369,16 @@ explain g fuel at = \case
                 ("task " <> Codec.taskIdText task)
                 "the fan-out has a task of that id already"
                 "state show"
+        Fan.TaskMerged task url ->
+            refused
+                "task_merged"
+                ( "task "
+                    <> Codec.taskIdText task
+                    <> " merged already by "
+                    <> Codec.urlText url
+                    <> ": a merged task moves no more"
+                )
+                "state void <the seq of its merged line> <why>, if that merge was recorded on the wrong task"
     NotAtFan ->
         refused
             "the child's or task's event"
@@ -1479,9 +1494,10 @@ explain g fuel at = \case
   where
     refused = Failure BadInput
     records = atPlace $ \place -> case [ recordCommand event
-                                       | (event, _) <- shownEdges g place
+                                       | (event, edge) <- shownEdges g place
                                        , fuelTakes fuel place.name event
                                        , event.outcome /= handedBackOutcome
+                                       , recordable g place edge
                                        ] of
         [] -> "state show"
         commands -> Text.intercalate " | " commands
@@ -1540,6 +1556,7 @@ refusalCode =
                 Fan.NotARound {} -> "not_a_round"
                 Fan.NotItsRound {} -> "not_its_round"
                 Fan.TaskExists {} -> "task_exists"
+                Fan.TaskMerged {} -> "task_merged"
             NotAtFan -> "not_at_fan"
             NotOneHolder {} -> "not_one_holder"
             NotVoidable {} -> "not_voidable"
@@ -1604,15 +1621,26 @@ unknownEvent g state name = case Fold.forkingAt g state of
             <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
         At place ->
-            [ (eventText event, recordCommand event)
-            | (event, _) <- shownEdges g place
+            [ (eventText event, commandOf event)
+            | (event, edge) <- shownEdges g place
             , fuelTakes (Fold.fuelOf state) place.name event
+            , recordable g place edge
             ]
         Out -> []
         Exit -> []
+    -- A hand-back is piped in, never recorded by name.
+    commandOf event
+        | event.outcome == handedBackOutcome = "state handback <role>"
+        | otherwise = recordCommand event
     listed = \case
         [] -> "none"
         names -> Text.intercalate ", " names
+
+{- | An edge a command records: not the one a state goes on by with no
+event ('unrecorded'), such as an await's done once every child handed back.
+-}
+recordable :: OpenGraph -> Place -> Edge Node -> Bool
+recordable g place edge = Just edge /= unrecorded g place
 
 -- | An event the grammar lacks, with no run to say where it is: every event, and the help.
 anyEvent :: Text -> Failure
@@ -1654,7 +1682,9 @@ retryOf state task = case ( Fan.lookupTask fan task
                     (tshow (Fan.tries fan task) <> " children tried it, its one retry is spent")
                     ( "state ask --kind Stuck --from "
                         <> runIdText child.run
-                        <> " <question> | state record task "
+                        <> " <question>, then state rule <qid> --answer <a> --why <w> --cost <c>, then state record spawning "
+                        <> Codec.taskIdText task
+                        <> " | state record task "
                         <> Codec.taskIdText task
                         <> " parked <why>"
                     )

@@ -32,6 +32,7 @@ module State.Run.Fold (
     Holder (..),
     taskHolder,
     taskRefIn,
+    movable,
     childRefIn,
     addedTo,
     Round (..),
@@ -1086,6 +1087,16 @@ taskRefIn :: RunState -> TaskId -> Either Refusal TaskRef
 taskRefIn state task = do
     holder <- Bifunctor.first (NotOneHolder task) (taskHolder state task)
     Bifunctor.first FanRefused (Fan.taskRef (fanIn state.fans holder.fan) task)
+
+{- | A move of this task recorded now, by the one request's fan-out that
+holds it ('Fan.movable'): refused once the task merged. Never in the fold,
+so a log holding such a move still replays. A task no one request holds is
+refused by 'taskRefIn' first.
+-}
+movable :: RunState -> TaskId -> TaskState -> Either Refusal ()
+movable state task moved = case taskHolder state task of
+    Right holder -> Bifunctor.first FanRefused (Fan.movable task moved (fanIn state.fans holder.fan))
+    Left _ -> Right ()
 
 -- | The task the child of this run id took, as its @spawned@ names it: none for an untasked or unknown child.
 childRefIn :: RunState -> RunId -> Maybe TaskRef
