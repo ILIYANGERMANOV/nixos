@@ -27,20 +27,21 @@ module State.Protocol.Handback (
 import Control.Applicative ((<|>))
 import Data.Bifunctor qualified as Bifunctor
 import Data.List (genericLength)
-import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath)
 import State.Category.Fuel (Area, parseByName)
-import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..))
+import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..), placeName)
 import State.Category.Step (
     Outcome,
     Sing,
     SomeStep (..),
     StateName (..),
     StepSet,
+    stateNameText,
     stepName,
  )
 import State.Role (leads)
@@ -69,7 +70,7 @@ import State.Run.Event (
     Asker (..),
     Asking (..),
     Commit (..),
-    Event (Asked, HandedBack, TaskMoved),
+    Event (Asked, Gapped, HandedBack, TaskMoved),
     RunId,
     Said (..),
     Sha (..),
@@ -86,6 +87,7 @@ import State.Run.Event (
  )
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
+import State.Run.Gap (GapArea (..), GapLine, gapLineText, lineGap, parseGapLine)
 import State.Run.Fold (
     RunState (..),
     ScopedFan (..),
@@ -121,6 +123,8 @@ data Handback = Handback
     {- ^ 'Nothing' when no @Touches:@ line came: 'typeHandback' reads it as
     every area from an implementer and none from a fixer, the safe default.
     -}
+    , gaps :: [GapLine]
+    -- ^ Every @Gap:@ line, in order: unlike the other trailers, each one counts.
     }
     deriving stock (Eq, Show)
 
@@ -184,16 +188,18 @@ parseHandback message = do
     reviewedHead <- traverse (sha "Reviewed head:") (trailer "Reviewed head:")
     simplified <- traverse (sha "Simplified:") (trailer "Simplified:")
     touches <- traverse parseTouches (trailer "Touches:")
-    Right Handback {token, run, reviewedHead, simplified, touches}
+    let gaps = mapMaybe parseGapLine (values "Gap:")
+    Right Handback {token, run, reviewedHead, simplified, touches, gaps}
   where
     (first, rest) = case Text.lines message of
         [] -> ("", [])
         -- An agent may paste the line as @state next@ delivered it.
         top : below -> (fromMaybe top (Text.stripPrefix "HANDBACK " top), below)
+    values prefix = [value | line <- rest, Just value <- [Text.stripPrefix prefix line]]
     -- The last such line wins, as a re-review's report repeats its head.
-    trailer prefix = case [value | line <- rest, Just value <- [Text.stripPrefix prefix line]] of
+    trailer prefix = case values prefix of
         [] -> Nothing
-        values -> Just (last values)
+        found -> Just (last found)
     sha label raw = case Text.strip raw of
         "" -> Left (Why (label <> " names no sha"))
         named -> Right (Sha named)
@@ -270,6 +276,7 @@ renderHandback handback =
                 , ("Simplified: " <>) . shaText <$> handback.simplified
                 , ("Touches: " <>) . touchesText <$> handback.touches
                 ]
+            <> map (("Gap: " <>) . gapLineText) handback.gaps
 
 -- | Line 1 of a hand-back.
 tokenLine :: Token -> Text
@@ -322,17 +329,28 @@ typeHandback ::
     Maybe AgentId ->
     Handback ->
     Either Refusal Typed
-typeHandback steps g state worktreeHead next agent agentId handback = case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]]
-    <> [ ScopedFan place.scope fan
-       | Just _ <- [leads agent]
-       , At place <- [state.at]
-       , Just fan <- [Fan.fanNamed place.name]
-       ] of
-    here : _ -> fromChild state (fanIn state.fans here) handback
-    [] ->
-        ( \typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}
-        )
-            <$> fromWorker steps g state worktreeHead next agent handback
+typeHandback steps g state worktreeHead next agent agentId handback =
+    (\typed -> typed {events = typed.events <> gaps}) <$> case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]]
+        <> [ ScopedFan place.scope fan
+           | Just _ <- [leads agent]
+           , At place <- [state.at]
+           , Just fan <- [Fan.fanNamed place.name]
+           ] of
+        here : _ -> fromChild state (fanIn state.fans here) handback
+        [] ->
+            ( \typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}
+            )
+                <$> fromWorker steps g state worktreeHead next agent handback
+  where
+    -- Last, so a question's line keeps the qid counted for it.
+    gaps =
+        map
+            ( Gapped
+                . lineGap
+                    (GapArea (stateNameText (maybe (askedAt state) (placeName . fst) (stepHere steps g state agent))))
+                    agent
+            )
+            handback.gaps
 
 {- | A direct child's hand-back, wherever this run is: only a question is
 this run's, which joins its pending to rule on or forward up. The rest
@@ -400,6 +418,26 @@ fromChild state fan handback = case handback.run of
                     <$> Bifunctor.first Why (oneLine (tokenLine token))
             Nothing -> Left (Why ("line 1 is no stop: " <> tokenLine token))
 
+{- | The step a worker's hand-back closes: the one forked, as a worker of a
+group hands back wherever the run is, before its bind too (structured
+concurrency); else the step here.
+-}
+stepHere :: Steps -> OpenGraph -> RunState -> AgentRole -> Maybe (Place, AnyStep)
+stepHere steps g state agent =
+    forkedStep steps g state agent
+        <|> listToMaybe
+            [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]]
+
+-- | The step forked that this role runs, if a group's worker of it hands back.
+forkedStep :: Steps -> OpenGraph -> RunState -> AgentRole -> Maybe (Place, AnyStep)
+forkedStep steps g state agent =
+    listToMaybe
+        [ (metered.place, step)
+        | metered <- forks g state
+        , step@(AnyStep _ (SomeStep s)) <- stepsRunBy steps agent
+        , stepName s == metered.step
+        ]
+
 {- | How a step's worker hands back: a report in its own shape, which needs
 no token (a reviewer's table, a refine pass's findings), or a token line.
 -}
@@ -438,21 +476,7 @@ fromWorker steps g state worktreeHead next agent handback = case handback.token 
     -- The question's line comes after the done prefix: its qid is that line's id.
     stuckQId = case next of
         QId run n -> QId run (n + genericLength donePrefix)
-    forked = isJust openFork
-    {- A worker of a group hands back wherever the run is, before its bind
-    too (structured concurrency): its step is the one forked. Else the step here.
-    -}
-    openFork =
-        listToMaybe
-            [ (metered.place, step)
-            | metered <- forks g state
-            , step@(AnyStep _ (SomeStep s)) <- stepsRunBy steps agent
-            , stepName s == metered.step
-            ]
-    stepHere =
-        openFork
-            <|> listToMaybe
-                [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]]
+    forked = isJust (forkedStep steps g state agent)
     -- Logged, so @state next@ advises the triage until the run asks it.
     triage token =
         (\line -> Typed [Event.WorkerHandedBack agent line] (Just line))
@@ -461,7 +485,7 @@ fromWorker steps g state worktreeHead next agent handback = case handback.token 
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
         (place, step@(AnyStep _ (SomeStep s))) <-
-            maybe (Left (Why "the run is at no step a subagent runs")) Right stepHere
+            maybe (Left (Why "the run is at no step a subagent runs")) Right (stepHere steps g state agent)
         let StateName label = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of

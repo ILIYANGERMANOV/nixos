@@ -13,6 +13,9 @@ module State.Run.EventGen (
     genReply,
     genText,
     genOneLine,
+    genGap,
+    genGapMove,
+    bareGap,
     genTasks,
     genTaskAt,
     genTaskId,
@@ -84,7 +87,17 @@ import State.Run.Ask (
     parseOneLine,
  )
 import State.Run.Event
-import State.Run.Id (breaksLine, parseEventId)
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapArea (..),
+    GapMove (..),
+    draft,
+    filed,
+    parseGapText,
+ )
+import State.Run.Id (EventRef (..), breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
@@ -115,7 +128,7 @@ genEvent =
         [ Started <$> genStart
         , Targeted <$> genTarget
         , Extended <$> genText
-        , Gapped <$> genText
+        , Gapped <$> genGap
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
@@ -163,6 +176,35 @@ genEvent =
                     <*> genText
                     <*> Gen.maybe genText
                 )
+        , GapMoved <$> genIJsonNatural <*> genGapMove
+        ]
+
+-- | Any gap: its evidence of both kinds, none to a few.
+genGap :: Gen Gap
+genGap =
+    Gap
+        <$> Gen.enumBounded
+        <*> Gen.enumBounded
+        <*> (GapArea <$> genText)
+        <*> Gen.mapMaybe parseGapText genText
+        <*> (AgentRole <$> genText)
+        <*> Gen.list (Range.linear 0 3) genEvidence
+
+genEvidence :: Gen Evidence
+genEvidence =
+    Gen.choice [OfEvent <$> (EventRef <$> genRunId <*> genIJsonNatural), OfUrl <$> genUri]
+
+-- | A gap with this text and the defaults, met at plan by the engineer.
+bareGap :: Text -> Gap
+bareGap = filed (GapArea "plan") (AgentRole "engineer") . draft . oneLine
+
+-- | Any status event's move: a fix proposed, fixed or not to be fixed.
+genGapMove :: Gen GapMove
+genGapMove =
+    Gen.choice
+        [ Propose <$> genUri
+        , Close . Fixed <$> genUri
+        , Close . WontFix <$> genOneLine
         ]
 
 -- | A file artifact of any kind, or a URL's: its location's kinds only.

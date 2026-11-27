@@ -22,8 +22,10 @@ import State.Run.Event (
     TaskId (..),
     TaskNo (..),
  )
-import State.Run.EventGen (absolutePath, runId)
+import State.Run.EventGen (absolutePath, oneLine, runId)
 import State.Run.Fan qualified as Fan
+import State.Run.Gap qualified as Gap
+import State.Run.Id (EventRef (..))
 import State.Run.Fold (Refusal (..))
 import State.Run.RunGen (g)
 import State.Step.Artifact (Url (..))
@@ -65,7 +67,7 @@ without a sample here goes unchecked for a distinct code: the no-@_@ case of
 samples :: [CommandRefusal]
 samples =
     map FoldRefused folds
-        <> [FileUnreadable (absolutePath "/work/gone.md"), UnknownEvent run 9]
+        <> [FileUnreadable (absolutePath "/work/gone.md"), UnknownEvent (EventRef run 9)]
   where
     folds =
         [ NotStarted
@@ -112,6 +114,8 @@ samples =
         , NotInFocus (TaskNo 1)
         , NotSuspended (TaskNo 1)
         , FocusRecorded (TaskNo 1)
+        , UnknownGap 5
+        , GapClosed 5 (Gap.WontFix (oneLine "out of scope"))
         ]
     cap = case Map.elems g.caps of
         first : _ -> first

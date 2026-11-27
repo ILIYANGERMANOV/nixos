@@ -93,6 +93,7 @@ import State.Category.Effect (Waiting (..))
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
+import State.Run.Gap (Gap, GapMove)
 import State.Run.Ask (
     Above,
     ChildTask (..),
@@ -187,7 +188,7 @@ data Event
     | {- | A gap the lead saw in the flow or its tools, logged in place of a
       loose notes file: it moves nothing.
       -}
-      Gapped Text
+      Gapped Gap
     | {- | A step's outcome, or a mode's skip, inside the scopes its step sits
       in: the one event that moves the run. 'tookEvent' is its name on the wire.
       -}
@@ -278,6 +279,10 @@ data Event
       HandedOver Handover
     | -- | A harness session started on the run (written by the session-start hook).
       SessionStarted Session
+    | {- | The gap logged at this seq of the run moves on: a fix proposed, or
+      closed. Taken whatever state the run is in, a finished one too.
+      -}
+      GapMoved Natural GapMove
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.

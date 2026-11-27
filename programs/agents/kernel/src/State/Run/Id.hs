@@ -12,6 +12,9 @@ module State.Run.Id (
     runIdText,
     numberedText,
     parseNumbered,
+    EventRef (..),
+    eventRefText,
+    parseEventRef,
     EventId (..),
     eventIdText,
     parseEventId,
@@ -83,6 +86,18 @@ parseNumbered raw = case Text.breakOn ":" raw of
         Right (n, "") -> Just n
         Right _ -> Nothing
         Left _ -> Nothing
+
+{- | A line of any run, by its run and its seq: @<run>:<seq>@, the form
+a CLI record's id takes, as a gap and its evidence name a line.
+-}
+data EventRef = EventRef {run :: RunId, seq :: Natural}
+    deriving stock (Eq, Show)
+
+eventRefText :: EventRef -> Text
+eventRefText ref = numberedText ref.run ref.seq
+
+parseEventRef :: Text -> Maybe EventRef
+parseEventRef = fmap (uncurry EventRef) . parseNumbered
 
 -- | What makes an append idempotent: an id already in the log is not appended again.
 data EventId = Numbered RunId Natural | Hashed Digest

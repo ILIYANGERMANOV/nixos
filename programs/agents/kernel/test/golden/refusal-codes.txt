@@ -42,5 +42,7 @@ no_focus
 not_in_focus
 not_suspended
 focus_recorded
+unknown_gap
+gap_closed
 file_unreadable
 unknown_event

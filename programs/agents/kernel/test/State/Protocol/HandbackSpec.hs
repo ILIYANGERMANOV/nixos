@@ -12,7 +12,8 @@ import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Category.Fuel (Area (..), Fuel (Balanced))
 import State.Protocol.Handback
-import State.Run.Ask (Kind (..), QId (..), Question (..))
+import State.Run.Ask (Kind (..), QId (..), Question (..), oneLineText)
+import State.Run.Gap (GapLine (..))
 import State.Run.Event (
     AgentId (..),
     AgentRole (..),
@@ -365,7 +366,7 @@ parsed :: Text -> Handback
 parsed = either (error . Text.unpack . refusalText) id . parseHandback
 
 blank :: Maybe Token -> Handback
-blank token = Handback token Nothing Nothing Nothing Nothing
+blank token = Handback token Nothing Nothing Nothing Nothing []
 
 genHandback :: Gen Handback
 genHandback =
@@ -375,6 +376,17 @@ genHandback =
         <*> Gen.maybe genSha
         <*> Gen.maybe genSha
         <*> Gen.maybe (Set.fromList <$> Gen.subsequence [minBound .. maxBound])
+        <*> Gen.list (Range.linear 0 3) genGapLine
+
+-- | A @Gap:@ line of either form: a malformed one's first word is no gap kind.
+genGapLine :: Gen GapLine
+genGapLine =
+    Gen.choice
+        [ WellFormed <$> Gen.enumBounded <*> Gen.enumBounded <*> words'
+        , Malformed . oneLine . ("about " <>) . oneLineText <$> words'
+        ]
+  where
+    words' = oneLine . Text.unwords <$> Gen.list (Range.linear 1 4) (Gen.text (Range.linear 1 8) Gen.alphaNum)
 
 genToken :: Gen Token
 genToken =

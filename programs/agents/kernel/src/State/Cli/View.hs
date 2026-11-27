@@ -22,6 +22,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime)
+import Numeric.Natural (Natural)
+import State.Artifact (uriText)
 import State.Category.Flow (qualifyEvent)
 import State.Category.Fuel (fuelLabel)
 import State.Category.Graph (Edge (..), Node (..), OpenGraph (..), Place (..))
@@ -92,6 +94,17 @@ import State.Run.Event (
     taskNoText,
  )
 import State.Run.Fan (Fan (..), tries)
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapArea (..),
+    GapStatus (..),
+    Tracked (..),
+    gapKindText,
+    severityText,
+ )
+import State.Run.Id (eventRefText)
 import State.Run.Fold (
     Answer (..),
     Holder (..),
@@ -127,13 +140,44 @@ showRun steps g state =
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
             <> section "answered:" (map answerLine state.answers)
-            <> section "gaps:" [tshow n <> " " <> gap | (n, gap) <- state.gaps]
+            <> section "gaps:" [gapShown n tracked | (n, tracked) <- state.gaps]
             <> section "hooks:" (hookLines steps g)
   where
     linkLine = \case
         InFan (Tasked task) -> ["task: " <> taskIdText task]
         InFan Untasked -> ["untasked: the parent handed on its request whole"]
         Direct -> []
+
+{- | A gap by its seq, typed, with where it was met, who saw it, its
+evidence and where its fix stands.
+-}
+gapShown :: Natural -> Tracked -> Text
+gapShown n tracked =
+    Text.unwords
+        [ tshow n
+        , gapKindText gap.kind
+        , severityText gap.severity
+        , "\"" <> oneLineText gap.text <> "\""
+        ]
+        <> " (area "
+        <> gap.area.areaText
+        <> ", by "
+        <> roleText gap.reporter
+        <> foldMap (", evidence " <>) (nonEmptyWords (map evidenceText gap.evidence))
+        <> "): "
+        <> case tracked.status of
+            Open -> "open"
+            FixProposed pr -> "fix proposed " <> uriText pr
+            Closed (Fixed pr) -> "fixed " <> uriText pr
+            Closed (WontFix why) -> "won't fix: " <> oneLineText why
+  where
+    gap = tracked.gap
+    nonEmptyWords = \case
+        [] -> Nothing
+        evidence -> Just (Text.unwords evidence)
+    evidenceText = \case
+        OfEvent ref -> eventRefText ref
+        OfUrl uri -> uriText uri
 
 -- | A titled section, its items indented under it; none when it has no items.
 section :: Text -> [Text] -> [Text]

@@ -96,7 +96,9 @@ stateCalls steps cwd command =
         Tasks -> True
         -- It names its run and writes nothing, whatever directory it runs in.
         Dump _ -> False
-        ShowArtifact _ _ -> False
+        ShowArtifact _ -> False
+        -- It names the gap's run, whatever directory it runs in.
+        MoveGap _ _ -> False
         HandOver _ -> True
         Register _ _ -> True
         -- It writes nothing, whatever run it reads.
@@ -138,7 +140,8 @@ reachOf = \case
     Focus _ _ -> OwnRun
     Tasks -> OwnRun
     HandOver _ -> OwnRun
-    ShowArtifact _ _ -> OwnRun
+    ShowArtifact _ -> OwnRun
+    MoveGap _ _ -> OwnRun
     Register _ _ -> OwnRun
     Resume _ _ -> OwnRun
 

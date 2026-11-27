@@ -33,6 +33,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Step (eventText)
 import State.Role (flowText)
+import State.Run.Gap (Closure (..), GapMove (..))
 import State.Run.Event (
     Event (..),
     HandoverReason (..),
@@ -93,6 +94,10 @@ eventType = \case
     Noted _ _ -> "note"
     HandedOver _ -> "handover"
     SessionStarted _ -> "session_started"
+    GapMoved _ move -> case move of
+        Propose _ -> "gap_fix_proposed"
+        Close (Fixed _) -> "gap_fixed"
+        Close (WontFix _) -> "gap_wont_fix"
 
 -- | A hand-over's reason, as the log and the CLI spell it.
 handoverReasonText :: HandoverReason -> Text

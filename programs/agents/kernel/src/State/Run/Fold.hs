@@ -88,7 +88,6 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Effect (Eff (..), Handler (..))
 import State.Category.Flow (
@@ -193,6 +192,8 @@ import State.Run.Event (
  )
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
+import State.Run.Gap (Closure, GapMove, Tracked (..))
+import State.Run.Gap qualified as Gap
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
@@ -235,8 +236,10 @@ data RunState = RunState
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     , answers :: [Answer]
     -- ^ Every forwarded question answered from above, oldest first: @show@ lists them.
-    , gaps :: [(Natural, Text)]
-    -- ^ Every gap the lead recorded with its line's seq, oldest first: @show@ lists them, @state void@ takes the seq.
+    , gaps :: [(Natural, Tracked)]
+    {- ^ Every gap the run logged with its line's seq, and where its fix
+    stands, oldest first: @show@ lists them, @state void@ and @state gap@ take the seq.
+    -}
     , drafted :: Maybe DraftPr
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
     , untriaged :: [(AgentRole, OneLine)]
@@ -418,6 +421,10 @@ data Refusal
       NotSuspended TaskNo
     | -- | A turn away from the request in focus, which recorded work: it is suspended first.
       FocusRecorded TaskNo
+    | -- | A gap's status event naming a seq whose line is no gap of the run.
+      UnknownGap Natural
+    | -- | A status event for the gap of this seq, which closed already so.
+      GapClosed Natural Closure
     deriving stock (Eq, Show)
 
 {- | An id already in the log, or an answer the run holds already, is not
@@ -497,6 +504,10 @@ append g state envelope
     | Answered qid answer by <- envelope.event
     , Just answer == heldAnswer state qid =
         AlreadyLogged <$ fromAbove state.start.principal by
+    -- The PR proposed already, proposed again: a retry, logged once.
+    | GapMoved n move <- envelope.event
+    , Just Gap.Again <- (`Gap.transition` move) . (.status) <$> lookup n state.gaps =
+        Right AlreadyLogged
     | otherwise = do
         next <- applyEvent g state envelope.seq envelope.event
         Right (Appended next {seen = Set.insert (eventId envelope) state.seen})
@@ -576,6 +587,7 @@ runStart = \case
     Noted _ _ -> Nothing
     HandedOver _ -> Nothing
     SessionStarted _ -> Nothing
+    GapMoved _ _ -> Nothing
 
 {- | The logged event that answers an effect ('Eff'), its handler's input. A
 run's live command and its replay append the same event, so one handler
@@ -651,7 +663,7 @@ applyEvent g state n = \case
     Started _ -> going (Left StartedTwice)
     Targeted target -> going (targeted state target)
     Extended _ -> going (extended g state)
-    Gapped gap -> going (Right state {gaps = state.gaps <> [(n, gap)]})
+    Gapped gap -> going (Right state {gaps = state.gaps <> [(n, Tracked gap Gap.Open)]})
     -- A step moved: an agent works the run again.
     Took scope (AnyOutcome PickLayer some) -> going (working <$> handle PickHandler g state (Picked scope some))
     Took scope outcome@(AnyOutcome _ (SomeOutcome s _ _))
@@ -707,6 +719,8 @@ applyEvent g state n = \case
     Noted _ _ -> going (Right state)
     HandedOver _ -> going (Right state)
     SessionStarted _ -> going (Right state)
+    -- A gap's fix may land after its run stopped or finished: taken in any state.
+    GapMoved target move -> (\after -> after {refused = Nothing}) <$> gapMoved state target move
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
@@ -740,6 +754,24 @@ applyEvent g state n = \case
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
         Nothing -> (\moved -> joined g moved {refused = Nothing}) <$> next
+
+{- | The gap of this seq moved on, as 'Gap.transition' allows. A repeat
+is no line at all ('append'), so it never reaches here; met, it changes nothing.
+-}
+gapMoved :: RunState -> Natural -> GapMove -> Either Refusal RunState
+gapMoved state target move = case lookup target state.gaps of
+    Nothing -> Left (UnknownGap target)
+    Just tracked -> case Gap.transition tracked.status move of
+        Gap.To status ->
+            Right
+                state
+                    { gaps =
+                        [ (n, if n == target then Tracked tracked.gap status else other)
+                        | (n, other) <- state.gaps
+                        ]
+                    }
+        Gap.Again -> Right state
+        Gap.Shut closure -> Left (GapClosed target closure)
 
 {- | A target is named at a request's Fuel step, before its level: its
 request's work is on it, so a PR, draft or ticket an earlier request

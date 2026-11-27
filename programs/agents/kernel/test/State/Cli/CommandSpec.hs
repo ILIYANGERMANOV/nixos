@@ -69,7 +69,9 @@ import State.Run.Event (
     stepTook,
     tookIn,
  )
-import State.Run.EventGen (fuelSet, runId, uri)
+import State.Run.EventGen (fuelSet, oneLine, runId, uri)
+import State.Run.Gap qualified as Gap
+import State.Run.Id (EventRef (..))
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (
     g,
@@ -112,6 +114,11 @@ spec = describe "State.Cli.Command" $ do
             Right (OnRun (Record (Plain event))) -> Right event
             Right (OnRun (Record (AtHead event))) -> Right (event sha)
             Right _ -> Left "not a record"
+            Left why -> Left why
+        -- The gap @record gap@ drafts, before the run fills in its area and reporter.
+        drafted argv = case parse ("record" : argv) of
+            Right (OnRun (Record (Filing gap))) -> Right gap
+            Right _ -> Left "not a gap"
             Left why -> Left why
         helpOf argv = case parseCommand steps argv of
             Left said -> fromRight "not help" (usage "state" said)
@@ -166,7 +173,29 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` []
 
         it "records a gap with its text, words joined back" $
-            recorded ["gap", "no", "hook", "fact"] `shouldBe` Right (Gapped "no hook fact")
+            drafted ["gap", "no", "hook", "fact"] `shouldBe` Right (Gap.draft (oneLine "no hook fact"))
+
+        it "records a gap's kind, severity, area and evidence, the evidence in order" $
+            drafted
+                [ "gap", "--kind", "kernel", "--severity", "blocker", "--area", "fold"
+                , "--evidence", "r1:4", "--evidence", "https://github.com/o/r/issues/2", "a", "gap"
+                ]
+                `shouldBe` Right
+                    ( Gap.GapDraft
+                        Gap.Kernel
+                        Gap.Blocker
+                        (Just (Gap.GapArea "fold"))
+                        (oneLine "a gap")
+                        [ Gap.OfEvent (EventRef (runId "r1") 4)
+                        , Gap.OfUrl (uri "https://github.com/o/r/issues/2")
+                        ]
+                    )
+
+        it "refuses an unknown gap kind or severity, naming the allowed words" $
+            ( drafted ["gap", "--kind", "nope", "a"]
+            , drafted ["gap", "--severity", "nope", "a"]
+            )
+                `shouldBe` (Left "record gap", Left "record gap")
 
         it "refuses a gap with no text" $
             recorded ["gap"] `shouldBe` Left "record gap"
@@ -287,7 +316,7 @@ spec = describe "State.Cli.Command" $ do
 
         it "names the artifact to show by its run and seq" $
             ( case parse ["artifact", "show", "r1:4"] of
-                Right (ShowArtifact run n) -> Right (run, n)
+                Right (ShowArtifact ref) -> Right (ref.run, ref.seq)
                 Right _ -> Left "not a show"
                 Left why -> Left why
             , failureWhat (parse ["artifact", "show", "r1"])

@@ -148,6 +148,19 @@ import State.Run.EventGen (
     tasksOf,
     uri,
  )
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapArea (..),
+    GapKind (Kernel),
+    GapMove (..),
+    Severity (..),
+    gapKindText,
+    severityText,
+ )
+import State.Run.Gap qualified as Gap
+import State.Run.Id (EventRef (..))
 import State.Run.RunGen (pickOf, plainTask, securityScope)
 import State.Step.Artifact (areaName, judgementName, planName, shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
@@ -625,6 +638,8 @@ enumSpellings =
         , map fileKindText [minBound ..]
         , map urlKindText [minBound ..]
         , map handoverReasonText [minBound ..]
+        , map gapKindText [minBound ..]
+        , map severityText [minBound ..]
         ]
 
 -- | Lowercase snake_case: words of @a-z@ and @0-9@, joined by single underscores.
@@ -701,7 +716,19 @@ eventGoldens =
     , Targeted (OnPr pr)
         :| [Targeted (OnBranch (Branch "feature")), Targeted (OnTicket ticket)]
     , Extended "the plan grew a slice" :| []
-    , Gapped "no test drives the CLI's --help" :| []
+    , Gapped
+        ( Gap
+            Kernel
+            Blocker
+            (GapArea "implement")
+            (oneLine "no test drives the CLI's --help")
+            implementer
+            [OfEvent (EventRef parent 4), OfUrl (uri "https://github.com/o/r/issues/9")]
+        )
+        :| [Gapped (Gap Gap.Other Slowdown (GapArea "plan") (oneLine "slow") (AgentRole "engineer") [])]
+    , GapMoved 3 (Propose (uri "https://github.com/o/r/pull/8")) :| []
+    , GapMoved 3 (Close (Fixed (uri "https://github.com/o/r/pull/8"))) :| []
+    , GapMoved 3 (Close (WontFix (oneLine "out of scope"))) :| []
     , Stopped (Stop Blocked "no access to the repo") :| []
     , Overridden (StateName "review") "the user said so" :| []
     , Refused (Note (RefusalCode "no_edge") "no such step" "run state next") :| []

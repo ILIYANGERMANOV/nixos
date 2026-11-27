@@ -290,7 +290,9 @@ import State.Run.Fold (
     replay,
  )
 import State.Run.Fold qualified as Fold
-import State.Run.Id (digestOf, numberedText)
+import State.Run.Gap (Evidence (..), GapArea (..), GapMove)
+import State.Run.Gap qualified as Gap
+import State.Run.Id (EventRef (..), digestOf, eventRefText, numberedText)
 import State.Show (tshow)
 import State.Step.Artifact (
     PlanCall (ChildConfirms, ParentDecided),
@@ -1095,7 +1097,8 @@ execute steps = \case
                 )
     Tasks -> tasks
     HandOver handover -> handOver handover
-    ShowArtifact run n -> showArtifact run n
+    ShowArtifact ref -> showArtifact ref
+    MoveGap ref move -> moveGap ref move
     Register location from -> registerArtifact location from
     Dump run -> dump run
     Resume run k -> resumePacket run k
@@ -1143,6 +1146,7 @@ execute steps = \case
     OnRun command -> do
         -- Read before the lock, as GitHub is: the file the command names, and the run's files.
         file <- traverse readAt (fileOf command)
+        unknown <- Monad.filterM unstored (evidenceOf command)
         again <- rereadable
         handingBack
             steps
@@ -1152,7 +1156,7 @@ execute steps = \case
                     (readBytes (toList file))
                     stamp
                     run
-                    (planOf steps stamp.head file run.g run.state (nextAsk run) command)
+                    (planOf steps stamp.head file unknown run.g run.state (nextAsk run) command)
             )
             <&> \case
                 -- With no run, nothing says where the run is: every event is named.
@@ -1166,6 +1170,7 @@ execute steps = \case
             NamesFile _ path _ -> Just path
             Plain _ -> Nothing
             AtHead _ -> Nothing
+            Filing _ -> Nothing
         RecordUnknown _ -> Nothing
         Brief _ _ -> Nothing
         ShowRun -> Nothing
@@ -1181,6 +1186,58 @@ execute steps = \case
         StopRun _ -> Nothing
         Pending -> Nothing
         NoteOn _ _ -> Nothing
+
+-- | The lines a gap's evidence names: each must be stored, in any run.
+evidenceOf :: RunCommand -> [EventRef]
+evidenceOf command = [ref | Record (Filing gap) <- [command], OfEvent ref <- gap.evidence]
+
+{- | Whether no run stores the line: no such run, or no line of that seq. A
+row this state cannot read is stored all the same.
+-}
+unstored :: (Log :> es) => EventRef -> Eff es Bool
+unstored ref =
+    storedLine ref <&> \case
+        Left _ -> False
+        Right NoSuchRun -> True
+        Right NoSuchLine -> True
+        Right (StoredLine _) -> False
+
+-- | What a run's line is, looked up by its ref.
+data Stored = NoSuchRun | NoSuchLine | StoredLine Envelope
+
+{- | A line of any run as stored, read without the lock and cut at its seq,
+so a later line this state cannot read refuses nothing.
+-}
+storedLine :: (Log :> es) => EventRef -> Eff es (Either Log.Unread Stored)
+storedLine ref =
+    fmap stored <$> Log.readUntil ref.run (Just (max 1 ref.seq))
+  where
+    stored logged = case logged.events of
+        [] -> NoSuchRun
+        events -> maybe NoSuchLine StoredLine (find ((== ref.seq) . (.seq)) events)
+
+{- | @state gap proposed|fixed|wontfix <run:seq>@: the gap's status event,
+appended to the gap's own run under its lock, in any state the run is in. A
+seq that is no gap, or a gap closed already, is refused there and logged; a
+run the store lacks is only told.
+-}
+moveGap :: (Shell es) => EventRef -> GapMove -> Eff es (Either Failure Text)
+moveGap ref move =
+    onRunLog
+        ( \stamp run ->
+            record stamp run (repeat Cli) (Right (Plan [GapMoved ref.seq move] (const recorded)))
+        )
+        ref.run
+        <&> \case
+            NoRun ->
+                Left
+                    ( Failure
+                        BadInput
+                        ("gap " <> eventRefText ref)
+                        "no such run in the run store"
+                        "state show names the run's gaps"
+                    )
+            Ran result -> (.text) <$> result
 
 readAt :: (RoFileSystem :> es) => FilePath -> Eff es (AbsPath, Contents)
 readAt raw = FileSystem.absolute raw >>= \path -> (path,) <$> FileSystem.readContents path
@@ -1400,14 +1457,14 @@ once the store checked they hash to its key, or a URL artifact's URL. A file
 whose bytes were not stored exits 3 and a line that is no artifact 4
 (#552's Appendix B E). The bytes go out as stored, in no encoding.
 -}
-showArtifact :: (Shell es) => RunId -> Natural -> Eff es (Either Failure Text)
-showArtifact run n =
-    onRunLog (\_ loaded -> ([], Right (find ((== n) . (.seq)) loaded.logged))) run
+showArtifact :: (Shell es) => EventRef -> Eff es (Either Failure Text)
+showArtifact ref =
+    storedLine ref
         >>= \case
-            NoRun -> pure (Left (noArtifact "no such run in the run store"))
-            Ran (Left failure) -> pure (Left failure)
-            Ran (Right Nothing) -> pure (Left (noArtifact "the run has no such line"))
-            Ran (Right (Just line)) -> case [artifact | ArtifactLogged artifact _ <- [line.event]] of
+            Left unread -> pure (Left (unreadRefusal ref.run unread))
+            Right NoSuchRun -> pure (Left (noArtifact "no such run in the run store"))
+            Right NoSuchLine -> pure (Left (noArtifact "the run has no such line"))
+            Right (StoredLine line) -> case [artifact | ArtifactLogged artifact _ <- [line.event]] of
                 [] -> pure (Left (noArtifact ("it is a " <> eventType line.event <> " line")))
                 artifact : _ -> case artifact of
                     Url _ uri -> pure (Right (uriText uri <> "\n"))
@@ -1427,7 +1484,7 @@ showArtifact run n =
                                         )
                                     )
   where
-    noArtifact why = Failure NotAnArtifact ("artifact " <> numberedText run n) why "state resume"
+    noArtifact why = Failure NotAnArtifact ("artifact " <> eventRefText ref) why "state resume"
 
 {- | @state focus [rK] --summary <line>@: the chief's request in focus
 waits, unless it recorded nothing, which is dropped, or it is finished, at
@@ -1627,13 +1684,17 @@ planOf ::
     Steps ->
     Maybe Sha ->
     Maybe (AbsPath, Contents) ->
+    [EventRef] ->
     OpenGraph ->
     RunState ->
     QId ->
     RunCommand ->
     Either Unplanned Plan
-planOf steps worktreeHead file g state next = \case
+planOf steps worktreeHead file unstoredEvidence g state next = \case
     Record recording -> do
+        case unstoredEvidence of
+            ref : _ -> Left (Refusing (UnknownEvent ref))
+            [] -> Right ()
         (registered, unread, text) <- fileRead recording file
         event <- unlogged (recordedEvent g state worktreeHead text recording)
         -- The file registered first, then the outcome that names it.
@@ -1828,6 +1889,7 @@ fileRead recording file = case recording of
         Nothing -> Right ([], "", Nothing)
     Plain _ -> Right ([], "", Nothing)
     AtHead _ -> Right ([], "", Nothing)
+    Filing _ -> Right ([], "", Nothing)
   where
     utf8 (path, bytes) =
         Bifunctor.first
@@ -1887,12 +1949,23 @@ recordedEvent ::
     Maybe Text ->
     Recording ->
     Either Failure Event
-recordedEvent g state worktreeHead file recording = Fold.inScope g state <$> namedEvent worktreeHead file recording
+recordedEvent g state worktreeHead file recording = Fold.inScope g state <$> namedEvent state worktreeHead file recording
 
--- | The event a recording names, from HEAD or the file it read beforehand.
-namedEvent :: Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
-namedEvent worktreeHead file = \case
+{- | The event a recording names, from HEAD or the file it read beforehand;
+a gap met at the step the run is at, by the role its flow runs.
+-}
+namedEvent :: RunState -> Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+namedEvent state worktreeHead file = \case
     Plain event -> Right event
+    Filing gap ->
+        Right
+            ( Gapped
+                ( Gap.filed
+                    (GapArea (stateNameText (askedAt state)))
+                    (Role.role state.start.flow).name
+                    gap
+                )
+            )
     AtHead event -> case worktreeHead of
         Just sha -> Right (event sha)
         Nothing ->
@@ -1946,10 +2019,17 @@ handbackPlan steps worktreeHead g state next role agent child message = do
                 <> "\nfix: state ask --kind <kind> --from "
                 <> from
                 <> " <question>\n"
+        -- A malformed Gap: line is logged with the defaults, never refused: say how it reads.
+        untyped =
+            [ "gap logged as other slowdown, its words not " <> Gap.gapLineRule <> "\n"
+            | any (\case Gap.Malformed _ -> True; Gap.WellFormed {} -> False) parsed.gaps
+            ]
     Right
         ( Plan
             typed.events
-            (\_ new -> printed (recordedLines new <> foldMap triage typed.untriaged))
+            ( \_ new ->
+                printed (recordedLines new <> foldMap triage typed.untriaged <> Text.concat untyped)
+            )
         )
   where
     unread :: Text -> Text -> Failure
