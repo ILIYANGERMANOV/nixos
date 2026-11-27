@@ -141,22 +141,19 @@ library
     , sqlite-simple
     , text
     , time
+    , unix
 
 executable state
   import:         shared-properties
   hs-source-dirs: app/state
   main-is:        Main.hs
-  build-depends:
-    , state
-    , text
+  build-depends:  state
 
 executable state-hook
   import:         shared-properties
   hs-source-dirs: app/state-hook
   main-is:        Main.hs
-  build-depends:
-    , state
-    , text
+  build-depends:  state
 
 test-suite state-test
   import:             shared-properties

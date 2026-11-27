@@ -19,12 +19,14 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Payload.Upcast (shipped)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (decodeUtf8)
 import Data.Text.IO qualified as Text
 import Database.SQLite.Simple qualified as SQLite
 import Effects.Log (projected)
 import Effects.Store.Connection (Durability (Unsynced), withStore)
 import Effects.Store.Events qualified as Store
 import Effects.Store.Projected (projectionRows, projectionTables)
+import GHC.IO.Encoding (setFileSystemEncoding, setLocaleEncoding)
 import State.Artifact (sha256Of, sha256Text)
 import State.Category.Fuel (Fuel (Low))
 import State.Golden (golden)
@@ -52,6 +54,7 @@ import System.Directory (
 import System.Environment (getEnv, getEnvironment)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
+import System.IO (utf8)
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode)
 import Test.Hspec (
@@ -71,6 +74,9 @@ spec :: Spec
 spec = describe "the state binary" $ do
     bin <- runIO (getEnv "STATE_BIN")
     hookBin <- runIO (getEnv "STATE_HOOK_BIN")
+    -- This process speaks UTF-8 to the binary whatever its own locale: a
+    -- runner outside the Nix build may have none, and the C one is ASCII.
+    runIO (setLocaleEncoding utf8 *> setFileSystemEncoding utf8)
     around withRepo $ do
         it "runs the engineer flow at Balanced from init to ready" $ \repo -> do
             transcript <- drive bin repo balancedPath
@@ -934,6 +940,68 @@ spec = describe "the state binary" $ do
             rows <- dumped bin repo
             (refused.code, any ("\"code\":\"unknown_event\"" `Text.isInfixOf`) rows)
                 `shouldBe` (2, True)
+
+        describe "reads and writes UTF-8 under LC_ALL=C" $ do
+            it "records a gap's non-ASCII words and shows them unchanged" $ \repo -> do
+                _ <- drive bin repo []
+                _ <- succeeded =<< state bin (cLocale repo) ["record", "gap", "café ✓ 日本"]
+                shown <- succeeded =<< state bin (cLocale repo) ["show"]
+                resumed <- succeeded =<< state bin (cLocale repo) ["resume"]
+                ( any ("\"café ✓ 日本\"" `Text.isInfixOf`) shown
+                    , any ("\"café ✓ 日本\"" `Text.isSuffixOf`) resumed
+                    )
+                    `shouldBe` (True, True)
+
+            it
+                "refuses an argument that is not UTF-8 by its position, exit 2, writing nothing"
+                $ \repo -> do
+                    _ <- drive bin repo []
+                    before <- logLines bin repo
+                    sh <- fromMaybe (error "no sh on PATH") <$> findExecutable "sh"
+                    -- A raw byte reaches argv only through a shell: a Haskell String encodes it.
+                    (exit, out, err) <-
+                        readCreateProcessWithExitCode
+                            ( proc
+                                sh
+                                ["-c", "exec \"$0\" record gap \"$(printf 'a\\377b')\"", bin]
+                            )
+                                { cwd = Just repo.work
+                                , env = Just (cLocale repo).env
+                                }
+                            ""
+                    after <- logLines bin repo
+                    (exit, out, Text.lines (Text.pack err), after - before)
+                        `shouldBe` ( ExitFailure 2
+                                   , ""
+                                   , ["state argv: argument 3 - not UTF-8", "fix: pass each argument as UTF-8"]
+                                   , 0
+                                   )
+
+            -- A guard: stdin is read as bytes and decoded as UTF-8 already.
+            it "keeps a hand-back's non-ASCII words piped on stdin" $ \repo -> do
+                _ <-
+                    drive
+                        bin
+                        repo
+                        [ Record ["fuel.set", "balanced"]
+                        , Record ["gather.research"]
+                        , Spawn "researcher"
+                        ]
+                _ <-
+                    succeeded
+                        =<< hook
+                            hookBin
+                            (cLocale repo)
+                            "handback"
+                            (reportedBack repo "researcher" (researched <> "Gap: tool papercut café ✓ 日本\n"))
+                shown <- succeeded =<< state bin (cLocale repo) ["show"]
+                shown `shouldSatisfy` any ("tool papercut \"café ✓ 日本\"" `Text.isInfixOf`)
+
+            it "starts a run in a worktree whose path git prints with non-ASCII bytes" $ \repo -> do
+                w <- cLocale <$> worktree repo "café"
+                run <- startedIn bin w ["--notes", repo.root </> "w-notes"]
+                shown <- succeeded =<< state bin w ["show"]
+                shown `shouldSatisfy` any (("run: " <> run) `Text.isPrefixOf`)
 
         for_ lawRuns $ \(name, setUp) ->
             it
@@ -3317,19 +3385,17 @@ hookEvent = hookEventIn "s1"
 -- | 'hookEvent' fired in this session.
 hookEventIn :: Text -> Repo -> Value -> [Pair] -> String
 hookEventIn session repo agent fields =
-    LBS8.unpack
-        ( encode
-            ( object
-                ( [ "session" .= String session
-                  , "cwd" .= repo.work
-                  , "agent" .= agent
-                  , "harness" .= String "claude-code"
-                  , "transcript_path" .= transcriptOf repo
-                  ]
-                    <> fields
-                )
+    -- aeson's bytes are UTF-8: as characters, they reach stdin as written.
+    Text.unpack . decodeUtf8 . LBS8.toStrict . encode $
+        object
+            ( [ "session" .= String session
+              , "cwd" .= repo.work
+              , "agent" .= agent
+              , "harness" .= String "claude-code"
+              , "transcript_path" .= transcriptOf repo
+              ]
+                <> fields
             )
-        )
 
 mentions :: Text -> [Text] -> Bool
 mentions needle = any (needle `Text.isInfixOf`)
@@ -3522,6 +3588,17 @@ taskAdded bin repo contents = do
 -- | A worktree of its own on a new branch, as a child runs in; the repo as seen from it.
 worktree :: Repo -> String -> IO Repo
 worktree repo name = worktreeAt repo (repo.root </> name) name
+
+-- | The repo's calls under the C locale, whose charset is ASCII.
+cLocale :: Repo -> Repo
+cLocale Repo {root, work, notes, prJson, env} =
+    Repo
+        { root
+        , work
+        , notes
+        , prJson
+        , env = ("LC_ALL", "C") : [kv | kv@(name, _) <- env, name /= "LC_ALL"]
+        }
 
 -- | A worktree at this path, on a new branch of this name.
 worktreeAt :: Repo -> FilePath -> String -> IO Repo

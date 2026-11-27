@@ -66,6 +66,7 @@ let
       temporary,
       text,
       time,
+      unix,
     }:
     mkDerivation {
       pname = "state";
@@ -101,10 +102,10 @@ let
         sqlite-simple
         text
         time
+        unix
       ];
       executableHaskellDepends = [
         base
-        text
       ];
       testHaskellDepends = [
         aeson

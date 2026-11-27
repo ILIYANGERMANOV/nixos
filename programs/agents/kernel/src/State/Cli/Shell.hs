@@ -3,7 +3,7 @@ in pure code, then append to the log and print. Every decision is the
 kernel's; this module moves data between them and the effects, whose IO
 interpreters 'runShellIO' runs.
 -}
-module State.Cli.Shell (Shell, main, hook, runShellIO, storeDurability, recordedEvent) where
+module State.Cli.Shell (Shell, main, hook, runArgvIO, storeDurability, recordedEvent) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
@@ -30,6 +30,7 @@ import Data.Text.Encoding (
     decodeUtf8Lenient,
     encodeUtf8,
  )
+import Data.Text.IO qualified as TextIO
 import Data.Time (UTCTime)
 import Effectful (Eff, IOE, runEff, (:>))
 import Effectful.Error.Static (Error, catchError, runErrorNoCallStack)
@@ -54,6 +55,7 @@ import Effects.Store.Connection (
     OpenRefusal (..),
  )
 import Effects.Store.Migration (applicationId)
+import GHC.IO.Encoding (setFileSystemEncoding, setLocaleEncoding)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
@@ -102,6 +104,7 @@ import State.Cli.Command (
     answeredQid,
     anyEvent,
     architectInitFix,
+    argvText,
     chiefInitFix,
     defaultFlow,
     explain,
@@ -332,9 +335,12 @@ import State.Step.Catalog (outcome, termSkips)
 import State.Step.Fuel (Outcome (LevelSet))
 import State.Step.Request (Outcome (NextRequest))
 import State.Table (Steps, parseSteps)
-import System.Exit (ExitCode (..))
+import System.Exit (ExitCode (..), exitWith)
 import System.FilePath (equalFilePath, takeDirectory, (</>))
+import System.IO (hSetEncoding, mkTextEncoding, stderr, stdout)
+import System.IO qualified as IO
 import System.IO.Error (isDoesNotExistError)
+import System.Posix.Env.ByteString qualified as Posix
 
 {- | Every effect the shell runs on. A run store it cannot open is an
 'OpenRefusal' it tells as a failure.
@@ -351,6 +357,25 @@ type Shell es =
     , RoFileSystem :> es
     , WrFileSystem :> es
     )
+
+{- | One process of @state@ or @state-hook@, its program run on its argv:
+UTF-8 whatever the locale, and argv decoded before any read or write.
+Pipes to git and gh and file Text IO take the locale encoding, paths and
+a child's arguments the file system's; stdin is read as bytes.
+-}
+runArgvIO :: (forall es. (Shell es) => [Text] -> Eff es ExitCode) -> IO ()
+runArgvIO program = do
+    setLocaleEncoding IO.utf8
+    -- ROUNDTRIP keeps a path's bytes that are not UTF-8, as GHC's default one does (PEP 383).
+    setFileSystemEncoding =<< mkTextEncoding "UTF-8//ROUNDTRIP"
+    -- The standard handles took the locale's encoding when they opened.
+    traverse_ (`hSetEncoding` IO.utf8) [stdout, stderr]
+    argv <- argvText <$> Posix.getArgs
+    exitWith =<< case argv of
+        Left failure -> TextIO.hPutStr stderr (failureText "argv" failure) $> exitOf failure.exit
+        Right decoded ->
+            let (durability, rest) = storeDurability decoded
+             in runShellIO durability (program rest)
 
 -- | A shell program against the real world: the process, its files, git and GitHub.
 runShellIO ::
@@ -407,12 +432,15 @@ main argv =
                     Right out -> Console.out out $> ExitSuccess
                     Left failure -> failed sub failure
   where
-    failed sub failure =
-        Console.err (failureText sub failure) $> case failure.exit of
-            BadInput -> ExitFailure 2
-            Outage -> ExitFailure 1
-            NotStored -> ExitFailure 3
-            NotAnArtifact -> ExitFailure 4
+    failed sub failure = Console.err (failureText sub failure) $> exitOf failure.exit
+
+-- | A failure's exit code.
+exitOf :: Exit -> ExitCode
+exitOf = \case
+    BadInput -> ExitFailure 2
+    Outage -> ExitFailure 1
+    NotStored -> ExitFailure 3
+    NotAnArtifact -> ExitFailure 4
 
 -- | Help asked for goes to stdout, exit 0; a usage error to stderr, exit 2.
 usageOut :: (Console :> es) => String -> Usage -> Eff es ExitCode

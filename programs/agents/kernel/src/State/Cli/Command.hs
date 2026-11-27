@@ -18,6 +18,7 @@ module State.Cli.Command (
     Failure (..),
     Exit (..),
     Usage (..),
+    argvText,
     parseCommand,
     parseHook,
     optparseText,
@@ -45,12 +46,14 @@ module State.Cli.Command (
 
 import Control.Applicative (many, optional, some, (<**>), (<|>))
 import Data.Bifunctor (first)
+import Data.ByteString (ByteString)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (decodeUtf8')
 import Data.Version (showVersion)
 import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
@@ -353,6 +356,25 @@ chiefInitFix = "state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chie
 exit code tells the two apart, so the shell, which owns exit codes, renders it.
 -}
 newtype Usage = Usage (Optparse.ParserFailure Optparse.ParserHelp)
+
+{- | argv as the process got it, bytes, decoded as UTF-8 whatever the locale.
+An argument that is not UTF-8 is refused by its position from 1, its bytes
+never echoed: a lossy decode would store words nobody wrote.
+-}
+argvText :: [ByteString] -> Either Failure [Text]
+argvText = traverse decoded . zip [1 :: Natural ..]
+  where
+    decoded (n, raw) =
+        first
+            ( const
+                ( Failure
+                    BadInput
+                    ("argument " <> Text.pack (show n))
+                    "not UTF-8"
+                    "pass each argument as UTF-8"
+                )
+            )
+            (decodeUtf8' raw)
 
 {- | The subcommand, for the failure line, and the command or why it is not
 one; else optparse's help or usage error. No command at all is help.
