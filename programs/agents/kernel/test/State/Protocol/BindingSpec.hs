@@ -104,8 +104,8 @@ spec = describe "the agent-to-run binding" $ do
             , runStore Nothing (Just "/home/me")
             , runStore Nothing Nothing
             ]
-                `shouldBe` [ Just "/xdg/state/kernel.db"
-                           , Just "/home/me/.local/state/state/kernel.db"
+                `shouldBe` [ Just "/xdg/state/kernel-v2.db"
+                           , Just "/home/me/.local/state/state/kernel-v2.db"
                            , Nothing
                            ]
 

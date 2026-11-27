@@ -1,6 +1,6 @@
 module State.Cli.ShellSpec (spec) where
 
-import Effects.Store (Durability (..))
+import Effects.Store.Connection (Durability (..))
 import State.Cli.Shell (storeDurability)
 import Test.Hspec (Spec, describe, it, shouldBe)
 

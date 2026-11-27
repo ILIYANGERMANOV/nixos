@@ -10,8 +10,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Data.Time (NominalDiffTime, addUTCTime)
 import State.Cli.Shell.World
-import State.Run.Codec (decodeLine, encodeLine)
-import State.Run.Event (Envelope (..))
+import Data.Entity.Event (EventRow (..))
 import State.Run.RunGen (breakdownJson, plainTask)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, shouldBe)
@@ -447,13 +446,9 @@ spendRequests world = do
         ] ::
             [[Text]]
 
--- | A logged row moved on by @n@ seqs, its id with it.
-renumbered :: Int -> Text -> Text
-renumbered n row =
-    either
-        (error . show)
-        (\e -> encodeLine e {seq = e.seq + fromIntegral n})
-        (decodeLine row)
+-- | A logged row moved on by @n@ seqs.
+renumbered :: Int -> EventRow -> EventRow
+renumbered n row = row {seq = row.seq + fromIntegral n}
 
 -- | The request in focus runs its route to its end, at @next@.
 finishRequest :: IORef World -> IO ()

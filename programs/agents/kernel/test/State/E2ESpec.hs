@@ -20,13 +20,12 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Database.SQLite.Simple qualified as SQLite
-import Effects.Store (Durability (Unsynced), withStore)
-import Effects.Store qualified as Store
+import Effects.Store.Connection (Durability (Unsynced), withStore)
+import Effects.Store.Events qualified as Store
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Codec (decodeLine, eventType)
 import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
-import State.Run.EventGen (runId)
 import State.Run.RunGen (
     breakdownJson,
     plainTask,
@@ -541,7 +540,7 @@ spec = describe "the state binary" $ do
                                         <> Text.pack sub
                                         <> ": run "
                                         <> run
-                                        <> " event 2 is not read - log version 3, this state reads 4"
+                                        <> " event 2 is not read - payload version 2, this state reads 1"
                                    , "fix: state init --notes <a new dir> starts afresh"
                                    ]
                                )
@@ -568,8 +567,8 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
-                        (\store -> Store.children store (runId parent))
-                listed `shouldBe` [runId child]
+                        (\store -> Store.children store parent)
+                listed `shouldBe` Right [child]
 
         it
             "pauses the chief's architect request, answers an engineer child's question meanwhile, and turns back to the architect at the same node"
@@ -623,9 +622,9 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
-                        (\store -> Store.children store (runId parent))
+                        (\store -> Store.children store parent)
 
-                listed `shouldBe` map runId [asking, sibling]
+                listed `shouldBe` Right [asking, sibling]
                 take 1 waiting
                     `shouldSatisfy` all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`)
                 recorded moved `shouldBe` ["fuel.set -> gather"]
@@ -1408,7 +1407,7 @@ spec = describe "the state binary" $ do
                 "name the record by hand on a log of another version, as they record nothing there"
                 $ \repo -> do
                     run <- startedRun bin repo
-                    replaceByHand repo run 1 "{\"v\":2,\"ts\":\"t\",\"type\":\"started\"}"
+                    replaceByHand repo run 1 2
                     said <-
                         succeeded =<< hook hookBin repo "spawn" (spawned' repo Null "researcher")
                     replyField "context" said
@@ -1943,36 +1942,41 @@ runOf bin repo =
 own, never the user's.
 -}
 storeOf :: Repo -> FilePath
-storeOf repo = repo.root </> ".local" </> "state" </> "state" </> "kernel.db"
+storeOf repo = repo.root </> ".local" </> "state" </> "state" </> "kernel-v2.db"
 
 -- | An event row written by hand, at this seq, as another kernel would write it.
-appendByHand :: Repo -> Text -> Int -> Text -> IO ()
-appendByHand repo run n json = SQLite.withConnection (storeOf repo) $ \c ->
+appendByHand :: Repo -> Text -> Int -> OlderEvent -> IO ()
+appendByHand repo run n (OlderEvent version kind payload) = SQLite.withConnection (storeOf repo) $ \c ->
     SQLite.execute
         c
-        "INSERT INTO events (run, seq, json) VALUES (?, ?, ?)"
-        (run, n, json)
+        "INSERT INTO events (run_id, seq, schema_version, type, time, data) VALUES (?, ?, ?, ?, ?, ?)"
+        (run, n, version, kind, "2025-11-21T00:00:00.000Z" :: Text, payload)
 
--- | An event row rewritten by hand, at this seq.
-replaceByHand :: Repo -> Text -> Int -> Text -> IO ()
-replaceByHand repo run n json = SQLite.withConnection (storeOf repo) $ \c ->
+{- | An event row's payload version rewritten by hand, at this seq, as
+another kernel's store would hold it: its append-only trigger dropped first.
+-}
+replaceByHand :: Repo -> Text -> Int -> Int -> IO ()
+replaceByHand repo run n version = SQLite.withConnection (storeOf repo) $ \c -> do
+    SQLite.execute_ c "DROP TRIGGER events_no_update"
     SQLite.execute
         c
-        "UPDATE events SET json = ? WHERE run = ? AND seq = ?"
-        (json, run, n)
+        "UPDATE events SET schema_version = ? WHERE run_id = ? AND seq = ?"
+        (version, run, n)
 
--- | The run's rows as stored.
-storedRows :: Repo -> Text -> IO [Text]
+-- | The run's rows as stored, every column but SQLite's position.
+storedRows :: Repo -> Text -> IO [(Int, Int, Text, Text, Maybe Text, Maybe Text, Maybe Text, Text)]
 storedRows repo run = SQLite.withConnection (storeOf repo) $ \c ->
-    map SQLite.fromOnly
-        <$> SQLite.query
-            c
-            "SELECT json FROM events WHERE run = ? ORDER BY seq"
-            (SQLite.Only run)
+    SQLite.query
+        c
+        "SELECT seq, schema_version, type, time, session_id, head_sha, hook_digest, data FROM events WHERE run_id = ? ORDER BY seq"
+        (SQLite.Only run)
 
--- | An event of log version 3, which this kernel does not read.
-olderEvent :: Text
-olderEvent = "{\"v\":3,\"ts\":\"2025-11-21T00:00:00Z\",\"type\":\"fuel\"}"
+-- | An event row's payload version, type and data.
+data OlderEvent = OlderEvent Int Text Text
+
+-- | An event of payload version 2, which this kernel does not read.
+olderEvent :: OlderEvent
+olderEvent = OlderEvent 2 "fuel" "{}"
 
 -- | Each expected entry is in the list.
 shouldReturnContaining :: IO [Text] -> [Text] -> IO ()

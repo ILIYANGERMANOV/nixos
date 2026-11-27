@@ -22,6 +22,7 @@ import Effectful (
     liftIO,
     (:>),
  )
+import Data.Field qualified as Field
 import Effectful.Dispatch.Dynamic (interpret, send)
 import State.Run.Event (Branch (..), Sha (..))
 import State.Show (firstLine)
@@ -62,7 +63,7 @@ runGitIO = interpret $ \_ -> \case
     GitDir -> fmap (Text.unpack . Text.strip) <$> git ["rev-parse", "--absolute-git-dir"]
     Toplevel -> fmap (Text.unpack . Text.strip) <$> git ["rev-parse", "--show-toplevel"]
     HeadSha ->
-        either (const Nothing) (Just . Sha . Text.strip)
+        either (const Nothing) (Field.decode Field.sha . Text.strip)
             <$> git ["rev-parse", "--verify", "--quiet", "HEAD"]
     HeadBranch ->
         either (const Nothing) (Just . Branch . Text.strip)

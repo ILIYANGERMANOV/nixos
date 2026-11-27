@@ -48,6 +48,7 @@ let
       base,
       bytestring,
       containers,
+      direct-sqlite,
       directory,
       effectful,
       filepath,
@@ -85,6 +86,7 @@ let
         base
         bytestring
         containers
+        direct-sqlite
         directory
         effectful
         filepath

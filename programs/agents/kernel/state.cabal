@@ -32,6 +32,12 @@ library
   import:          shared-properties
   hs-source-dirs:  src
   exposed-modules:
+    Data.Entity.Blob
+    Data.Entity.Event
+    Data.Entity.Run
+    Data.Field
+    Data.Payload.Event
+    Data.Payload.Upcast
     Effects.Clock
     Effects.Console
     Effects.Environment
@@ -40,7 +46,9 @@ library
     Effects.Git
     Effects.Log
     Effects.Random
-    Effects.Store
+    Effects.Store.Connection
+    Effects.Store.Events
+    Effects.Store.Migration
     State.Category.Effect
     State.Category.Flow
     State.Category.Fuel
@@ -96,6 +104,7 @@ library
     , aeson
     , bytestring
     , containers
+    , direct-sqlite
     , directory
     , effectful
     , filepath

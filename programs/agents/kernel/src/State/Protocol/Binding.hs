@@ -90,9 +90,12 @@ data Slot = Slot {dir :: FilePath, name :: FilePath}
 storeRoot :: Maybe FilePath -> Maybe FilePath -> Maybe FilePath
 storeRoot xdgStateHome home = (</> "bindings") <$> stateHome xdgStateHome home
 
--- | The kernel's run store, one SQLite database ("Effects.Store"), in 'stateHome'.
+{- | The kernel's run store, one SQLite database ("Effects.Store.Connection"),
+in 'stateHome'. @kernel-v2.db@: the store before it, @kernel.db@, is never
+opened.
+-}
 runStore :: Maybe FilePath -> Maybe FilePath -> Maybe FilePath
-runStore xdgStateHome home = (</> "kernel.db") <$> stateHome xdgStateHome home
+runStore xdgStateHome home = (</> "kernel-v2.db") <$> stateHome xdgStateHome home
 
 {- | The kernel's directory, @state@, from @XDG_STATE_HOME@ and @HOME@, as the
 XDG base directory spec reads them: a relative or empty one is unset. No

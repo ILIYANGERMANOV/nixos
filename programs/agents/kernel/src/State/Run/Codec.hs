@@ -10,6 +10,9 @@ split the review flow, and no run resumes across it.
 -}
 module State.Run.Codec (
     version,
+    schemaVersion,
+    payloadText,
+    decodePayload,
     encodeLine,
     decodeLine,
     decodeLog,
@@ -157,6 +160,22 @@ import State.Step.Catalog (outcomeData, outcomeDecoders)
 -- | The log version this kernel writes and reads.
 version :: Int
 version = 4
+
+{- | The payload version every event type has in the store, from 1: a
+change of one type's shape bumps that type's.
+-}
+schemaVersion :: Int
+schemaVersion = 1
+
+-- | An event's payload, the store's @data@: one JSON object, its keys by type.
+payloadText :: Event -> Text
+payloadText =
+    Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . pairs . eventData
+
+-- | The event of this type whose payload this is, or why it does not read.
+decodePayload :: Text -> Text -> Either Text Event
+decodePayload kind raw =
+    first Text.pack (eitherDecodeStrictText raw >>= parseEither (withObject "data" (eventOf kind)))
 
 -- | Why a line was not read.
 data LineError

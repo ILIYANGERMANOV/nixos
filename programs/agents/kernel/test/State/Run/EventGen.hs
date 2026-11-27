@@ -26,6 +26,7 @@ module State.Run.EventGen (
     started,
     fuelSet,
     genStart,
+    genTime,
     line,
     lineOf,
     hookLine,
@@ -80,11 +81,11 @@ genEnvelope :: Gen Envelope
 genEnvelope =
     Envelope
         <$> Gen.choice [pure Cli, Hook <$> genDigest]
-        <*> Gen.integral (Range.linear 0 100000)
+        <*> Gen.integral (Range.linear 1 100000)
         <*> genTime
         <*> genRunId
         <*> Gen.maybe genSha
-        <*> Gen.maybe (SessionId <$> genText)
+        <*> Gen.maybe (Gen.mapMaybe parseSessionId genText)
         <*> genEvent
 
 genEvent :: Gen Event
@@ -404,11 +405,16 @@ genPicks =
 genCommit :: Gen Commit
 genCommit = Commit <$> genSha <*> genSet Gen.enumBounded
 
+-- | A git object id: SHA-1's 40 or SHA-256's 64 lowercase hex.
 genSha :: Gen Sha
-genSha = Sha <$> Gen.text (Range.linear 7 40) Gen.hexit
+genSha = Sha <$> (Gen.element [40, 64] >>= genHex)
 
+-- | A hook record's digest: FNV-1a 64's 16 lowercase hex.
 genDigest :: Gen Digest
-genDigest = Digest <$> Gen.text (Range.singleton 64) Gen.hexit
+genDigest = Digest <$> genHex 16
+
+genHex :: Int -> Gen Text
+genHex n = Gen.text (Range.singleton n) (Gen.element ("0123456789abcdef" :: String))
 
 genText :: Gen Text
 genText = Gen.text (Range.linear 0 20) Gen.unicode
@@ -419,13 +425,13 @@ genOneLine = Gen.mapMaybe parseOneLine genText
 genSet :: (Ord a) => Gen a -> Gen (Set a)
 genSet = fmap Set.fromList . Gen.list (Range.linear 0 4)
 
--- | Any instant, to the picosecond.
+-- | Any instant the clock stamps: whole milliseconds, 1968 to 2077.
 genTime :: Gen UTCTime
 genTime =
     UTCTime . ModifiedJulianDay
         <$> Gen.integral (Range.linear 40000 80000)
-        <*> ( picosecondsToDiffTime
-                <$> Gen.integral (Range.linear 0 (86400 * 1000000000000 - 1))
+        <*> ( picosecondsToDiffTime . (* 1000000000)
+                <$> Gen.integral (Range.linear 0 (86400 * 1000 - 1))
             )
 
 -- | Any run id the kernel accepts.

@@ -57,10 +57,7 @@ spec = describe "state-hook over the doubles" $ do
                     _ <- startedRun world
                     editLog
                         world
-                        ( const
-                            [ "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
-                            ]
-                        )
+                        olderStart
 
                     said <- succeeded =<< hook world "resume" sessionStart
 
@@ -68,7 +65,7 @@ spec = describe "state-hook over the doubles" $ do
 
             it "tells a log line it does not read, as context" $ \world -> do
                 _ <- drive world []
-                editLog world (<> ["{\"v\":3,broken"])
+                editLog world appendUnread
 
                 said <- hook world "resume" sessionStart
 
@@ -103,7 +100,7 @@ spec = describe "state-hook over the doubles" $ do
             it "names the run of the session's own worktree on a log line it does not read" $ \world -> do
                 _ <- drive world [Record ["fuel.set", "balanced"]]
                 run <- runOf world
-                editLog world (<> ["{\"v\":3,broken"])
+                editLog world appendUnread
 
                 said <- hook world "resume" sessionStart
 
@@ -199,10 +196,7 @@ spec = describe "state-hook over the doubles" $ do
                     _ <- startedRun world
                     editLog
                         world
-                        ( const
-                            [ "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
-                            ]
-                        )
+                        olderStart
 
                     said <- hook world "spawn" (spawned "researcher")
 
@@ -463,7 +457,7 @@ spec = describe "state-hook over the doubles" $ do
                     _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
                     run <- runOf world
                     _ <- hook world "bind" (spawnResult "implementer")
-                    editLog world (<> ["{\"v\":3,broken"])
+                    editLog world appendUnread
 
                     said <- hook world "handback" (handedBack "implementer")
 

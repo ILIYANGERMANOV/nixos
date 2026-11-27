@@ -369,7 +369,7 @@ spec = describe "state over the doubles" $ do
             it "names a hand-edited bad line and appends nothing after it" $ \world -> do
                 _ <- drive world []
                 run <- runOf world
-                editLog world (<> ["{\"v\":3,broken"])
+                editLog world appendUnread
                 before' <- logRows world
 
                 for_ [("next", []), ("show", []), ("record", ["fuel.set", "max"])] $ \(sub, args) -> do
@@ -389,10 +389,7 @@ spec = describe "state over the doubles" $ do
                 run <- runOf world
                 editLog
                     world
-                    ( const
-                        [ "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
-                        ]
-                    )
+                    olderStart
 
                 old <- state world ["next"]
 
@@ -401,7 +398,7 @@ spec = describe "state over the doubles" $ do
                                ,
                                    [ "state next: run "
                                         <> run
-                                        <> " event 1 is not read - log version 2, this state reads 4"
+                                        <> " event 1 is not read - payload version 2, this state reads 1"
                                    , "fix: state init --notes <a new dir> starts afresh"
                                    ]
                                )
@@ -1345,12 +1342,11 @@ spec = describe "state over the doubles" $ do
                 $ \world -> do
                     (_, mid, grand) <- threeLevels world
                     let qid = grand <> ":1"
-                        broken = "{broken"
                     climbed world qid
-                    editLogIn world grandNotes (<> [broken])
+                    editLogIn world grandNotes appendUnread
 
                     failed <- succeeded =<< state world ["answer", qid, "it's postgres"]
-                    editLogIn world grandNotes (filter (/= broken))
+                    editLogIn world grandNotes lessUnread
                     retried <- succeeded =<< state world ["answer", qid, "it's postgres"]
 
                     drop 1 failed `shouldSatisfy` \case
@@ -1378,7 +1374,7 @@ spec = describe "state over the doubles" $ do
                         world
                         "/home/.local/state/state/bindings/s1/e1"
                         ("run " <> grand <> " " <> Text.pack grandNotes <> " /grand work\n")
-                    editLogIn world grandNotes (<> ["{broken"])
+                    editLogIn world grandNotes appendUnread
 
                     failed <- succeeded =<< state world ["answer", qid, "postgres"]
 

@@ -7,6 +7,7 @@ module State.Cli.Shell (Shell, main, hook, runShellIO, storeDurability, recorded
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
+import Control.Monad ((<=<))
 import Control.Monad qualified as Monad
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
@@ -30,6 +31,7 @@ import Data.Text.Encoding (
  )
 import Data.Time (UTCTime)
 import Effectful (Eff, IOE, runEff, (:>))
+import Effectful.Error.Static (Error, catchError, runErrorNoCallStack)
 import Effectful.Exception (throwIO, try, tryJust)
 import Effects.Clock (Clock, runClockIO)
 import Effects.Clock qualified as Clock
@@ -42,10 +44,11 @@ import Effects.Gh (Gh, runGhIO)
 import Effects.Gh qualified as Gh
 import Effects.Git (Git, runGitIO)
 import Effects.Git qualified as Git
-import Effects.Log (Log, runLogIO)
+import Effects.Log (Log, runLogIO, shipped)
 import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
-import Effects.Store (Durability (..))
+import Effects.Store.Connection (Durability (..), Foreign (..), OpenRefusal (..))
+import Effects.Store.Migration (applicationId)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
@@ -209,7 +212,6 @@ import State.Run.Card qualified as Card
 import State.Run.Codec (
     LineError (..),
     LogError (..),
-    decodeLine,
     encodeLine,
     eventType,
     reasonText,
@@ -230,6 +232,7 @@ import State.Run.Event (
     SessionId (..),
     Sha,
     Source (..),
+    parseSessionId,
     Start (..),
     Task (..),
     TaskId,
@@ -269,11 +272,14 @@ import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
 import System.IO.Error (isDoesNotExistError)
 
--- | Every effect the shell runs on.
+{- | Every effect the shell runs on. A run store it cannot open is an
+'OpenRefusal' it tells as a failure.
+-}
 type Shell es =
     ( Clock :> es
     , Console :> es
     , Environment :> es
+    , Error OpenRefusal :> es
     , Gh :> es
     , Git :> es
     , Log :> es
@@ -288,6 +294,7 @@ runShellIO ::
     Eff
         '[ Random
          , Log
+         , Error OpenRefusal
          , Git
          , Gh
          , WrFileSystem
@@ -300,15 +307,20 @@ runShellIO ::
         a ->
     IO a
 runShellIO durability =
-    runEff
-        . runClockIO
-        . runConsoleIO
-        . runEnvironmentIO
-        . runFileSystemIO
-        . runGhIO
-        . runGitIO
-        . runLogIO durability
-        . runRandomIO
+    either told pure
+        <=< runEff
+            . runClockIO
+            . runConsoleIO
+            . runEnvironmentIO
+            . runFileSystemIO
+            . runGhIO
+            . runGitIO
+            . runErrorNoCallStack
+            . runLogIO shipped durability
+            . runRandomIO
+  where
+    -- 'main' and 'hook' tell each refusal themselves: one past them is a bug.
+    told refusal = ioError (userError ("an untold store refusal: " <> show refusal))
 
 {- | The run store's durability and the rest of argv: 'Unsynced' when argv
 opens with the hidden @--store-durability unsynced@, which only the test
@@ -327,7 +339,7 @@ main argv =
         Right steps -> case parseCommand steps argv of
             Left said -> usageOut "state" said
             Right (sub, parsed) ->
-                either (pure . Left) (outageAware . execute steps) parsed >>= \case
+                either (pure . Left) (outageAware . refusalAware . execute steps) parsed >>= \case
                     Right out -> Console.out out $> ExitSuccess
                     Left failure -> failed sub failure
   where
@@ -361,7 +373,11 @@ hook argv = case parseHook argv of
                         Left why -> usage why
                         Right Nothing -> pure ExitSuccess
                         Right (Just job) -> do
-                            said <- try (jobReply steps name input (callOf event) job)
+                            said <-
+                                try
+                                    ( refusalAware (Right <$> jobReply steps name input (callOf event) job)
+                                        <&> either (toldOf job . failureText ("hook " <> hookName name)) id
+                                    )
                             -- aeson encodes UTF-8, so the reply decodes whole.
                             traverse_ (Console.out . decodeUtf8 . LBS.toStrict) . encodeReply $ case said of
                                 Right reply -> reply
@@ -442,15 +458,14 @@ readOnlyAt ::
     (Clock :> es, Environment :> es, Git :> es, Log :> es) =>
     RunId -> Gate -> Eff es (Maybe Text)
 readOnlyAt run gate =
-    Log.firstLine run >>= \first -> case startedFlow =<< first of
+    Log.firstEvent run >>= \first -> case startedFlow =<< first of
         Just flow | mayDeny flow -> denialAt
         _ -> pure Nothing
   where
-    startedFlow line =
+    startedFlow =
         either
             (const Nothing)
             (fmap (.flow) . Fold.runStart . (.event))
-            (decodeLine line)
     denialAt =
         onRunLog
             ( \_ loaded ->
@@ -664,7 +679,7 @@ agentEnded steps session under agent =
                 Ran (Right Nothing) -> pure ""
                 Ran (Right (Just (parent, role))) -> either (failureText "stop") (const "") <$> onLog (returning run role) parent
   where
-    sessioned stamp = Stamp stamp.ts stamp.head (Just session)
+    sessioned stamp = Stamp stamp.ts stamp.head (hookSession session)
     noted = Right . (`Plan` (\_ _ -> mempty))
     end stamp run = case run.state.start.principal of
         ByRole parent _ _
@@ -714,7 +729,7 @@ workerSpawned binding session child role = either (failureText "bind") (const ""
     source = Hook (digestOf [runIdText binding.run, child.agentIdText, "worker_spawned"])
     append stamp run =
         record
-            (Stamp stamp.ts stamp.head (Just session))
+            (Stamp stamp.ts stamp.head (hookSession session))
             run
             [source]
             (Right (Plan [WorkerSpawned role child] (\_ _ -> mempty)))
@@ -808,7 +823,7 @@ pointedRun =
         Right gd ->
             readPointer gd >>= \case
                 Nothing -> pure Nothing
-                Just run -> fmap decodeLine <$> Log.firstLine run
+                Just run -> Log.firstEvent run
 
 {- | What the worktree's run says to a hook's want, naming it, a disk or git
 error too. A log of another log version, as an older one, the hook records
@@ -927,10 +942,36 @@ runAnswer steps call bound found want = case want of
                 | silent branch ((.readiness) <$> pr) run.logged run.state -> ([], Right "")
                 | otherwise ->
                     Right . aboutRun run.state.run
-                        <$> act (Stamp stamp.ts stamp.head (Just call.session)) run
+                        <$> act (Stamp stamp.ts stamp.head (hookSession call.session)) run
         pure (either (aboutKnown found . failureText "hook") id (orNoRun result))
     -- GitHub unread is no PR: the hook speaks.
     runPr = fromRight Nothing . pullRequestOf <$> (Gh.prView =<< runShape)
+
+-- | A store that is not this kernel's, or a newer kernel's, is bad input: the user moves or upgrades.
+refusalAware :: (Error OpenRefusal :> es) => Eff es (Either Failure a) -> Eff es (Either Failure a)
+refusalAware act = catchError act (\_ refusal -> pure (Left (refused refusal)))
+  where
+    refused = \case
+        NotAStateStore path found ->
+            Failure
+                BadInput
+                (Text.pack path)
+                ( "not a state store ("
+                    <> ( case found of
+                            ApplicationId app -> "application_id " <> tshow app
+                            NotSQLite -> "not an SQLite database"
+                       )
+                    <> ", expected application_id "
+                    <> tshow applicationId
+                    <> ")"
+                )
+                "move the file aside: state makes a fresh store in its place"
+        NewerSchema path found known ->
+            Failure
+                BadInput
+                (Text.pack path)
+                ("schema version " <> tshow found <> ", newer than this state (" <> tshow known <> ")")
+                "upgrade state"
 
 -- | A disk or process error is the outage exit, never a crash.
 outageAware :: Eff es (Either Failure Text) -> Eff es (Either Failure Text)
@@ -2352,9 +2393,11 @@ now =
     Stamp
         <$> Clock.now
         <*> Git.headSha
-        <*> (fmap (SessionId . Text.pack) . nonEmpty <$> lookupEnv "STATE_SESSION")
-  where
-    nonEmpty = (>>= \s -> if null s then Nothing else Just s)
+        <*> ((parseSessionId . Text.pack =<<) <$> lookupEnv "STATE_SESSION")
+
+-- | The session a hook names, none when it is empty.
+hookSession :: SessionId -> Maybe SessionId
+hookSession (SessionId session) = parseSessionId session
 
 -- | Short and random: eight hex digits from the kernel's entropy.
 newRunId :: (Random :> es) => Eff es RunId
@@ -2386,7 +2429,7 @@ unreadLine run bad =
     fix = "state init --notes <a new dir> starts afresh"
 
 versionText :: Int -> Text
-versionText v = "log version " <> tshow v <> ", this state reads " <> tshow Codec.version
+versionText v = "payload version " <> tshow v <> ", this state reads " <> tshow Codec.schemaVersion
 
 -- | A log whose events read but the flow refuses: written by another kernel, or edited by hand.
 unreplayed :: RunId -> Failure -> Failure

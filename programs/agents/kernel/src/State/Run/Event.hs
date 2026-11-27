@@ -22,6 +22,7 @@ module State.Run.Event (
     parseRunId,
     runIdText,
     SessionId (..),
+    parseSessionId,
     Digest (..),
     Event (..),
     Start (..),
@@ -73,6 +74,7 @@ module State.Run.Event (
 
 import Data.Set (Set)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
 import State.Category.Effect (Waiting (..))
@@ -155,6 +157,10 @@ eventId envelope = case envelope.source of
 
 newtype SessionId = SessionId Text
     deriving stock (Eq, Show)
+
+-- | A harness session's id; an empty one is no session at all.
+parseSessionId :: Text -> Maybe SessionId
+parseSessionId raw = if Text.null raw then Nothing else Just (SessionId raw)
 
 data Event
     = Started Start
