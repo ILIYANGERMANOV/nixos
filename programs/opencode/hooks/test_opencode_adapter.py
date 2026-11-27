@@ -188,7 +188,8 @@ def test_a_shell_call_carries_the_sessions_earlier_commands() -> None:
         None,
         Tool.SHELL,
         {"command": "gh run view 7"},
-        ("ls", "gh run view 7"), harness=HARNESS
+        ("ls", "gh run view 7"),
+        harness=HARNESS,
     )
 
 
@@ -243,7 +244,8 @@ def test_a_shell_result_is_its_stdout_with_the_context_size() -> None:
             Tool.SHELL,
             {"command": "state init --task t1"},
             {"stdout": "run 0a1b2c3d /n /w\n"},
-            ContextSize(300_500, 298_000), harness=HARNESS
+            ContextSize(300_500, 298_000),
+            harness=HARNESS,
         ),
     )
 
@@ -258,7 +260,8 @@ def test_another_tools_result_is_opencodes_own() -> None:
             None,
             Tool.OTHER,
             {"pattern": "*"},
-            {"title": "t", "output": "a.py", "metadata": {}}, harness=HARNESS
+            {"title": "t", "output": "a.py", "metadata": {}},
+            harness=HARNESS,
         ),
     )
 
@@ -273,9 +276,19 @@ def test_a_finished_task_hands_its_last_reply_back_then_stops_then_binds() -> No
     )
 
     assert parse_opencode(payload, TOOLS) == (
-        BeforeTool(SESSION, CWD, WORKER, Tool.HANDBACK, {"message": reply}, harness=HARNESS),
+        BeforeTool(
+            SESSION, CWD, WORKER, Tool.HANDBACK, {"message": reply}, harness=HARNESS
+        ),
         AgentStop(SESSION, CWD, WORKER, (AgentId("ses_other"),), harness=HARNESS),
-        AfterTool(SESSION, CWD, None, Tool.DELEGATE, SPAWN_ARGS, {"agentId": CHILD}, harness=HARNESS),
+        AfterTool(
+            SESSION,
+            CWD,
+            None,
+            Tool.DELEGATE,
+            SPAWN_ARGS,
+            {"agentId": CHILD},
+            harness=HARNESS,
+        ),
     )
 
 
@@ -329,7 +342,9 @@ def test_a_child_sessions_first_message_starts_the_agent(
 ) -> None:
     payload = in_child(message(first=True, created=created))
 
-    assert parse_opencode(payload, TOOLS) == (AgentStart(SESSION, CWD, WORKER, harness=HARNESS),)
+    assert parse_opencode(payload, TOOLS) == (
+        AgentStart(SESSION, CWD, WORKER, harness=HARNESS),
+    )
 
 
 def test_a_later_message_starts_nothing() -> None:
@@ -341,7 +356,14 @@ def test_a_background_tasks_end_in_the_parents_message_hands_back_and_stops() ->
     parts: list[Json] = [{"type": "text", "synthetic": True, "text": text}]
 
     assert parse_opencode(message(parts=parts, running=[CHILD]), TOOLS) == (
-        BeforeTool(SESSION, CWD, WORKER, Tool.HANDBACK, {"message": "READY abc"}, harness=HARNESS),
+        BeforeTool(
+            SESSION,
+            CWD,
+            WORKER,
+            Tool.HANDBACK,
+            {"message": "READY abc"},
+            harness=HARNESS,
+        ),
         AgentStop(SESSION, CWD, WORKER, (), harness=HARNESS),
     )
 

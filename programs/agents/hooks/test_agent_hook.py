@@ -84,7 +84,7 @@ STOPPED = AgentStop(
     SESSION, CWD, WORKER, (AgentId("a1"), AgentId("a2")), harness=CLAUDE
 )
 # The wire's keys every event carries.
-COMMON = {
+COMMON: dict[str, Json] = {
     "session": "s1",
     "cwd": "/work/repo",
     "harness": "claude-code",
@@ -107,7 +107,11 @@ sessions = st.text().map(SessionId)
 harnesses = texts.map(Harness)
 calls = st.none() | st.text().map(CallId)
 usages = st.none() | st.builds(
-    Usage, st.none() | counts, st.none() | counts, st.none() | counts, st.none() | counts
+    Usage,
+    st.none() | counts,
+    st.none() | counts,
+    st.none() | counts,
+    st.none() | counts,
 )
 events: st.SearchStrategy[Event] = st.one_of(
     st.builds(
@@ -262,32 +266,45 @@ def without(wire: dict[str, Json], key: str) -> Json:
             BEFORE_SHELL | {"transcript_path": "projects/s.jsonl"},
             id="relative transcript path off a session start",
         ),
-        pytest.param(without(SESSION_START, "harness"), id="session start with no harness"),
-        pytest.param(without(BEFORE_SHELL, "harness"), id="before a tool with no harness"),
         pytest.param(
-            without(AGENT_STOP, "transcript_path"), id="agent stop with no transcript key"
+            without(SESSION_START, "harness"), id="session start with no harness"
+        ),
+        pytest.param(
+            without(BEFORE_SHELL, "harness"), id="before a tool with no harness"
+        ),
+        pytest.param(
+            without(AGENT_STOP, "transcript_path"),
+            id="agent stop with no transcript key",
         ),
         pytest.param(BEFORE_SHELL | {"agent": {"id": "a"}}, id="agent without a role"),
         pytest.param(ANY | {"event": "agentStart"}, id="agent start with no agent"),
         pytest.param(
             ANY | {"event": "promptExpansion"}, id="prompt expansion with no skill"
         ),
-        pytest.param(without(AGENT_STOP, "running"), id="agent stop with no running list"),
+        pytest.param(
+            without(AGENT_STOP, "running"), id="agent stop with no running list"
+        ),
         pytest.param(AGENT_STOP | {"running": [7]}, id="running id not a string"),
         pytest.param(without(BEFORE_SHELL, "history"), id="no history"),
-        pytest.param(without(BEFORE_SHELL, "call"), id="before a tool with no call key"),
+        pytest.param(
+            without(BEFORE_SHELL, "call"), id="before a tool with no call key"
+        ),
         pytest.param(without(AFTER_SHELL, "call"), id="after a tool with no call key"),
         pytest.param(BEFORE_SHELL | {"call": 7}, id="call not a string"),
-        pytest.param(without(BEFORE_SHELL, "usage"), id="before a tool with no usage key"),
+        pytest.param(
+            without(BEFORE_SHELL, "usage"), id="before a tool with no usage key"
+        ),
         pytest.param(without(AGENT_STOP, "usage"), id="agent stop with no usage key"),
         pytest.param(
             AGENT_STOP | {"usage": {"input_tokens": -1}}, id="negative token count"
         ),
         pytest.param(
-            AGENT_STOP | {"usage": {"input_tokens": "12k"}}, id="token count not a count"
+            AGENT_STOP | {"usage": {"input_tokens": "12k"}},
+            id="token count not a count",
         ),
         pytest.param(
-            AGENT_STOP | {"usage": {"total_tokens": 12}}, id="usage with an unknown count"
+            AGENT_STOP | {"usage": {"total_tokens": 12}},
+            id="usage with an unknown count",
         ),
         pytest.param(
             AFTER_SHELL | {"context": {"tokens": "150k", "previous": None}},

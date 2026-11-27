@@ -519,7 +519,9 @@ def task_ended(
                 AgentStop(session, cwd, agent, still, harness=HARNESS),
             )
         case Failed(child=child):
-            return (AgentStop(session, cwd, Agent(child, role), still, harness=HARNESS),)
+            return (
+                AgentStop(session, cwd, Agent(child, role), still, harness=HARNESS),
+            )
 
 
 # ---- The plugin's output ------------------------------------------------------------

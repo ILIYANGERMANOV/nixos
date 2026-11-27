@@ -132,12 +132,12 @@ import State.Run.Event (
     SpanId (..),
     SpanStart (..),
     Usage (..),
-    unreported,
     parseHarness,
     parseSessionId,
     roleText,
     runIdText,
     tookIn,
+    unreported,
  )
 import State.Run.Fan (Fan (..))
 import State.Run.Fold (
@@ -657,7 +657,8 @@ runner's) or linked its span (any other's) waits in its stash, which that hook
 replays; every other want goes to the caller's run. A subagent with no slot
 (no store) has nowhere to wait: its run is none.
 -}
-delivery :: Want -> Key -> Maybe Slot -> Maybe Binding -> Maybe SpanLink -> Delivery
+delivery ::
+    Want -> Key -> Maybe Slot -> Maybe Binding -> Maybe SpanLink -> Delivery
 delivery want key slot bound linked = case want of
     HandedBack {} -> waits bound
     SpanHandback {} -> waits linked
@@ -895,7 +896,8 @@ spanEndedSource run ended =
 -- | The span this call started in these lines, if it did ('spanStartedSource').
 spanOfCall :: (Foldable t) => RunId -> ToolCallId -> t Envelope -> Maybe SpanId
 spanOfCall run toolCall logged =
-    SpanId . (.seq) <$> find ((== spanStartedSource run toolCall) . (.source)) logged
+    SpanId . (.seq)
+        <$> find ((== spanStartedSource run toolCall) . (.source)) logged
 
 -- | A span's start: the spawn, by the harness the session runs on, under the span of its spawner, if any.
 spanStartOf :: Harness -> Maybe SpanId -> Spawn -> SpanStart

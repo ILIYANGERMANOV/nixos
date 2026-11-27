@@ -40,6 +40,7 @@ module State.Cli.Shell.World (
     editLogIn,
     appendUnread,
     appendSpan,
+    appendEvent,
     lessUnread,
     unknownType,
     newerStart,
@@ -52,6 +53,7 @@ module State.Cli.Shell.World (
     transcriptFile,
     handedBack,
     spawned,
+    spawnedAs,
     agentStarted,
     stateCall,
     editCall,
@@ -456,22 +458,23 @@ appendUnread rows =
 logs one: no command writes it.
 -}
 appendSpan :: Text -> [EventRow] -> [EventRow]
-appendSpan role rows =
+appendSpan role =
+    appendEvent
+        ( SpanStarted
+            ( SpanStart
+                (AgentRole role)
+                (Harness "claude-code")
+                ("brief of " <> role)
+                Nothing
+                Nothing
+            )
+        )
+
+-- | The rows and this event after them, as a hook or an older kernel logs it.
+appendEvent :: Event -> [EventRow] -> [EventRow]
+appendEvent event rows =
     rows
-        <> [ eventRow
-                e
-                    { source = Cli
-                    , seq = e.seq + 1
-                    , event =
-                        SpanStarted
-                            ( SpanStart
-                                (AgentRole role)
-                                (Harness "claude-code")
-                                ("brief of " <> role)
-                                Nothing
-                                Nothing
-                            )
-                    }
+        <> [ eventRow e {source = Cli, seq = e.seq + 1, event = event}
            | lastRow <- take 1 (reverse rows)
            , Known e <- [decodeRow shipped lastRow]
            ]
@@ -516,14 +519,25 @@ storeDown world = modifyIORef' world (\w -> w {runs = withAccess ReadOnly w.runs
 fileBytes :: IORef World -> FilePath -> IO (Maybe ByteString)
 fileBytes world path = Map.lookup path . (.disk.files) <$> readIORef world
 
--- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's session in the worktree.
+{- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's
+Claude Code session in the worktree, its transcript 'transcriptFile'.
+-}
 hookEvent :: Value -> [Pair] -> LBS.ByteString
 hookEvent = hookEventIn "/work"
 
 hookEventIn :: FilePath -> Value -> [Pair] -> LBS.ByteString
 hookEventIn cwd agent fields =
     encode
-        (object (["session" .= String "s1", "cwd" .= cwd, "agent" .= agent] <> fields))
+        ( object
+            ( [ "session" .= String "s1"
+              , "cwd" .= cwd
+              , "agent" .= agent
+              , "harness" .= String "claude-code"
+              , "transcript_path" .= transcriptFile
+              ]
+                <> fields
+            )
+        )
 
 sessionStart :: LBS.ByteString
 sessionStart = sessionStartIn "/work"
@@ -536,8 +550,6 @@ sessionStartIn cwd =
         Null
         [ "event" .= String "sessionStart"
         , "source" .= String "startup"
-        , "harness" .= String "claude-code"
-        , "transcript_path" .= transcriptFile
         , "request_model" .= Null
         ]
 
@@ -551,20 +563,36 @@ handedBack role =
         (object ["id" .= String "a1", "role" .= role])
         [ "event" .= String "beforeTool"
         , "tool" .= String "handback"
+        , "call" .= Null
         , "input" .= object ["message" .= String "READY\nDone.\n"]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
 
--- | The lead spawns a subagent of this role.
+-- | The lead spawns a subagent @a1@ of this role.
 spawned :: Text -> LBS.ByteString
-spawned role =
+spawned role = spawnedAs role "a1"
+
+-- | The lead spawns a subagent of this role that will be this agent, by the call 'spawnCall' names.
+spawnedAs :: Text -> Text -> LBS.ByteString
+spawnedAs role agent =
     hookEvent
         Null
         [ "event" .= String "beforeTool"
         , "tool" .= String "delegate"
-        , "input" .= object ["subagent_type" .= role]
+        , "call" .= spawnCall agent
+        , "input"
+            .= object ["subagent_type" .= role, "prompt" .= ("Work as the " <> role <> ".")]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
+
+{- | The tool call that spawns this agent: its spawn and its result share it.
+Named by the agent, which the harness tells only in the result, so a test
+pairs the two.
+-}
+spawnCall :: Text -> Text
+spawnCall agent = "toolu_" <> agent
 
 -- | A subagent @a1@ of this role starting in the worktree.
 agentStarted :: Text -> LBS.ByteString
@@ -580,8 +608,10 @@ editCall =
         Null
         [ "event" .= String "beforeTool"
         , "tool" .= String "edit"
+        , "call" .= Null
         , "input" .= object ["file_path" .= String "/work/a.hs"]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
 
 -- | The lead about to run this shell command in the worktree.
@@ -591,8 +621,10 @@ stateCall command =
         Null
         [ "event" .= String "beforeTool"
         , "tool" .= String "shell"
+        , "call" .= Null
         , "input" .= object ["command" .= command]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
 
 -- | The lead's spawn of a subagent @a1@ of this role, done: its result names the agent.
@@ -613,6 +645,7 @@ spawnResultFrom spawner role agent =
         spawner
         [ "event" .= String "afterTool"
         , "tool" .= String "delegate"
+        , "call" .= spawnCall agent
         , "input" .= object ["subagent_type" .= role]
         , "output"
             .= object
@@ -627,6 +660,7 @@ initRan role agent stdout =
         (object ["id" .= agent, "role" .= role])
         [ "event" .= String "afterTool"
         , "tool" .= String "shell"
+        , "call" .= Null
         , "input" .= object ["command" .= String "state init"]
         , "output" .= object ["stdout" .= stdout, "stderr" .= String ""]
         , "context" .= Null
@@ -641,7 +675,10 @@ leadStop :: [Text] -> LBS.ByteString
 leadStop = stopOf Null
 
 stopOf :: Value -> [Text] -> LBS.ByteString
-stopOf agent running = hookEvent agent ["event" .= String "agentStop", "running" .= running]
+stopOf agent running =
+    hookEvent
+        agent
+        ["event" .= String "agentStop", "running" .= running, "usage" .= Null]
 
 -- | The lead's call stopping the agent of this id, done.
 stopCall :: Text -> LBS.ByteString
@@ -650,6 +687,7 @@ stopCall agent =
         Null
         [ "event" .= String "afterTool"
         , "tool" .= String "stopAgent"
+        , "call" .= Null
         , "input" .= object ["task_id" .= agent]
         , "output" .= object ["message" .= String "stopped"]
         , "context" .= Null

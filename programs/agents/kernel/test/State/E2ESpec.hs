@@ -446,7 +446,7 @@ spec = describe "the state binary" $ do
                         all
                             (`Text.isInfixOf` reply)
                             [ "gather/research.handed_back -> gather/researchers"
-                            , "worker_returned -> gather/notes"
+                            , "span_ended -> gather/notes"
                             ]
                     _ -> False
 
@@ -1606,6 +1606,7 @@ spec = describe "the state binary" $ do
 
             it "record a hand-back seen twice once, appending what they recorded" $ \repo -> do
                 _ <- drive bin repo (Record ["fuel.set", "balanced"] : init toImplement)
+                _ <- succeeded =<< hook hookBin repo "spawn" (spawned repo "implementer")
                 _ <-
                     succeeded
                         =<< hook hookBin repo "bind" (spawnResult repo Null "implementer" "a1")
@@ -1647,7 +1648,7 @@ spec = describe "the state binary" $ do
                     run <- startedRun bin repo
                     replaceByHand repo run 1 2
                     said <-
-                        succeeded =<< hook hookBin repo "spawn" (spawned' repo Null "researcher")
+                        succeeded =<< hook hookBin repo "spawn" (spawnedAs repo Null "researcher" "a1")
                     replyField "context" said
                         `shouldSatisfy` maybe False ("state handback <role>" `Text.isInfixOf`)
 
@@ -1684,6 +1685,154 @@ spec = describe "the state binary" $ do
             it "exit 2 on stdin that is no hook event" $ \repo -> do
                 said <- hook hookBin repo "resume" "not json"
                 said.code `shouldBe` 2
+
+            describe "log each subagent as a span" $ do
+                it
+                    "log 4 agents spawned in one message as 4 spans, each ended by its hand-back, a foreground one's made before its bind"
+                    $ \repo -> do
+                        run <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+                        let explorer agent = worker agent "Explore"
+                            spawn agent = succeeded =<< hook hookBin repo "spawn" (spawnedAs repo Null "Explore" agent)
+                            bind agent =
+                                succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "Explore" agent)
+                            handBack agent usage message =
+                                succeeded
+                                    =<< hook hookBin repo "handback" (reportedUsing repo (explorer agent) usage message)
+                            tokens = object ["input_tokens" .= (1200 :: Int), "output_tokens" .= (300 :: Int)]
+                        for_ ["e1", "e2", "e3", "e4", "e1"] spawn
+                        for_ ["e1", "e2", "e3"] bind
+                        _ <- handBack "e1" tokens (ready "")
+                        _ <- handBack "e1" tokens (ready "")
+                        _ <- handBack "e2" Null "BLOCKED no access\n"
+                        _ <- handBack "e3" Null researched
+                        early <- handBack "e4" Null (ready "")
+                        bound <- bind "e4"
+
+                        spans <- spanEvents repo run
+                        (early, bound) `shouldSatisfy` \case
+                            ([], said) -> mentions "span_ended" said
+                            _ -> False
+                        map fst spans
+                            `shouldBe` replicate 4 "span_started" <> replicate 4 "span_ended"
+                        [ map (`field` payload) ["status_code", "handback_token", "handback"]
+                          | ("span_ended", payload) <- spans
+                          ]
+                            `shouldBe` [ [Just "ok", Just "ready", Just (String (ready ""))]
+                                       , [Just "ok", Just "blocked", Just "BLOCKED no access\n"]
+                                       , [Just "ok", Just "ready", Just (String researched)]
+                                       , [Just "ok", Just "ready", Just (String (ready ""))]
+                                       ]
+                        [ map
+                            (`field` payload)
+                            ["input_tokens", "output_tokens", "cache_read_input_tokens"]
+                          | ("span_ended", payload) <- take 5 spans
+                          ]
+                            `shouldBe` [[Just (Number 1200), Just (Number 300), Nothing]]
+                        [field "brief" payload | ("span_started", payload) <- take 1 spans]
+                            `shouldBe` [Just "state brief"]
+
+                it "end a span its agent stops with no hand-back in error, and no span twice" $ \repo -> do
+                    run <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+                    for_ ["e5", "e6"] $ \agent -> do
+                        _ <-
+                            succeeded =<< hook hookBin repo "spawn" (spawnedAs repo Null "Explore" agent)
+                        succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "Explore" agent)
+                    _ <-
+                        succeeded
+                            =<< hook
+                                hookBin
+                                repo
+                                "handback"
+                                (reportedBy repo (worker "e6" "Explore") (ready ""))
+                    for_ ["e5", "e6"] $ \agent ->
+                        succeeded
+                            =<< hook hookBin repo "stop" (stoppedWith repo (worker agent "Explore") [agent])
+
+                    spans <- spanEvents repo run
+                    [ map
+                        (`field` payload)
+                        ["span", "status_code", "error_type", "handback_token", "handback"]
+                      | ("span_ended", payload) <- spans
+                      ]
+                        `shouldBe` [ [Just (Number 4), Just "ok", Nothing, Just "ready", Just (String (ready ""))]
+                                   , [Just (Number 3), Just "error", Just "no_handback", Nothing, Nothing]
+                                   ]
+
+                it
+                    "log the session of a run its state init made mid-session once, and its transcript at a handover"
+                    $ \repo -> do
+                        Text.writeFile (transcriptOf repo) "{}\n"
+                        run <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+                        resumed <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+                        _ <-
+                            succeeded
+                                =<< hook
+                                    hookBin
+                                    repo
+                                    "bind"
+                                    (ranShell repo Null ("state init --notes " <> repo.notes) resumed)
+                        _ <-
+                            succeeded
+                                =<< state
+                                    bin
+                                    repo
+                                    ["handover", "--reason", "context", "--summary", "s", "--next", "go on"]
+
+                        rows <- storedRows repo run
+                        let payloads kind =
+                                [ payload
+                                | (_, _, kind', _, _, _, _, raw) <- rows
+                                , kind' == kind
+                                , Just payload <- [Aeson.decodeStrictText raw]
+                                ]
+                        ( map (field "source") (payloads "session_started")
+                            , [ (field "artifact_kind" payload, field "location" payload >>= field "path")
+                              | payload <- payloads "artifact"
+                              ]
+                            )
+                            `shouldBe` ( [Just "init"]
+                                       , [(Just "transcript", Just (String (Text.pack (transcriptOf repo))))]
+                                       )
+
+                it "leave no event of a scripted session without its session id" $ \repo -> do
+                    -- The env STATE_SESSION as the Claude adapter's SessionStart exports it.
+                    let session =
+                            Repo
+                                repo.root
+                                repo.work
+                                repo.notes
+                                repo.prJson
+                                (("STATE_SESSION", "s1") : filter ((/= "STATE_SESSION") . fst) repo.env)
+                    run <- initBound bin hookBin session Null session ["--notes", repo.notes]
+                    _ <- succeeded =<< state bin session ["record", "fuel.set", "balanced"]
+                    _ <-
+                        succeeded
+                            =<< hook hookBin session "spawn" (spawnedAs session Null "Explore" "e1")
+                    _ <-
+                        succeeded
+                            =<< hook hookBin session "bind" (spawnResult session Null "Explore" "e1")
+                    _ <-
+                        succeeded
+                            =<< hook
+                                hookBin
+                                session
+                                "handback"
+                                (reportedBy session (worker "e1" "Explore") (ready ""))
+                    _ <-
+                        succeeded
+                            =<< state
+                                bin
+                                session
+                                ["handover", "--reason", "context", "--summary", "s", "--next", "go on"]
+
+                    rows <- storedRows repo run
+                    ( length rows > 5
+                        , [ (kind, sessionId)
+                          | (_, _, kind, _, sessionId, _, _, _) <- rows
+                          , sessionId /= Just "s1"
+                          ]
+                        )
+                        `shouldBe` (True, [])
 
             describe "bind each agent to its run, wherever its hooks fire" $ do
                 it
@@ -1727,7 +1876,8 @@ spec = describe "the state binary" $ do
                         before <- logLines bin repo
 
                         said <-
-                            succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+                            succeeded
+                                =<< hook hookBin repo "spawn" (spawnedAs repo engineer "researcher" "w2")
 
                         after <- logLines bin repo
                         said `shouldSatisfy` mentions "gather/research.spawned"
@@ -1740,7 +1890,8 @@ spec = describe "the state binary" $ do
                         (engineer, w1) <- childEngineer bin hookBin repo
                         _ <- succeeded =<< state bin w1 ["record", "gather.research"]
                         _ <-
-                            succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+                            succeeded
+                                =<< hook hookBin repo "spawn" (spawnedAs repo engineer "researcher" "w2")
 
                         early <-
                             succeeded
@@ -1764,7 +1915,8 @@ spec = describe "the state binary" $ do
                         (engineer, w1) <- childEngineer bin hookBin repo
                         _ <- succeeded =<< state bin w1 ["record", "gather.research"]
                         _ <-
-                            succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+                            succeeded
+                                =<< hook hookBin repo "spawn" (spawnedAs repo engineer "researcher" "w2")
 
                         _ <-
                             succeeded
@@ -1790,6 +1942,9 @@ spec = describe "the state binary" $ do
                                 =<< state bin w1 ["override", "await_ci", "the", "test", "starts", "here"]
                         _ <-
                             succeeded
+                                =<< hook hookBin repo "spawn" (spawnedAs repo engineer "researcher" "r1")
+                        _ <-
+                            succeeded
                                 =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "r1")
                         before <- logLines bin repo
 
@@ -1805,10 +1960,10 @@ spec = describe "the state binary" $ do
                         released <- succeeded =<< state bin w1 ["next"]
                         after <- logLines bin repo
 
-                        take 1 held `shouldBe` ["AWAIT worker researcher r1"]
+                        take 1 held `shouldBe` ["AWAIT worker researcher span 5"]
                         held
                             `shouldSatisfy` mentions
-                                "state handback: researcher r1 is still at work - its hand-back is not recorded"
+                                "state handback: researcher span 5 is still at work - its hand-back is not recorded"
                         heldUp `shouldBe` before
                         take 1 released `shouldSatisfy` mentions "HANDBACK AWAIT ci"
                         after `shouldSatisfy` (> before)
@@ -2027,8 +2182,6 @@ sessionFrom source repo =
         Null
         [ "event" .= String "sessionStart"
         , "source" .= String source
-        , "harness" .= String "claude-code"
-        , "transcript_path" .= String "/home/u/.claude/projects/p/s1.jsonl"
         , "request_model" .= Null
         ]
 
@@ -2042,35 +2195,78 @@ reportedBack repo role = reportedBy repo (worker "a1" role)
 
 -- | This subagent hands back this message, its hook firing in the repo's worktree.
 reportedBy :: Repo -> Value -> Text -> String
-reportedBy repo agent message =
+reportedBy repo agent = reportedUsing repo agent Null
+
+-- | This subagent hands back this message, having used these tokens (@Null@: unknown).
+reportedUsing :: Repo -> Value -> Value -> Text -> String
+reportedUsing repo agent usage message =
     hookEvent
         repo
         agent
         [ "event" .= String "beforeTool"
         , "tool" .= String "handback"
+        , "call" .= Null
         , "input" .= object ["message" .= String message]
         , "history" .= ([] :: [Text])
+        , "usage" .= usage
         ]
+
+-- | This agent stops, these agents running in its session.
+stoppedWith :: Repo -> Value -> [Text] -> String
+stoppedWith repo agent running =
+    hookEvent
+        repo
+        agent
+        ["event" .= String "agentStop", "running" .= running, "usage" .= Null]
+
+-- | The run's span events, each its type and payload, in log order.
+spanEvents :: Repo -> Text -> IO [(Text, Value)]
+spanEvents repo run =
+    ( \rows ->
+        [ (kind, payload)
+        | (_, _, kind, _, _, _, _, raw) <- rows
+        , kind `elem` ["span_started", "span_ended"]
+        , Just payload <- [Aeson.decodeStrictText raw]
+        ]
+    )
+        <$> storedRows repo run
+
+-- | A key of a JSON object; none of any other value.
+field :: Aeson.Key -> Value -> Maybe Value
+field key = \case
+    Object fields -> KeyMap.lookup key fields
+    _ -> Nothing
 
 -- | A subagent, by its id and role, as the hook payload names it.
 worker :: Text -> Text -> Value
 worker agentId role = object ["id" .= agentId, "role" .= role]
 
--- | The lead spawns a subagent of this role.
+-- | The lead spawns a subagent @a1@ of this role.
 spawned :: Repo -> Text -> String
-spawned repo = spawned' repo Null
+spawned repo role = spawnedAs repo Null role "a1"
 
--- | This agent (the lead: @Null@) spawns a subagent of this role.
-spawned' :: Repo -> Value -> Text -> String
-spawned' repo agent role =
+{- | This agent (the lead: @Null@) spawns a subagent of this role that will
+be this child, by the call 'spawnCall' names.
+-}
+spawnedAs :: Repo -> Value -> Text -> Text -> String
+spawnedAs repo agent role child =
     hookEvent
         repo
         agent
         [ "event" .= String "beforeTool"
         , "tool" .= String "delegate"
-        , "input" .= object ["subagent_type" .= role]
+        , "call" .= spawnCall child
+        , "input" .= object ["subagent_type" .= role, "prompt" .= String "state brief"]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
+
+{- | The tool call spawning this child: its spawn and its result share it.
+Named by the child, which the harness tells only in the result, so a test
+pairs the two.
+-}
+spawnCall :: Text -> Text
+spawnCall child = "toolu_" <> child
 
 {- | This agent's spawn of a subagent of this role done, its result naming the
 subagent's id: a PostToolUse on Agent (contract/fixtures/live-run.json).
@@ -2082,6 +2278,7 @@ spawnResult repo agent role child =
         agent
         [ "event" .= String "afterTool"
         , "tool" .= String "delegate"
+        , "call" .= spawnCall child
         , "input"
             .= object
                 [ "description" .= String "a worker"
@@ -2115,6 +2312,7 @@ ranShell repo agent command printed =
         agent
         [ "event" .= String "afterTool"
         , "tool" .= String "shell"
+        , "call" .= Null
         , "input"
             .= object ["command" .= command, "description" .= String "start the run"]
         , "output"
@@ -2132,7 +2330,8 @@ hand-back's hook replied.
 -}
 workerAt :: FilePath -> Repo -> Value -> Text -> IO [Text]
 workerAt hookBin repo agent w = do
-    _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo agent "researcher")
+    _ <-
+        succeeded =<< hook hookBin repo "spawn" (spawnedAs repo agent "researcher" w)
     _ <-
         succeeded =<< hook hookBin repo "bind" (spawnResult repo agent "researcher" w)
     succeeded
@@ -2248,8 +2447,10 @@ ranIn repo agent command =
         agent
         [ "event" .= String "beforeTool"
         , "tool" .= String "shell"
+        , "call" .= Null
         , "input" .= object ["command" .= command]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
 
 -- | The lead typing @/<skill>@.
@@ -2264,8 +2465,10 @@ edited repo agent =
         agent
         [ "event" .= String "beforeTool"
         , "tool" .= String "edit"
+        , "call" .= Null
         , "input" .= object ["file_path" .= String "README.md"]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
 
 -- | This subagent starting, its hook firing in the repo's worktree.
@@ -2278,13 +2481,26 @@ replyField key said = case Aeson.decodeStrictText (Text.concat said) of
     Just (Object fields) | Just (String value) <- KeyMap.lookup key fields -> Just value
     _ -> Nothing
 
--- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's session in the worktree.
+-- | The session's transcript, as Claude Code names it: a file of the test's own, none until a test writes it.
+transcriptOf :: Repo -> FilePath
+transcriptOf repo = repo.root </> "s1.jsonl"
+
+{- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's
+Claude Code session in the worktree.
+-}
 hookEvent :: Repo -> Value -> [Pair] -> String
 hookEvent repo agent fields =
     LBS8.unpack
         ( encode
             ( object
-                (["session" .= String "s1", "cwd" .= repo.work, "agent" .= agent] <> fields)
+                ( [ "session" .= String "s1"
+                  , "cwd" .= repo.work
+                  , "agent" .= agent
+                  , "harness" .= String "claude-code"
+                  , "transcript_path" .= transcriptOf repo
+                  ]
+                    <> fields
+                )
             )
         )
 
@@ -2624,7 +2840,7 @@ balancedTranscript =
     , "gather.interview -> interview"
     , "interview.asked -> gather"
     , "gather/research.handed_back -> gather"
-    , "worker_returned -> gather"
+    , "span_ended -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
     ]
@@ -2663,7 +2879,7 @@ cleanTranscript =
     , "gather.interview -> interview"
     , "interview.asked -> gather"
     , "gather/research.handed_back -> gather"
-    , "worker_returned -> gather"
+    , "span_ended -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
     ]

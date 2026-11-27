@@ -694,9 +694,7 @@ def emit_event(event: Event) -> str:
                 common | {"running": list(running), "usage": emit_usage(usage)}
             )
         case SessionStart(source=source, model=model):
-            return json.dumps(
-                common | {"source": source.value, "request_model": model}
-            )
+            return json.dumps(common | {"source": source.value, "request_model": model})
         case BeforeTool(
             tool=tool, call=call, input=tool_input, history=history, usage=usage
         ):

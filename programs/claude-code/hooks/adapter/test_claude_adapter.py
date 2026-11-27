@@ -353,7 +353,8 @@ def test_a_recorded_subagent_start_is_that_subagent_starting(
         Agent(
             AgentId(cast("str", payload["agent_id"])),
             Role(cast("str", payload["agent_type"])),
-        ), harness=HARNESS
+        ),
+        harness=HARNESS,
     )
 
 
@@ -363,7 +364,8 @@ def test_a_recorded_typed_skill_is_its_command_name(payload: JsonObject) -> None
         SessionId(cast("str", payload["session_id"])),
         Path(cast("str", payload["cwd"])),
         None,
-        SkillName(cast("str", payload["command_name"])), harness=HARNESS
+        SkillName(cast("str", payload["command_name"])),
+        harness=HARNESS,
     )
 
 
@@ -451,7 +453,8 @@ def test_a_lead_tool_call_has_no_agent() -> None:
             "description": "Implement slice 1",
             "prompt": "Fuel: Max",
             "subagent_type": "implementer",
-        }, harness=HARNESS
+        },
+        harness=HARNESS,
     )
 
 
@@ -463,7 +466,8 @@ def test_a_subagent_is_its_id_and_its_type_as_role() -> None:
         Path("/work/repo"),
         Agent(AgentId("a1b2"), Role("implementer")),
         Tool.HANDBACK,
-        {"message": "READY commit abc"}, harness=HARNESS
+        {"message": "READY commit abc"},
+        harness=HARNESS,
     )
 
 

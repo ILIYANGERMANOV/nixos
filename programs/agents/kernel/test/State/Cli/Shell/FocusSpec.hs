@@ -11,6 +11,8 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Data.Time (NominalDiffTime, addUTCTime)
 import State.Cli.Shell.World
+import State.Protocol.Binding (AgentId (..))
+import State.Run.Event (AgentRole (..), Event (WorkerSpawned))
 import State.Run.RunGen (breakdownJson, plainTask)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, shouldBe)
@@ -389,15 +391,19 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
   where
     untasked = filter ("untasked" `Text.isPrefixOf`)
 
--- | A chief run in its architect request, a researcher @a7@ at work.
+{- | A chief run in its architect request, a researcher @a7@ at work: its
+@worker_spawned@ line, as a kernel before spans logged at the bind, names its
+agent (a span names none).
+-}
 researching :: IORef World -> IO ()
 researching world = do
     _ <- startedIn world ["--flow", "chief"]
     mapM_
         (succeeded <=< state world)
         ([["record", "fuel.set", "balanced"], ["record", "route.architect"]] :: [[Text]])
-    _ <- hook world "bind" (spawnResultOf "researcher" "a7")
-    pure ()
+    editLog
+        world
+        (appendEvent (WorkerSpawned (AgentRole "researcher") (AgentId "a7")))
 
 -- | A chief run whose first request ran to its end, at @next@.
 finished :: IORef World -> IO ()

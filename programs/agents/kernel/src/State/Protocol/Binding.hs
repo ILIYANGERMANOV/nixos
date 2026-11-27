@@ -51,8 +51,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Run.Event (SessionId (..))
 import State.Run.Id (AgentId (..), RunId, SpanId (..), parseRunId, runIdText)
-import Text.Read (readMaybe)
 import System.FilePath (equalFilePath, isAbsolute, (</>))
+import Text.Read (readMaybe)
 
 -- | A run, its notes dir and the top of the worktree it is at, both absolute.
 data Binding = Binding {run :: RunId, notes :: FilePath, toplevel :: FilePath}
@@ -198,7 +198,11 @@ slottedAgents names =
     [ AgentId (Text.pack name)
     | name <- names
     , name /= mainName
-    , not (any (`isPrefixOf` name) [stashPrefix, stopPrefix, spanPrefix, leadPrefix, ledPrefix])
+    , not
+        ( any
+            (`isPrefixOf` name)
+            [stashPrefix, stopPrefix, spanPrefix, leadPrefix, ledPrefix]
+        )
     ]
 
 -- | Whether a binding's worktree still stands: one is removed once its PR merged.
