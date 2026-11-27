@@ -591,11 +591,11 @@ spec = describe "State.Protocol.Advice" $ do
             let reviewed =
                     [ Spawned (childOf "c1" "t1")
                     , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                    , TaskMoved (TaskId "t1") (InReview prUrl)
+                    , TaskMoved (refTo "t1") (InReview prUrl)
                     ]
             map
                 (next noFacts . tenXAt (t1 :| [plainTask "t2" ["t1"]]))
-                [reviewed, reviewed <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
+                [reviewed, reviewed <> [TaskMoved (refTo "t1") (Merged prUrl)]]
                 `shouldBe` [ AwaitMerge ((TaskId "t1", Just prUrl) :| [])
                            , Spawn (AgentRole "engineer") (Just (TaskId "t2"))
                            ]
@@ -604,8 +604,8 @@ spec = describe "State.Protocol.Advice" $ do
                 noFacts
                 ( tenXAt
                     (t1 :| [t2])
-                    [ TaskMoved (TaskId "t1") (Parked "out of scope" Nothing)
-                    , TaskMoved (TaskId "t2") (Parked "not needed" Nothing)
+                    [ TaskMoved (refTo "t1") (Parked "out of scope" Nothing)
+                    , TaskMoved (refTo "t2") (Parked "not needed" Nothing)
                     ]
                 )
                 `shouldBe` offering ["state stop blocked \"all tasks parked\""]
@@ -617,7 +617,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "spawns the next task once a spawn is recorded, never the same task twice" $
             map
                 (next noFacts . tenXAt (t1 :| [t2]))
-                [[Spawning (TaskId "t1")], [Spawning (TaskId "t1"), Spawning (TaskId "t2")]]
+                [[Spawning (refTo "t1")], [Spawning (refTo "t1"), Spawning (refTo "t2")]]
                 `shouldBe` [ Spawn (AgentRole "engineer") (Just (TaskId "t2"))
                            , AwaitChildren (TaskId "t1" :| [TaskId "t2"])
                            ]
@@ -635,15 +635,15 @@ spec = describe "State.Protocol.Advice" $ do
                                ]
                 map
                     (next noFacts . tenXAt (t1 :| [t2]))
-                    [ both <> [Resumed (runId "c1")]
-                    , both <> [Resumed (runId "c1"), Resumed (runId "c2")]
+                    [ both <> [Resumed (runId "c1") Nothing]
+                    , both <> [Resumed (runId "c1") Nothing, Resumed (runId "c2") Nothing]
                     ]
                     `shouldBe` [ Resume (runId "c2") "with the answer to c2:1: confirmed"
                                , AwaitChildren (TaskId "t1" :| [TaskId "t2"])
                                ]
         it "sends a child lost at a restart again, and waits on it once resumed" $ do
             let lost = [Spawned (childOf "c1" "t1"), Restarted]
-            map (next noFacts . tenXAt (t1 :| [])) [lost, lost <> [Resumed (runId "c1")]]
+            map (next noFacts . tenXAt (t1 :| [])) [lost, lost <> [Resumed (runId "c1") Nothing]]
                 `shouldBe` [ Resume (runId "c1") "lost at a restart: a fresh engineer with its spawn prompt"
                            , AwaitChildren (TaskId "t1" :| [])
                            ]
@@ -659,7 +659,7 @@ spec = describe "State.Protocol.Advice" $ do
                     (t1 :| [])
                     [ Spawned (childOf "c1" "t1")
                     , HandedBack (runId "c1") (Awaits Ci (oneLine "https://pr/1"))
-                    , Resumed (runId "c1")
+                    , Resumed (runId "c1") Nothing
                     ]
                 )
                 `shouldBe` AwaitChildren (TaskId "t1" :| [])
@@ -709,11 +709,11 @@ spec = describe "State.Protocol.Advice" $ do
                 let inReview =
                         [ Spawned (childOf "c1" "t1")
                         , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                        , TaskMoved (TaskId "t1") (InReview prUrl)
+                        , TaskMoved (refTo "t1") (InReview prUrl)
                         ]
                 map
                     (next noFacts . tenXAt (t1 :| []))
-                    [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
+                    [inReview, inReview <> [TaskMoved (refTo "t1") (Merged prUrl)]]
                     `shouldBe` [ AwaitMerge ((TaskId "t1", Just prUrl) :| [])
                                , offering ["state record merge.done <url>", "state record merge.next_round"]
                                ]
@@ -747,7 +747,7 @@ spec = describe "State.Protocol.Advice" $ do
             let merged =
                     [ Spawned (childOf "c1" "t1")
                     , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                    , TaskMoved (TaskId "t1") (Merged prUrl)
+                    , TaskMoved (refTo "t1") (Merged prUrl)
                     ]
             next noFacts (tenXAt (t1 :| []) (merged <> [TaskAdded (plainTask "fix" [])]))
                 `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
@@ -763,7 +763,7 @@ spec = describe "State.Protocol.Advice" $ do
                            ]
             map
                 (next noFacts . tenXAt (t1 :| [t2]))
-                [forwarded, forwarded <> [Resumed (runId "c1")]]
+                [forwarded, forwarded <> [Resumed (runId "c1") Nothing]]
                 `shouldBe` [Resume (runId "c1") "with the answer to c1:1: confirmed", AwaitAnswer asks2]
         it "records a finished task's PR when the child's READY named none" $
             map
@@ -775,7 +775,7 @@ spec = describe "State.Protocol.Advice" $ do
                             <>
                       )
                 )
-                [[], [TaskMoved (TaskId "t1") (InReview prUrl)]]
+                [[], [TaskMoved (refTo "t1") (InReview prUrl)]]
                 `shouldBe` [ offering ["state record task t1 review <url>"]
                            , Spawn (AgentRole "engineer") (Just (TaskId "t2"))
                            ]
@@ -818,7 +818,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "waits on a finished task's CI, recording nothing" $ do
             let inCi =
                     [ Spawned (childOf "c1" "t1")
-                    , TaskMoved (TaskId "t1") (InCi prUrl)
+                    , TaskMoved (refTo "t1") (InCi prUrl)
                     , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
                     ]
             (next noFacts (tenXAt (t1 :| []) inCi), due noFacts (tenXAt (t1 :| []) inCi))
@@ -842,7 +842,7 @@ spec = describe "State.Protocol.Advice" $ do
                 ( factLines
                     tenXGraph
                     noFacts
-                    (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)]))
+                    (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (refTo "t1") (InCi prUrl)]))
                 )
                 `shouldBe` [ "task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1"
                            , "task t2: not started, tries 0"
@@ -857,8 +857,8 @@ spec = describe "State.Protocol.Advice" $ do
                         (t1 :| [])
                         ( fromChild
                             <> [ RuledOn asks.qid ruling
-                               , Resumed (runId "c1")
-                               , Held (TaskId "t1") (Url "https://pr/1#c")
+                               , Resumed (runId "c1") Nothing
+                               , Held (refTo "t1") (Url "https://pr/1#c")
                                ]
                         )
                     )

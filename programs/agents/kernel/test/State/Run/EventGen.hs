@@ -17,6 +17,9 @@ module State.Run.EventGen (
     genTasks,
     genTaskAt,
     genTaskId,
+    genTaskRef,
+    genSeq,
+    titled,
     genSaid,
     genTaskState,
     tasksOf,
@@ -100,7 +103,7 @@ import State.Run.Gap (
     parseGapText,
  )
 import State.Run.Id (EventRef (..), breaksLine, parseEventId)
-import State.Step.Artifact (ShellPath, shellPath)
+import State.Step.Artifact (ShellPath, parseEpicName, parseNonBlank, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
 import State.Step.Fan (Outcome (..), fanOuts)
@@ -141,19 +144,19 @@ genEvent =
         , Forwarded <$> genQId <*> genAbove
         , Answered <$> genQId <*> genReply <*> genAbove
         , QuestionParked <$> genQId <*> genOneLine
-        , Spawning <$> genTaskId
+        , Spawning <$> genTaskRef
         , Spawned
             <$> ( Child
                     <$> genRunId
-                    <*> Gen.choice [Tasked <$> genTaskId, pure Untasked]
+                    <*> Gen.choice [Tasked <$> genTaskRef, pure Untasked]
                     <*> genPath
                 )
-        , Resumed <$> genRunId
-        , HandedBack <$> genRunId <*> genSaid
-        , TaskMoved <$> genTaskId <*> genTaskState
-        , Held <$> genTaskId <*> (Url <$> genText)
-        , ActedOn <$> genTaskId <*> (Url <$> genText)
-        , TaskAdded <$> (Gen.int (Range.linear 1 6) >>= genTaskAt)
+        , Resumed <$> genRunId <*> Gen.maybe genTaskRef
+        , HandedBack <$> genRunId <*> Gen.maybe genTaskRef <*> genSaid
+        , TaskMoved <$> genTaskRef <*> genTaskState
+        , Held <$> genTaskRef <*> (Url <$> genText)
+        , ActedOn <$> genTaskRef <*> (Url <$> genText)
+        , TaskAdded <$> genSeq <*> (Gen.int (Range.linear 1 6) >>= genTaskAt)
         , pure Restarted
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
         , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
@@ -318,6 +321,37 @@ genTaskNo = TaskNo <$> Gen.integral (Range.linear 1 50)
 genTaskId :: Gen TaskId
 genTaskId = TaskId <$> Gen.element ["t1", "t2", "t3", "t4", "t5"]
 
+genTaskRef :: Gen TaskRef
+genTaskRef = TaskRef <$> genTaskId <*> genSeq
+
+-- | A seq of the log, an I-JSON integer.
+genSeq :: Gen Natural
+genSeq = Gen.integral (Range.linear 1 5000)
+
+-- | A line that is not blank: a word, maybe with spaces around.
+genNonBlank :: Gen NonBlank
+genNonBlank = do
+    word <- Gen.text (Range.linear 1 12) Gen.alphaNum
+    pad <- Gen.element ["", " "]
+    maybe (error "a word is not blank") pure (parseNonBlank (pad <> word <> pad))
+
+-- | A title for a test's task, which is not blank.
+titled :: Text -> NonBlank
+titled = maybe (error "a test's title is not blank") id . parseNonBlank
+
+-- | A base for the task @ti@: the default, an epic, or one of @t1@ to the one before it.
+genBaseAt :: Int -> Gen Base
+genBaseAt i =
+    Gen.choice
+        ( [pure OnDefault, OnEpic <$> genEpicName]
+            <> [OnTask . TaskId . ("t" <>) . Text.pack . show <$> Gen.int (Range.linear 1 (i - 1)) | i > 1]
+        )
+
+genEpicName :: Gen EpicName
+genEpicName =
+    Gen.text (Range.linear 1 10) Gen.alphaNum
+        >>= maybe (error "an alphanumeric word is an epic name") pure . parseEpicName
+
 {- | A breakdown of up to five tasks, @t1@ to @tn@, each depending on some
 earlier ones.
 -}
@@ -331,8 +365,9 @@ genTasks = do
 genTaskAt :: Int -> Gen Task
 genTaskAt i =
     Task (taskNamed i)
-        <$> Gen.subsequence (map taskNamed [1 .. i - 1])
-        <*> (Branch <$> genText)
+        <$> genNonBlank
+        <*> Gen.subsequence (map taskNamed [1 .. i - 1])
+        <*> genBaseAt i
         <*> (Branch <$> genText)
         <*> Gen.enumBounded
         <*> Gen.bool
@@ -463,8 +498,9 @@ templates =
                         ( tasksOf
                             ( Task
                                 (TaskId "t1")
+                                (titled "t1")
                                 []
-                                (Branch "")
+                                OnDefault
                                 (Branch "")
                                 Balanced
                                 False

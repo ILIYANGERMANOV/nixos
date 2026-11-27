@@ -338,7 +338,7 @@ typing = describe "typeHandback" $ do
                 `shouldBe` Right
                     ( Typed
                         [ HandedBack c1 (Finished (oneLine "https://pr/1"))
-                        , TaskMoved (TaskId "t1") (InReview (Url "https://pr/1"))
+                        , TaskMoved (refTo "t1") (InReview (Url "https://pr/1"))
                         ]
                         Nothing
                     )

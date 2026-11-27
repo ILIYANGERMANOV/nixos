@@ -208,7 +208,7 @@ spec = describe "State.Run.Fold" $ do
                 <$> tenXRun
                     ( toEngineers
                         <> [ Spawned child
-                           , TaskMoved (TaskId "t1") (InCi (Url "pr"))
+                           , TaskMoved (refTo "t1") (InCi (Url "pr"))
                            , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
                            ]
                     )
@@ -221,14 +221,14 @@ spec = describe "State.Run.Fold" $ do
                     )
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
-            tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")])
+            tenXRun (toEngineers <> [Held (refTo "t9") (Url "u")])
                 `shouldBe` Left (NotOneHolder (TaskId "t9") [])
         it "takes a stop at the merge once every task is parked" $ do
             let allParked = Stop Blocked "all tasks parked"
             (.stopped)
                 <$> tenXRun
                     ( toEngineers
-                        <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), Stopped allParked]
+                        <> [TaskMoved (refTo "t1") (Parked "out of scope" Nothing), Stopped allParked]
                     )
                 `shouldBe` Right (Just allParked)
         it "refuses a new breakdown while a child is at work" $
@@ -249,8 +249,8 @@ spec = describe "State.Run.Fold" $ do
                 `shouldBe` Right [TaskId "t1", TaskId "fix"]
             tenXRun
                 ( withFix
-                    <> [ TaskMoved (TaskId "t1") (Merged (Url "pr"))
-                       , TaskMoved (TaskId "fix") (InReview (Url "fix-pr"))
+                    <> [ TaskMoved (refTo "t1") (Merged (Url "pr"))
+                       , TaskMoved (refTo "fix") (InReview (Url "fix-pr"))
                        , stepTook (MergeDone engineers (Url "pr"))
                        ]
                 )
@@ -468,7 +468,7 @@ spec = describe "State.Run.Fold" $ do
                 [ inA (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
                 , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                , TaskMoved (TaskId "t1") (Merged (Url "pr"))
+                , TaskMoved (refTo "t1") (Merged (Url "pr"))
                 , inA (MergeNextRound engineers)
                 , stepTook (PlanDone "plan.md")
                 ]
@@ -1684,14 +1684,14 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
                 ( waiting
                     <> [ Spawned (childOf "c1" "t1")
                        , HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))
-                       , Resumed (runId "c1")
+                       , Resumed (runId "c1") Nothing
                        , TaskMoved t1 (Merged pr)
                        ]
                 )
             `shouldBe` Right [True]
 
     it "refuses a task no request's fan-out holds" $
-        chief (waiting <> [TaskMoved (TaskId "t9") (Merged pr)])
+        chief (waiting <> [TaskMoved (refTo "t9") (Merged pr)])
             `shouldBe` Left (NotOneHolder (TaskId "t9") [])
 
     it "refuses a task two requests' fan-outs hold, naming both" $
