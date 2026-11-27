@@ -45,13 +45,21 @@ import State.Cli.Shell.World (
  )
 import State.Golden (golden)
 import State.Run.RunGen (plainTask)
-import Test.Hspec (Spec, before, describe, it, shouldBe, shouldContain)
+import Test.Hspec (
+    Spec,
+    before,
+    describe,
+    it,
+    shouldBe,
+    shouldContain,
+    shouldSatisfy,
+ )
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "state resume over the doubles" . before newWorld $ do
     it
-        "prints the packet: goal, moved worktree, newest snapshot per path, URL, notes, handover, questions, decisions, a child run, a session, spans"
+        "prints the packet: goal, instructions in force, moved worktree, a need open and one done, stopgaps, newest snapshot per path, URL, notes, handover, questions, decisions, a child run, a session, spans"
         $ \world -> do
             _ <- packedRun world
             ran <- state world ["resume"]
@@ -115,6 +123,16 @@ spec = describe "state resume over the doubles" . before newWorld $ do
                            , "  " <> gapAt 5 <> " kernel slowdown \"s open\""
                            , "  " <> gapAt 0 <> " kernel papercut \"p open\""
                            ]
+
+    it "lists what the user must do by hand in a run the user did not start" $ \world -> do
+        tenX <- tenXAtFanOutBy world [] [plainTask "t1" []]
+        _ <- childRun world tenX "/child" "t1"
+        _ <- succeeded =<< state world ["record", "user_needed", "grant repo access"]
+        out <- succeeded =<< state world ["resume"]
+        take 2 (dropWhile (/= "owed to the user:") out)
+            `shouldSatisfy` \case
+                ["owed to the user:", need] -> "\"grant repo access\"" `Text.isSuffixOf` need
+                _ -> False
 
     it "prints the run's PR and the live state commands once it has a PR" $ \world -> do
         _ <- drive world (Record ["fuel.set", "balanced"] : toImplement)
@@ -375,6 +393,36 @@ packedRun world = do
                 ["rule", picked, "--answer", "zod", "--why", "already used", "--cost", "none"]
     forwarded <- askedQId world ["--kind", "Scope", "ship", "t2", "too?"]
     _ <- succeeded =<< state world ["forward", forwarded]
+    first <- (+ 1) . length <$> logRows world
+    let line n = Text.pack (show (first + n))
+    for_
+        [ ["record", "instructed", "goal", "ship the packet"]
+        , ["record", "instructed", "goal", "ship the packet today", "--replaces", line 0]
+        , ["record", "instructed", "rule", "never push \"main\"\nask first"]
+        ,
+            [ "record"
+            , "user_needed"
+            , "rotate the deploy key"
+            , "--blocks"
+            , "t2"
+            , "--url"
+            , "https://github.com/o/r/settings/keys"
+            ]
+        , ["record", "user_needed", "approve the budget"]
+        , ["record", "user_needed", tenX <> ":" <> line 4, "--done"]
+        , ["record", "stopgap", "deploy.region", "\"eu\"", "--reason", "no typed row"]
+        ,
+            [ "record"
+            , "stopgap"
+            , "cache.ttl"
+            , "30"
+            , "--task"
+            , "t2"
+            , "--reason"
+            , "no typed row"
+            ]
+        ]
+        (succeeded <=< state world)
     addWorktree world "/work2"
     _ <- succeeded =<< state world ["move", "/work2"]
     atWorktree world "/work2"

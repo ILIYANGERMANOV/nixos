@@ -1,0 +1,6 @@
+[
+{"instruction_kind":"goal","text":"Ship the stopgap rows.\nKeep it small."},
+{"instruction_kind":"scope","text":"only the kernel","replaces":4},
+{"instruction_kind":"rule","text":"no new verb"},
+{"instruction_kind":"permission","text":"you may rebase the epic"}
+]

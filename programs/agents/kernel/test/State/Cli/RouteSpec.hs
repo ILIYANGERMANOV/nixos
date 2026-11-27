@@ -73,6 +73,14 @@ spec = describe "routing a shell command's state calls" $ do
                 ["state show", "state next", "state pending", "state void 3 --why typo"]
                 `shouldBe` [[], ["next"], ["pending"], ["void"]]
 
+        it "routes no need's close, which names its run, but routes a need's record" $
+            map
+                (map (.sub) . calls)
+                [ "state record user_needed 0a1b2c3d:5 --done"
+                , "state record user_needed 'log in to the console'"
+                ]
+                `shouldBe` [[], ["record"]]
+
         it
             "routes nothing it cannot read: a subshell, a substitution, a heredoc, an open quote"
             $ map

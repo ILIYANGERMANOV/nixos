@@ -24,6 +24,7 @@ import Effects.Store.Connection (Durability (Unsynced), withStore)
 import Effects.Store.Events qualified as Store
 import State.Artifact (sha256Of, sha256Text)
 import State.Category.Fuel (Fuel (Low))
+import State.Golden (golden)
 import State.Run.Event (Base (OnEpic), FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
 import State.Run.EventGen (epicNamed)
@@ -261,7 +262,7 @@ spec = describe "the state binary" $ do
                 ( refused.code
                     , map
                         ( Text.isPrefixOf
-                            "state record: no event bogus - the events are gap, research.spawned, "
+                            "state record: no event bogus - the events are gap, instructed, user_needed, research.spawned, "
                         )
                         (take 1 refused.err)
                     , drop 1 refused.err
@@ -727,6 +728,142 @@ spec = describe "the state binary" $ do
                         _ -> False
                 types <- loggedTypes bin repo
                 length (filter (== "gap") types) `shouldBe` 3
+
+        it
+            "records an instruction, a need and a stopgap, each printing its row and the next command, then resumes them"
+            $ \repo -> do
+                _ <- drive bin repo []
+                run <- runOf bin repo
+                printed <-
+                    traverse
+                        (succeeded <=< state bin repo)
+                        [ ["record", "instructed", "rule", "ask before you push"]
+                        , ["record", "user_needed", "add the deploy key", "--url", keysUrl]
+                        , ["record", "stopgap", "deploy.region", "\"eu\"", "--reason", "no typed row"]
+                        ]
+                resumed <- succeeded =<< state bin repo ["resume"]
+                ( printed
+                    , filter
+                        ( \line -> any (`Text.isInfixOf` line) ["ask before", "deploy key", "deploy.region"]
+                        )
+                        resumed
+                    )
+                    `shouldBe` (
+                                   [ ["recorded 2 instructed -> fuel", "next: state next"]
+                                   , ["recorded 3 user_needed -> fuel", "next: state next"]
+                                   , ["recorded 4 stopgap_set -> fuel", "next: state next"]
+                                   ]
+                               ,
+                                   [ "  2 rule \"ask before you push\""
+                                   , "  - do " <> run <> ":3 \"add the deploy key\" at " <> Text.pack keysUrl
+                                   , "  run deploy.region \"eu\""
+                                   ]
+                               )
+
+        it "owes the user a need that blocks a task until it is done" $ \repo -> do
+            run <- tenXAtFanOut bin repo
+            need <- (+ 1) . length <$> loggedTypes bin repo
+            let needId = Text.unpack run <> ":" <> show need
+                owed = filter ("  - do " `Text.isPrefixOf`)
+            _ <-
+                succeeded
+                    =<< state bin repo ["record", "user_needed", "grant access", "--blocks", "t2"]
+            open <- owed <$> (succeeded =<< state bin repo ["resume"])
+            _ <- succeeded =<< state bin repo ["record", "user_needed", needId, "--done"]
+            done <- owed <$> (succeeded =<< state bin repo ["resume"])
+            (open, done)
+                `shouldBe` (["  - do " <> Text.pack needId <> " \"grant access\" blocks t2"], [])
+
+        it
+            "closes a child's need from the parent's worktree, logging the close in the child only"
+            $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                w1 <- worktree repo "w1"
+                child <- childRun bin w1 parent "n1" "t1"
+                need <- (+ 1) . length <$> loggedTypes bin w1
+                _ <-
+                    succeeded
+                        =<< state bin w1 ["record", "user_needed", "grant access"]
+                _ <-
+                    succeeded
+                        =<< state
+                            bin
+                            repo
+                            ["record", "user_needed", Text.unpack child <> ":" <> show need, "--done"]
+                let closes run =
+                        length . filter ("\"type\":\"user_needed_done\"" `Text.isInfixOf`)
+                            <$> dumpOf bin repo run
+                closed <- traverse closes [child, parent]
+                closed `shouldBe` [1, 0]
+
+        it
+            "refuses outside_run_tree the close of an unrelated run's need, writing nothing"
+            $ \repo -> do
+                mine <- startedRun bin repo
+                w1 <- worktree repo "w1"
+                other <- startedIn bin w1 ["--notes", repo.root </> "n1"]
+                need <- (+ 1) . length <$> loggedTypes bin w1
+                _ <- succeeded =<< state bin w1 ["record", "user_needed", "grant access"]
+                let needId = other <> ":" <> Text.pack (show need)
+                    logs = traverse (dumpOf bin repo) [mine, other]
+                before' <- logs
+                refused <-
+                    state bin repo ["record", "user_needed", Text.unpack needId, "--done"]
+                after <- logs
+                (refused.code, refused.err, after == before')
+                    `shouldBe` ( 2
+                               ,
+                                   [ "state record: outside_run_tree "
+                                        <> needId
+                                        <> " - no run of run "
+                                        <> mine
+                                        <> "'s tree has such a line"
+                                   , "fix: state resume lists what is owed to the user as <run:seq>"
+                                   ]
+                               , True
+                               )
+
+        it "resumes a stopgap until it is unset, and dumps both events" $ \repo -> do
+            _ <- drive bin repo []
+            run <- runOf bin repo
+            let stopgapLines = filter ("a.b" `Text.isInfixOf`)
+            _ <-
+                succeeded
+                    =<< state bin repo ["record", "stopgap", "a.b", "\"x\"", "--reason", "r"]
+            set <- stopgapLines <$> (succeeded =<< state bin repo ["resume"])
+            _ <-
+                succeeded
+                    =<< state bin repo ["record", "stopgap", "a.b", "--unset", "--reason", "r"]
+            unset <- stopgapLines <$> (succeeded =<< state bin repo ["resume"])
+            types <- loggedTypes bin repo
+            dumped' <- dumpOf bin repo run
+            ( set
+                , unset
+                , drop 1 types
+                , length (filter ("\"value\":\"x\"" `Text.isInfixOf`) dumped')
+                )
+                `shouldBe` (["  run a.b \"x\""], [], ["stopgap_set", "stopgap_unset"], 1)
+
+        it "writes nothing for a stopgap with no reason or one a guardrail refuses" $ \repo -> do
+            _ <- drive bin repo []
+            before' <- loggedTypes bin repo
+            codes <-
+                traverse
+                    (fmap (.code) . state bin repo . ("record" :) . ("stopgap" :))
+                    [ ["a.b", "\"x\""]
+                    , ["Bad.Key", "1", "--reason", "key grammar"]
+                    , ["a.b", "{\"k\":1,\"k\":2}", "--reason", "repeated key"]
+                    , ["a.b", "9007199254740992", "--reason", "big integer"]
+                    , ["a.b", "\"\\ud800\"", "--reason", "lone surrogate"]
+                    , ["a.b", "\"" <> replicate 1100 'x' <> "\"", "--reason", "too big"]
+                    , ["a.b", "null", "--reason", "top-level null"]
+                    ]
+            after' <- loggedTypes bin repo
+            (filter (== 0) codes, after') `shouldBe` ([], before')
+
+        it "lists the verbs it always did" $ \repo -> do
+            help <- succeeded =<< state bin repo ["--help"]
+            pure (golden "usage/state.txt" (Text.unlines help))
 
         it "fixes a gap in a run that stopped, and refuses a closed gap gap_closed" $ \repo -> do
             _ <- drive bin repo []
@@ -3130,3 +3267,7 @@ gitOut repo argv =
         >>= \case
             (ExitSuccess, out, _) -> pure out
             (ExitFailure _, _, err) -> fail ("git " <> unwords argv <> ": " <> err)
+
+-- | Where the user adds a deploy key by hand.
+keysUrl :: String
+keysUrl = "https://github.com/o/r/settings/keys"

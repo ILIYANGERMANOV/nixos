@@ -129,6 +129,10 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   debt (refactors, DRY, large files) is not a gap. Record only a gap you
   are certain of, with `state record gap "<text>"`, never in a loose file;
   `state show` lists them.
+- **Facts.** Record `user_needed '<text>'` the moment the user must act
+  by hand, `instructed <kind> '<words>'` for the user's words. `stopgap`
+  comes last, only when no typed command fits. `state record --help` says
+  which row holds what and how to close it.
 - **Writing.** Follow "Writing for people". Each message fits a phone screen
   or two. Separate what you **verified** from what you **inferred**.
 

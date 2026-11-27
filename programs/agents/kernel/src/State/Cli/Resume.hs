@@ -12,6 +12,7 @@ module State.Cli.Resume (
     packet,
 ) where
 
+import Data.Aeson (Value (String))
 import Data.Foldable (toList)
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -44,6 +45,7 @@ import State.Run.Ask (Principal (..), Question (..), qidText, rulingLine)
 import State.Run.Codec (
     flowText,
     handoverReasonText,
+    instructionKindText,
     repoText,
     shaText,
     stopToken,
@@ -61,6 +63,8 @@ import State.Run.Event (
     Event (..),
     Handover (..),
     Harness (..),
+    Instruction (..),
+    Need (..),
     RunId,
     Said (..),
     Session (..),
@@ -74,6 +78,7 @@ import State.Run.Event (
     placeOf,
     runIdText,
     spansOf,
+    verbatimText,
  )
 import State.Run.Fan (
     Breakdown (..),
@@ -98,9 +103,11 @@ import State.Run.Gap (
     Tracked (..),
     isOpen,
  )
-import State.Run.Id (numberedText)
-import State.Show (timeText, tshow)
-import State.Step.Artifact (baseText, epicNameText)
+import State.Run.IJson (ijsonValue)
+import State.Run.Id (TaskRef (..), numberedText)
+import State.Run.Stopgap (StopgapAt (..), stopgapKeyText)
+import State.Show (jsonText, timeText, tshow)
+import State.Step.Artifact (baseText, epicNameText, nonBlankText)
 
 {- | A run's log as the packet reads it. The shell cuts the log at
 @--until@ before it replays it, so this one log feeds every section.
@@ -123,6 +130,7 @@ sections :: [Input -> [Text]]
 sections =
     [ header
     , goal
+    , instructions
     , place
     , pr
     , next
@@ -134,6 +142,7 @@ sections =
     , decisions
     , openGaps
     , notesByTopic
+    , stopgaps
     , \input ->
         ""
             : "context map (load on demand, or in a subagent):"
@@ -179,6 +188,23 @@ header input =
 goal :: Input -> [Text]
 goal input = ["goal: " <> text | Just text <- [input.state.start.goal]]
 
+{- | The user's instructions in force, newest first, each in the user's own
+words, by the bare seq @--replaces@ takes.
+-}
+instructions :: Input -> [Text]
+instructions input =
+    section
+        ("instructions (" <> tshow (length active) <> ", newest first):")
+        [ Text.unwords
+            [ tshow n
+            , instructionKindText instruction.kind
+            , jsonText (String (verbatimText instruction.text))
+            ]
+        | (n, instruction) <- active
+        ]
+  where
+    active = Map.toDescList input.state.instructions
+
 place :: Input -> [Text]
 place input =
     [ "worktree: "
@@ -210,33 +236,49 @@ next input = case lastHandover input of
                 [1 :: Int ..]
                 (toList handover.next)
 
-{- | What the user owes a run the user started: each epic's final PR to
-merge, then each forwarded question's answer. Only a run the user started
-owes the user.
+{- | What the user owes the run: each epic's final PR to merge, then what
+the user must do by hand, oldest first, then each forwarded question's
+answer. Epics and answers wait on the user only in a run the user started;
+a need waits on the user in any run.
 -}
 owed :: Input -> [Text]
-owed input = case input.state.start.principal of
-    ByUser _ ->
-        section
-            "owed to the user:"
-            ( [ "- merge epic "
-                    <> epicNameText name
-                    <> " ("
-                    <> stageName epic
-                    <> ", "
-                    <> urlText ready.pr
-                    <> ")"
-              | (name, epic@(Ready ready)) <- Map.toList input.state.epics
-              ]
-                <> capped
+owed input =
+    section
+        "owed to the user:"
+        ( userStarted
+            [ "- merge epic "
+                <> epicNameText name
+                <> " ("
+                <> stageName epic
+                <> ", "
+                <> urlText ready.pr
+                <> ")"
+            | (name, epic@(Ready ready)) <- Map.toList input.state.epics
+            ]
+            <> map (uncurry needLine) (Map.toList input.state.needs)
+            <> userStarted
+                ( capped
                     "state pending"
                     [ "- answer " <> qidText p.asking.question.qid
                     | p <- reverse input.state.pending
                     , ForAnswer <- [p.waits]
                     ]
+                )
+        )
+  where
+    userStarted items = case input.state.start.principal of
+        ByUser _ -> items
+        ByRole {} -> []
+        ByCaller _ -> []
+    needLine n need =
+        Text.unwords
+            ( ["- do", here input n, jsonText (String (nonBlankText need.text))]
+                <> [ "blocks "
+                        <> Text.intercalate "," (map (taskIdText . (.task)) (toList need.blocks))
+                   | not (null need.blocks)
+                   ]
+                <> ["at " <> uriText url | Just url <- [need.url]]
             )
-    ByRole {} -> []
-    ByCaller _ -> []
 
 -- | The run's epics by name, each at its stage.
 epics :: Input -> [Text]
@@ -355,6 +397,24 @@ openGaps input =
         sortOn
             (\(n, gap) -> (gap.severity, n))
             [(n, tracked.gap) | (n, tracked) <- input.state.gaps, isOpen tracked.status]
+
+{- | Each stopgap in force, its scope, key and value inline: what an agent
+recorded when no typed command fit. Nothing the kernel decides reads them.
+-}
+stopgaps :: Input -> [Text]
+stopgaps input =
+    section
+        ( "stopgaps ("
+            <> tshow (Map.size input.state.stopgaps)
+            <> ", never read by the kernel):"
+        )
+        [ Text.unwords
+            [ maybe "run" (taskIdText . (.task)) at.scope
+            , stopgapKeyText at.key
+            , jsonText (ijsonValue value)
+            ]
+        | (at, value) <- Map.toList input.state.stopgaps
+        ]
 
 -- | Each topic's count of notes and its newest, newest topic first, with the command that loads its texts.
 notesByTopic :: Input -> [Text]

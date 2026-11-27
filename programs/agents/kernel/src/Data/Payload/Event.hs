@@ -87,6 +87,7 @@ import State.Run.Codec (
     eventType,
     handoverReasonText,
     ijsonNatural,
+    instructionKindText,
     reasonText,
     taskStateKind,
     tokenWordName,
@@ -110,7 +111,9 @@ import State.Run.Event (
     Event (..),
     Handover (..),
     Harness (..),
+    Instruction (..),
     Link (..),
+    Need (..),
     Note (..),
     Op (..),
     Parent (..),
@@ -136,8 +139,10 @@ import State.Run.Event (
     parseHarness,
     parseRunId,
     parseTaskNo,
+    parseVerbatim,
     runIdText,
     taskNoText,
+    verbatimText,
  )
 import State.Run.Gap (
     Closure (..),
@@ -151,7 +156,9 @@ import State.Run.Gap (
     parseGapText,
     severityText,
  )
+import State.Run.IJson (ijsonOf, ijsonValue)
 import State.Run.Id (eventIdText, eventRefText, parseEventId, parseEventRef)
+import State.Run.Stopgap (StopgapAt (..), parseStopgapKey, stopgapKeyText)
 import State.Step.Artifact (
     named,
     parseRepo,
@@ -403,6 +410,20 @@ eventData = \case
         taskRefData ref
             <> Artifact.baseData base
             <> "reason" .= Artifact.nonBlankText reason
+    Instructed instruction replaces ->
+        "instruction_kind" .= instructionKindText instruction.kind
+            <> "text" .= verbatimText instruction.text
+            <> foldMap ("replaces" .=) replaces
+    UserNeeded need ->
+        "text" .= Artifact.nonBlankText need.text
+            <> pair "blocks" (list (pairs . taskRefData) (Set.toList need.blocks))
+            <> foldMap (("url" .=) . uriText) need.url
+    UserNeededDone n note -> "need" .= n <> foldMap (("note" .=) . Artifact.nonBlankText) note
+    StopgapSet at value reason ->
+        stopgapAtData at
+            <> "value" .= ijsonValue value
+            <> "reason" .= Artifact.nonBlankText reason
+    StopgapUnset at reason -> stopgapAtData at <> "reason" .= Artifact.nonBlankText reason
   where
     qidData qid = "qid" .= qidText qid
 
@@ -510,12 +531,39 @@ eventOf kind obj = case kind of
             <$> taskRefOf obj
             <*> (obj .: "base" >>= Artifact.baseOf)
             <*> (obj .: "reason" >>= named "reason" Artifact.parseNonBlank)
+    "instructed" ->
+        Instructed
+            <$> ( Instruction
+                    <$> ( obj .: "instruction_kind"
+                            >>= named "instruction kind" (parseByName instructionKindText)
+                        )
+                    <*> (obj .: "text" >>= named "verbatim words" parseVerbatim)
+                )
+            <*> (obj .:? "replaces" >>= traverse ijsonNatural)
+    "user_needed" ->
+        UserNeeded
+            <$> ( Need
+                    <$> nonBlankAt "text"
+                    <*> (Set.fromList <$> (obj .: "blocks" >>= traverse (withObject "block" taskRefOf)))
+                    <*> (obj .:? "url" >>= traverse (named "absolute URI" parseUri))
+                )
+    "user_needed_done" ->
+        UserNeededDone
+            <$> (obj .: "need" >>= ijsonNatural)
+            <*> (obj .:? "note" >>= traverse (named "note" Artifact.parseNonBlank))
+    "stopgap_set" ->
+        StopgapSet
+            <$> stopgapAtOf obj
+            <*> (obj .: "value" >>= either (fail . show) pure . ijsonOf)
+            <*> nonBlankAt "reason"
+    "stopgap_unset" -> StopgapUnset <$> stopgapAtOf obj <*> nonBlankAt "reason"
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
   where
     (scope, step) = unqualify kind
     gapSeq = obj .: "gap" >>= ijsonNatural
+    nonBlankAt key = obj .: key >>= named "non-blank line" Artifact.parseNonBlank
     prUri = obj .: "pr_url" >>= named "absolute URI" parseUri
 
 {- | Keyed by the event names the layers give each outcome, so a renamed
@@ -608,6 +656,16 @@ taskRefOf obj = TaskRef <$> taskOf obj <*> breakdownSeqOf obj
 
 breakdownSeqOf :: Object -> Parser Natural
 breakdownSeqOf obj = obj .: "breakdown" >>= ijsonNatural
+
+-- | A stopgap's key, and its task when it is a task's, as a child's task is written.
+stopgapAtData :: StopgapAt -> Series
+stopgapAtData at = "key" .= stopgapKeyText at.key <> foldMap taskRefData at.scope
+
+stopgapAtOf :: Object -> Parser StopgapAt
+stopgapAtOf obj =
+    flip StopgapAt
+        <$> (obj .: "key" >>= named "stopgap key" parseStopgapKey)
+        <*> childTaskRefOf obj
 
 -- | A child's task, copied from its @spawned@: @task@ and @breakdown@ both, or neither for an untasked child.
 childTaskRefOf :: Object -> Parser (Maybe TaskRef)

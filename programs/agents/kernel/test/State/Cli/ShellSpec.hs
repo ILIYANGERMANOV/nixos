@@ -2,6 +2,7 @@ module State.Cli.ShellSpec (spec) where
 
 import Data.List (nub)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Effects.Store.Connection (Durability (..))
@@ -19,14 +20,17 @@ import State.Run.EventGen (
     bareGap,
     fuelSet,
     genTasks,
+    ijson,
     logOf,
     runId,
     start,
+    stopgapKey,
     tasksOf,
     titled,
  )
 import State.Run.Fold (RunState, replay)
 import State.Run.RunGen (childOf, loadSteps, plainTask, taskFileJson, tenXGraph)
+import State.Run.Stopgap (StopgapAt (..))
 import State.Step.Fan (Outcome (BreakdownDone), engineers)
 import State.Table (Steps)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe)
@@ -138,6 +142,20 @@ genRecording task =
             ( ["task", name, "base", "on_default", "--reason", "restack"]
             , Nothing
             , \n -> TaskBaseChanged (ref n) OnDefault (titled "restack")
+            )
+        ,
+            ( ["user_needed", "add", "the", "key", "--blocks", name]
+            , Nothing
+            , \n -> UserNeeded (Need (titled "add the key") (Set.singleton (ref n)) Nothing)
+            )
+        ,
+            ( ["stopgap", "deploy.window", "1", "--task", name, "--reason", "restack"]
+            , Nothing
+            , \n ->
+                StopgapSet
+                    (StopgapAt (Just (ref n)) (stopgapKey "deploy.window"))
+                    (ijson "1")
+                    (titled "restack")
             )
         ]
   where

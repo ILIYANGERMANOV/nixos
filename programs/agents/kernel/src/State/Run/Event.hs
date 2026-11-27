@@ -90,11 +90,18 @@ module State.Run.Event (
     Said (..),
     Waiting (..),
     TaskState (..),
+    Instruction (..),
+    InstructionKind (..),
+    Verbatim,
+    parseVerbatim,
+    verbatimText,
+    Need (..),
     artifactsOf,
     spansOf,
     placeOf,
 ) where
 
+import Data.Char (isSpace)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -103,7 +110,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Artifact (AbsPath, Artifact)
+import State.Artifact (AbsPath, Artifact, Uri)
 import State.Category.Effect (Waiting (..))
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
@@ -123,6 +130,7 @@ import State.Run.Ask (
  )
 import State.Run.Epic (EpicMove (..))
 import State.Run.Gap (Gap, GapMove)
+import State.Run.IJson (IJson)
 import State.Run.Id (
     AgentId (..),
     Digest (..),
@@ -137,6 +145,7 @@ import State.Run.Id (
     runIdText,
     taskNoText,
  )
+import State.Run.Stopgap (StopgapAt)
 import State.Step.Artifact (
     Base (..),
     Branch (..),
@@ -326,6 +335,20 @@ data Event
       dependency merged, or the stack was reordered.
       -}
       TaskBaseChanged TaskRef Base NonBlank
+    | {- | The user's instruction, word for word: it retires the active one
+      logged at this seq, if one is named (@dcterms:replaces@).
+      -}
+      Instructed Instruction (Maybe Natural)
+    | -- | The user must do something by hand, open until a 'UserNeededDone' names its seq.
+      UserNeeded Need
+    | -- | The need logged at this seq of the run is done, maybe with a note.
+      UserNeededDone Natural (Maybe NonBlank)
+    | {- | A stopgap's value from here on, and why: the newest one of its key
+      and scope is in force. The kernel never reads it ("State.Run.Stopgap").
+      -}
+      StopgapSet StopgapAt IJson NonBlank
+    | -- | A stopgap is in force no more, and why: unsetting one not set changes nothing.
+      StopgapUnset StopgapAt NonBlank
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.
@@ -491,6 +514,38 @@ data TaskState
       merged, and no merge awaited.
       -}
       Delivered Url
+    deriving stock (Eq, Show)
+
+-- | What the user told the run to keep to, of this kind, in the user's own words.
+data Instruction = Instruction {kind :: InstructionKind, text :: Verbatim}
+    deriving stock (Eq, Show)
+
+{- | The user's words as given: a character at least that is no space, line
+breaks kept. Built by 'parseVerbatim' alone.
+-}
+newtype Verbatim = Verbatim Text
+    deriving stock (Eq, Show)
+
+parseVerbatim :: Text -> Maybe Verbatim
+parseVerbatim raw
+    | Text.all isSpace raw = Nothing
+    | otherwise = Just (Verbatim raw)
+
+verbatimText :: Verbatim -> Text
+verbatimText (Verbatim text) = text
+
+-- | What an instruction sets: the run's goal, its scope, a rule to keep, or a permission.
+data InstructionKind
+    = GoalInstruction
+    | ScopeInstruction
+    | RuleInstruction
+    | PermissionInstruction
+    deriving stock (Bounded, Enum, Eq, Show)
+
+{- | What the user must do by hand, the tasks it holds up, by their
+breakdowns, and where to do it, if a URL says.
+-}
+data Need = Need {text :: NonBlank, blocks :: Set TaskRef, url :: Maybe Uri}
     deriving stock (Eq, Show)
 
 -- | The artifacts these lines log, each with its seq.

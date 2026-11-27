@@ -5,8 +5,6 @@ module Data.Payload.EventSpec (spec) where
 
 import Data.Aeson (Object, Value (..), encode, toJSON, withObject, (.:))
 import Data.Aeson qualified as Aeson
-import Data.Aeson.Decoding.Text (textToTokens)
-import Data.Aeson.Decoding.Tokens (TkArray (..), TkRecord (..), Tokens (..))
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -52,7 +50,6 @@ import Hedgehog (
     (===),
  )
 import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
 import State.Artifact (
     Artifact (File),
     FileArtifact (..),
@@ -110,8 +107,11 @@ import State.Run.Event (
     Handover (..),
     HandoverReason (..),
     Harness (..),
+    Instruction (..),
+    InstructionKind (..),
     Judgement (..),
     Label (..),
+    Need (..),
     Note (..),
     Op (..),
     Picks (..),
@@ -150,16 +150,21 @@ import State.Run.EventGen (
     epicNamed,
     gapText,
     genEnvelope,
+    genJson,
+    genObject,
     genTaskState,
     genText,
     genUsage,
+    ijson,
     line,
     oneLine,
     replacing,
     runId,
+    stopgapKey,
     tasksOf,
     titled,
     uri,
+    verbatim,
  )
 import State.Run.Gap (
     Closure (..),
@@ -173,8 +178,10 @@ import State.Run.Gap (
     severityText,
  )
 import State.Run.Gap qualified as Gap
+import State.Run.IJson (repeatedKeys)
 import State.Run.Id (EventRef (..))
 import State.Run.RunGen (pickOf, plainTask, securityScope)
+import State.Run.Stopgap (StopgapAt (..))
 import State.Step.Artifact (areaName, judgementName, planName, shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
 import State.Step.Build (Outcome (..))
@@ -519,6 +526,16 @@ spec = describe "Data.Payload.Event" $ do
             )
             `shouldSatisfy` malformed
 
+    it "refuses an instruction whose words are blank" $
+        decodeLine
+            ( encodeLine
+                reviewRows
+                    { event = Instructed (Instruction RuleInstruction (verbatim "x")) Nothing
+                    }
+                `replacing` ("\"text\":\"x\"", "\"text\":\" \\n \"")
+            )
+            `shouldSatisfy` malformed
+
     it "refuses an AWAIT that names nothing it awaits" $
         decodeLine
             ( encodeLine
@@ -583,38 +600,9 @@ unknownOf row =
 typeOf :: Envelope -> LabelName
 typeOf e = fromString (Text.unpack (snd (unqualify (eventType e.event))))
 
-{- | The keys some object of this JSON text repeats, at any depth, from
-aeson's token stream: a decoded 'Value' keeps one of them and hides the rest.
+{- | The value with one of its objects, at any depth, changed by @change@:
+the codec's objects only, never inside a stopgap's @value@, the user's data.
 -}
-repeatedKeys :: Text -> Either String [Key]
-repeatedKeys = fmap fst . value . textToTokens
-  where
-    value :: Tokens k String -> Either String ([Key], k)
-    value = \case
-        TkLit _ rest -> Right ([], rest)
-        TkText _ rest -> Right ([], rest)
-        TkNumber _ rest -> Right ([], rest)
-        TkArrayOpen items -> array items
-        TkRecordOpen members -> record Set.empty members
-        TkErr err -> Left err
-    array :: TkArray k String -> Either String ([Key], k)
-    array = \case
-        TkItem item -> do
-            (inItem, items) <- value item
-            (inRest, rest) <- array items
-            pure (inItem <> inRest, rest)
-        TkArrayEnd rest -> Right ([], rest)
-        TkArrayErr err -> Left err
-    record :: Set.Set Key -> TkRecord k String -> Either String ([Key], k)
-    record seen = \case
-        TkPair key member -> do
-            (inMember, members) <- value member
-            (inRest, rest) <- record (Set.insert key seen) members
-            pure ([key | Set.member key seen] <> inMember <> inRest, rest)
-        TkRecordEnd rest -> Right ([], rest)
-        TkRecordErr err -> Left err
-
--- | The value with one of its objects, at any depth, changed by @change@.
 atSomeObject :: (Object -> Gen Object) -> Value -> Gen Value
 atSomeObject change = \case
     Object o ->
@@ -622,6 +610,7 @@ atSomeObject change = \case
             (Object <$> change o)
                 : [ Object . (\v' -> KeyMap.insert k v' o) <$> atSomeObject change v
                   | (k, v) <- KeyMap.toList o
+                  , k /= "value"
                   , holdsObject v
                   ]
     Array vs ->
@@ -650,22 +639,6 @@ nearby o =
             : [(`KeyMap.delete` o) <$> Gen.element keys | not (null keys)]
   where
     keys = KeyMap.keys o
-
--- | Any JSON value, its numbers at the edges of I-JSON's integers.
-genJson :: Gen Value
-genJson =
-    Gen.recursive
-        Gen.choice
-        [ pure Null
-        , Bool <$> Gen.bool
-        , Number
-            <$> Gen.element [0, -1, 7, 1.5, 9007199254740991, 9007199254740992, 1e300]
-        , String <$> genText
-        ]
-        [toJSON <$> Gen.list (Range.linear 0 3) genJson, Object <$> genObject]
-
-genObject :: Gen Object
-genObject = KeyMap.fromList <$> Gen.list (Range.linear 0 3) ((,) <$> keyOf <*> genJson)
 
 keyOf :: Gen Key
 keyOf = Key.fromText <$> genText
@@ -932,6 +905,39 @@ eventGoldens =
     , TaskBaseChanged t1 OnDefault (titled "t2 merged")
         :| [ TaskBaseChanged t1 (OnEpic payments) (titled "restack")
            , TaskBaseChanged t1 (OnTask (TaskId "t2")) (titled "restack onto t2")
+           ]
+    , Instructed
+        (Instruction GoalInstruction (verbatim "Ship the stopgap rows.\nKeep it small."))
+        Nothing
+        :| [ Instructed (Instruction ScopeInstruction (verbatim "only the kernel")) (Just 4)
+           , Instructed (Instruction RuleInstruction (verbatim "no new verb")) Nothing
+           , Instructed
+                (Instruction PermissionInstruction (verbatim "you may rebase the epic"))
+                Nothing
+           ]
+    , UserNeeded
+        ( Need
+            (titled "add the deploy key")
+            (Set.fromList [t1, TaskRef (TaskId "t2") 9])
+            (Just (uri "https://github.com/o/r/settings/keys"))
+        )
+        :| [UserNeeded (Need (titled "approve the app") Set.empty Nothing)]
+    , UserNeededDone 5 (Just (titled "added it")) :| [UserNeededDone 5 Nothing]
+    , StopgapSet
+        (StopgapAt Nothing (stopgapKey "deploy.window"))
+        (ijson "{\"from\": \"09:00\", \"days\": [1, 2], \"note\": null}")
+        (titled "no typed event holds it")
+        :| [ StopgapSet
+                (StopgapAt (Just t1) (stopgapKey "review.focus_area"))
+                (ijson "\"x\"")
+                (titled "the reviewer asked")
+           ]
+    , StopgapUnset
+        (StopgapAt Nothing (stopgapKey "deploy.window"))
+        (titled "deployed")
+        :| [ StopgapUnset
+                (StopgapAt (Just t1) (stopgapKey "review.focus_area"))
+                (titled "reviewed")
            ]
     ]
   where

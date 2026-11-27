@@ -1,12 +1,16 @@
-resume run 00010203 (10x), active at engineers: 1 sessions, 27 events, last handover 00010203:25 (context)
+resume run 00010203 (10x), active at engineers: 1 sessions, 35 events, last handover 00010203:33 (context)
 goal: Ship the resume packet
+instructions (2, newest first):
+  26 rule "never push \"main\"\nask first"
+  25 goal "ship the packet today"
 worktree: /work2   repo: o/r   fuel: balanced
 pr: none yet   notes dir: /notes
-next (handover 00010203:25):
+next (handover 00010203:33):
   1. merge t1
   2. spawn t2
 owed to the user:
   - merge epic limits (ready_for_review, https://github.com/o/r/pull/40)
+  - do 00010203:27 "rotate the deploy key" blocks t2 at https://github.com/o/r/settings/keys
   - answer 00010203:22
 epics:
   limits o/r epic/limits ready_for_review https://github.com/o/r/pull/40
@@ -22,6 +26,9 @@ decisions (1, newest first):
 notes by topic: live 1 (last 00010203:18), traps 1 (last 00010203:17)
   load: state sql "select text from notes where run_id = '00010203' and topic = 'live'"
   load: state sql "select text from notes where run_id = '00010203' and topic = 'traps'"
+stopgaps (2, never read by the kernel):
+  run deploy.region "eu"
+  t2 cache.ttl 30
 
 context map (load on demand, or in a subagent):
   files

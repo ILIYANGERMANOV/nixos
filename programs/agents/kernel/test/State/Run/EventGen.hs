@@ -1,6 +1,15 @@
 -- | Generators of log lines, and builders of a run's log for the fold's specs.
 module State.Run.EventGen (
     genEnvelope,
+    genInstruction,
+    genStopgapEvent,
+    genStopgapAt,
+    genStopgapKeyText,
+    genJson,
+    genIJson,
+    genObject,
+    stopgapKey,
+    ijson,
     genOutcomeNamed,
     outcomeNames,
     genPicks,
@@ -20,6 +29,7 @@ module State.Run.EventGen (
     genTaskRef,
     genSeq,
     titled,
+    verbatim,
     epicNamed,
     genEpicName,
     genEpicMove,
@@ -52,6 +62,9 @@ module State.Run.EventGen (
     logOf,
 ) where
 
+import Data.Aeson (Object, Value (..), toJSON)
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -106,7 +119,9 @@ import State.Run.Gap (
     filed,
     parseGapText,
  )
+import State.Run.IJson (IJson, ijsonOf, parseIJson)
 import State.Run.Id (EventRef (..), breaksLine, parseEventId)
+import State.Run.Stopgap (StopgapAt (..), StopgapKey, parseStopgapKey)
 import State.Step.Artifact (ShellPath, parseEpicName, parseNonBlank, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
@@ -204,7 +219,93 @@ genEvent =
             <$> genTaskRef
             <*> (Gen.int (Range.linear 1 6) >>= genBaseAt)
             <*> genNonBlank
+        , Instructed <$> genInstruction <*> Gen.maybe genSeq
+        , UserNeeded
+            <$> ( Need
+                    <$> genNonBlank
+                    <*> (Set.fromList <$> Gen.list (Range.linear 0 3) genTaskRef)
+                    <*> Gen.maybe genUri
+                )
+        , UserNeededDone <$> genSeq <*> Gen.maybe genNonBlank
+        , genStopgapEvent
         ]
+
+-- | An instruction of any kind, its words not blank.
+genInstruction :: Gen Instruction
+genInstruction =
+    Instruction <$> Gen.enumBounded <*> Gen.mapMaybe parseVerbatim genText
+
+-- | A stopgap set or unset, anywhere, with its reason.
+genStopgapEvent :: Gen Event
+genStopgapEvent =
+    Gen.choice
+        [ StopgapSet <$> genStopgapAt <*> genIJson <*> genNonBlank
+        , StopgapUnset <$> genStopgapAt <*> genNonBlank
+        ]
+
+-- | A stopgap's place: the run's or a task's, under any valid key.
+genStopgapAt :: Gen StopgapAt
+genStopgapAt = StopgapAt <$> Gen.maybe genTaskRef <*> genStopgapKey
+
+genStopgapKey :: Gen StopgapKey
+genStopgapKey = Gen.mapMaybe parseStopgapKey genStopgapKeyText
+
+{- | A key OpenTelemetry's naming allows: a letter, then letters and digits,
+then segments each a delimiter and one or more letters and digits.
+-}
+genStopgapKeyText :: Gen Text
+genStopgapKeyText = do
+    first <- Gen.lower
+    rest <- alnums 0
+    segments <-
+        Gen.list (Range.linear 0 3) ((<>) <$> Gen.element [".", "_"] <*> alnums 1)
+    pure (Text.cons first rest <> mconcat segments)
+  where
+    alnums least = Gen.text (Range.linear least 5) (Gen.element (['a' .. 'z'] <> ['0' .. '9']))
+
+-- | Any JSON value, its numbers at the edges of I-JSON's integers.
+genJson :: Gen Value
+genJson = genJsonOf edgeNumbers
+
+-- | Any JSON object, its keys any text.
+genObject :: Gen Object
+genObject = genObjectOf edgeNumbers
+
+-- | Numbers at the edges of I-JSON's integers, and past them.
+edgeNumbers :: Gen Value
+edgeNumbers =
+    Number
+        <$> Gen.element [0, -1, 7, 1.5, 9007199254740991, 9007199254740992, 1e300]
+
+{- | A stopgap's value: I-JSON, its integers within 2^53-1 either way, under
+the cap and not null at the top.
+-}
+genIJson :: Gen IJson
+genIJson =
+    Gen.mapMaybe
+        (either (const Nothing) Just . ijsonOf)
+        ( genJsonOf
+            ( Number
+                <$> Gen.element [0, -1, 7, 1.5, 1e-300, 9007199254740991, -9007199254740991]
+            )
+        )
+
+-- | Any JSON value, its numbers drawn from these.
+genJsonOf :: Gen Value -> Gen Value
+genJsonOf numbers =
+    Gen.recursive
+        Gen.choice
+        [pure Null, Bool <$> Gen.bool, numbers, String <$> genText]
+        [ toJSON <$> Gen.list (Range.linear 0 3) (genJsonOf numbers)
+        , Object <$> genObjectOf numbers
+        ]
+
+genObjectOf :: Gen Value -> Gen Object
+genObjectOf numbers =
+    KeyMap.fromList
+        <$> Gen.list
+            (Range.linear 0 3)
+            ((,) . Key.fromText <$> genText <*> genJsonOf numbers)
 
 -- | Any gap: its evidence of both kinds, none to a few.
 genGap :: Gen Gap
@@ -358,6 +459,10 @@ genNonBlank = do
 -- | A title for a test's task, which is not blank.
 titled :: Text -> NonBlank
 titled = fromMaybe (error "a test's title is not blank") . parseNonBlank
+
+-- | A user's words for a test's instruction, which are not blank.
+verbatim :: Text -> Verbatim
+verbatim = fromMaybe (error "a test's instruction is not blank") . parseVerbatim
 
 -- | An epic name for a test, a slug.
 epicNamed :: Text -> EpicName
@@ -726,6 +831,18 @@ runId raw = fromMaybe (error ("not a run id: " <> show raw)) (parseRunId raw)
 -- | A path the test spells, which must be absolute and normalised.
 absolutePath :: FilePath -> AbsPath
 absolutePath raw = fromMaybe (error ("not an absolute path: " <> show raw)) (absPath raw)
+
+-- | A stopgap key the test spells, which must be valid.
+stopgapKey :: Text -> StopgapKey
+stopgapKey raw = fromMaybe (error ("not a stopgap key: " <> show raw)) (parseStopgapKey raw)
+
+-- | A stopgap value the test spells, which must be I-JSON.
+ijson :: Text -> IJson
+ijson raw =
+    either
+        (error . (("not I-JSON: " <> show raw <> " ") <>) . show)
+        id
+        (parseIJson raw)
 
 -- | A URL the test spells, which must be an absolute URI.
 uri :: Text -> Uri

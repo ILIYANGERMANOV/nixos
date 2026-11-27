@@ -9,6 +9,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
+import State.Artifact (uriRule)
 import State.Artifact qualified as Artifact
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (Fuel (..))
@@ -38,7 +39,12 @@ import State.Cli.Command (
     unknownEvent,
  )
 import State.Golden (golden)
-import State.Protocol.Record (Recordable (..), Recording (..), recordables)
+import State.Protocol.Record (
+    Recordable (..),
+    Recording (..),
+    recordables,
+    usageOf,
+ )
 import State.Role (drawnDecoders)
 import State.Run.Ask (
     Above (..),
@@ -58,7 +64,10 @@ import State.Run.Event (
     Event (..),
     Handover (..),
     HandoverReason (..),
+    Instruction (..),
+    InstructionKind (..),
     Label (..),
+    Need (..),
     Picks (..),
     RunId,
     SpanId (..),
@@ -67,10 +76,21 @@ import State.Run.Event (
     StopReason (..),
     Target (..),
     TaskId (..),
+    TaskRef (..),
     stepTook,
     tookIn,
  )
-import State.Run.EventGen (fuelSet, gapText, oneLine, runId, uri)
+import State.Run.EventGen (
+    fuelSet,
+    gapText,
+    ijson,
+    oneLine,
+    runId,
+    stopgapKey,
+    titled,
+    uri,
+    verbatim,
+ )
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Gap qualified as Gap
 import State.Run.Id (EventRef (..))
@@ -83,6 +103,7 @@ import State.Run.RunGen (
     securityScope,
     sha,
  )
+import State.Run.Stopgap (StopgapAt (..), stopgapKeyRule)
 import State.Step.Artifact (Shape (..), Url (..), shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeDecoders, outcomeEvent)
@@ -283,6 +304,161 @@ spec = describe "State.Cli.Command" $ do
                     (failure.what, failure.fix)
                         `shouldBe` ("record plan.done", "state record plan.done <path>")
                 _ -> expectationFailure "not a refusal"
+
+    describe "the user's rows" $ do
+        let
+            -- Why @record@ refuses these words, if it does.
+            whyOf argv = case parseCommand steps ("record" : argv) of
+                Right (_, Left failure) -> failure.why
+                _ -> "not refused"
+            reason = titled "no typed event holds it"
+            window = StopgapAt Nothing (stopgapKey "deploy.window")
+
+        it "records an instruction of each kind, the user's words as given" $
+            map
+                recorded
+                [ ["instructed", "goal", "Ship it.\nKeep  it small."]
+                , ["instructed", "rule", "no", "new", "verb", "--replaces", "4"]
+                ]
+                `shouldBe` [ Right
+                                ( Instructed
+                                    (Instruction GoalInstruction (verbatim "Ship it.\nKeep  it small."))
+                                    Nothing
+                                )
+                           , Right
+                                (Instructed (Instruction RuleInstruction (verbatim "no new verb")) (Just 4))
+                           ]
+
+        it
+            "refuses an unknown instruction kind, blank words or a --replaces that is no seq"
+            $ map
+                whyOf
+                [ ["instructed", "wish", "x"]
+                , ["instructed", "goal", "  "]
+                , ["instructed", "goal", "x", "--replaces", "four"]
+                ]
+                `shouldBe` [ "no instruction kind wish: one of goal|scope|rule|permission"
+                           , "the user's words"
+                           , "four is no seq: a line's number in the log"
+                           ]
+
+        it
+            "records a need naming the tasks it blocks, a repeat once, by their breakdown"
+            $ case parse
+                [ "record"
+                , "user_needed"
+                , "add"
+                , "the"
+                , "key"
+                , "--blocks"
+                , "t4,t3,t4"
+                , "--url"
+                , "https://github.com/o/r/settings"
+                ] of
+                Right (OnRun (Record (OnTasks ids event))) ->
+                    (ids, event [TaskRef (TaskId "t3") 2, TaskRef (TaskId "t4") 2])
+                        `shouldBe` ( [TaskId "t3", TaskId "t4"]
+                                   , UserNeeded
+                                        ( Need
+                                            (titled "add the key")
+                                            (Set.fromList [TaskRef (TaskId "t3") 2, TaskRef (TaskId "t4") 2])
+                                            (Just (uri "https://github.com/o/r/settings"))
+                                        )
+                                   )
+                _ -> expectationFailure "not a need naming its tasks"
+
+        it "records a need's done in the run of its line, with a note" $
+            case parse ["record", "user_needed", "r7f2:5", "--done", "--note", "added"] of
+                Right (OnRun (Record (NeedDone ref note))) ->
+                    (ref, note) `shouldBe` (EventRef (runId "r7f2") 5, Just (titled "added"))
+                _ -> expectationFailure "not a need done"
+
+        it "refuses a need with a bad url, a blank text, or flags of the other form" $
+            map
+                whyOf
+                [ ["user_needed", "x", "--url", "not a url"]
+                , ["user_needed", " "]
+                , ["user_needed", "x", "--note", "n"]
+                , ["user_needed", "r7f2:5", "--done", "--blocks", "t1"]
+                , ["user_needed", "nope", "--done"]
+                , ["user_needed", "x", "--blocks", "t1,,t2"]
+                ]
+                `shouldBe` [ "not a url is not " <> uriRule
+                           , "what the user must do, one line"
+                           , "--note has no place in a new need"
+                           , "--blocks has no place in a need done"
+                           , "nope is no need: <run:seq>, as state resume prints it"
+                           , "a blocked task's id, as --blocks t3,t4"
+                           ]
+
+        it "records the run's stopgap set or unset" $
+            map
+                recorded
+                [
+                    [ "stopgap"
+                    , "deploy.window"
+                    , "{\"days\": [1, 2]}"
+                    , "--reason"
+                    , "no typed event holds it"
+                    ]
+                , ["stopgap", "deploy.window", "--unset", "--reason", "no typed event holds it"]
+                ]
+                `shouldBe` [ Right (StopgapSet window (ijson "{\"days\":[1,2]}") reason)
+                           , Right (StopgapUnset window reason)
+                           ]
+
+        it "records a task's stopgap by the task's breakdown" $
+            case parse
+                [ "record"
+                , "stopgap"
+                , "deploy.window"
+                , "1"
+                , "--task"
+                , "t1"
+                , "--reason"
+                , "no typed event holds it"
+                ] of
+                Right (OnRun (Record (OnTask task event))) ->
+                    (task, event (TaskRef (TaskId "t1") 2))
+                        `shouldBe` ( TaskId "t1"
+                                   , StopgapSet
+                                        (StopgapAt (Just (TaskRef (TaskId "t1") 2)) (stopgapKey "deploy.window"))
+                                        (ijson "1")
+                                        reason
+                                   )
+                _ -> expectationFailure "not a task's stopgap"
+
+        it "refuses a stopgap with no --reason as a usage error, before any write" $
+            recorded ["stopgap", "deploy.window", "1"]
+                `shouldBe` Left "Missing: --reason <r>"
+
+        it "refuses each bad key and value, saying how to fix it" $
+            map
+                whyOf
+                [ ["stopgap", "Deploy", "1", "--reason", "r"]
+                , ["stopgap", "a.b", "{\"a\": 1, \"a\": 2}", "--reason", "r"]
+                , ["stopgap", "a.b", "9007199254740992", "--reason", "r"]
+                , ["stopgap", "a.b", "\"\\ud800\"", "--reason", "r"]
+                , ["stopgap", "a.b", "\"\\ufdd0\"", "--reason", "r"]
+                , ["stopgap", "a.b", "null", "--reason", "r"]
+                , ["stopgap", "a.b", "\"" <> Text.replicate 1023 "a" <> "\"", "--reason", "r"]
+                , ["stopgap", "a.b", "1", "--unset", "--reason", "r"]
+                ]
+                `shouldBe` [ "Deploy is not " <> stopgapKeyRule
+                           , "an object repeats the key a: keep one"
+                           , "an integer past 2^53-1, which not every JSON reader reads exactly: quote it as a string"
+                           , "the value is no JSON text, or holds a lone surrogate: Cannot decode input: Data.Text.Internal.Encoding.decodeUtf8: Invalid UTF-8 stream"
+                           , "a key or string holds the noncharacter U+FDD0, which I-JSON forbids: drop it"
+                           , "the value is null: to clear the key, state record stopgap <key> --unset --reason <r>"
+                           , "the value takes 1025 octets, past the cap of 1024: keep a stopgap small"
+                           , "the key alone: --unset takes no value"
+                           ]
+
+        it "shows a switch with no value in its row's usage" $
+            [usageOf r | r <- recordables, r.name `elem` ["user_needed", "stopgap"]]
+                `shouldBe` [ "<text> | <run:seq> [--blocks <task>,...] [--url <url>] [--done] [--note <n>]"
+                           , "<key> <json> | <key> [--unset] [--task <id>] --reason <r>"
+                           ]
 
     describe "context facts" $ do
         it "takes init's goal word for word, and none without --goal" $
@@ -713,7 +889,9 @@ spec = describe "State.Cli.Command" $ do
 
         it "lists every event with no run, fixed by the help" $
             ( \failure ->
-                ( Text.isPrefixOf "the events are gap, research.spawned, " failure.why
+                ( Text.isPrefixOf
+                    "the events are gap, instructed, user_needed, research.spawned, "
+                    failure.why
                 , failure.fix
                 )
             )

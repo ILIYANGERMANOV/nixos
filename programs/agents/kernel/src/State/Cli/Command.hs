@@ -29,6 +29,7 @@ module State.Cli.Command (
     CommandRefusal (..),
     refusedNote,
     explainRefusal,
+    outsideRunTree,
     refusalCode,
     explain,
     unknownEvent,
@@ -53,7 +54,7 @@ import Data.Version (showVersion)
 import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Optparse
-import Options.Applicative.Help.Pretty (pretty, vsep)
+import Options.Applicative.Help.Pretty (fillSep, hang, pretty, vsep)
 import Paths_state (version)
 import State.Artifact (
     AbsPath,
@@ -431,7 +432,7 @@ commandInfo steps scope =
                 ( Optparse.info
                     (recordEvent scope)
                     ( Optparse.progDesc "Record an event: 'state record --help' lists them"
-                        <> Optparse.footer "A commit event records HEAD."
+                        <> Optparse.footerDoc (Just (vsep (map paragraph recordFooter)))
                     )
                 )
             , sub "handback" "Record a role's hand-back, read from stdin" $
@@ -743,6 +744,20 @@ commandInfo steps scope =
         , "A refusal prints `state <command>: what - why`, then `fix: <command>`."
         , "Run 'state <command> --help' for a command's arguments."
         ]
+    -- The one full statement of which row holds a fact: the skills point here.
+    recordFooter =
+        [ "A commit event records HEAD. Record a fact by the first row that fits:"
+        , "- user_needed '<text>' the moment the user must act by hand. It tells no one: still ask or hand back. Then user_needed <run:seq> --done once done."
+        , "- instructed <kind> '<words>' for the user's words verbatim. goal: what to build, only when the user changes it; scope: what is in or out; rule: a standing do or don't; permission: what the user allows. --replaces <seq> retires an earlier one."
+        , "- state note --topic <t> '<text>' for prose context."
+        , "- stopgap <key> <json> --reason <r> for a keyed value read back later, only when no typed row fits; stopgap <key> --unset --reason <r> when it ends."
+        , "Never a secret in any row. Single quotes keep the words verbatim in the shell."
+        ]
+    -- A bullet's lines after its first hang under its text.
+    paragraph line =
+        hang
+            (if "- " `Text.isPrefixOf` line then 2 else 0)
+            (fillSep (map pretty (Text.words line)))
     anyRole = agentRoles steps <> map (.name) Role.roles
     sub name about parser = Optparse.command name (Optparse.info parser (Optparse.progDesc about))
     -- Its last words are free text, which may start with a dash: an option it does not take is a word.
@@ -910,17 +925,18 @@ recordEvent scope = Optparse.hsubparser (Optparse.metavar "EVENT" <> foldMap eve
         | Text.null r.positional = pure []
         | otherwise = many (textArgument r.positional)
     flags r = concat <$> traverse flag r.flags
-    flag f =
-        map (f.name,)
-            <$> arity
-                f.arity
-                ( Optparse.strOption
-                    (Optparse.long (Text.unpack f.name) <> Optparse.metavar (Text.unpack f.value))
-                )
-    arity = \case
-        Required -> fmap pure
-        Optional -> fmap toList . optional
-        Repeated -> many
+    flag f = case f.arity of
+        Required -> pure <$> valued f
+        Optional -> toList <$> optional (valued f)
+        Repeated -> many (valued f)
+        -- A switch given is an option with no value, as 'State.Protocol.Record.switched' reads it.
+        Switch ->
+            (\on -> [(f.name, "") | on])
+                <$> Optparse.switch (Optparse.long (Text.unpack f.name))
+    valued f =
+        (f.name,)
+            <$> Optparse.strOption
+                (Optparse.long (Text.unpack f.name) <> Optparse.metavar (Text.unpack f.value))
     -- An event's positionals may be free text, which may start with a dash.
     freeWords r = if Text.null r.positional then mempty else Optparse.forwardOptions
     describe r = if Text.null (usageOf r) then "no arguments" else usageOf r
@@ -1044,9 +1060,9 @@ notStarted =
         "its first line is not started"
         "state init --notes <dir>"
 
-{- | A refusal a command logs as @refused@: the fold's, or one the command
-meets before it folds. A parse or usage failure is none: it logs nothing
-and has no code.
+{- | A refusal a command logs as @refused@, or only tells when no run may
+take it: the fold's, or one the command meets before it folds. A parse or
+usage failure is none: it logs nothing and has no code.
 -}
 data CommandRefusal
     = FoldRefused Refusal
@@ -1054,6 +1070,11 @@ data CommandRefusal
       FileUnreadable AbsPath
     | -- | Evidence naming a line no run stores: the run, and the seq.
       UnknownEvent EventRef
+    | {- | A need's close naming a line of a run outside the caller's run
+      tree, the store lacking it too: the line, and the caller's run. Only
+      told, as neither run may take it.
+      -}
+      OutsideRunTree EventRef RunId
     deriving stock (Eq, Show)
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
@@ -1079,6 +1100,18 @@ explainRefusal g fuel at = \case
             ("event " <> eventRefText ref)
             "no run in the store has such a line"
             "name a line state dump <run> prints"
+    OutsideRunTree ref caller -> outsideRunTree ref caller
+
+{- | A need's close naming a line outside the caller's run tree, told with
+its code, as no run logs it.
+-}
+outsideRunTree :: EventRef -> RunId -> Failure
+outsideRunTree ref caller =
+    Failure
+        BadInput
+        ((refusalCode (OutsideRunTree ref caller)).codeText <> " " <> eventRefText ref)
+        ("no run of run " <> runIdText caller <> "'s tree has such a line")
+        "state resume lists what is owed to the user as <run:seq>"
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
@@ -1359,6 +1392,16 @@ explain g fuel at = \case
                     <> epicNameText epic
                     <> " --repo <owner/name> --branch <branch>"
                 )
+    NoActiveInstruction n ->
+        refused
+            ("the replaced instruction " <> tshow n)
+            "the run logged no instruction in force at this seq: none, or one replaced already"
+            "state resume lists the instructions in force; record it without --replaces if it replaces none"
+    NoOpenNeed n ->
+        refused
+            ("need " <> tshow n)
+            "the run logged no open need at this seq: none, or one done already"
+            "state resume lists what is owed to the user as <run:seq>"
   where
     refused = Failure BadInput
     records = atPlace $ \place -> case [ recordCommand event
@@ -1439,8 +1482,11 @@ refusalCode =
                 Epic.EpicNotOpen {} -> "epic_not_open"
                 Epic.EpicNotReady {} -> "epic_not_ready"
                 Epic.UnknownEpic {} -> "unknown_epic"
+            NoActiveInstruction {} -> "no_active_instruction"
+            NoOpenNeed {} -> "no_open_need"
         FileUnreadable {} -> "file_unreadable"
         UnknownEvent {} -> "unknown_event"
+        OutsideRunTree {} -> "outside_run_tree"
 
 -- | Where the run is, by its state's name.
 atText :: Node -> Text

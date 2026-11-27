@@ -69,7 +69,10 @@ without a sample here goes unchecked for a distinct code: the no-@_@ case of
 samples :: [CommandRefusal]
 samples =
     map FoldRefused folds
-        <> [FileUnreadable (absolutePath "/work/gone.md"), UnknownEvent (EventRef run 9)]
+        <> [ FileUnreadable (absolutePath "/work/gone.md")
+           , UnknownEvent (EventRef run 9)
+           , OutsideRunTree (EventRef run 10) (runId "a1b2")
+           ]
   where
     folds =
         [ NotStarted
@@ -123,6 +126,8 @@ samples =
         , EpicRefused (Epic.EpicNotOpen epic)
         , EpicRefused (Epic.EpicNotReady epic)
         , EpicRefused (Epic.UnknownEpic epic)
+        , NoActiveInstruction 7
+        , NoOpenNeed 8
         ]
     cap = case Map.elems g.caps of
         first : _ -> first

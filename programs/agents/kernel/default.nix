@@ -61,6 +61,7 @@ let
       network-uri,
       optparse-applicative,
       process,
+      scientific,
       sqlite-simple,
       temporary,
       text,
@@ -96,6 +97,7 @@ let
         network-uri
         optparse-applicative
         process
+        scientific
         sqlite-simple
         text
         time

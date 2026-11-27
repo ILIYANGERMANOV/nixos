@@ -14,6 +14,7 @@ module State.Run.Id (
     runIdText,
     numberedText,
     parseNumbered,
+    parseSeq,
     EventRef (..),
     eventRefText,
     parseEventRef,
@@ -47,7 +48,7 @@ logged at this seq, the @breakdown.done@ or the @task_added@ that started it.
 A new breakdown may reuse an id.
 -}
 data TaskRef = TaskRef {task :: TaskId, breakdown :: Natural}
-    deriving stock (Eq, Show)
+    deriving stock (Eq, Ord, Show)
 
 -- | A subagent's id, as its agent gives it: Claude Code's are hex.
 newtype AgentId = AgentId {agentIdText :: Text}
@@ -93,12 +94,14 @@ numberedText (RunId run) n = run <> ":" <> Text.pack (show n)
 -- | A run id holds no @:@, so the first one splits the run from the number.
 parseNumbered :: Text -> Maybe (RunId, Natural)
 parseNumbered raw = case Text.breakOn ":" raw of
-    (run, rest) -> (,) <$> parseRunId run <*> (Text.stripPrefix ":" rest >>= number)
-  where
-    number digits = case decimal digits of
-        Right (n, "") -> Just n
-        Right _ -> Nothing
-        Left _ -> Nothing
+    (run, rest) -> (,) <$> parseRunId run <*> (Text.stripPrefix ":" rest >>= parseSeq)
+
+-- | A line's seq in its run's log: digits alone.
+parseSeq :: Text -> Maybe Natural
+parseSeq digits = case decimal digits of
+    Right (n, "") -> Just n
+    Right _ -> Nothing
+    Left _ -> Nothing
 
 {- | A line of any run, by its run and its seq: @<run>:<seq>@, the form
 a CLI record's id takes, as a gap and its evidence name a line.

@@ -29,6 +29,7 @@ module State.Run.Codec (
     decodeBreakdown,
     decodeTask,
     ijsonNatural,
+    instructionKindText,
     usageData,
     usageOf,
 ) where
@@ -47,6 +48,7 @@ import State.Run.Event (
     EpicMove (..),
     Event (..),
     HandoverReason (..),
+    InstructionKind (..),
     Stop (..),
     StopReason (..),
     TaskState (..),
@@ -57,6 +59,7 @@ import State.Run.Event (
     tookEvent,
  )
 import State.Run.Gap (Closure (..), GapMove (..))
+import State.Run.IJson (maxIJsonInteger)
 import State.Step.Artifact (
     areaText,
     branchText,
@@ -119,6 +122,19 @@ eventType = \case
         Merges -> "epic_merged"
     TaskHead _ _ -> "task_head"
     TaskBaseChanged {} -> "task_base_changed"
+    Instructed _ _ -> "instructed"
+    UserNeeded _ -> "user_needed"
+    UserNeededDone _ _ -> "user_needed_done"
+    StopgapSet {} -> "stopgap_set"
+    StopgapUnset _ _ -> "stopgap_unset"
+
+-- | An instruction's kind, as @state record instructed@ and the log spell it.
+instructionKindText :: InstructionKind -> Text
+instructionKindText = \case
+    GoalInstruction -> "goal"
+    ScopeInstruction -> "scope"
+    RuleInstruction -> "rule"
+    PermissionInstruction -> "permission"
 
 -- | A hand-back token as line 1 opens with it, on the wire (#360).
 tokenWordText :: TokenWord -> Text
@@ -245,7 +261,7 @@ run logs 2^53 events.
 -}
 ijsonNatural :: Natural -> Parser Natural
 ijsonNatural n
-    | n < 2 ^ (53 :: Int) = pure n
+    | toInteger n <= maxIJsonInteger = pure n
     | otherwise = fail (show n <> " is no I-JSON integer: it is 2^53 or more")
 
 -- | A span's token counts, GenAI's @gen_ai.usage.*@: a count not reported is left out, never 0.

@@ -176,8 +176,10 @@ import State.Run.Event (
     EpicName,
     Event (..),
     EventId,
+    Instruction,
     Judgement (..),
     Label,
+    Need,
     Note,
     Picks (..),
     PlanCall (ParentDecided),
@@ -209,6 +211,8 @@ import State.Run.Fan (Breakdown (..), Fan (..), emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Run.Gap (Closure, GapMove, Tracked (..))
 import State.Run.Gap qualified as Gap
+import State.Run.IJson (IJson)
+import State.Run.Stopgap (StopgapAt)
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
@@ -288,6 +292,14 @@ data RunState = RunState
     -- ^ The chief's requests waiting, each where it stood.
     , epics :: Map EpicName Epic
     -- ^ The epics the run opened, by name, each at its stage: none before its @epic_opened@.
+    , instructions :: Map Natural Instruction
+    -- ^ The user's instructions in force, by the seq that logged each: one replaced is gone.
+    , needs :: Map Natural Need
+    -- ^ What the user has yet to do by hand, by the seq that logged each: one done is gone.
+    , stopgaps :: Map StopgapAt IJson
+    {- ^ Each stopgap in force, its newest value: the store's @stopgaps@ table.
+    Nothing the run decides reads it.
+    -}
     }
     deriving stock (Eq, Show)
 
@@ -455,6 +467,10 @@ data Refusal
     | -- | The end of a span that is not open: never started, ended already, or lost to a restart.
       SpanNotOpen SpanId
     | EpicRefused Epic.Refusal
+    | -- | A @replaces@ naming a seq that logged no instruction in force: none, or one replaced already.
+      NoActiveInstruction Natural
+    | -- | A need's @done@ naming a seq that logged no open need: none, or one done already.
+      NoOpenNeed Natural
     deriving stock (Eq, Show)
 
 {- | An id already in the log, or an answer the run holds already, is not
@@ -578,6 +594,9 @@ begin g envelope = case runStart envelope.event of
                 , focus = TaskNo 1
                 , suspended = Map.empty
                 , epics = Map.empty
+                , instructions = Map.empty
+                , needs = Map.empty
+                , stopgaps = Map.empty
                 }
 
 -- | The run an event starts: a log's first line must start one.
@@ -624,6 +643,11 @@ runStart = \case
     EpicMoved _ _ -> Nothing
     TaskHead _ _ -> Nothing
     TaskBaseChanged {} -> Nothing
+    Instructed _ _ -> Nothing
+    UserNeeded _ -> Nothing
+    UserNeededDone _ _ -> Nothing
+    StopgapSet {} -> Nothing
+    StopgapUnset _ _ -> Nothing
 
 {- | The logged event that answers an effect ('Eff'), its handler's input. A
 run's live command and its replay append the same event, so one handler
@@ -778,6 +802,25 @@ applyEvent g state n = \case
     TaskHead ref sha -> going (inTaskFan ref.task (Fan.headed ref.task sha))
     TaskBaseChanged ref base _ ->
         going (epicsOf [base] state >> inTaskFan ref.task (Fan.rebased ref.task base))
+    Instructed instruction replaces -> going $ case replaces of
+        Nothing -> Right state {instructions = Map.insert n instruction state.instructions}
+        Just old -> case Map.lookup old state.instructions of
+            Just _ ->
+                Right
+                    state
+                        { instructions = Map.insert n instruction (Map.delete old state.instructions)
+                        }
+            Nothing -> Left (NoActiveInstruction old)
+    UserNeeded need -> going (Right state {needs = Map.insert n need state.needs})
+    -- The user may do it after the run stopped or finished: taken in any state, as a gap's fix is.
+    UserNeededDone target _ -> case Map.lookup target state.needs of
+        Just _ -> Right state {needs = Map.delete target state.needs, refused = Nothing}
+        Nothing -> Left (NoOpenNeed target)
+    {- No refusal is cleared and nothing joins: what the run decides never
+    reads a stopgap, so @state next@ is the same with or without one. A
+    stopped run still takes none. -}
+    StopgapSet at value _ -> unlessStopped (Right state {stopgaps = Map.insert at value state.stopgaps})
+    StopgapUnset at _ -> unlessStopped (Right state {stopgaps = Map.delete at state.stopgaps})
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
@@ -809,9 +852,10 @@ applyEvent g state n = \case
         Just fan -> inFanAt fan change state
         Nothing -> Left NotAtFan
     -- After any event, a state that goes on by itself does ('joined').
-    going next = case state.stopped of
+    going next = unlessStopped ((\moved -> joined g moved {refused = Nothing}) <$> next)
+    unlessStopped next = case state.stopped of
         Just stop -> Left (AfterStop stop)
-        Nothing -> (\moved -> joined g moved {refused = Nothing}) <$> next
+        Nothing -> next
 
 {- | The gap of this seq moved on, as 'Gap.transition' allows. A repeat
 is no line at all ('append'), so it never reaches here; met, it changes nothing.

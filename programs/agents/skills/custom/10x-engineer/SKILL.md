@@ -95,6 +95,10 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   --severity <s> "<text>"`, plus `--area` and `--evidence` when known
   (`state record --help`). Refusals, overrides, voids and stuck questions
   are logged as events.
+- **Facts.** Record `user_needed '<text>'` the moment the user must act
+  by hand, `instructed <kind> '<words>'` for the user's words. `stopgap`
+  comes last, only when no typed command fits. `state record --help` says
+  which row holds what and how to close it.
 
 ## States
 
