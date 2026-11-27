@@ -31,6 +31,9 @@ module State.Run.Fold (
     untaskedFan,
     Holder (..),
     taskHolder,
+    taskRefIn,
+    childRefIn,
+    addedTo,
     Round (..),
     Problem (..),
     Pending (..),
@@ -187,6 +190,7 @@ import State.Run.Event (
     Target (..),
     Task,
     TaskId,
+    TaskRef (..),
     TaskNo (..),
     TaskState (InCi, InReview, Kept, Merged, Parked),
     Url,
@@ -197,7 +201,7 @@ import State.Run.Event (
     unreported,
  )
 import State.Run.Event qualified as Event
-import State.Run.Fan (Fan, emptyFan)
+import State.Run.Fan (Breakdown (..), Fan (..), emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Run.Gap (Closure, GapMove, Tracked (..))
 import State.Run.Gap qualified as Gap
@@ -358,7 +362,7 @@ ledger g state =
         WorkerLine agent -> AgentChild agent
     -- An untasked child is open while it runs.
     unsettled fan = \case
-        Tasked task -> not (Fan.settled fan task)
+        Tasked ref -> not (Fan.settled fan ref.task)
         Untasked -> True
 
 -- | A forwarded question, the answer that came down for it, and the state the question was asked at.
@@ -587,12 +591,12 @@ runStart = \case
     QuestionParked _ _ -> Nothing
     Spawning _ -> Nothing
     Spawned _ -> Nothing
-    Resumed _ -> Nothing
-    HandedBack _ _ -> Nothing
+    Resumed _ _ -> Nothing
+    HandedBack {} -> Nothing
     TaskMoved _ _ -> Nothing
     Held _ _ -> Nothing
     ActedOn _ _ -> Nothing
-    TaskAdded _ -> Nothing
+    TaskAdded _ _ -> Nothing
     Restarted -> Nothing
     WorkerHandedBack _ _ -> Nothing
     WorkerSpawned _ _ -> Nothing
@@ -615,8 +619,8 @@ run's live command and its replay append the same event, so one handler
 serves both: live makes the event, then appends it ('appendTo').
 -}
 data Answering (eff :: Eff) where
-    -- | The branch the agent picked: the pick step's outcome, in its scopes.
-    Picked :: ScopePath -> SomeOutcome PickStep -> Answering PickE
+    -- | The branch the agent picked: the pick step's outcome, in its scopes, logged at this seq.
+    Picked :: Natural -> ScopePath -> SomeOutcome PickStep -> Answering PickE
     -- | A question put to this run, one of its own or one handed up.
     Asks :: Asking -> Answering AskE
     Retags :: QId -> Answering AskE
@@ -630,8 +634,8 @@ data Answering (eff :: Eff) where
     Suspends :: TaskNo -> OneLine -> Answering FocusE
     -- | The chief turns back to this waiting request.
     Focuses :: TaskNo -> Answering FocusE
-    -- | The outcome of the step that waits, in its scopes: what it waited on settled.
-    Settles :: ScopePath -> AnyOutcome -> Answering AwaitE
+    -- | The outcome of the step that waits, in its scopes, logged at this seq: what it waited on settled.
+    Settles :: Natural -> ScopePath -> AnyOutcome -> Answering AwaitE
 
 {- | The handler's run once the event answers its effect, or why the event
 does not: pure, so a replay of the log gives the run its live commands gave.
@@ -639,7 +643,7 @@ does not: pure, so a replay of the log gives the run its live commands gave.
 handle ::
     Handler eff -> OpenGraph -> RunState -> Answering eff -> Either Refusal RunState
 handle handler g state = case handler of
-    PickHandler -> \(Picked scope some) -> pick g state scope some
+    PickHandler -> \(Picked n scope some) -> pick g state n scope some
     AskHandler -> \case
         Asks asking -> fromChild asking.from <$> asked g state asking
         Retags qid -> retagged state qid
@@ -651,7 +655,7 @@ handle handler g state = case handler of
         focusable state >> case answering of
             Suspends task summary -> suspends g state task summary
             Focuses task -> focuses g state task
-    AwaitHandler -> \(Settles scope outcome) -> took g state scope outcome
+    AwaitHandler -> \(Settles n scope outcome) -> took g state n scope outcome
 
 {- | A pick moves along its label's edge, unless the budget of the step it
 enters is used up: the advice offers only the actions a budget leaves, so
@@ -660,13 +664,14 @@ a pick never strands the run at a step it may not spend.
 pick ::
     OpenGraph ->
     RunState ->
+    Natural ->
     ScopePath ->
     SomeOutcome PickStep ->
     Either Refusal RunState
-pick g state scope some = do
+pick g state n scope some = do
     let outcome = AnyOutcome PickLayer some
     for_ (edgeHere g state (tookEvent scope outcome)) $ \(_, edge) -> maybe (Right ()) Left (usedUpAt g state edge)
-    walked g state scope outcome
+    walked g state n scope outcome
 
 -- | A question asked from a stopped child is its stop, triaged; from a worker, its oldest hand-back.
 fromChild :: Asker -> RunState -> RunState
@@ -686,11 +691,11 @@ applyEvent g state n = \case
     Extended _ -> going (extended g state)
     Gapped gap -> going (Right state {gaps = state.gaps <> [(n, Tracked gap Gap.Open)]})
     -- A step moved: an agent works the run again.
-    Took scope (AnyOutcome PickLayer some) -> going (working <$> handle PickHandler g state (Picked scope some))
+    Took scope (AnyOutcome PickLayer some) -> going (working <$> handle PickHandler g state (Picked n scope some))
     Took scope outcome@(AnyOutcome _ (SomeOutcome s _ _))
         | stepAwaits s ->
-            going (working <$> handle AwaitHandler g state (Settles scope outcome))
-        | otherwise -> going (working <$> took g state scope outcome)
+            going (working <$> handle AwaitHandler g state (Settles n scope outcome))
+        | otherwise -> going (working <$> took g state n scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
     Asked asking -> going (handle AskHandler g state (Asks asking))
@@ -699,22 +704,22 @@ applyEvent g state n = \case
     Forwarded qid to -> going (handle AskHandler g state (Forwards qid to))
     Answered qid reply by -> going (handle AskHandler g state (Answers qid reply by))
     QuestionParked qid why -> going (handle AskHandler g state (Parks qid why))
-    Spawning task -> going (inTaskFan task (Fan.spawning (askingChildren state) task))
+    Spawning ref -> going (inTaskFan ref.task (Fan.spawning (askingChildren state) ref.task))
     Spawned child -> going $ case child.task of
-        Tasked task ->
-            heldTask task >>= \holder ->
+        Tasked ref ->
+            heldTask ref.task >>= \holder ->
                 atAwait g holder.at
                     >> inFanAt holder.fan (Fan.spawned (askingChildren state) child) state
         Untasked -> forked g state child
-    Resumed child -> going (inFanOf (snd (childAt child)) (Fan.resumed child))
+    Resumed child _ -> going (inFanOf (snd (childAt child)) (Fan.resumed child))
     -- An untasked child hands back wherever the run is, as an agent child does.
-    HandedBack child said -> going $ case untaskedFan state child of
+    HandedBack child _ said -> going $ case untaskedFan state child of
         Just fan -> inFanAt fan (Fan.handedBack child said) state
         Nothing ->
             let (at, fan) = childAt child
              in atFan g at HandsBack >> inFanOf fan (Fan.handedBack child said)
     -- 'Fan.moved' ignores a merged task's later move, so the run skips its effects too.
-    TaskMoved task moved ->
+    TaskMoved TaskRef {task} moved ->
         going $
             heldTask task >>= \holder -> do
                 let before = fanIn state.fans holder.fan
@@ -722,10 +727,10 @@ applyEvent g state n = \case
                 if Fan.merged before task
                     then Right after
                     else afterMove holder.requests before task moved after
-    Held task url -> going (inTaskFan task (Fan.held task url))
-    ActedOn task url -> going (inTaskFan task (Fan.actedOn task url))
+    Held ref url -> going (inTaskFan ref.task (Fan.held ref.task url))
+    ActedOn ref url -> going (inTaskFan ref.task (Fan.actedOn ref.task url))
     -- A new task joins the fan-out the run is at: no request holds it yet.
-    TaskAdded task -> going (inFanOf (fanAt state.at) (Fan.added task) >>= reopened g)
+    TaskAdded _ task -> going (inFanOf (fanAt state.at) (Fan.added n task) >>= reopened g)
     -- The lead's session started afresh: every agent it had at work is gone.
     Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
@@ -847,6 +852,7 @@ agentEndedIn state child role agent = case untaskedFan state child of
         Just
             ( HandedBack
                 child
+                Nothing
                 ( Ended
                     (Event.Stop Failed ("agent " <> agent.agentIdText <> " ended with no hand-back"))
                 )
@@ -889,11 +895,11 @@ meter and its problems join the rounds it ends. A forked child's hand-back
 changes nothing: its agent's return closes its entry in the 'ledger'.
 -}
 took ::
-    OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
-took g state scope outcome@(AnyOutcome _ some)
+    OpenGraph -> RunState -> Natural -> ScopePath -> AnyOutcome -> Either Refusal RunState
+took g state n scope outcome@(AnyOutcome _ some)
     | any (\cap -> owedBy cap.meter (RecordedOutcome some) == Just Closes) g.caps =
         Right state
-    | otherwise = walked g state scope outcome
+    | otherwise = walked g state n scope outcome
 
 {- | A group's 'State.Category.Flow.Await' goes on by itself once every
 child handed back (an AND-join): no one records its @done@, as the
@@ -987,6 +993,25 @@ alone, so no two hold it.
 childHolder :: RunState -> RunId -> Maybe (Holder Task)
 childHolder state run = listToMaybe (holders (`Fan.childTask` run) state)
 
+{- | The task of this id as its next event names it, beside the breakdown
+of the one request's fan-out that holds it: refused as that event would be.
+-}
+taskRefIn :: RunState -> TaskId -> Either Refusal TaskRef
+taskRefIn state task = do
+    holder <- Bifunctor.first (NotOneHolder task) (taskHolder state task)
+    Bifunctor.first FanRefused (Fan.taskRef (fanIn state.fans holder.fan) task)
+
+-- | The task the child of this run id took, as its @spawned@ names it: none for an untasked or unknown child.
+childRefIn :: RunState -> RunId -> Maybe TaskRef
+childRefIn state run =
+    childHolder state run >>= \holder -> Fan.childRef (fanIn state.fans holder.fan) run
+
+{- | The breakdown a task added at seq @n@ joins: the one of the fan-out the
+run is at, else the one it starts, at @n@.
+-}
+addedTo :: RunState -> Natural -> Natural
+addedTo state n = maybe n (.seq) (currentFan state).breakdown
+
 -- | Each fan-out the run's requests stand at whose state @holds@ finds something in, with the requests there.
 holders :: (Fan -> Maybe a) -> RunState -> [Holder a]
 holders holds state =
@@ -1023,12 +1048,12 @@ untaskedFan state run =
         ]
 
 walked ::
-    OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
-walked g state scope outcome@(AnyOutcome _ some) = do
+    OpenGraph -> RunState -> Natural -> ScopePath -> AnyOutcome -> Either Refusal RunState
+walked g state n scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
     (from, edge) <-
         maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
-    let effect = effects scope outcome
+    let effect = effects n scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
     case (edge.to == At from, awaitedOpen g state from) of
         (False, open) | open > 0 -> Left (StillOpen open)
@@ -1115,8 +1140,9 @@ data Skipping = ByLevel Name (PerFuel SkipWhen) | ByShape
 in the layer's own match below. A fan-out's outcome moves the fan-out in the
 outcome's scope.
 -}
-effects :: ScopePath -> AnyOutcome -> Effect
-effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
+-- | @n@ is the outcome's seq.
+effects :: Natural -> ScopePath -> AnyOutcome -> Effect
+effects n scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     GatherLayer -> none
     PlanLayer -> none
     BuildLayer -> none {draft = built o}
@@ -1126,7 +1152,7 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
          in none {problems = found, pr = url, skip = keeps o}
     TicketLayer -> none {written = ticketOf o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
-    FanLayer -> none {fanned = fanOutcome scope o}
+    FanLayer -> none {fanned = fanOutcome n scope o}
     PickLayer -> none
     FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where
@@ -1200,16 +1226,19 @@ built = \case
     ImplementDone _ -> Nothing
     RefactorDone _ -> Nothing
 
--- | A breakdown sets its fan-out's tasks; its end is checked as it is written ('leaves').
+{- | A breakdown, logged at seq @n@, sets its fan-out's tasks; its end is
+checked as it is written ('leaves').
+-}
 fanOutcome ::
+    Natural ->
     ScopePath ->
     Outcome (s :: FanStep) l ->
     Map ScopedFan Fan ->
     Either Fan.Refusal (Map ScopedFan Fan)
-fanOutcome scope outcome fans = case outcome of
+fanOutcome n scope outcome fans = case outcome of
     BreakdownDone fan tasks ->
         (\fresh -> Map.insert (here fan) fresh fans)
-            <$> Fan.broken tasks (fanIn fans (here fan))
+            <$> Fan.broken n tasks (fanIn fans (here fan))
     MergeDone fan _ -> fans <$ Fan.closed (fanIn fans (here fan))
     MergeNextRound fan -> fans <$ Fan.closed (fanIn fans (here fan))
   where
@@ -1404,7 +1433,7 @@ awaitedOpen g state place = case Map.lookup place g.groupStates of
     Just (Forking _) -> 0
     Nothing -> 0
   where
-    running fan = [task | childRun <- Fan.running fan, Tasked task <- [childRun.child.task]]
+    running fan = [ref.task | childRun <- Fan.running fan, Tasked ref <- [childRun.child.task]]
 
 {- | The capped forks whose budget holds the run: a forked child's
 hand-back is recorded at one, in its scope, wherever the run is in the

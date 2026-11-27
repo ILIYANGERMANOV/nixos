@@ -104,7 +104,7 @@ import State.Run.Event (
     tookIn,
  )
 import State.Run.Event qualified as Event
-import State.Run.Fan (Fan, childTask)
+import State.Run.Fan (Fan, childRef, lookupTask)
 import State.Run.Fold (
     RunState (..),
     ScopedFan (..),
@@ -437,12 +437,12 @@ fromChild state fan handback = case handback.run of
         Just token@(Blocked _) -> ended token
         Just token@(Failed _) -> ended token
       where
-        said = HandedBack child
+        said = HandedBack child (childRef fan child)
         -- A round's READY keeps its PR; any other naming its PR first puts the task in review.
-        prMoved summary = case childTask fan child of
-            Just task -> case (task.shape, Text.words (oneLineText summary)) of
-                (RoundOn pr, _) -> [TaskMoved task.id (Kept pr)]
-                (OwnPr, pr : _) | "https://" `Text.isPrefixOf` pr -> [TaskMoved task.id (InReview (Url pr))]
+        prMoved summary = case childRef fan child >>= \ref -> (ref,) <$> lookupTask fan ref.task of
+            Just (ref, task) -> case (task.shape, Text.words (oneLineText summary)) of
+                (RoundOn pr, _) -> [TaskMoved ref (Kept pr)]
+                (OwnPr, pr : _) | "https://" `Text.isPrefixOf` pr -> [TaskMoved ref (InReview (Url pr))]
                 (OwnPr, _) -> []
             Nothing -> []
         -- Read back as the log reads it, so an out-of-rounds stop stays one.

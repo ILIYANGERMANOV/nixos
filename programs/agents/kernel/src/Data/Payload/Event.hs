@@ -126,6 +126,7 @@ import State.Run.Event (
     Stop (..),
     TaskId (..),
     TaskNo,
+    TaskRef (..),
     TaskState (..),
     Url (..),
     parseHarness,
@@ -345,13 +346,13 @@ eventData = \case
     Answered qid reply by -> qidData qid <> replyData reply <> pair "by" (partyEncoding by)
     QuestionParked qid why -> qidData qid <> "reason" .= oneLineText why
     Spawned child -> spawnedData child
-    Spawning task -> "task" .= taskIdText task
-    Resumed child -> "child" .= runIdText child
-    HandedBack child said -> "child" .= runIdText child <> saidData said
-    TaskMoved task moved -> "task" .= taskIdText task <> pair "state" (taskStateEncoding moved)
-    Held task url -> "task" .= taskIdText task <> urlData url
-    ActedOn task url -> "task" .= taskIdText task <> urlData url
-    TaskAdded task -> pair "task" (taskEncoding task)
+    Spawning ref -> taskRefData ref
+    Resumed child ref -> "child" .= runIdText child <> foldMap taskRefData ref
+    HandedBack child ref said -> "child" .= runIdText child <> foldMap taskRefData ref <> saidData said
+    TaskMoved ref moved -> taskRefData ref <> pair "state" (taskStateEncoding moved)
+    Held ref url -> taskRefData ref <> urlData url
+    ActedOn ref url -> taskRefData ref <> urlData url
+    TaskAdded n task -> "breakdown" .= n <> pair "task" (taskEncoding task)
     Restarted -> mempty
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
     WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
@@ -421,13 +422,13 @@ eventOf kind obj = case kind of
     "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= partyOf)
     "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "reason" obj
     "spawned" -> Spawned <$> spawnedOf obj
-    "spawning" -> Spawning <$> taskOf obj
-    "resumed" -> Resumed <$> childOf obj
-    "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
-    "task" -> TaskMoved <$> taskOf obj <*> (obj .: "state" >>= taskStateOf)
-    "held" -> Held <$> taskOf obj <*> urlOf obj
-    "acted" -> ActedOn <$> taskOf obj <*> urlOf obj
-    "task_added" -> TaskAdded <$> (obj .: "task" >>= Artifact.taskOf)
+    "spawning" -> Spawning <$> taskRefOf obj
+    "resumed" -> Resumed <$> childOf obj <*> childTaskRefOf obj
+    "handed_back" -> HandedBack <$> childOf obj <*> childTaskRefOf obj <*> saidOf obj
+    "task" -> TaskMoved <$> taskRefOf obj <*> (obj .: "state" >>= taskStateOf)
+    "held" -> Held <$> taskRefOf obj <*> urlOf obj
+    "acted" -> ActedOn <$> taskRefOf obj <*> urlOf obj
+    "task_added" -> TaskAdded <$> breakdownSeqOf obj <*> (obj .: "task" >>= Artifact.taskOf)
     "restarted" -> pure Restarted
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
@@ -570,10 +571,29 @@ requestOf obj =
 taskOf :: Object -> Parser TaskId
 taskOf obj = TaskId <$> obj .: "task"
 
+-- | A task by its identity: its id under @task@, beside its breakdown's seq.
+taskRefData :: TaskRef -> Series
+taskRefData ref = "task" .= taskIdText ref.task <> "breakdown" .= ref.breakdown
+
+taskRefOf :: Object -> Parser TaskRef
+taskRefOf obj = TaskRef <$> taskOf obj <*> breakdownSeqOf obj
+
+breakdownSeqOf :: Object -> Parser Natural
+breakdownSeqOf obj = obj .: "breakdown" >>= ijsonNatural
+
+-- | A child's task, copied from its @spawned@: @task@ and @breakdown@ both, or neither for an untasked child.
+childTaskRefOf :: Object -> Parser (Maybe TaskRef)
+childTaskRefOf obj =
+    (,) <$> obj .:? "task" <*> obj .:? "breakdown" >>= \case
+        (Just task, Just n) -> Just . TaskRef (TaskId task) <$> ijsonNatural n
+        (Nothing, Nothing) -> pure Nothing
+        (Just _, Nothing) -> fail "a task with no breakdown"
+        (Nothing, Just _) -> fail "a breakdown with no task"
+
 -- | The event is the union: @kind: tasked@ names the child's task, @untasked@ none.
 spawnedData :: Child -> Series
 spawnedData child = case child.task of
-    Tasked task -> tag "tasked" <> common <> "task" .= taskIdText task
+    Tasked ref -> tag "tasked" <> common <> taskRefData ref
     Untasked -> tag "untasked" <> common
   where
     common = "child" .= runIdText child.run <> "worktree" .= child.worktree
@@ -583,7 +603,7 @@ spawnedOf obj =
     Child
         <$> childOf obj
         <*> ( obj .: "kind" >>= \case
-                "tasked" -> Tasked <$> taskOf obj
+                "tasked" -> Tasked <$> taskRefOf obj
                 "untasked" -> pure Untasked
                 other -> unknownCase "spawned kind" other
             )

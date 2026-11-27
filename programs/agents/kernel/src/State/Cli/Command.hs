@@ -1428,7 +1428,7 @@ retryOf :: RunState -> TaskId -> Either Failure (Task, Child, Stop)
 retryOf state task = case ( Fan.lookupTask fan task
                           , lookup
                                 (Tasked task)
-                                [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]
+                                [(Fan.childTaskId child, stopped) | stopped@(child, _) <- Fan.untriaged fan]
                           ) of
     (Nothing, _) -> Left (refused "the breakdown has no such task" "state show")
     (Just _, Nothing) -> Left (refused "no stopped child of it awaits triage" "state next")

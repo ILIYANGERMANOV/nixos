@@ -73,7 +73,7 @@ import State.Run.Event (
     runIdText,
     spansOf,
  )
-import State.Run.Fan (ChildRun (..), Fan (..), latest, pullRequest)
+import State.Run.Fan (ChildRun (..), Fan (..), childTaskId, latest, pullRequest, tasksOf)
 import State.Run.Fold (
     Answer (..),
     Pending (..),
@@ -223,7 +223,7 @@ tasks input = case rows of
         "tasks:"
             : map ("  " <>) (table (["id", "status", "at_work", "pr", "child run"] : rows))
   where
-    rows = [taskRow fan task | fan <- fans input, task <- fan.tasks]
+    rows = [taskRow fan task | fan <- fans input, task <- tasksOf fan]
 
 taskRow :: Fan -> Task -> [Text]
 taskRow fan task =
@@ -236,7 +236,7 @@ taskRow fan task =
         <> extra
   where
     moved = Map.lookup task.id fan.moves
-    children = [c | c <- fan.children, c.child.task == Tasked task.id]
+    children = [c | c <- fan.children, childTaskId c.child == Tasked task.id]
     status = case (moved, children) of
         (Just state, _) -> taskStateName state
         (Nothing, []) -> "planned"
@@ -400,7 +400,7 @@ childRuns input =
         ( concat
             [ [ Text.unwords
                     [ runIdText childRun.child.run
-                    , case childRun.child.task of
+                    , case childTaskId childRun.child of
                         Tasked task -> taskIdText task
                         Untasked -> "-"
                     , standing

@@ -119,7 +119,7 @@ import State.Run.Gap (
  )
 import State.Run.Id (eventRefText)
 import State.Show (tshow)
-import State.Step.Artifact (shellPathText, slugChar)
+import State.Step.Artifact (baseText, nonBlankText, shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
 import State.Table (Row (..), Steps, agentRoles, row, stepsRunBy)
 
@@ -425,8 +425,9 @@ taskBrief state fan found = Text.unlines (taskLines found) <> "\n" <> taskInit
                 (Just (taskIdText found.id))
     taskLines task =
         [ "Task: " <> taskIdText task.id
+        , "Title: " <> nonBlankText task.title
         , "Fuel: " <> fuelLabel task.fuel
-        , "Base: " <> branchText task.base
+        , "Base: " <> baseText task.base
         , "Branch: " <> branchText task.branch
         , "Depends on: " <> listed (map taskIdText task.deps)
         , "QA: " <> yesNo task.qa
