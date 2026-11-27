@@ -19,6 +19,7 @@ import State.Run.Event (
     Branch (..),
     Envelope (..),
     Event (SessionStarted),
+    Harness (..),
     Session (..),
  )
 import Test.Hspec (
@@ -59,7 +60,7 @@ spec = describe "state-hook over the doubles" $ do
                     `shouldBe` ( 0
                                ,
                                    [ SessionStarted
-                                        (Session "claude-code" (absPath transcriptFile) "startup" Nothing)
+                                        (Session (Harness "claude-code") (absPath transcriptFile) "startup" Nothing)
                                    ]
                                )
                 contextOf said `shouldSatisfy` maybe False ("session_started" `Text.isInfixOf`)

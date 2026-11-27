@@ -32,6 +32,7 @@ import State.Run.Event (
     DraftPr (..),
     Envelope (..),
     Event (Restarted, Spawned, Stopped, Voided, WorkerSpawned),
+    Harness (..),
     Session (..),
     SessionId (..),
     Stop (..),
@@ -99,7 +100,7 @@ spec = describe "the hooks" $ do
                 `shouldBe` Right
                     ( SessionStart
                         (Call (Just (SessionId "s")) "/w" Nothing)
-                        (Opened Resumed "opencode" Nothing Nothing)
+                        (Opened Resumed (Harness "opencode") Nothing Nothing)
                     )
 
         it "refuses a session start whose transcript path is not absolute" $
@@ -111,10 +112,14 @@ spec = describe "the hooks" $ do
             parseHookEvent (without "harness" (sessionStart "startup"))
                 `shouldSatisfy` isLeft
 
+        it "refuses a session start whose harness is empty" $
+            parseHookEvent (withField "harness" "" (sessionStart "startup"))
+                `shouldSatisfy` isLeft
+
         it "keeps the session as its run logs it, its source by the hook's own word" $
             sessionOf (claudeOpened Resumed)
                 `shouldBe` Session
-                    { harness = "claude-code"
+                    { harness = Harness "claude-code"
                     , transcript = absPath transcriptFile
                     , trigger = "resume"
                     , model = Just "claude-opus-5-5"
@@ -657,7 +662,12 @@ sessionStart source =
 
 -- | What 'sessionStart' tells, for this reason.
 claudeOpened :: StartSource -> Opened
-claudeOpened source = Opened source "claude-code" (absPath transcriptFile) (Just "claude-opus-5-5")
+claudeOpened source =
+    Opened
+        source
+        (Harness "claude-code")
+        (absPath transcriptFile)
+        (Just "claude-opus-5-5")
 
 transcriptFile :: FilePath
 transcriptFile = "/home/u/.claude/projects/p/s.jsonl"

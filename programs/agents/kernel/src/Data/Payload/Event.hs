@@ -95,6 +95,7 @@ import State.Run.Event (
     Envelope (..),
     Event (..),
     Handover (..),
+    Harness (..),
     Link (..),
     Note (..),
     Op (..),
@@ -113,6 +114,7 @@ import State.Run.Event (
     TaskNo,
     TaskState (..),
     Url (..),
+    parseHarness,
     parseRunId,
     parseTaskNo,
     runIdText,
@@ -333,7 +335,7 @@ eventData = \case
             <> "summary" .= handover.summary
             <> "next_steps" .= handover.next
     SessionStarted session ->
-        "harness" .= session.harness
+        "harness" .= (\(Harness name) -> name) session.harness
             <> foldMap (("transcript_path" .=) . absPathText) session.transcript
             <> "source" .= session.trigger
             <> foldMap ("request_model" .=) session.model
@@ -398,7 +400,7 @@ eventOf kind obj = case kind of
     "session_started" ->
         SessionStarted
             <$> ( Session
-                    <$> obj .: "harness"
+                    <$> (obj .: "harness" >>= named "harness" parseHarness)
                     <*> (obj .:? "transcript_path" >>= traverse pathOf)
                     <*> obj .: "source"
                     <*> obj .:? "request_model"

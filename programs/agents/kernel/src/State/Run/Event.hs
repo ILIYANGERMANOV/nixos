@@ -29,6 +29,8 @@ module State.Run.Event (
     Handover (..),
     HandoverReason (..),
     Session (..),
+    Harness (..),
+    parseHarness,
     FlowName (..),
     Principal (..),
     Parent (..),
@@ -319,7 +321,7 @@ data HandoverReason = Context | User | Crash
 
 -- | A harness session as its session-start hook saw it.
 data Session = Session
-    { harness :: Text
+    { harness :: Harness
     -- ^ The harness's own name for itself, its adapter's constant.
     , transcript :: Maybe AbsPath
     {- ^ The session's transcript file. Optional, unlike #552's Appendix B:
@@ -333,6 +335,13 @@ data Session = Session
     -- ^ The model the harness asked for, when the hook names it.
     }
     deriving stock (Eq, Show)
+
+-- | The harness's own name for itself, @claude-code@ or @opencode@: never empty.
+newtype Harness = Harness Text
+    deriving stock (Eq, Show)
+
+parseHarness :: Text -> Maybe Harness
+parseHarness raw = if Text.null raw then Nothing else Just (Harness raw)
 
 -- | A question as it reached this run, and the step the run was at.
 data Asking = Asking {question :: Question, step :: StateName, from :: Asker}

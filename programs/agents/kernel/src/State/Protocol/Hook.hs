@@ -113,10 +113,12 @@ import State.Run.Event (
     DraftPr (..),
     Envelope (..),
     Event (Restarted, Took),
+    Harness,
     RunId,
     Session (..),
     SessionId,
     Source (..),
+    parseHarness,
     parseSessionId,
     roleText,
     runIdText,
@@ -218,7 +220,7 @@ data StartSource = Startup | Resumed | Compact
 -- | What a session start tells: why it started, and the harness's own facts of the session.
 data Opened = Opened
     { source :: StartSource
-    , harness :: Text
+    , harness :: Harness
     , transcript :: Maybe AbsPath
     , model :: Maybe Text
     }
@@ -249,7 +251,7 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
                 SessionStart call
                     <$> ( Opened
                             <$> (o .: "source" >>= named "source" startSourceName)
-                            <*> o .: "harness"
+                            <*> (o .: "harness" >>= harnessOf)
                             <*> (o .: "transcript_path" >>= traverse transcriptPath)
                             <*> o .: "request_model"
                         )
@@ -280,6 +282,7 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
                         <$> (Agent . fmap AgentId <$> a .: "id" <*> (fmap AgentRole <$> a .: "role"))
                 )
                 value
+    harnessOf raw = maybe (fail "no harness: empty") pure (parseHarness raw)
     -- Not absolute is no transcript the contract allows: refused, as an unknown source is.
     transcriptPath raw =
         maybe

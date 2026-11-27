@@ -106,6 +106,7 @@ import State.Run.Event (
     FlowName (..),
     Handover (..),
     HandoverReason (..),
+    Harness (..),
     Judgement (..),
     Label (..),
     Note (..),
@@ -401,6 +402,16 @@ spec = describe "Data.Payload.Event" $ do
             ( encodeLine reviewRows
                 `replacing` ("review.rows", "await_ci.red")
                 `replacing` ("{\"head_sha\":\"abc123\"}", "{\"head_sha\":\"abc123\",\"failing\":[]}")
+            )
+            `shouldSatisfy` malformed
+
+    it "refuses a session start whose harness is empty" $
+        decodeLine
+            ( encodeLine
+                reviewRows
+                    { event = SessionStarted (Session (Harness "opencode") Nothing "resume" Nothing)
+                    }
+                `replacing` ("\"harness\":\"opencode\"", "\"harness\":\"\"")
             )
             `shouldSatisfy` malformed
 
@@ -767,12 +778,12 @@ eventGoldens =
         :| []
     , SessionStarted
         ( Session
-            "claude-code"
+            (Harness "claude-code")
             (Just (absolutePath "/home/u/t.jsonl"))
             "startup"
             (Just "opus")
         )
-        :| [SessionStarted (Session "opencode" Nothing "resume" Nothing)]
+        :| [SessionStarted (Session (Harness "opencode") Nothing "resume" Nothing)]
     ]
   where
     qid = QId child 3

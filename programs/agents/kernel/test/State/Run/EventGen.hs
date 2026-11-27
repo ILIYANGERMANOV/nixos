@@ -158,7 +158,7 @@ genEvent =
                 )
         , SessionStarted
             <$> ( Session
-                    <$> genText
+                    <$> Gen.mapMaybe parseHarness genText
                     <*> Gen.maybe genAbsPath
                     <*> genText
                     <*> Gen.maybe genText
