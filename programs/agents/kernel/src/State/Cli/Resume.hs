@@ -38,7 +38,7 @@ import State.Artifact (
 import State.Category.Fuel (fuelName)
 import State.Category.Graph (Node (..))
 import State.Category.Step (stateNameText)
-import State.Cli.View (answerLine, pendingLines, section)
+import State.Cli.View (answerLine, gapHeadline, pendingLines, section)
 import State.Protocol.Advice (recordedPr)
 import State.Protocol.Handback (TokenWord (..), tokenWordText)
 import State.Run.Ask (Principal (..), Question (..), qidText, rulingLine)
@@ -81,6 +81,12 @@ import State.Run.Fold (
     fuelOf,
     unvoided,
  )
+import State.Run.Gap (
+    Gap (..),
+    Severity (Blocker),
+    Tracked (..),
+    isOpen,
+ )
 import State.Run.Id (numberedText)
 import State.Show (timeText, tshow)
 
@@ -113,6 +119,7 @@ sections =
     , heldWakes
     , openQuestions
     , decisions
+    , openGaps
     , notesByTopic
     , \input ->
         ""
@@ -281,6 +288,31 @@ decisions input =
             <> [qid | Answered qid _ _ <- [line.event]]
     -- The same answer logged again is no news: the newest line names it.
     dedupe = foldr (\qid rest -> qid : filter (/= qid) rest) []
+
+{- | The gaps still open, a fix proposed counting as open: blockers first,
+then slowdowns, then papercuts, each oldest first. The header counts them
+all, and the blockers among them.
+-}
+openGaps :: Input -> [Text]
+openGaps input =
+    section
+        ( "open gaps ("
+            <> tshow (length open)
+            <> ", "
+            <> tshow (length [() | (_, gap) <- open, gap.severity == Blocker])
+            <> " blocker):"
+        )
+        ( capped
+            "state show"
+            [ here input n <> " " <> gapHeadline gap
+            | (n, gap) <- open
+            ]
+        )
+  where
+    open =
+        sortOn
+            (\(n, gap) -> (gap.severity, n))
+            [(n, tracked.gap) | (n, tracked) <- input.state.gaps, isOpen tracked.status]
 
 -- | Each topic's count of notes and its newest, newest topic first, with the command that loads its texts.
 notesByTopic :: Input -> [Text]

@@ -44,6 +44,7 @@ module State.Run.Event (
     Stop (..),
     StopReason (..),
     Note (..),
+    RefusalCode (..),
     AnyOutcome,
     stepTook,
     tookIn,
@@ -105,6 +106,7 @@ import State.Run.Ask (
     Question,
     Reply (..),
  )
+import State.Run.Gap (Gap, GapMove)
 import State.Run.Id (
     AgentId (..),
     Digest (..),
@@ -186,7 +188,7 @@ data Event
     | {- | A gap the lead saw in the flow or its tools, logged in place of a
       loose notes file: it moves nothing.
       -}
-      Gapped Text
+      Gapped Gap
     | {- | A step's outcome, or a mode's skip, inside the scopes its step sits
       in: the one event that moves the run. 'tookEvent' is its name on the wire.
       -}
@@ -277,6 +279,10 @@ data Event
       HandedOver Handover
     | -- | A harness session started on the run (written by the session-start hook).
       SessionStarted Session
+    | {- | The gap logged at this seq of the run moves on: a fix proposed, or
+      closed. Taken whatever state the run is in, a finished one too.
+      -}
+      GapMoved Natural GapMove
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.
@@ -362,9 +368,15 @@ data Stop = Stop {reason :: StopReason, why :: Text}
 data StopReason = Blocked | Failed | Replan | OutOfRounds
     deriving stock (Eq, Show, Enum, Bounded)
 
--- | A refusal as the reader saw it: what was wrong, and the fix.
-data Note = Note {message :: Text, fix :: Text}
+-- | A refusal as the reader saw it: its code, what was wrong, and the fix.
+data Note = Note {code :: RefusalCode, message :: Text, fix :: Text}
     deriving stock (Eq, Show)
+
+{- | A refusal's stable snake_case name, low-cardinality like OpenTelemetry's
+@error.type@: one per refusal constructor, never @other@.
+-}
+newtype RefusalCode = RefusalCode {codeText :: Text}
+    deriving stock (Eq, Ord, Show)
 
 -- | A child run of the fan-out: its run id, what it was spawned for and its worktree.
 data Child = Child {run :: RunId, task :: ChildTask, worktree :: FilePath}

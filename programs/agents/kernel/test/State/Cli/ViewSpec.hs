@@ -9,7 +9,7 @@ import State.Cli.View (beginText, brief, briefOf, briefSection, showRun)
 import State.Protocol.Handback (tokenWords)
 import State.Protocol.Hook (Begin (..), LeadSkill (..))
 import State.Run.Event (AgentRole (..), Event (Gapped), StateName (..))
-import State.Run.EventGen (fuelSet)
+import State.Run.EventGen (bareGap, fuelSet)
 import State.Run.RunGen (g, happyPath, loadSteps, runAt)
 import State.Table (agentRoles)
 import Test.Hspec (
@@ -94,8 +94,9 @@ spec = describe "the texts that need no run" $ do
                     ]
 
         it "lists the run's gaps, oldest first, each after its seq" $
-            showRun steps g (runAt [Gapped "one", Gapped "two"])
-                `shouldSatisfy` Text.isInfixOf "gaps:\n  1 one\n  2 two\n"
+            showRun steps g (runAt [Gapped (bareGap "one"), Gapped (bareGap "two")])
+                `shouldSatisfy` Text.isInfixOf
+                    "gaps:\n  1 other slowdown \"one\" (area plan, by engineer): open\n  2 other slowdown \"two\" (area plan, by engineer): open\n"
 
     describe "how work begins" $ do
         it "gives a spawned step runner its brief" $

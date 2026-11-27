@@ -13,6 +13,7 @@ module State.Run.EventGen (
     genReply,
     genText,
     genOneLine,
+    bareGap,
     genTasks,
     genTaskAt,
     genTaskId,
@@ -20,6 +21,7 @@ module State.Run.EventGen (
     genTaskState,
     tasksOf,
     oneLine,
+    gapText,
     runId,
     absolutePath,
     uri,
@@ -84,7 +86,18 @@ import State.Run.Ask (
     parseOneLine,
  )
 import State.Run.Event
-import State.Run.Id (breaksLine, parseEventId)
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapArea (..),
+    GapMove (..),
+    GapText,
+    draft,
+    filed,
+    parseGapText,
+ )
+import State.Run.Id (EventRef (..), breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
@@ -115,11 +128,11 @@ genEvent =
         [ Started <$> genStart
         , Targeted <$> genTarget
         , Extended <$> genText
-        , Gapped <$> genText
+        , Gapped <$> genGap
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
-        , Refused <$> (Note <$> genText <*> genText)
+        , Refused <$> (Note . RefusalCode <$> genText <*> genText <*> genText)
         , Asked <$> (Asking <$> genQuestion <*> (StateName <$> genText) <*> genAsker)
         , RetaggedSecurity <$> genQId
         , RuledOn <$> genQId <*> genProposal
@@ -163,6 +176,36 @@ genEvent =
                     <*> genText
                     <*> Gen.maybe genText
                 )
+        , GapMoved <$> genIJsonNatural <*> genGapMove
+        ]
+
+-- | Any gap: its evidence of both kinds, none to a few.
+genGap :: Gen Gap
+genGap =
+    Gap
+        <$> Gen.enumBounded
+        <*> Gen.enumBounded
+        <*> (GapArea <$> genOneLine)
+        <*> Gen.mapMaybe parseGapText genText
+        <*> (AgentRole <$> genText)
+        <*> Gen.list (Range.linear 0 3) genEvidence
+
+genEvidence :: Gen Evidence
+genEvidence =
+    Gen.choice
+        [OfEvent <$> (EventRef <$> genRunId <*> genIJsonNatural), OfUrl <$> genUri]
+
+-- | A gap with this text and the defaults, met at plan by the engineer.
+bareGap :: Text -> Gap
+bareGap = filed (GapArea (oneLine "plan")) (AgentRole "engineer") . draft . gapText
+
+-- | Any status event's move: a fix proposed, fixed or not to be fixed.
+genGapMove :: Gen GapMove
+genGapMove =
+    Gen.choice
+        [ Propose <$> genUri
+        , Close . Fixed <$> genUri
+        , Close . WontFix <$> genOneLine
         ]
 
 -- | A file artifact of any kind, or a URL's: its location's kinds only.
@@ -569,6 +612,10 @@ genEventId =
         [ Numbered <$> genRunId <*> Gen.integral (Range.linear 0 1000)
         , Gen.mapMaybe (parseEventId . ("h:" <>)) genIdText
         ]
+
+-- | A gap's text the test spells, which must be one line and not blank.
+gapText :: Text -> GapText
+gapText raw = fromMaybe (error ("no gap text: " <> show raw)) (parseGapText raw)
 
 -- | A line the test spells, which must hold no line break.
 oneLine :: Text -> OneLine

@@ -1,3 +1,4 @@
 [
-{"text":"no test drives the CLI's --help"}
+{"gap_kind":"kernel","severity":"blocker","area":"implement","text":"no test drives the CLI's --help","reporter":"implementer","evidence":[{"kind":"event","event":"r7f2:4"},{"kind":"url","url":"https://github.com/o/r/issues/9"}]},
+{"gap_kind":"other","severity":"slowdown","area":"plan","text":"slow","reporter":"engineer","evidence":[]}
 ]

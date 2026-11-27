@@ -220,6 +220,13 @@ spec = describe "the state binary" $ do
                                , "fix: state record gather.enough | state record gather.interview | state record gather.research"
                                ]
                            )
+            rows <- dumpOf bin repo =<< runOf bin repo
+            [ snd (Text.breakOn "\"data\":" row)
+              | row <- rows
+              , "\"type\":\"refused\"" `Text.isInfixOf` row
+              ]
+                `shouldBe` [ "\"data\":{\"code\":\"no_edge\",\"message\":\"ready.done - no such arrow out of gather\",\"fix\":\"state record gather.enough | state record gather.interview | state record gather.research\"}}"
+                           ]
             warned <- succeeded =<< state bin repo ["next"]
             take 3 warned
                 `shouldBe` [ "RUN one option below"
@@ -666,6 +673,125 @@ spec = describe "the state binary" $ do
             stored <- doesFileExist (storeOf repo)
             kept <- LBS8.readFile old
             (types, stored, kept) `shouldBe` (["started", "gap", "voided"], True, bytes)
+
+        it
+            "logs a gap per Gap: line of a hand-back, telling a malformed one the allowed words, then shows them and resumes the open ones, worst first"
+            $ \repo -> do
+                _ <-
+                    drive
+                        bin
+                        repo
+                        [ Record ["fuel.set", "balanced"]
+                        , Record ["gather.research"]
+                        , Spawn "researcher"
+                        ]
+                back <-
+                    succeeded
+                        =<< hook
+                            hookBin
+                            repo
+                            "handback"
+                            ( reportedBack
+                                repo
+                                "researcher"
+                                ( researched
+                                    <> "Gap: tool papercut slow grep\nGap: kernel blocker the fold drops a line\nGap: odd words\n"
+                                )
+                            )
+                shown <- Text.unlines <$> (succeeded =<< state bin repo ["show"])
+                resumed <- succeeded =<< state bin repo ["resume"]
+                ( any ("gap -> " `Text.isInfixOf`) back
+                    , any
+                        ( Text.isInfixOf
+                            ( "gap logged as other slowdown, its words not Gap: <kind> <severity> <text>, "
+                                <> "kind kernel|prose|tool|permission|ci|process|other, severity blocker|slowdown|papercut"
+                            )
+                        )
+                        back
+                    , all
+                        (`Text.isInfixOf` shown)
+                        [ "tool papercut \"slow grep\""
+                        , "kernel blocker \"the fold drops a line\""
+                        , "by researcher"
+                        ]
+                    , drop
+                        1
+                        (dropWhile (not . ("open gaps (3, 1 blocker):" `Text.isPrefixOf`)) resumed)
+                    )
+                    `shouldSatisfy` \case
+                        (True, True, True, blocker : slowdown : papercut : _) ->
+                            " kernel blocker \"the fold drops a line\"" `Text.isSuffixOf` blocker
+                                && " other slowdown \"odd words\"" `Text.isSuffixOf` slowdown
+                                && " tool papercut \"slow grep\"" `Text.isSuffixOf` papercut
+                        _ -> False
+                types <- loggedTypes bin repo
+                length (filter (== "gap") types) `shouldBe` 3
+
+        it "fixes a gap in a run that stopped, and refuses a closed gap gap_closed" $ \repo -> do
+            _ <- drive bin repo []
+            _ <- succeeded =<< state bin repo ["record", "gap", "a gap"]
+            _ <- succeeded =<< state bin repo ["stop", "failed", "no", "access"]
+            run <- runOf bin repo
+            let gap = Text.unpack run <> ":2"
+            _ <-
+                succeeded
+                    =<< state bin repo ["gap", "fixed", gap, "--pr", "https://github.com/o/r/pull/3"]
+            again <- state bin repo ["gap", "wontfix", gap, "out", "of", "scope"]
+            rows <- dumpOf bin repo run
+            ( again.code
+                , [ Text.takeWhile (/= ',') (snd (Text.breakOn "\"type\":" row))
+                  | row <- drop 3 rows
+                  ]
+                , any ("\"code\":\"gap_closed\"" `Text.isInfixOf`) rows
+                )
+                `shouldBe` (2, ["\"type\":\"gap_fixed\"", "\"type\":\"refused\""], True)
+
+        it
+            "fixes a gap of another run from this worktree, logging the move in that run only"
+            $ \repo -> do
+                _ <- drive bin repo []
+                _ <- succeeded =<< state bin repo ["record", "gap", "a gap"]
+                filer <- runOf bin repo
+                w1 <- worktree repo "w1"
+                mover <- startedIn bin w1 ["--notes", repo.root </> "w1-notes"]
+                _ <-
+                    succeeded
+                        =<< state
+                            bin
+                            w1
+                            [ "gap"
+                            , "fixed"
+                            , Text.unpack filer <> ":2"
+                            , "--pr"
+                            , "https://github.com/o/r/pull/3"
+                            ]
+                let fixes run =
+                        length . filter ("\"type\":\"gap_fixed\"" `Text.isInfixOf`)
+                            <$> dumpOf bin repo run
+                moves <- traverse fixes [filer, mover]
+                (filer /= mover, moves) `shouldBe` (True, [1, 0])
+
+        it "tells a gap move naming a run the store lacks unknown_gap, logging nothing" $ \repo -> do
+            _ <- drive bin repo []
+            before <- logLines bin repo
+            refused <-
+                state
+                    bin
+                    repo
+                    ["gap", "fixed", "nope:1", "--pr", "https://github.com/o/r/pull/3"]
+            after <- logLines bin repo
+            ( refused.code
+                , any (": unknown_gap nope:1 - " `Text.isInfixOf`) refused.err
+                , after - before
+                )
+                `shouldBe` (2, True, 0)
+
+        it "refuses a gap whose evidence names no stored line unknown_event" $ \repo -> do
+            _ <- drive bin repo []
+            refused <- state bin repo ["record", "gap", "--evidence", "nope:9", "a", "gap"]
+            rows <- dumped bin repo
+            (refused.code, any ("\"code\":\"unknown_event\"" `Text.isInfixOf`) rows)
+                `shouldBe` (2, True)
 
         it "loses no event of two state processes appending to one run at once" $ \repo -> do
             _ <- drive bin repo []

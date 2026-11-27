@@ -69,8 +69,10 @@ import State.Run.Event (
     stepTook,
     tookIn,
  )
-import State.Run.EventGen (fuelSet, runId, uri)
+import State.Run.EventGen (fuelSet, gapText, oneLine, runId, uri)
 import State.Run.Fold (Refusal (..), RunState (..))
+import State.Run.Gap qualified as Gap
+import State.Run.Id (EventRef (..))
 import State.Run.RunGen (
     g,
     happyPath,
@@ -112,6 +114,11 @@ spec = describe "State.Cli.Command" $ do
             Right (OnRun (Record (Plain event))) -> Right event
             Right (OnRun (Record (AtHead event))) -> Right (event sha)
             Right _ -> Left "not a record"
+            Left why -> Left why
+        -- The gap @record gap@ drafts, before the run fills in its area and reporter.
+        drafted argv = case parse ("record" : argv) of
+            Right (OnRun (Record (Filing gap))) -> Right gap
+            Right _ -> Left "not a gap"
             Left why -> Left why
         helpOf argv = case parseCommand steps argv of
             Left said -> fromRight "not help" (usage "state" said)
@@ -166,7 +173,45 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` []
 
         it "records a gap with its text, words joined back" $
-            recorded ["gap", "no", "hook", "fact"] `shouldBe` Right (Gapped "no hook fact")
+            drafted ["gap", "no", "hook", "fact"]
+                `shouldBe` Right (Gap.draft (gapText "no hook fact"))
+
+        it "records a gap's kind, severity, area and evidence, the evidence in order" $
+            drafted
+                [ "gap"
+                , "--kind"
+                , "kernel"
+                , "--severity"
+                , "blocker"
+                , "--area"
+                , "fold"
+                , "--evidence"
+                , "r1:4"
+                , "--evidence"
+                , "https://github.com/o/r/issues/2"
+                , "a"
+                , "gap"
+                ]
+                `shouldBe` Right
+                    ( Gap.GapDraft
+                        Gap.Kernel
+                        Gap.Blocker
+                        (Just (Gap.GapArea (oneLine "fold")))
+                        (gapText "a gap")
+                        [ Gap.OfEvent (EventRef (runId "r1") 4)
+                        , Gap.OfUrl (uri "https://github.com/o/r/issues/2")
+                        ]
+                    )
+
+        it "refuses an unknown gap kind or severity" $
+            ( drafted ["gap", "--kind", "nope", "a"]
+            , drafted ["gap", "--severity", "nope", "a"]
+            )
+                `shouldBe` (Left "record gap", Left "record gap")
+
+        it "refuses a gap whose --area is more than one line" $
+            drafted ["gap", "--area", "fold\ntasks: done", "a", "gap"]
+                `shouldBe` Left "record gap"
 
         it "refuses a gap with no text" $
             recorded ["gap"] `shouldBe` Left "record gap"
@@ -287,7 +332,7 @@ spec = describe "State.Cli.Command" $ do
 
         it "names the artifact to show by its run and seq" $
             ( case parse ["artifact", "show", "r1:4"] of
-                Right (ShowArtifact run n) -> Right (run, n)
+                Right (ShowArtifact ref) -> Right (ref.run, ref.seq)
                 Right _ -> Left "not a show"
                 Left why -> Left why
             , failureWhat (parse ["artifact", "show", "r1"])
@@ -475,6 +520,20 @@ spec = describe "State.Cli.Command" $ do
                            , Right (Just (Just (runId "r1"), Just 3))
                            , Left "--until 0"
                            ]
+
+        it "takes gap proposed, fixed and wontfix to their moves on the gap named" $
+            map
+                (fmap moved . parse)
+                [ ["gap", "proposed", "r1:4", "--pr", "https://github.com/o/r/pull/8"]
+                , ["gap", "fixed", "r1:4", "--pr", "https://github.com/o/r/pull/8"]
+                , ["gap", "wontfix", "r1:4", "out", "of", "scope"]
+                ]
+                `shouldBe` map
+                    (Right . Just . (EventRef (runId "r1") 4,))
+                    [ Gap.Propose (uri "https://github.com/o/r/pull/8")
+                    , Gap.Close (Gap.Fixed (uri "https://github.com/o/r/pull/8"))
+                    , Gap.Close (Gap.WontFix (oneLine "out of scope"))
+                    ]
 
         it "refuses a notes dir that is relative or holds what a shell reads" $
             map
@@ -726,6 +785,10 @@ spec = describe "State.Cli.Command" $ do
     dumped :: Command -> Maybe RunId
     dumped = \case
         Dump run -> Just run
+        _ -> Nothing
+    moved :: Command -> Maybe (EventRef, Gap.GapMove)
+    moved = \case
+        MoveGap ref move -> Just (ref, move)
         _ -> Nothing
     resumed :: Command -> Maybe (Maybe RunId, Maybe Natural)
     resumed = \case

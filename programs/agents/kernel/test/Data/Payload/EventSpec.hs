@@ -113,6 +113,7 @@ import State.Run.Event (
     Op (..),
     Picks (..),
     PlanCall (..),
+    RefusalCode (..),
     Reply (..),
     Repo (..),
     Requirement (..),
@@ -137,6 +138,7 @@ import State.Run.Event (
  )
 import State.Run.EventGen (
     absolutePath,
+    gapText,
     genEnvelope,
     genTaskState,
     genText,
@@ -147,6 +149,19 @@ import State.Run.EventGen (
     tasksOf,
     uri,
  )
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapArea (..),
+    GapKind (Kernel),
+    GapMove (..),
+    Severity (..),
+    gapKindText,
+    severityText,
+ )
+import State.Run.Gap qualified as Gap
+import State.Run.Id (EventRef (..))
 import State.Run.RunGen (pickOf, plainTask, securityScope)
 import State.Step.Artifact (areaName, judgementName, planName, shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
@@ -276,7 +291,7 @@ spec = describe "Data.Payload.Event" $ do
                 , sessionId = Nothing
                 , headSha = Nothing
                 , hookDigest = Nothing
-                , payload = "{\"message\":\"n\",\"fix\":\"f\"}"
+                , payload = "{\"code\":\"no_edge\",\"message\":\"n\",\"fix\":\"f\"}"
                 }
 
     it "makes a child's runs row from its first event alone" $
@@ -472,7 +487,7 @@ spec = describe "Data.Payload.Event" $ do
             , run = runId "00010203"
             , head = Nothing
             , session = Nothing
-            , event = Refused (Note "n" "f")
+            , event = Refused (Note (RefusalCode "no_edge") "n" "f")
             }
     begun =
         refused
@@ -624,6 +639,8 @@ enumSpellings =
         , map fileKindText [minBound ..]
         , map urlKindText [minBound ..]
         , map handoverReasonText [minBound ..]
+        , map gapKindText [minBound ..]
+        , map severityText [minBound ..]
         ]
 
 -- | Lowercase snake_case: words of @a-z@ and @0-9@, joined by single underscores.
@@ -700,10 +717,31 @@ eventGoldens =
     , Targeted (OnPr pr)
         :| [Targeted (OnBranch (Branch "feature")), Targeted (OnTicket ticket)]
     , Extended "the plan grew a slice" :| []
-    , Gapped "no test drives the CLI's --help" :| []
+    , Gapped
+        ( Gap
+            Kernel
+            Blocker
+            (GapArea (oneLine "implement"))
+            (gapText "no test drives the CLI's --help")
+            implementer
+            [OfEvent (EventRef parent 4), OfUrl (uri "https://github.com/o/r/issues/9")]
+        )
+        :| [ Gapped
+                ( Gap
+                    Gap.Other
+                    Slowdown
+                    (GapArea (oneLine "plan"))
+                    (gapText "slow")
+                    (AgentRole "engineer")
+                    []
+                )
+           ]
+    , GapMoved 3 (Propose (uri "https://github.com/o/r/pull/8")) :| []
+    , GapMoved 3 (Close (Fixed (uri "https://github.com/o/r/pull/8"))) :| []
+    , GapMoved 3 (Close (WontFix (oneLine "out of scope"))) :| []
     , Stopped (Stop Blocked "no access to the repo") :| []
     , Overridden (StateName "review") "the user said so" :| []
-    , Refused (Note "no such step" "run state next") :| []
+    , Refused (Note (RefusalCode "no_edge") "no such step" "run state next") :| []
     , Asked
         (Asking (Question qid Design (oneLine "v1 or v2?")) (StateName "plan") Itself)
         :| [ Asked

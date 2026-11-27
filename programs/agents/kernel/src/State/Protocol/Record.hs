@@ -21,19 +21,19 @@ module State.Protocol.Record (
     Args (..),
     option,
     options,
-    choices,
 ) where
 
 import Data.Bifunctor qualified as Bifunctor
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Artifact (FileKind)
+import State.Artifact (FileKind, parseUri, uriRule)
 import State.Artifact qualified as Artifact
 import State.Category.Flow (ScopePath, nameText, unqualify)
-import State.Category.Fuel (fuelName, parseByName, parseFuel)
+import State.Category.Fuel (choices, fuelName, parseByName, parseFuel)
 import State.Category.Graph (
     Arrow (..),
     Edge (..),
@@ -48,6 +48,7 @@ import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
 import State.Protocol.Handback (parseTouches, refusalText)
 import State.Role (drawnOutcomes)
+import State.Run.Ask (parseOneLine)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (
@@ -67,6 +68,16 @@ import State.Run.Event (
     parseRunId,
     tookIn,
  )
+import State.Run.Gap (
+    Evidence (..),
+    GapArea (..),
+    GapDraft (..),
+    gapKindText,
+    parseGapText,
+    severityText,
+ )
+import State.Run.Gap qualified as Gap
+import State.Run.Id (parseEventRef)
 import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
@@ -90,6 +101,10 @@ data Recording
     | AtHead (Sha -> Event)
     | FromFile FileKind FilePath (Text -> Either Text Event)
     | NamesFile FileKind FilePath Event
+    | {- | A gap, its area left to the step the run is at when not given, its
+      reporter the run's role; its evidence lines are looked up first.
+      -}
+      Filing GapDraft
 
 {- | The @state record@ line for an event, its arguments' usage after it. An
 event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
@@ -223,9 +238,18 @@ usageOf r =
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
 recordables =
-    [ stay "gap" "<text>" $ \case
-        [] -> Left "the gap"
-        gap -> Right (Gapped (Text.unwords gap))
+    [ atRoot
+        $ Recordable
+            "gap"
+            "<text>"
+            [ Flag "kind" ("<" <> choices gapKindText <> ">") Optional
+            , Flag "severity" ("<" <> choices severityText <> ">") Optional
+            , Flag "area" "<area>" Optional
+            , Flag "evidence" "<run:seq|url>" Repeated
+            ]
+        $ \a -> case a.positional of
+            [] -> Left "the gap"
+            gap -> Filing <$> draftOf (Text.unwords gap) a
     , nothing ResearchSpawned
     , nothing ResearchHandedBack
     , nothing InterviewAsked
@@ -414,6 +438,39 @@ recordables =
     known :: Text -> (Text -> Maybe a) -> Text -> Either Text a
     known what parse raw = maybe (Left ("no " <> what <> " " <> raw)) Right (parse raw)
 
+{- | A gap's draft from its text and flags: the defaults where a flag is not
+given. An unknown kind or severity is refused with the allowed words;
+evidence is read as @<run>:<seq>@ first, as @abc:5@ is an absolute URI too.
+-}
+draftOf :: Text -> Args -> Either Text GapDraft
+draftOf words' a = do
+    text <- maybe (Left "the gap, one line") Right (parseGapText words')
+    let bare = Gap.draft text
+    kind <- traverse (allowed "gap kind" gapKindText) (option "kind" a)
+    severity <- traverse (allowed "severity" severityText) (option "severity" a)
+    area <- traverse areaOf (option "area" a)
+    evidence <- traverse evidenceOf (options "evidence" a)
+    Right
+        ( GapDraft
+            (fromMaybe bare.kind kind)
+            (fromMaybe bare.severity severity)
+            area
+            text
+            evidence
+        )
+  where
+    allowed :: (Bounded v, Enum v) => Text -> (v -> Text) -> Text -> Either Text v
+    allowed what name raw =
+        maybe
+            (Left ("no " <> what <> " " <> raw <> ": one of " <> choices name))
+            Right
+            (parseByName name raw)
+    areaOf raw = maybe (Left "the area, one line") (Right . GapArea) (parseOneLine raw)
+    evidenceOf raw = case (parseEventRef raw, parseUri raw) of
+        (Just ref, _) -> Right (OfEvent ref)
+        (Nothing, Just uri) -> Right (OfUrl uri)
+        (Nothing, Nothing) -> Left (raw <> " is no <run>:<seq>, nor " <> uriRule)
+
 -- | The reason a lead gives, its words joined back.
 because :: [Text] -> Either Text Text
 because = \case
@@ -433,6 +490,3 @@ option name a = case options name a of
 
 options :: Text -> Args -> [Text]
 options name a = [value | (key, value) <- a.options, key == name]
-
-choices :: (Bounded a, Enum a) => (a -> Text) -> Text
-choices name = Text.intercalate "|" (map name [minBound .. maxBound])

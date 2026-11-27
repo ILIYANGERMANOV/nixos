@@ -19,7 +19,7 @@ import State.Run.Event (
     Asker (..),
     Asking (..),
     Commit (..),
-    Event (Asked, HandedBack, Spawned, TaskMoved, Took),
+    Event (Asked, Gapped, HandedBack, Spawned, TaskMoved, Took),
     Picks (..),
     Said (..),
     Sha (..),
@@ -33,12 +33,21 @@ import State.Run.Event (
 import State.Run.Event qualified as Event
 import State.Run.EventGen (
     fuelSet,
+    gapText,
     genOneLine,
     genQuestion,
     genRunId,
     oneLine,
     run,
     runId,
+ )
+import State.Run.Gap (
+    Gap (..),
+    GapArea (..),
+    GapKind (Process, Tool),
+    GapLine (..),
+    Severity (Blocker, Papercut),
+    gapTextText,
  )
 import State.Run.RunGen (
     childOf,
@@ -84,6 +93,16 @@ spec = describe "State.Protocol.Handback" $ do
                     { reviewedHead = Just (Sha "9f8e7d6")
                     , touches = Just (Set.fromList [Auth, DataModel])
                     }
+
+    it "reads every Gap: line below line 1, list items and indented ones too" $
+        (.gaps)
+            <$> parseHandback
+                "READY done\nGap: tool papercut slow grep\n- Gap: process blocker no runner\n  * Gap: odd words\n"
+            `shouldBe` Right
+                [ WellFormed Tool Papercut (gapText "slow grep")
+                , WellFormed Process Blocker (gapText "no runner")
+                , Malformed (gapText "odd words")
+                ]
 
     it
         "hands a re-plan stop up as a plan found wrong, not as a question asked (law Re-plan)"
@@ -239,6 +258,21 @@ typing = describe "typeHandback" $ do
                     Nothing
                 )
 
+    it
+        "keeps a question's qid when its hand-back names gaps, each met at the step it closes"
+        $ fmap
+            ( \typed' ->
+                ( [asking.question.qid | Asked asking <- typed'.events]
+                , [gap.area | Gapped gap <- typed'.events]
+                )
+            )
+            ( typed
+                atImplement
+                "implementer"
+                "NEEDS_DECISION stuck: two stores\nGap: tool papercut slow grep\nGap: odd words"
+            )
+            `shouldBe` Right ([QId run 7], replicate 2 (GapArea (oneLine "implement")))
+
     describe "a child's hand-back at the fan-out" $ do
         let fromChild = typed atFanOut "engineer"
             c1 = runId "c1"
@@ -365,7 +399,7 @@ parsed :: Text -> Handback
 parsed = either (error . Text.unpack . refusalText) id . parseHandback
 
 blank :: Maybe Token -> Handback
-blank token = Handback token Nothing Nothing Nothing Nothing
+blank token = Handback token Nothing Nothing Nothing Nothing []
 
 genHandback :: Gen Handback
 genHandback =
@@ -375,6 +409,19 @@ genHandback =
         <*> Gen.maybe genSha
         <*> Gen.maybe genSha
         <*> Gen.maybe (Set.fromList <$> Gen.subsequence [minBound .. maxBound])
+        <*> Gen.list (Range.linear 0 3) genGapLine
+
+-- | A @Gap:@ line of either form: a malformed one's first word is no gap kind.
+genGapLine :: Gen GapLine
+genGapLine =
+    Gen.choice
+        [ WellFormed <$> Gen.enumBounded <*> Gen.enumBounded <*> words'
+        , Malformed . gapText . ("about " <>) . gapTextText <$> words'
+        ]
+  where
+    words' =
+        gapText . Text.unwords
+            <$> Gen.list (Range.linear 1 4) (Gen.text (Range.linear 1 8) Gen.alphaNum)
 
 genToken :: Gen Token
 genToken =

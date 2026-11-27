@@ -85,6 +85,7 @@ library
     State.Run.Event
     State.Run.Fan
     State.Run.Fold
+    State.Run.Gap
     State.Run.Id
     State.Show
     State.Step.Artifact
@@ -171,6 +172,7 @@ test-suite state-test
     State.Category.GraphSpec
     State.Category.LawsSpec
     State.Category.PathSpec
+    State.Cli.CodeSpec
     State.Cli.CommandSpec
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec
@@ -206,6 +208,7 @@ test-suite state-test
     State.Run.EventSpec
     State.Run.FanSpec
     State.Run.FoldSpec
+    State.Run.GapSpec
     State.Run.RunGen
     State.TableSpec
 

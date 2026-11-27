@@ -9,6 +9,7 @@ module State.Category.Fuel (
     fuelLabel,
     parseFuel,
     parseByName,
+    choices,
     PerFuel (..),
     atFuel,
     always,
@@ -49,6 +50,10 @@ a total function, so a name and its parser cannot drift.
 -}
 parseByName :: (Bounded a, Enum a) => (a -> Text) -> Text -> Maybe a
 parseByName name raw = lookup raw [(name value, value) | value <- [minBound .. maxBound]]
+
+-- | Every wire name 'parseByName' reads, as a usage line offers them: @a|b|c@.
+choices :: (Bounded a, Enum a) => (a -> Text) -> Text
+choices name = Text.intercalate "|" (map name [minBound .. maxBound])
 
 {- | One value per level: a budget the term carries where it is spent, so
 the term, not a table keyed by a global id, says what each level allows.

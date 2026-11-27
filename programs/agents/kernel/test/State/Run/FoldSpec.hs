@@ -87,6 +87,7 @@ import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (Merge)
 import State.Run.EventGen (
     absolutePath,
+    bareGap,
     fuelSet,
     genOneLine,
     genProposal,
@@ -107,6 +108,8 @@ import State.Run.EventGen (
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
+import State.Run.Gap (Tracked (..))
+import State.Run.Gap qualified as Gap
 import State.Run.RunGen (
     architectGraph,
     chiefGraph,
@@ -988,7 +991,7 @@ spec = describe "State.Run.Fold" $ do
 
     questions
   where
-    note = Note "no edge" "state next"
+    note = Note (RefusalCode "no_edge") "no edge" "state next"
     stop = Stop Blocked "why"
 
 -- | The engineer's gather, past its Fuel step.
@@ -1319,9 +1322,16 @@ gatherBudgets = describe "the gather's choice" $ do
             let at = fuelSet Balanced : take 7 happyPath
             fmap
                 (\state -> (state.at, state.gaps))
-                (replay g (logOf (started :| at <> [Gapped "one", Gapped "two"])))
+                ( replay
+                    g
+                    (logOf (started :| at <> [Gapped (bareGap "one"), Gapped (bareGap "two")]))
+                )
                 `shouldBe` fmap
-                    (\state -> (state.at, [(9, "one"), (10, "two")]))
+                    ( \state ->
+                        ( state.at
+                        , [(9, Tracked (bareGap "one") Gap.Open), (10, Tracked (bareGap "two") Gap.Open)]
+                        )
+                    )
                     (replay g (logOf (started :| at)))
 
     it "refuses extend outside the gather" $

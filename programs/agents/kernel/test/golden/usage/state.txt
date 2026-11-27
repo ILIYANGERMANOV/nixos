@@ -31,6 +31,7 @@ Available commands:
   note                     Note context for a fresh agent, under a topic
   handover                 Hand the run over to a fresh agent
   resume                   Print the packet a fresh agent resumes the run from
+  gap                      Move a gap on: a fix proposed, fixed, or won't fix
   help                     Print this help
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck

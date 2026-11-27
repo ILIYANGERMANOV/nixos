@@ -26,7 +26,10 @@ module State.Cli.Command (
     tenXInitFix,
     architectInitFix,
     chiefInitFix,
-    noteOf,
+    CommandRefusal (..),
+    refusedNote,
+    explainRefusal,
+    refusalCode,
     explain,
     unknownEvent,
     anyEvent,
@@ -53,16 +56,19 @@ import Options.Applicative qualified as Optparse
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import Paths_state (version)
 import State.Artifact (
+    AbsPath,
     FileKind,
     Uri,
     UrlKind,
+    absPathText,
     fileKindText,
     parseUri,
     uriRule,
+    uriText,
     urlKindText,
  )
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
-import State.Category.Fuel (Fuel, parseByName)
+import State.Category.Fuel (Fuel, choices, parseByName)
 import State.Category.Graph (
     Cap (..),
     Node (..),
@@ -87,7 +93,6 @@ import State.Protocol.Record (
     Recordable (..),
     Recording (..),
     capRecords,
-    choices,
     extend,
     extendOption,
     recordCommand,
@@ -127,6 +132,7 @@ import State.Run.Event (
     FlowName (..),
     Handover (..),
     Note (..),
+    RefusalCode (..),
     RunId,
     StateName (..),
     Stop (..),
@@ -143,7 +149,9 @@ import State.Run.Event (
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Answer (about, given), Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
-import State.Run.Id (parseEventId, parseNumbered)
+import State.Run.Gap (GapMove)
+import State.Run.Gap qualified as Gap
+import State.Run.Id (EventRef, eventRefText, parseEventId, parseEventRef)
 import State.Show (tshow)
 import State.Step.Artifact (
     Shape (..),
@@ -178,13 +186,17 @@ data Command
     | -- | The worktree's run hands over to a fresh agent, its changed files registered again first.
       HandOver Handover
     | -- | The artifact a run logged at this seq: its bytes, its URL, or why neither.
-      ShowArtifact RunId Natural
+      ShowArtifact EventRef
     | -- | A file or URL the worktree's run registers, derived from its artifact of this seq, if any.
       Register (Location FilePath) (Maybe Natural)
     | {- | The packet a fresh agent resumes from: of the run named, else the
       session's or the worktree's, as it was after this line, if one is given.
       -}
       Resume (Maybe RunId) (Maybe Until)
+    | {- | The gap logged at this line moves on, in its own run: a fix
+      proposed, fixed, or not to be fixed.
+      -}
+      MoveGap EventRef GapMove
     | OnRun RunCommand
 
 {- | The packet as it was after the line of this seq (@--until@): a seq
@@ -301,10 +313,6 @@ architectInitFix = "state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --f
 -- | The chief's @state init@ line: one run holds every request of the session.
 chiefInitFix :: Text
 chiefInitFix = "state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chief"
-
--- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
-noteOf :: Failure -> Note
-noteOf failure = Note (failure.what <> " - " <> failure.why) failure.fix
 
 {- | Help asked for, or argv the grammar rejects: optparse's verdict. Its
 exit code tells the two apart, so the shell, which owns exit codes, renders it.
@@ -583,8 +591,41 @@ commandInfo steps scope =
                             "<seq>"
                             "the packet as it was after the line of this seq"
                         )
+            , Optparse.command
+                "gap"
+                ( Optparse.info
+                    ( Optparse.hsubparser
+                        ( sub "proposed" "A gap's fix is proposed in a PR" (byPr Gap.Propose)
+                            <> sub "fixed" "A gap is fixed by a PR" (byPr (Gap.Close . Gap.Fixed))
+                            <> freeText
+                                "wontfix"
+                                "A gap is left as it is, saying why"
+                                ( (\raw why -> MoveGap <$> gapAt raw <*> (Gap.Close . Gap.WontFix <$> oneLine why))
+                                    <$> textArgument "<run:seq>"
+                                    <*> sentence "<reason>"
+                                )
+                        )
+                    )
+                    (Optparse.progDesc "Move a gap on: a fix proposed, fixed, or won't fix")
+                )
             , sub "help" "Print this help" (pure (Right Help))
             ]
+    byPr move =
+        (\raw pr -> MoveGap <$> gapAt raw <*> (move <$> prUri pr))
+            <$> textArgument "<run:seq>"
+            <*> textOption "pr" "<url>" "the PR"
+    gapAt raw =
+        maybe
+            ( Left
+                (usage ("gap " <> raw) "a gap is named <run:seq>, as state resume prints it")
+            )
+            Right
+            (parseEventRef raw)
+    prUri raw =
+        maybe
+            (Left (Failure BadInput ("--pr " <> raw) uriRule "state help"))
+            Right
+            (parseUri raw)
     artifactShow =
         Optparse.hsubparser
             ( Optparse.command
@@ -604,8 +645,8 @@ commandInfo steps scope =
                     "an artifact is named <run:seq>, as state artifact printed it"
                 )
             )
-            (Right . uncurry ShowArtifact)
-            (parseNumbered raw)
+            (Right . ShowArtifact)
+            (parseEventRef raw)
     artifactRegister =
         ( \raw kind from ->
             Register
@@ -943,6 +984,42 @@ notStarted =
         "its first line is not started"
         "state init --notes <dir>"
 
+{- | A refusal a command logs as @refused@: the fold's, or one the command
+meets before it folds. A parse or usage failure is none: it logs nothing
+and has no code.
+-}
+data CommandRefusal
+    = FoldRefused Refusal
+    | -- | A file the command reads is missing, or may not be read.
+      FileUnreadable AbsPath
+    | -- | Evidence naming a line no run stores: the run, and the seq.
+      UnknownEvent EventRef
+    deriving stock (Eq, Show)
+
+-- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
+refusedNote :: OpenGraph -> Fuel -> Node -> CommandRefusal -> Note
+refusedNote g fuel at refusal =
+    Note (refusalCode refusal) (failure.what <> " - " <> failure.why) failure.fix
+  where
+    failure = explainRefusal g fuel at refusal
+
+-- | A command's refusal, as the reader acts on it: what, why, and the command to run instead.
+explainRefusal :: OpenGraph -> Fuel -> Node -> CommandRefusal -> Failure
+explainRefusal g fuel at = \case
+    FoldRefused refusal -> explain g fuel at refusal
+    FileUnreadable path ->
+        Failure
+            BadInput
+            ("file_unreadable " <> Text.pack (absPathText path))
+            "it does not exist, or may not be read"
+            "write it first, or name the file at its path"
+    UnknownEvent ref ->
+        Failure
+            BadInput
+            ("event " <> eventRefText ref)
+            "no run in the store has such a line"
+            "name a line state dump <run> prints"
+
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
 run's Fuel would take: a hand-back is never named, as its hand-back records it.
@@ -1161,6 +1238,20 @@ explain g fuel at = \case
             ("the turn away from " <> taskNoText task)
             "it recorded work: it is suspended first"
             "state focus [<request>] --summary <where it stands>"
+    UnknownGap n ->
+        refused
+            ("gap " <> tshow n)
+            "the run logged no gap at this seq"
+            "state show lists the run's gaps"
+    GapClosed n closure ->
+        refused
+            ("gap " <> tshow n)
+            ( "it closed already, "
+                <> case closure of
+                    Gap.Fixed pr -> "fixed by " <> uriText pr
+                    Gap.WontFix why -> "won't fix: " <> Ask.oneLineText why
+            )
+            "state record gap \"<text>\" --evidence <run:seq of this gap>, if it came back"
     VoidBreaks n refusal ->
         let broken = explain g fuel at refusal
          in refused
@@ -1183,6 +1274,66 @@ explain g fuel at = \case
     stateNames = map (stateNameText . placeName) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid
+
+{- | The code of a refusal, by its constructor (#552's Appendix B, Signals).
+A wrapper gives its inner refusal's code; a void that breaks the log is
+@void_breaks@ whatever it breaks. No arm is @_@: a new constructor needs its
+own code before it builds.
+-}
+refusalCode :: CommandRefusal -> RefusalCode
+refusalCode =
+    RefusalCode . \case
+        FoldRefused refusal -> case refusal of
+            NotStarted -> "not_started"
+            StartedTwice -> "started_twice"
+            OtherRun {} -> "other_run"
+            AfterStop {} -> "after_stop"
+            NoEdge {} -> "no_edge"
+            NotSkippable {} -> "not_skippable"
+            OutOfBudget {} -> "out_of_budget"
+            StillOpen {} -> "still_open"
+            NothingToExtend -> "nothing_to_extend"
+            TargetOffFuel -> "target_off_fuel"
+            NoSingleState {} -> "no_single_state"
+            AskedTwice {} -> "asked_twice"
+            NotPending {} -> "not_pending"
+            AlreadyForwarded {} -> "already_forwarded"
+            NotForwarded {} -> "not_forwarded"
+            IsParked {} -> "is_parked"
+            AnsweredOtherwise {} -> "answered_otherwise"
+            NotAllowed inner -> case inner of
+                Ask.MayNotRule {} -> "may_not_rule"
+                Ask.MustAnswer {} -> "must_answer"
+                Ask.NeverAskedOf {} -> "never_asked_of"
+                Ask.NoBasis {} -> "no_basis"
+            NotAbove {} -> "not_above"
+            FanRefused inner -> case inner of
+                Fan.UnknownTask {} -> "unknown_task"
+                Fan.StillRunning {} -> "still_running"
+                Fan.SpawnedTwice {} -> "spawned_twice"
+                Fan.UnknownChild {} -> "unknown_child"
+                Fan.ChildOver {} -> "child_over"
+                Fan.Unsettled {} -> "unsettled"
+                Fan.AtWork {} -> "at_work"
+                Fan.StopUntriaged {} -> "stop_untriaged"
+                Fan.AwaitsUser {} -> "awaits_user"
+                Fan.Busy {} -> "busy"
+                Fan.Unmerged {} -> "unmerged"
+                Fan.NotARound {} -> "not_a_round"
+                Fan.NotItsRound {} -> "not_its_round"
+                Fan.TaskExists {} -> "task_exists"
+            NotAtFan -> "not_at_fan"
+            NotOneHolder {} -> "not_one_holder"
+            NotVoidable {} -> "not_voidable"
+            VoidBreaks {} -> "void_breaks"
+            NoFocus -> "no_focus"
+            NotInFocus {} -> "not_in_focus"
+            NotSuspended {} -> "not_suspended"
+            FocusRecorded {} -> "focus_recorded"
+            UnknownGap {} -> "unknown_gap"
+            GapClosed {} -> "gap_closed"
+        FileUnreadable {} -> "file_unreadable"
+        UnknownEvent {} -> "unknown_event"
 
 -- | Where the run is, by its state's name.
 atText :: Node -> Text

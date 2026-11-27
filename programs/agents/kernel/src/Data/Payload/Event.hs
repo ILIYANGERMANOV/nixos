@@ -29,6 +29,7 @@ import Data.Aeson (
 import Data.Aeson.Encoding (
     Encoding,
     encodingToLazyByteString,
+    list,
     pair,
     pairs,
     unsafeToEncoding,
@@ -65,7 +66,7 @@ import State.Artifact (
     urlKindText,
  )
 import State.Artifact qualified as Registry (Artifact (Url))
-import State.Category.Flow (unqualify)
+import State.Category.Flow (roleText, unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (eventText)
 import State.Role (drawnDecoders, flowText)
@@ -101,6 +102,7 @@ import State.Run.Event (
     Op (..),
     Parent (..),
     Principal (..),
+    RefusalCode (..),
     Reply (..),
     Repo,
     RunId,
@@ -120,7 +122,19 @@ import State.Run.Event (
     runIdText,
     taskNoText,
  )
-import State.Run.Id (eventIdText, parseEventId)
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapArea (..),
+    GapMove (..),
+    gapAreaText,
+    gapKindText,
+    gapTextText,
+    parseGapText,
+    severityText,
+ )
+import State.Run.Id (eventIdText, eventRefText, parseEventId, parseEventRef)
 import State.Step.Artifact (
     named,
     parseRepo,
@@ -289,11 +303,18 @@ eventData = \case
             <> "interface" .= map opText (Set.toList start.interface)
     Targeted target -> targetData target
     Extended why -> "reason" .= why
-    Gapped gap -> "text" .= gap
+    Gapped gap ->
+        "gap_kind" .= gapKindText gap.kind
+            <> "severity" .= severityText gap.severity
+            <> "area" .= gapAreaText gap.area
+            <> "text" .= gapTextText gap.text
+            <> "reporter" .= roleText gap.reporter
+            <> pair "evidence" (list evidenceEncoding gap.evidence)
     Took _ outcome -> outcomeData outcome
     Stopped stop -> stopData stop
     Overridden (StateName to) why -> "to" .= to <> "reason" .= why
-    Refused note -> "message" .= note.message <> "fix" .= note.fix
+    Refused note ->
+        "code" .= note.code.codeText <> "message" .= note.message <> "fix" .= note.fix
     Asked Asking {question, step = StateName step, from} ->
         qidData question.qid
             <> "question_kind" .= questionKindName question.kind
@@ -339,6 +360,12 @@ eventData = \case
             <> foldMap (("transcript_path" .=) . absPathText) session.transcript
             <> "source" .= session.trigger
             <> foldMap ("request_model" .=) session.model
+    -- The gap is its line's seq in this run, as a void names its line.
+    GapMoved n move ->
+        "gap" .= n <> case move of
+            Propose pr -> "pr_url" .= uriText pr
+            Close (Fixed pr) -> "pr_url" .= uriText pr
+            Close (WontFix why) -> "reason" .= oneLineText why
   where
     qidData qid = "qid" .= qidText qid
 
@@ -347,10 +374,16 @@ eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
     "target" -> Targeted <$> targetOf obj
     "extend" -> Extended <$> obj .: "reason"
-    "gap" -> Gapped <$> obj .: "text"
+    "gap" -> Gapped <$> gapOf obj
     "stop" -> Stopped <$> stopOf obj
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "reason"
-    "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
+    {- The required @code@ changes v1 in place, against the rule that a new
+    required key bumps the version: no store with the older shape shipped
+    (kernel-v2.db is the epic's only), so no reader meets a row without it.
+    -}
+    "refused" ->
+        Refused
+            <$> (Note . RefusalCode <$> obj .: "code" <*> obj .: "message" <*> obj .: "fix")
     "asked" -> Asked <$> askingOf obj
     "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "question_kind" >>= security)
     "ruled" ->
@@ -405,11 +438,16 @@ eventOf kind obj = case kind of
                     <*> obj .: "source"
                     <*> obj .:? "request_model"
                 )
+    "gap_fix_proposed" -> GapMoved <$> gapSeq <*> (Propose <$> prUri)
+    "gap_fixed" -> GapMoved <$> gapSeq <*> (Close . Fixed <$> prUri)
+    "gap_wont_fix" -> GapMoved <$> gapSeq <*> (Close . WontFix <$> oneLineAt "reason" obj)
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
   where
     (scope, step) = unqualify kind
+    gapSeq = obj .: "gap" >>= ijsonNatural
+    prUri = obj .: "pr_url" >>= named "absolute URI" parseUri
 
 {- | Keyed by the event names the layers give each outcome, so a renamed
 outcome changes the wire with it. A step inside a scope logs its outcome
@@ -600,6 +638,32 @@ artifactOf obj = do
                         <*> (location .: "url" >>= named "absolute URI" parseUri)
                 other -> unknownCase "location" other
             )
+
+{- | A gap's payload. Its keys are required and v1 changed in place, as
+@refused@'s @code@ did: no store holds the older bare @text@.
+-}
+gapOf :: Object -> Parser Gap
+gapOf obj =
+    Gap
+        <$> (obj .: "gap_kind" >>= named "gap kind" (parseByName gapKindText))
+        <*> (obj .: "severity" >>= named "severity" (parseByName severityText))
+        <*> (GapArea <$> oneLineAt "area" obj)
+        <*> (obj .: "text" >>= named "gap text, one line" parseGapText)
+        <*> (AgentRole <$> obj .: "reporter")
+        <*> (obj .: "evidence" >>= traverse evidenceOf)
+
+-- | Evidence is the union by @kind@: a line of a run, @<run>:<seq>@, or a URL.
+evidenceEncoding :: Evidence -> Encoding
+evidenceEncoding =
+    pairs . \case
+        OfEvent ref -> tag "event" <> "event" .= eventRefText ref
+        OfUrl uri -> tag "url" <> "url" .= uriText uri
+
+evidenceOf :: Value -> Parser Evidence
+evidenceOf = tagged "evidence" $ \obj -> \case
+    "event" -> OfEvent <$> (obj .: "event" >>= named "event, <run>:<seq>" parseEventRef)
+    "url" -> OfUrl <$> (obj .: "url" >>= named "absolute URI" parseUri)
+    other -> unknownCase "evidence" other
 
 -- | Who started the run, and for a parent run how it links the child and settles its plan.
 principalEncoding :: Principal -> Encoding
