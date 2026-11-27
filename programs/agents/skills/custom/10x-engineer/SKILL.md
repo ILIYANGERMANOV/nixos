@@ -89,6 +89,11 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 
   A child's `state` records its hand-back in your run; `state next` names
   any it missed.
+- **Gaps.** Log each gap (a missing tool, unclear prose, a kernel bug, a
+  permission wall, slow CI) when you hit it: `state record gap --kind <k>
+  --severity <s> "<text>"`, plus `--area` and `--evidence` when known
+  (`state record --help`). Refusals, overrides, voids and stuck questions
+  log themselves.
 
 ## States
 

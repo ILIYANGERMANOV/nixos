@@ -109,6 +109,11 @@ who owns each decision.
   `gh pr checks <n>` once, then act or end the turn. Never in a loop.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
   however is easiest and safest, unless the user asks otherwise.
+- **Gaps.** Log each gap (a missing tool, unclear prose, a kernel bug, a
+  permission wall, slow CI) when you hit it: `state record gap --kind <k>
+  --severity <s> "<text>"`, plus `--area` and `--evidence` when known
+  (`state record --help`). Refusals, overrides, voids and stuck questions
+  log themselves.
 
 ## States
 
