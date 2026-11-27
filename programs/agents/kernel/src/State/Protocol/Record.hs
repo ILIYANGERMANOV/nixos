@@ -51,9 +51,6 @@ import State.Protocol.Handback (parseTouches, refusalText)
 import State.Role (drawnOutcomes)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
-import State.Run.Gap (GapDraft (..), Evidence (..), GapArea (..), gapKindText, parseGapText, severityText)
-import State.Run.Gap qualified as Gap
-import State.Run.Id (parseEventRef)
 import State.Run.Event (
     Branch (..),
     Check (..),
@@ -71,6 +68,16 @@ import State.Run.Event (
     parseRunId,
     tookIn,
  )
+import State.Run.Gap (
+    Evidence (..),
+    GapArea (..),
+    GapDraft (..),
+    gapKindText,
+    parseGapText,
+    severityText,
+ )
+import State.Run.Gap qualified as Gap
+import State.Run.Id (parseEventRef)
 import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog

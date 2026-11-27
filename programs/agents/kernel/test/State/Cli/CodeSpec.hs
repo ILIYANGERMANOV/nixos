@@ -24,9 +24,9 @@ import State.Run.Event (
  )
 import State.Run.EventGen (absolutePath, oneLine, runId)
 import State.Run.Fan qualified as Fan
+import State.Run.Fold (Refusal (..))
 import State.Run.Gap qualified as Gap
 import State.Run.Id (EventRef (..))
-import State.Run.Fold (Refusal (..))
 import State.Run.RunGen (g)
 import State.Step.Artifact (Url (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)

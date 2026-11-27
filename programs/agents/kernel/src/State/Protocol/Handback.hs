@@ -27,14 +27,27 @@ module State.Protocol.Handback (
 import Control.Applicative ((<|>))
 import Data.Bifunctor qualified as Bifunctor
 import Data.List (genericLength)
-import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (
+    catMaybes,
+    fromMaybe,
+    isJust,
+    listToMaybe,
+    mapMaybe,
+    maybeToList,
+ )
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath)
 import State.Category.Fuel (Area, parseByName)
-import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..), placeName)
+import State.Category.Graph (
+    Metered (..),
+    Node (..),
+    OpenGraph,
+    Place (..),
+    placeName,
+ )
 import State.Category.Step (
     Outcome,
     Sing,
@@ -87,7 +100,6 @@ import State.Run.Event (
  )
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
-import State.Run.Gap (GapArea (..), GapLine, gapLineText, lineGap, parseGapLine)
 import State.Run.Fold (
     RunState (..),
     ScopedFan (..),
@@ -97,6 +109,7 @@ import State.Run.Fold (
     returnOf,
     untaskedFan,
  )
+import State.Run.Gap (GapArea (..), GapLine, gapLineText, lineGap, parseGapLine)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
@@ -276,7 +289,7 @@ renderHandback handback =
                 , ("Simplified: " <>) . shaText <$> handback.simplified
                 , ("Touches: " <>) . touchesText <$> handback.touches
                 ]
-            <> map (("Gap: " <>) . gapLineText) handback.gaps
+                <> map (("Gap: " <>) . gapLineText) handback.gaps
 
 -- | Line 1 of a hand-back.
 tokenLine :: Token -> Text
@@ -347,7 +360,11 @@ typeHandback steps g state worktreeHead next agent agentId handback =
         map
             ( Gapped
                 . lineGap
-                    (GapArea (stateNameText (maybe (askedAt state) (placeName . fst) (stepHere steps g state agent))))
+                    ( GapArea
+                        ( stateNameText
+                            (maybe (askedAt state) (placeName . fst) (stepHere steps g state agent))
+                        )
+                    )
                     agent
             )
             handback.gaps
@@ -422,14 +439,16 @@ fromChild state fan handback = case handback.run of
 group hands back wherever the run is, before its bind too (structured
 concurrency); else the step here.
 -}
-stepHere :: Steps -> OpenGraph -> RunState -> AgentRole -> Maybe (Place, AnyStep)
+stepHere ::
+    Steps -> OpenGraph -> RunState -> AgentRole -> Maybe (Place, AnyStep)
 stepHere steps g state agent =
     forkedStep steps g state agent
         <|> listToMaybe
             [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]]
 
 -- | The step forked that this role runs, if a group's worker of it hands back.
-forkedStep :: Steps -> OpenGraph -> RunState -> AgentRole -> Maybe (Place, AnyStep)
+forkedStep ::
+    Steps -> OpenGraph -> RunState -> AgentRole -> Maybe (Place, AnyStep)
 forkedStep steps g state agent =
     listToMaybe
         [ (metered.place, step)
@@ -485,7 +504,10 @@ fromWorker steps g state worktreeHead next agent handback = case handback.token 
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
         (place, step@(AnyStep _ (SomeStep s))) <-
-            maybe (Left (Why "the run is at no step a subagent runs")) Right (stepHere steps g state agent)
+            maybe
+                (Left (Why "the run is at no step a subagent runs"))
+                Right
+                (stepHere steps g state agent)
         let StateName label = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of

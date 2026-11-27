@@ -94,17 +94,6 @@ import State.Run.Event (
     taskNoText,
  )
 import State.Run.Fan (Fan (..), tries)
-import State.Run.Gap (
-    Closure (..),
-    Evidence (..),
-    Gap (..),
-    GapArea (..),
-    GapStatus (..),
-    Tracked (..),
-    gapKindText,
-    severityText,
- )
-import State.Run.Id (eventRefText)
 import State.Run.Fold (
     Answer (..),
     Holder (..),
@@ -116,6 +105,17 @@ import State.Run.Fold (
     fanIn,
     taskHolder,
  )
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapArea (..),
+    GapStatus (..),
+    Tracked (..),
+    gapKindText,
+    severityText,
+ )
+import State.Run.Id (eventRefText)
 import State.Show (tshow)
 import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))

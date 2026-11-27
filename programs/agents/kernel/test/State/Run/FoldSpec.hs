@@ -107,9 +107,9 @@ import State.Run.EventGen (
  )
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
+import State.Run.Fold qualified as Fold
 import State.Run.Gap (Tracked (..))
 import State.Run.Gap qualified as Gap
-import State.Run.Fold qualified as Fold
 import State.Run.RunGen (
     architectGraph,
     chiefGraph,
@@ -1322,7 +1322,10 @@ gatherBudgets = describe "the gather's choice" $ do
             let at = fuelSet Balanced : take 7 happyPath
             fmap
                 (\state -> (state.at, state.gaps))
-                (replay g (logOf (started :| at <> [Gapped (bareGap "one"), Gapped (bareGap "two")])))
+                ( replay
+                    g
+                    (logOf (started :| at <> [Gapped (bareGap "one"), Gapped (bareGap "two")]))
+                )
                 `shouldBe` fmap
                     ( \state ->
                         ( state.at

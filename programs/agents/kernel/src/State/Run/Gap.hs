@@ -130,7 +130,10 @@ data GapLine = WellFormed GapKind Severity OneLine | Malformed OneLine
 -- | The value after @Gap:@; a blank one is no gap.
 parseGapLine :: Text -> Maybe GapLine
 parseGapLine raw =
-    case (parseByName gapKindText kindWord, parseByName severityText severityWord, parseGapText (Text.strip rest)) of
+    case ( parseByName gapKindText kindWord
+         , parseByName severityText severityWord
+         , parseGapText (Text.strip rest)
+         ) of
         (Just kind, Just severity, Just text) -> Just (WellFormed kind severity text)
         _ -> Malformed <$> parseGapText value
   where

@@ -192,9 +192,9 @@ import State.Run.Event (
  )
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
+import State.Run.Fan qualified as Fan
 import State.Run.Gap (Closure, GapMove, Tracked (..))
 import State.Run.Gap qualified as Gap
-import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)

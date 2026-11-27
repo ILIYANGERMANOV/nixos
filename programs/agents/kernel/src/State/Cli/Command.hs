@@ -620,7 +620,11 @@ commandInfo steps scope =
             (Left (usage ("gap " <> raw) "a gap is named <run:seq>, as state show prints it"))
             Right
             (parseEventRef raw)
-    prUri raw = maybe (Left (Failure BadInput ("--pr " <> raw) uriRule "state help")) Right (parseUri raw)
+    prUri raw =
+        maybe
+            (Left (Failure BadInput ("--pr " <> raw) uriRule "state help"))
+            Right
+            (parseUri raw)
     artifactShow =
         Optparse.hsubparser
             ( Optparse.command

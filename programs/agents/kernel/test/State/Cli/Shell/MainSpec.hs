@@ -653,7 +653,8 @@ spec = describe "state over the doubles" $ do
                             . takeWhile ("  " `Text.isPrefixOf`)
                             . drop 1
                             . dropWhile (/= "gaps:")
-                    textOf = Text.drop 1 . Text.dropWhile (/= ' ')
+                    -- The quoted text after the seq, kind and severity.
+                    textOf = Text.takeWhile (/= '"') . Text.drop 1 . Text.dropWhile (/= '"')
                 _ <- drive world []
                 _ <- succeeded =<< state world ["record", "gap", "one"]
                 _ <- succeeded =<< state world ["record", "gap", "two"]

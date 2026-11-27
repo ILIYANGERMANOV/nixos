@@ -1225,7 +1225,11 @@ moveGap :: (Shell es) => EventRef -> GapMove -> Eff es (Either Failure Text)
 moveGap ref move =
     onRunLog
         ( \stamp run ->
-            record stamp run (repeat Cli) (Right (Plan [GapMoved ref.seq move] (const recorded)))
+            record
+                stamp
+                run
+                (repeat Cli)
+                (Right (Plan [GapMoved ref.seq move] (const recorded)))
         )
         ref.run
         <&> \case
@@ -1954,7 +1958,8 @@ recordedEvent g state worktreeHead file recording = Fold.inScope g state <$> nam
 {- | The event a recording names, from HEAD or the file it read beforehand;
 a gap met at the step the run is at, by the role its flow runs.
 -}
-namedEvent :: RunState -> Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+namedEvent ::
+    RunState -> Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
 namedEvent state worktreeHead file = \case
     Plain event -> Right event
     Filing gap ->
@@ -2028,7 +2033,8 @@ handbackPlan steps worktreeHead g state next role agent child message = do
         ( Plan
             typed.events
             ( \_ new ->
-                printed (recordedLines new <> foldMap triage typed.untriaged <> Text.concat untyped)
+                printed
+                    (recordedLines new <> foldMap triage typed.untriaged <> Text.concat untyped)
             )
         )
   where

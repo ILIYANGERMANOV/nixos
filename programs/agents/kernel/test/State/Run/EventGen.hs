@@ -192,7 +192,8 @@ genGap =
 
 genEvidence :: Gen Evidence
 genEvidence =
-    Gen.choice [OfEvent <$> (EventRef <$> genRunId <*> genIJsonNatural), OfUrl <$> genUri]
+    Gen.choice
+        [OfEvent <$> (EventRef <$> genRunId <*> genIJsonNatural), OfUrl <$> genUri]
 
 -- | A gap with this text and the defaults, met at plan by the engineer.
 bareGap :: Text -> Gap

@@ -725,7 +725,16 @@ eventGoldens =
             implementer
             [OfEvent (EventRef parent 4), OfUrl (uri "https://github.com/o/r/issues/9")]
         )
-        :| [Gapped (Gap Gap.Other Slowdown (GapArea "plan") (oneLine "slow") (AgentRole "engineer") [])]
+        :| [ Gapped
+                ( Gap
+                    Gap.Other
+                    Slowdown
+                    (GapArea "plan")
+                    (oneLine "slow")
+                    (AgentRole "engineer")
+                    []
+                )
+           ]
     , GapMoved 3 (Propose (uri "https://github.com/o/r/pull/8")) :| []
     , GapMoved 3 (Close (Fixed (uri "https://github.com/o/r/pull/8"))) :| []
     , GapMoved 3 (Close (WontFix (oneLine "out of scope"))) :| []

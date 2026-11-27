@@ -13,7 +13,6 @@ import State.Category.Flow (scopePath)
 import State.Category.Fuel (Area (..), Fuel (Balanced))
 import State.Protocol.Handback
 import State.Run.Ask (Kind (..), QId (..), Question (..), oneLineText)
-import State.Run.Gap (GapLine (..))
 import State.Run.Event (
     AgentId (..),
     AgentRole (..),
@@ -41,6 +40,7 @@ import State.Run.EventGen (
     run,
     runId,
  )
+import State.Run.Gap (GapLine (..))
 import State.Run.RunGen (
     childOf,
     g,
@@ -386,7 +386,9 @@ genGapLine =
         , Malformed . oneLine . ("about " <>) . oneLineText <$> words'
         ]
   where
-    words' = oneLine . Text.unwords <$> Gen.list (Range.linear 1 4) (Gen.text (Range.linear 1 8) Gen.alphaNum)
+    words' =
+        oneLine . Text.unwords
+            <$> Gen.list (Range.linear 1 4) (Gen.text (Range.linear 1 8) Gen.alphaNum)
 
 genToken :: Gen Token
 genToken =

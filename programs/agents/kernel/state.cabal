@@ -84,8 +84,8 @@ library
     State.Run.Codec
     State.Run.Event
     State.Run.Fan
-    State.Run.Gap
     State.Run.Fold
+    State.Run.Gap
     State.Run.Id
     State.Show
     State.Step.Artifact

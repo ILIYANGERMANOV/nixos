@@ -70,9 +70,9 @@ import State.Run.Event (
     tookIn,
  )
 import State.Run.EventGen (fuelSet, oneLine, runId, uri)
+import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Gap qualified as Gap
 import State.Run.Id (EventRef (..))
-import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (
     g,
     happyPath,
@@ -173,12 +173,24 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` []
 
         it "records a gap with its text, words joined back" $
-            drafted ["gap", "no", "hook", "fact"] `shouldBe` Right (Gap.draft (oneLine "no hook fact"))
+            drafted ["gap", "no", "hook", "fact"]
+                `shouldBe` Right (Gap.draft (oneLine "no hook fact"))
 
         it "records a gap's kind, severity, area and evidence, the evidence in order" $
             drafted
-                [ "gap", "--kind", "kernel", "--severity", "blocker", "--area", "fold"
-                , "--evidence", "r1:4", "--evidence", "https://github.com/o/r/issues/2", "a", "gap"
+                [ "gap"
+                , "--kind"
+                , "kernel"
+                , "--severity"
+                , "blocker"
+                , "--area"
+                , "fold"
+                , "--evidence"
+                , "r1:4"
+                , "--evidence"
+                , "https://github.com/o/r/issues/2"
+                , "a"
+                , "gap"
                 ]
                 `shouldBe` Right
                     ( Gap.GapDraft

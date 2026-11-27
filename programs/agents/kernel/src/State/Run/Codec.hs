@@ -33,7 +33,6 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Step (eventText)
 import State.Role (flowText)
-import State.Run.Gap (Closure (..), GapMove (..))
 import State.Run.Event (
     Event (..),
     HandoverReason (..),
@@ -44,6 +43,7 @@ import State.Run.Event (
     Waiting (..),
     tookEvent,
  )
+import State.Run.Gap (Closure (..), GapMove (..))
 import State.Step.Artifact (
     areaText,
     branchText,
