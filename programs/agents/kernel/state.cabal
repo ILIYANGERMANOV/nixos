@@ -40,8 +40,10 @@ library
     Data.Payload.Event
     Data.Payload.Upcast
     Data.Projection
+    Data.Projection.Questions
     Data.Projection.Registry
     Data.Projection.Runs
+    Data.Projection.Tasks
     Effects.Clock
     Effects.Console
     Effects.Environment

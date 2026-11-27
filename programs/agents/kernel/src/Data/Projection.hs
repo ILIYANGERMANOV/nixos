@@ -16,6 +16,7 @@ module Data.Projection (
     integer,
     nullable,
     enumIn,
+    spellings,
     Projections (..),
 ) where
 
@@ -71,10 +72,14 @@ nullable = maybe SqlNull
 a string literal, its quotes doubled.
 -}
 enumIn :: [Text] -> Text
-enumIn spellings =
-    "(" <> Text.intercalate ", " [quoted s | s <- spellings] <> ")"
+enumIn words' =
+    "(" <> Text.intercalate ", " [quoted s | s <- words'] <> ")"
   where
     quoted s = "'" <> Text.replace "'" "''" s <> "'"
+
+-- | An enum's spellings, from its DB spelling function: a CHECK's list.
+spellings :: (Enum a, Bounded a) => (a -> Text) -> Text
+spellings spelling = enumIn (map spelling [minBound .. maxBound])
 
 {- | What the store needs to keep the projections: every projection, and the
 rows of one run computed from its event rows, in seq order. A run whose log

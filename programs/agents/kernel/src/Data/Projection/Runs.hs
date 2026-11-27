@@ -28,9 +28,9 @@ import Data.Projection (
     Projection (..),
     Table,
     Value (..),
-    enumIn,
     integer,
     nullable,
+    spellings,
     strictTable,
  )
 import Data.Set qualified as Set
@@ -284,10 +284,6 @@ roundProblemInsert row =
 
 time :: UTCTime -> Value
 time = SqlText . Field.encode Field.time
-
--- | An enum's spellings, from its DB spelling function: the CHECK lists below.
-spellings :: (Enum a, Bounded a) => (a -> Text) -> Text
-spellings spelling = enumIn (map spelling [minBound .. maxBound])
 
 runStates :: Table
 runStates =

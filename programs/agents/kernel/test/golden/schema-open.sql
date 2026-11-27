@@ -190,3 +190,276 @@ CREATE TABLE round_problems (
   PRIMARY KEY (run_id, loop, loop_round_id, kind, name),
   FOREIGN KEY (run_id, loop, loop_round_id) REFERENCES loop_rounds (run_id, loop, id)
 ) STRICT;
+CREATE TABLE breakdowns (
+  -- Each task list a 10x run recorded. A new breakdown starts a fresh set of tasks:
+  -- the newest one is current, older ones stay as history.
+
+  -- The run.
+  run_id TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the breakdown.done event.
+  id     INTEGER NOT NULL,
+  -- The name of the fan-out the breakdown fills. engineers today.
+  fan    TEXT    NOT NULL,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq)
+) STRICT;
+CREATE TABLE epics (
+  -- A shared branch that several task pull requests target, joined to the default branch by one final pull request.
+
+  -- The run.
+  run_id TEXT NOT NULL REFERENCES runs (id),
+  -- The epic's name, unique in the run.
+  name   TEXT NOT NULL,
+  -- The repository that holds the branch, as owner/name.
+  repo   TEXT NOT NULL,
+  -- The shared branch, such as epic/rate-limits.
+  branch TEXT NOT NULL,
+  -- open: tasks still land on the branch. ready_for_review: its final pull request is up. merged: the user merged it.
+  status TEXT NOT NULL
+         CONSTRAINT epics_status_enum CHECK (status IN ('open', 'ready_for_review', 'merged')),
+  -- The final pull request. Set once ready_for_review, kept when merged.
+  pr_url TEXT,
+  PRIMARY KEY (run_id, name),
+  CONSTRAINT epics_pr_url_iff_ready_or_merged CHECK ((pr_url IS NOT NULL) = (status IN ('ready_for_review', 'merged')))
+) STRICT;
+CREATE TABLE tasks (
+  -- One unit of a breakdown: one deliverable, one pull request, at most one agent at a time.
+  -- Fields only a brief reads (fuel, qa, heavy, security, shape, plan, flow, worktree)
+  -- stay in the breakdown.done or task_added event.
+
+  -- The run.
+  run_id        TEXT    NOT NULL REFERENCES runs (id),
+  -- The breakdown the task belongs to. A task id is unique inside one breakdown only.
+  breakdown_id  INTEGER NOT NULL,
+  -- The task's id as the breakdown names it, such as t4.
+  id            TEXT    NOT NULL,
+  -- One line that says what the task delivers.
+  title         TEXT    NOT NULL,
+  -- The repository the task works in, as owner/name. Optional: a breakdown may leave it out.
+  repo          TEXT,
+  -- What the task's pull request targets.
+  -- on_default: the default branch. on_epic: an epic's branch. on_task: another task's branch (stacked).
+  base_kind     TEXT    NOT NULL
+                CONSTRAINT tasks_base_kind_enum CHECK (base_kind IN ('on_default', 'on_epic', 'on_task')),
+  -- The epic the task targets. Set only when on_epic.
+  base_epic_name TEXT,
+  -- The task this one is stacked on, in the same breakdown. Set only when on_task.
+  base_task_id  TEXT,
+  -- The branch the task's pull request comes from.
+  head_branch   TEXT    NOT NULL,
+  -- The task's pull request. Optional: none before the first one is recorded.
+  pr_url        TEXT,
+  -- The latest commit recorded on the pull request. Optional: none before the first task_head event.
+  head_sha      TEXT,
+  -- planned: no agent yet. running: an agent has it and no pull request state is recorded.
+  -- in_ci: the pull request waits on CI. in_review: it waits on the user's review.
+  -- round: more work on the same pull request. merged: done. kept: a round's pull request left open on purpose.
+  -- parked: set aside, with a reason. delivered: done as the run's rules define it, its pull request left open.
+  status        TEXT    NOT NULL
+                CONSTRAINT tasks_status_enum CHECK (
+                  status IN ('planned', 'running', 'in_ci', 'in_review', 'round', 'merged', 'kept', 'parked', 'delivered')),
+  -- Why the task is parked. Set only when parked.
+  parked_reason TEXT,
+  -- 1 while an agent works on the task, else 0. Its own fact: a task in_ci can have a fixer at work.
+  at_work       INTEGER NOT NULL
+                CONSTRAINT tasks_at_work_boolean CHECK (at_work IN (0, 1)),
+  PRIMARY KEY (run_id, breakdown_id, id),
+  FOREIGN KEY (run_id, breakdown_id) REFERENCES breakdowns (run_id, id),
+  FOREIGN KEY (run_id, base_epic_name) REFERENCES epics (run_id, name),
+  FOREIGN KEY (run_id, breakdown_id, base_task_id) REFERENCES tasks (run_id, breakdown_id, id),
+  CONSTRAINT tasks_base_epic_name_iff_on_epic CHECK ((base_epic_name IS NOT NULL) = (base_kind = 'on_epic')),
+  CONSTRAINT tasks_base_task_id_iff_on_task CHECK ((base_task_id IS NOT NULL) = (base_kind = 'on_task')),
+  CONSTRAINT tasks_base_task_id_not_self CHECK (base_task_id IS NOT id),
+  CONSTRAINT tasks_parked_reason_iff_parked CHECK ((parked_reason IS NOT NULL) = (status = 'parked')),
+  CONSTRAINT tasks_pr_url_required_by_status CHECK (
+    status NOT IN ('in_ci', 'in_review', 'round', 'merged', 'kept', 'delivered') OR pr_url IS NOT NULL),
+  CONSTRAINT tasks_at_work_never_planned_or_parked CHECK (at_work = 0 OR status NOT IN ('planned', 'parked'))
+) STRICT;
+CREATE TABLE task_dependencies (
+  -- An ordering edge: a task starts only after another one of its breakdown is merged.
+
+  -- The run.
+  run_id        TEXT    NOT NULL REFERENCES runs (id),
+  -- The breakdown both tasks belong to.
+  breakdown_id  INTEGER NOT NULL,
+  -- The task that waits.
+  task_id       TEXT    NOT NULL,
+  -- The task it waits for.
+  after_task_id TEXT    NOT NULL,
+  PRIMARY KEY (run_id, breakdown_id, task_id, after_task_id),
+  FOREIGN KEY (run_id, breakdown_id, task_id) REFERENCES tasks (run_id, breakdown_id, id),
+  FOREIGN KEY (run_id, breakdown_id, after_task_id) REFERENCES tasks (run_id, breakdown_id, id),
+  CONSTRAINT task_dependencies_after_task_id_not_self CHECK (after_task_id <> task_id)
+) STRICT;
+CREATE TABLE child_runs (
+  -- One row per child run that a run's fan-out spawned. A task can have several over time:
+  -- the first, one per round, a retry. A child started outside a fan-out has no row here:
+  -- runs.parent_run_id links it.
+
+  -- The parent run.
+  run_id         TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the spawned event in the parent's log.
+  id             INTEGER NOT NULL,
+  -- The child run. Its notes dir is runs.notes_dir, its state is its own run_states row.
+  child_run_id   TEXT    NOT NULL REFERENCES runs (id),
+  -- The breakdown of the child's task. Optional: an untasked child has none.
+  breakdown_id   INTEGER,
+  -- The task the child works on. Optional: an untasked child has none.
+  task_id        TEXT,
+  -- The git worktree the child started in: an absolute path. A later move is in the child's own run_states row.
+  worktree       TEXT    NOT NULL,
+  -- The token of the child's latest hand-back. NULL: it has not handed back yet,
+  -- or it stopped to re-plan or out of rounds, or the run triaged its stop.
+  handback_token TEXT
+                 CONSTRAINT child_runs_handback_token_enum CHECK (
+                   handback_token IN ('ready', 'needs_decision', 'await', 'blocked', 'failed')),
+  PRIMARY KEY (run_id, id),
+  UNIQUE (run_id, child_run_id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),
+  FOREIGN KEY (run_id, breakdown_id, task_id) REFERENCES tasks (run_id, breakdown_id, id),
+  CONSTRAINT child_runs_task_id_iff_breakdown_id CHECK ((task_id IS NULL) = (breakdown_id IS NULL))
+) STRICT;
+CREATE TABLE task_holds (
+  -- A wake held back while a task's agent was at work: a review, a comment or a check at a URL.
+  -- The lead acts on it after the agent hands back.
+
+  -- The run.
+  run_id       TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the held event.
+  id           INTEGER NOT NULL,
+  -- The breakdown of the task.
+  breakdown_id INTEGER NOT NULL,
+  -- The task the wake is for.
+  task_id      TEXT    NOT NULL,
+  -- Where the held finding is. Compared as a plain string.
+  url          TEXT    NOT NULL,
+  -- open: still held. acted: an acted event named the same task and url.
+  status       TEXT    NOT NULL
+               CONSTRAINT task_holds_status_enum CHECK (status IN ('open', 'acted')),
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),
+  FOREIGN KEY (run_id, breakdown_id, task_id) REFERENCES tasks (run_id, breakdown_id, id)
+) STRICT;
+CREATE TABLE questions (
+  -- One row per question a run has to settle: its own, or one a child run handed up.
+
+  -- The run that holds the question.
+  run_id             TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of this run's asked event.
+  id                 INTEGER NOT NULL,
+  -- The run that first asked the question. This run, for its own question.
+  origin_run_id      TEXT    NOT NULL,
+  -- The seq of the first asked event, in origin_run_id's log.
+  -- The question's one identity, printed as <origin_run_id>:<origin_question_id>.
+  origin_question_id INTEGER NOT NULL,
+  -- What sort of decision it is. It decides who may answer.
+  kind               TEXT    NOT NULL
+                     CONSTRAINT questions_kind_enum CHECK (
+                       kind IN ('fact', 'pick', 'design', 'scope', 'confirm', 'security', 'stuck')),
+  -- The question, one line.
+  text               TEXT    NOT NULL,
+  -- The flow state the run was at when the question was asked.
+  step               TEXT    NOT NULL,
+  -- Who put the question to this run. self: its lead. subagent: a worker. child_run: a child run.
+  asker_kind         TEXT    NOT NULL
+                     CONSTRAINT questions_asker_kind_enum CHECK (asker_kind IN ('self', 'subagent', 'child_run')),
+  -- The worker's role. Set only when subagent.
+  asker_role         TEXT,
+  -- The child run that handed the question up. Set only when child_run.
+  asker_run_id       TEXT    REFERENCES runs (id),
+  -- in_triage: the run must rule or forward. awaiting_answer: forwarded up, no answer yet.
+  -- parked: waits for a later answer. ruled: this run ruled. answered: an answer came down.
+  -- A question a stop ended keeps the status it last had.
+  status             TEXT    NOT NULL
+                     CONSTRAINT questions_status_enum CHECK (
+                       status IN ('in_triage', 'awaiting_answer', 'parked', 'ruled', 'answered')),
+  -- Why the question is parked. Set only when parked.
+  parked_reason      TEXT,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),
+  FOREIGN KEY (origin_run_id, origin_question_id) REFERENCES events (run_id, seq),
+  CONSTRAINT questions_asker_role_iff_subagent CHECK ((asker_role IS NOT NULL) = (asker_kind = 'subagent')),
+  CONSTRAINT questions_asker_run_id_iff_child_run CHECK ((asker_run_id IS NOT NULL) = (asker_kind = 'child_run')),
+  CONSTRAINT questions_parked_reason_iff_parked CHECK ((parked_reason IS NOT NULL) = (status = 'parked'))
+) STRICT;
+CREATE TABLE rulings (
+  -- A run's own decision on a question. At most one per question.
+
+  -- The run that ruled.
+  run_id          TEXT    NOT NULL REFERENCES runs (id),
+  -- The question: questions.id.
+  question_id     INTEGER NOT NULL,
+  -- What was decided, one line.
+  answer          TEXT    NOT NULL,
+  -- Why, one line.
+  reason          TEXT    NOT NULL,
+  -- What the decision costs, one line.
+  cost            TEXT    NOT NULL,
+  -- What the ruling rests on. none: nothing named. event: an earlier event. obvious: a stated reason.
+  basis_kind      TEXT    NOT NULL
+                  CONSTRAINT rulings_basis_kind_enum CHECK (basis_kind IN ('none', 'event', 'obvious')),
+  -- The run of the event the ruling rests on. Set only when event.
+  -- No foreign key: the lead typed the reference, and the command checks it.
+  -- NULL with event: a hook's event no line of the run holds.
+  basis_event_run_id TEXT,
+  -- The seq of that event. Set only when event.
+  basis_event_seq INTEGER,
+  -- Why the answer is obvious. Set only when obvious.
+  basis_reason    TEXT,
+  PRIMARY KEY (run_id, question_id),
+  FOREIGN KEY (run_id, question_id) REFERENCES questions (run_id, id),
+  CONSTRAINT rulings_basis_event_run_id_only_event CHECK (basis_event_run_id IS NULL OR basis_kind = 'event'),
+  CONSTRAINT rulings_basis_event_seq_only_event CHECK (basis_event_seq IS NULL OR basis_kind = 'event'),
+  CONSTRAINT rulings_basis_reason_iff_obvious CHECK ((basis_reason IS NOT NULL) = (basis_kind = 'obvious'))
+) STRICT;
+CREATE TABLE answers (
+  -- The answer that came down to a forwarded question. At most one per question.
+
+  -- The run that got the answer.
+  run_id          TEXT    NOT NULL REFERENCES runs (id),
+  -- The question: questions.id.
+  question_id     INTEGER NOT NULL,
+  -- The answer's text.
+  answer          TEXT    NOT NULL,
+  -- chose: one of the offered options. other: the answerer's own words.
+  reply_kind      TEXT    NOT NULL
+                  CONSTRAINT answers_reply_kind_enum CHECK (reply_kind IN ('chose', 'other')),
+  -- Who answered. user: the person. parent_run: the run above. caller: the agent that spawned this lead.
+  answerer_kind   TEXT    NOT NULL
+                  CONSTRAINT answers_answerer_kind_enum CHECK (answerer_kind IN ('user', 'parent_run', 'caller')),
+  -- The run that answered. Set only when parent_run.
+  answerer_run_id TEXT    REFERENCES runs (id),
+  PRIMARY KEY (run_id, question_id),
+  FOREIGN KEY (run_id, question_id) REFERENCES questions (run_id, id),
+  CONSTRAINT answers_answerer_run_id_iff_parent_run CHECK ((answerer_run_id IS NOT NULL) = (answerer_kind = 'parent_run'))
+) STRICT;
+CREATE TABLE user_needs (
+  -- What the user must still do by hand for a run: an admin console, a secret value, infrastructure.
+  -- A need marked done leaves the table; the run's log keeps both events.
+
+  -- The run.
+  run_id TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the user_needed event.
+  id     INTEGER NOT NULL,
+  -- What the user must do, one line.
+  text   TEXT    NOT NULL,
+  -- Where to do it: an absolute URI. Optional: a need may name none.
+  url    TEXT,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq)
+) STRICT;
+CREATE TABLE user_need_blocks (
+  -- A task an open user need holds up.
+
+  -- The run.
+  run_id       TEXT    NOT NULL REFERENCES runs (id),
+  -- The need: user_needs.id.
+  user_need_id INTEGER NOT NULL,
+  -- The breakdown of the task.
+  breakdown_id INTEGER NOT NULL,
+  -- The task the need holds up.
+  task_id      TEXT    NOT NULL,
+  PRIMARY KEY (run_id, user_need_id, breakdown_id, task_id),
+  FOREIGN KEY (run_id, user_need_id) REFERENCES user_needs (run_id, id),
+  FOREIGN KEY (run_id, breakdown_id, task_id) REFERENCES tasks (run_id, breakdown_id, id)
+) STRICT;

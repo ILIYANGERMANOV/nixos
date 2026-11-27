@@ -6,13 +6,19 @@ module Data.Projection.Registry (projections, rows) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Projection (Insert, Projection)
+import Data.Projection.Questions qualified as Questions
 import Data.Projection.Runs qualified as Runs
+import Data.Projection.Tasks qualified as Tasks
 import State.Role (graphOf)
 import State.Run.Event (Envelope (..), Start (..))
 import State.Run.Fold (RunState, runStart, trace)
 
 groups :: [(Projection, NonEmpty (Envelope, RunState) -> [Insert])]
-groups = [(Runs.projection, Runs.rows)]
+groups =
+    [ (Runs.projection, Runs.rows)
+    , (Tasks.projection, Tasks.rows)
+    , (Questions.projection, Questions.rows)
+    ]
 
 projections :: [Projection]
 projections = map fst groups
