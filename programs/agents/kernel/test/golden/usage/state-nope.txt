@@ -39,6 +39,8 @@ Available commands:
   handover                 Hand the run over to a fresh agent
   resume                   Print the packet a fresh agent resumes the run from
   gap                      Move a gap on: a fix proposed, fixed, or won't fix
+  report                   Print a fixed report over every run, as TSV
+  sql                      Run one read-only SELECT on the run store, as TSV
   help                     Print this help
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck
