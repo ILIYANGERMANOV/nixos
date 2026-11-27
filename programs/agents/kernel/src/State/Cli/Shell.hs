@@ -63,6 +63,7 @@ import State.Artifact (
     Blob (..),
     Contents (..),
     FileArtifact (..),
+    FileKind (Transcript),
     FileRef (..),
     Size (..),
     Snapshot (..),
@@ -265,6 +266,7 @@ import State.Run.Event (
     RefusalCode (..),
     Repo,
     RunId,
+    Session (..),
     SessionId (..),
     Sha,
     Source (..),
@@ -1381,34 +1383,65 @@ withBlobs :: [ByteString] -> ([Envelope], a) -> (Appending, a)
 withBlobs bytesRead (new, result) =
     (Appending new (blobsOf bytesRead (map snd (artifactsOf new))), result)
 
-{- | The newest file of each path the worktree's run registered, of a kind
-that keeps its bytes, each read now: before the lock, as GitHub is. A run
-that does not load reads none: the command's own load tells why.
+{- | What the one re-snapshot step reads before the lock: the files the run
+registered, to register again, and the session transcripts it has yet to
+register once.
 -}
-rereadable :: (Shell es) => Eff es [(FileArtifact, Contents)]
+data Reread = Reread
+    { files :: [(FileArtifact, Contents)]
+    , transcripts :: [(AbsPath, Contents)]
+    }
+
+{- | The newest file of each path the worktree's run registered, of a kind
+that keeps its bytes, and each 'unregistered' transcript, each read now:
+before the lock, as GitHub is. A run that does not load reads none: the
+command's own load tells why.
+-}
+rereadable :: (Shell es) => Eff es Reread
 rereadable =
     onRun
         ( \_ run ->
             ( []
             , Right
-                [ file
-                | (_, file) <- Map.elems (newest (artifactsOf run.logged))
-                , keepsContent file.kind
-                ]
+                ( [ file
+                  | (_, file) <- Map.elems (newest (artifactsOf run.logged))
+                  , keepsContent file.kind
+                  ]
+                , unregistered run
+                )
             )
         )
         >>= \case
-            Ran (Right files) ->
-                traverse (\file -> (file,) <$> FileSystem.readContents file.ref.path) files
-            Ran (Left _) -> pure []
-            NoRun -> pure []
+            Ran (Right (files, transcripts)) ->
+                Reread
+                    <$> traverse (\file -> (file,) <$> FileSystem.readContents file.ref.path) files
+                    <*> traverse (\path -> (path,) <$> FileSystem.readContents path) transcripts
+            Ran (Left _) -> pure (Reread [] [])
+            NoRun -> pure (Reread [] [])
+
+{- | The transcripts the run's sessions name that no artifact of the run
+names yet: each is registered once, the first time it is read (S9).
+-}
+unregistered :: Loaded -> [AbsPath]
+unregistered run =
+    Set.toList
+        ( Set.fromList
+            [ path
+            | line <- toList run.logged
+            , SessionStarted session <- [line.event]
+            , Just path <- [session.transcript]
+            , Map.notMember path (newest (artifactsOf run.logged))
+            ]
+        )
 
 {- | The files to register again, from those read before the lock: each whose
 bytes changed, derived from the newest artifact of its path, and the paths
-that could not be read, skipped. A file registered again since it was read
-waits for the next handover or end (#552 ruling 5).
+that could not be read, skipped; and each transcript read that is still
+'unregistered', by path and digest alone. A file registered again since it
+was read waits for the next handover or end (#552 ruling 5). A transcript
+not yet readable is no skip: it waits for the next one.
 -}
-resnapshotOf :: Loaded -> [(FileArtifact, Contents)] -> ([Event], [AbsPath])
+resnapshotOf :: Loaded -> Reread -> ([Event], [AbsPath])
 resnapshotOf run again =
     ( [ ArtifactLogged
             (File fresh.file)
@@ -1416,6 +1449,10 @@ resnapshotOf run again =
             Nothing
       | fresh <- snapshots
       ]
+        <> [ ArtifactLogged (File (register Transcript path bytes).file) Nothing Nothing
+           | (path, Readable bytes) <- again.transcripts
+           , path `elem` unregistered run
+           ]
     , skipped
     )
   where
@@ -1423,7 +1460,7 @@ resnapshotOf run again =
     (snapshots, skipped) =
         resnapshot
             [ (file, contents)
-            | (file, contents) <- again
+            | (file, contents) <- again.files
             , (snd <$> Map.lookup file.ref.path latest) == Just file
             ]
 
@@ -1435,7 +1472,7 @@ readBytes files = [bytes | (_, Readable bytes) <- files]
 'resnapshotting' first, from the files read before the lock.
 -}
 ending ::
-    [(FileArtifact, Contents)] ->
+    Reread ->
     [ByteString] ->
     Stamp ->
     Loaded ->
@@ -1443,22 +1480,22 @@ ending ::
     (Appending, Either Failure Output)
 ending again bytesRead stamp run plan =
     withBlobs
-        (bytesRead <> readBytes again)
+        (bytesRead <> readBytes again.files)
         (record stamp run (repeat Cli) (resnapshotted <$> plan))
   where
     resnapshotted planned =
         let (events, skipped) = resnapshotting stamp again run planned.events
          in Plan events (\after written -> printed skipped <> planned.say after written)
 
-{- | The events a command writes, the run's changed files registered again
-ahead of them when they hand the run over or end it, as it leaves its flow
+{- | The events a command writes, the run's changed files registered again,
+and its sessions' new transcripts registered, ahead of them when they hand the run over or end it, as it leaves its flow
 or stops (R8); and the lines naming the files skipped. 'ArtifactLogged'
 moves no run, so whether the events end it does not depend on them. Only
 the writes an agent asks for run it: @state next@, a hook and 'handedUp'
 read no file, so a flow they end re-snapshots none (a known gap).
 -}
 resnapshotting ::
-    Stamp -> [(FileArtifact, Contents)] -> Loaded -> [Event] -> ([Event], Text)
+    Stamp -> Reread -> Loaded -> [Event] -> ([Event], Text)
 resnapshotting stamp again run events
     | handsOver || ends =
         let (snapshots, skipped) = resnapshotOf run again
