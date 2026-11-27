@@ -23,6 +23,7 @@ import Data.ByteString.Lazy qualified as Lazy
 import Data.Int (Int64)
 import Data.Report (SpanTime (..), Visit (..), rests, restsJson)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
 import Data.Tsv (Result)
 import Database.SQLite.Simple (Connection, NamedParam ((:=)), queryNamed)
@@ -159,5 +160,5 @@ bound window = [maybe SQLNull SQLText window.since, maybe SQLNull SQLText window
 -- | A report's statement: fixed text, so a guard refusing it is a bug.
 fixed :: ReadOnly -> [Text] -> [SQLData] -> IO Result
 fixed ro statement params =
-    select ro (mconcat (map (<> "\n") statement)) params
+    select ro (Text.unlines statement) params
         >>= either (throwIO . userError . ("a report's SQL was refused: " <>) . show) pure

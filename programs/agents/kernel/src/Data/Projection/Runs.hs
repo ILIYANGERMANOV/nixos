@@ -88,8 +88,6 @@ data RunStateRow = RunStateRow
     { runId :: RunId
     , status :: RunStatus
     , step :: Text
-    , stop :: Maybe Stop
-    -- ^ Set only when 'Stopped'.
     , fuel :: Fuel
     , goal :: Maybe Text
     , worktree :: Text
@@ -101,15 +99,25 @@ data RunStateRow = RunStateRow
     }
     deriving stock (Eq, Show)
 
--- | Whether the flow goes on, a stop ended it, or it reached its end.
-data RunStatus = Active | Stopped | Finished
+-- | Whether the flow goes on, a stop ended it, and which, or it reached its end.
+data RunStatus = Active | Stopped Stop | Finished
+    deriving stock (Eq, Show)
+
+-- | A run's status as its row spells it: 'RunStatus' with the stop dropped.
+data StatusCase = ActiveCase | StoppedCase | FinishedCase
     deriving stock (Eq, Show, Enum, Bounded)
 
-statusName :: RunStatus -> Text
+statusCase :: RunStatus -> StatusCase
+statusCase = \case
+    Active -> ActiveCase
+    Stopped _ -> StoppedCase
+    Finished -> FinishedCase
+
+statusName :: StatusCase -> Text
 statusName = \case
-    Active -> "active"
-    Stopped -> "stopped"
-    Finished -> "finished"
+    ActiveCase -> "active"
+    StoppedCase -> "stopped"
+    FinishedCase -> "finished"
 
 -- | A stay of a run at one flow state: from the line that moved it in, until the next one that moved it.
 data StepVisitRow = StepVisitRow
@@ -157,7 +165,6 @@ runStateRow trace =
         { runId = state.run
         , status
         , step = stateNameText (nodeName state.at)
-        , stop = state.stopped
         , fuel = fuelOf state
         , goal = state.start.goal
         , worktree = Text.pack (absPathText worktree)
@@ -171,7 +178,7 @@ runStateRow trace =
     state = snd (NonEmpty.last trace)
     (worktree, repo) = placeOf state.start (fmap fst trace)
     status = case state.stopped of
-        Just _ -> Stopped
+        Just stop -> Stopped stop
         Nothing
             | over state -> Finished
             | otherwise -> Active
@@ -232,10 +239,10 @@ runStateInsert row =
     Insert
         "run_states"
         ( ("run_id", SqlText (runIdText row.runId))
-            :| [ ("status", SqlText (statusName row.status))
+            :| [ ("status", SqlText (statusName (statusCase row.status)))
                , ("step", SqlText row.step)
-               , ("stop_reason", nullable (SqlText . reasonText . (.reason)) row.stop)
-               , ("stop_detail", nullable (SqlText . (.why)) row.stop)
+               , ("stop_reason", nullable (SqlText . reasonText . (.reason)) stop)
+               , ("stop_detail", nullable (SqlText . (.why)) stop)
                , ("fuel", SqlText (fuelName row.fuel))
                , ("goal", nullable SqlText row.goal)
                , ("worktree", SqlText row.worktree)
@@ -246,6 +253,11 @@ runStateInsert row =
                , ("ticket_url", nullable SqlText row.ticketUrl)
                ]
         )
+  where
+    stop = case row.status of
+        Stopped s -> Just s
+        Active -> Nothing
+        Finished -> Nothing
 
 stepVisitInsert :: StepVisitRow -> Insert
 stepVisitInsert row =

@@ -1172,27 +1172,20 @@ outsideRunTree ref caller =
 
 -- | A @state sql@ statement not run, told with its code.
 sqlRefused :: SqlRefusal -> Failure
-sqlRefused refusal = case refusal of
-    SqlNotReadOnly ->
-        Failure
-            BadInput
-            code
-            "state sql runs a SELECT only: no write, ATTACH, PRAGMA or WITH RECURSIVE"
-            "state sql \"SELECT * FROM v_steps\""
-    SqlNotOneStatement ->
-        Failure
-            BadInput
-            code
-            "state sql runs exactly one statement"
-            "state sql \"<one SELECT>\""
-    SqlError why ->
-        Failure
-            BadInput
-            code
-            why
-            "state sql \"SELECT sql FROM sqlite_schema\" prints every table and view"
+sqlRefused refusal =
+    Failure BadInput (refusalCode (SqlRefused refusal)).codeText why fix
   where
-    code = (refusalCode (SqlRefused refusal)).codeText
+    (why, fix) = case refusal of
+        SqlNotReadOnly ->
+            ( "state sql runs a SELECT only: no write, ATTACH, PRAGMA or WITH RECURSIVE"
+            , "state sql \"SELECT * FROM v_steps\""
+            )
+        SqlNotOneStatement ->
+            ("state sql runs exactly one statement", "state sql \"<one SELECT>\"")
+        SqlError detail ->
+            ( detail
+            , "state sql \"SELECT sql FROM sqlite_schema\" prints every table and view"
+            )
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the

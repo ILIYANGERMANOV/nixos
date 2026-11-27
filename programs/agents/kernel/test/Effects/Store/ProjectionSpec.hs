@@ -223,7 +223,7 @@ spec :: Spec
 spec = describe "Effects.Store.Projection" $ do
     schema <-
         runIO . withSystemTempDirectory "state-store" $ \dir -> do
-            opened dir shippedProjections (const (pure ()))
+            reopened dir
             raw
                 dir
                 (`query_` "SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY rowid")
@@ -236,7 +236,7 @@ spec = describe "Effects.Store.Projection" $ do
         $ inStore
         $ \dir -> do
             first <- schemaVersion dir
-            opened dir shippedProjections (const (pure ()))
+            reopened dir
             schemaVersion dir `shouldReturn` first
 
     it "rebuilds every projection at an open after one's DDL text changed" $
@@ -247,7 +247,7 @@ spec = describe "Effects.Store.Projection" $ do
                     [ "DROP TABLE round_problems"
                     , "CREATE TABLE round_problems (run_id TEXT) STRICT"
                     ]
-            opened dir shippedProjections (const (pure ()))
+            reopened dir
             raw
                 dir
                 (`query_` "SELECT sql FROM sqlite_schema WHERE name = 'round_problems'")
@@ -271,7 +271,7 @@ spec = describe "Effects.Store.Projection" $ do
                     , "CREATE VIEW v_steps AS SELECT 1 AS one"
                     , "DROP INDEX notes_run_id_topic_idx"
                     ]
-            opened dir shippedProjections (const (pure ()))
+            reopened dir
             made `shouldReturn` shipped'
             map fst shipped' `shouldBe` ["notes_run_id_topic_idx", "v_steps"]
             rowsIn dir `shouldReturn` before
@@ -291,13 +291,13 @@ spec = describe "Effects.Store.Projection" $ do
             let stale = raw dir (`execute_` "UPDATE projection_versions SET version = version + 1")
             stale
             fresh <- schemaVersion dir
-            opened dir shippedProjections (const (pure ()))
+            reopened dir
             once <- subtract fresh <$> schemaVersion dir
             stale
             beforeBoth <- schemaVersion dir
             bothAtOnce
-                (opened dir shippedProjections (const (pure ())))
-                (opened dir shippedProjections (const (pure ())))
+                (reopened dir)
+                (reopened dir)
             subtract beforeBoth <$> schemaVersion dir `shouldReturn` once
             rowsIn dir `shouldReturn` before
             opened dir shippedProjections $ \store -> do
@@ -627,7 +627,7 @@ at version =
 
 inStore :: (FilePath -> IO a) -> IO a
 inStore act = withSystemTempDirectory "state-store" $ \dir ->
-    opened dir shippedProjections (const (pure ())) >> act dir
+    reopened dir >> act dir
 
 -- | A store holding an engineer run from init to its PR ready, and its projection rows.
 withRun :: (FilePath -> Set Row -> IO a) -> IO a
@@ -653,6 +653,10 @@ engineerRun = numbered (started :| fuelSet Balanced : happyPath)
 numbered :: NonEmpty Event -> NonEmpty Envelope
 numbered = NonEmpty.zipWith line (1 :| [2 ..])
 
+-- | The store under this directory opened once more, as the next command opens it.
+reopened :: FilePath -> IO ()
+reopened dir = opened dir shippedProjections (const (pure ()))
+
 -- | The statement of a projection table, as the kernel makes it.
 ddlOf :: Text -> Text
 ddlOf name = case [t.ddl | p <- Registry.projections, t <- toList p.tables, t.name == name] of
@@ -662,24 +666,20 @@ ddlOf name = case [t.ddl | p <- Registry.projections, t <- toList p.tables, t.na
 -- | A run state of every status, stop reason and Fuel.
 runStates :: [RunStateRow]
 runStates =
-    [ runState status stop fuel
-    | status <- [minBound .. maxBound]
-    , stop <- stopsOf status
+    [ runState status fuel
+    | status <-
+        Active
+            : Finished
+            : [Stopped (Stop reason "why") | reason <- [minBound .. maxBound]]
     , fuel <- [minBound .. maxBound]
     ]
-  where
-    stopsOf = \case
-        Active -> [Nothing]
-        Stopped -> [Just (Stop reason "why") | reason <- [minBound .. maxBound]]
-        Finished -> [Nothing]
 
-runState :: RunStatus -> Maybe Stop -> Fuel -> RunStateRow
-runState status stop fuel =
+runState :: RunStatus -> Fuel -> RunStateRow
+runState status fuel =
     RunStateRow
         { runId = run
         , status
         , step = "plan"
-        , stop
         , fuel
         , goal = Just "a goal"
         , worktree = "/w"
@@ -903,8 +903,8 @@ refusals =
             1
             Nothing
             (Just (SpanEnd epoch (WithHandback ReadyWord "READY") unreported))
-    active = runState Active Nothing Balanced
-    stopped = runState Stopped (Just (Stop minBound "why")) Balanced
+    active = runState Active Balanced
+    stopped = runState (Stopped (Stop minBound "why")) Balanced
     openEpic =
         EpicRow
             run

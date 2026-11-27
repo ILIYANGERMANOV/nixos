@@ -126,9 +126,11 @@ prepared db@(Database raw) sql =
             found <- peek out
             after <- peek rest
             case rc of
+                -- SQLITE_OK
                 0 ->
                     pure
                         (Right (if found == nullPtr then Nothing else Just (Statement found), after))
+                -- SQLITE_AUTH: the authorizer denied it.
                 23 -> pure (Left NotReadOnly)
                 _ -> Left . Failed . utf8 <$> Direct.errmsg db
 
@@ -160,6 +162,7 @@ resultOf statement = do
 -}
 authorize :: Authorizer
 authorize _ action table _ _ _ = case action of
+    -- SQLITE_READ
     20 -> do
         name <- if table == nullPtr then pure "" else peekCString table
         pure
@@ -167,10 +170,13 @@ authorize _ action table _ _ _ = case action of
                 then deny
                 else allow
             )
+    -- SQLITE_SELECT
     21 -> pure allow
+    -- SQLITE_FUNCTION
     31 -> pure allow
     _ -> pure deny
   where
+    -- SQLITE_OK, SQLITE_DENY
     allow = 0
     deny = 1
 

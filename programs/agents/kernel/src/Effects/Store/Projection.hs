@@ -22,6 +22,7 @@ import Data.Projection (
     Projections (..),
     Table (..),
     Value (..),
+    strictTable,
  )
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -149,10 +150,9 @@ tableNames projections = [t.name | p <- projections, t <- toList p.tables]
 -- | @projection_versions@, as SQLite stores its statement.
 versionsDdl :: Text
 versionsDdl =
-    Text.intercalate
-        "\n"
-        [ "CREATE TABLE projection_versions ("
-        , "  -- One row per projection module. Every projection is dropped, recreated and refolded"
+    ( strictTable
+        "projection_versions"
+        [ "  -- One row per projection module. Every projection is dropped, recreated and refolded"
         , "  -- when any one's DDL text differs from sqlite_schema.sql, or its version here from the kernel's."
         , ""
         , "  -- The projection module's name, such as tasks or questions."
@@ -160,5 +160,5 @@ versionsDdl =
         , "  -- The version of the module's rows function, from 1. Bumped by hand when the rows change."
         , "  version INTEGER NOT NULL"
         , "          CONSTRAINT projection_versions_version_positive CHECK (version >= 1)"
-        , ") STRICT"
         ]
+    ).ddl
