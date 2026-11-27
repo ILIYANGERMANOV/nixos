@@ -82,6 +82,7 @@ library
     State.Run.Ask
     State.Run.Card
     State.Run.Codec
+    State.Run.Epic
     State.Run.Event
     State.Run.Fan
     State.Run.Fold
@@ -204,6 +205,7 @@ test-suite state-test
     State.Run.AskSpec
     State.Run.CardSpec
     State.Run.CodecSpec
+    State.Run.EpicSpec
     State.Run.EventGen
     State.Run.EventSpec
     State.Run.FanSpec

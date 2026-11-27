@@ -88,6 +88,7 @@ import State.Run.Codec (
     handoverReasonText,
     ijsonNatural,
     reasonText,
+    taskStateKind,
     tokenWordName,
     usageData,
     usageOf,
@@ -99,10 +100,13 @@ import State.Run.Event (
     AnyOutcome,
     Asker (..),
     Asking (..),
+    Branch (..),
     Child (..),
     ChildTask (..),
     Digest,
     Envelope (..),
+    EpicMove (..),
+    EpicName,
     Event (..),
     Handover (..),
     Harness (..),
@@ -126,6 +130,7 @@ import State.Run.Event (
     Stop (..),
     TaskId (..),
     TaskNo,
+    TaskRef (..),
     TaskState (..),
     Url (..),
     parseHarness,
@@ -345,13 +350,13 @@ eventData = \case
     Answered qid reply by -> qidData qid <> replyData reply <> pair "by" (partyEncoding by)
     QuestionParked qid why -> qidData qid <> "reason" .= oneLineText why
     Spawned child -> spawnedData child
-    Spawning task -> "task" .= taskIdText task
-    Resumed child -> "child" .= runIdText child
-    HandedBack child said -> "child" .= runIdText child <> saidData said
-    TaskMoved task moved -> "task" .= taskIdText task <> pair "state" (taskStateEncoding moved)
-    Held task url -> "task" .= taskIdText task <> urlData url
-    ActedOn task url -> "task" .= taskIdText task <> urlData url
-    TaskAdded task -> pair "task" (taskEncoding task)
+    Spawning ref -> taskRefData ref
+    Resumed child ref -> "child" .= runIdText child <> foldMap taskRefData ref
+    HandedBack child ref said -> "child" .= runIdText child <> foldMap taskRefData ref <> saidData said
+    TaskMoved ref moved -> taskRefData ref <> pair "state" (taskStateEncoding moved)
+    Held ref url -> taskRefData ref <> urlData url
+    ActedOn ref url -> taskRefData ref <> urlData url
+    TaskAdded n task -> "breakdown" .= n <> pair "task" (taskEncoding task)
     Restarted -> mempty
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
     WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
@@ -388,6 +393,16 @@ eventData = \case
             <> foldMap (("parent_span" .=) . (.spanSeq)) start.parent
             <> foldMap ("request_model" .=) start.model
     SpanEnded ended ending usage -> "span" .= ended.spanSeq <> endingData ending <> usageData usage
+    EpicMoved epic move ->
+        "epic" .= Artifact.epicNameText epic <> case move of
+            Opens repo branch -> "repo" .= repoText repo <> "branch" .= Artifact.branchText branch
+            Readies pr -> "pr_url" .= urlText pr
+            Merges -> mempty
+    TaskHead ref sha -> taskRefData ref <> "head_sha" .= Field.encode Field.sha sha
+    TaskBaseChanged ref base reason ->
+        taskRefData ref
+            <> Artifact.baseData base
+            <> "reason" .= Artifact.nonBlankText reason
   where
     qidData qid = "qid" .= qidText qid
 
@@ -420,14 +435,17 @@ eventOf kind obj = case kind of
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= partyOf)
     "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= partyOf)
     "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "reason" obj
+    {- The required @breakdown@ beside a task, through @task_added@, changes v1
+    in place, as @refused@'s @code@ does: no store with the older shape shipped.
+    -}
     "spawned" -> Spawned <$> spawnedOf obj
-    "spawning" -> Spawning <$> taskOf obj
-    "resumed" -> Resumed <$> childOf obj
-    "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
-    "task" -> TaskMoved <$> taskOf obj <*> (obj .: "state" >>= taskStateOf)
-    "held" -> Held <$> taskOf obj <*> urlOf obj
-    "acted" -> ActedOn <$> taskOf obj <*> urlOf obj
-    "task_added" -> TaskAdded <$> (obj .: "task" >>= Artifact.taskOf)
+    "spawning" -> Spawning <$> taskRefOf obj
+    "resumed" -> Resumed <$> childOf obj <*> childTaskRefOf obj
+    "handed_back" -> HandedBack <$> childOf obj <*> childTaskRefOf obj <*> saidOf obj
+    "task" -> TaskMoved <$> taskRefOf obj <*> (obj .: "state" >>= taskStateOf)
+    "held" -> Held <$> taskRefOf obj <*> urlOf obj
+    "acted" -> ActedOn <$> taskRefOf obj <*> urlOf obj
+    "task_added" -> TaskAdded <$> breakdownSeqOf obj <*> (obj .: "task" >>= Artifact.taskOf)
     "restarted" -> pure Restarted
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
@@ -474,6 +492,24 @@ eventOf kind obj = case kind of
                     <*> obj .:? "request_model"
                 )
     "span_ended" -> SpanEnded <$> (obj .: "span" >>= spanIdOf) <*> endingOf obj <*> usageOf obj
+    "epic_opened" ->
+        EpicMoved
+            <$> epicOf obj
+            <*> ( Opens
+                    <$> (obj .: "repo" >>= named "repo" parseRepo)
+                    <*> (Branch <$> obj .: "branch")
+                )
+    "epic_ready" -> EpicMoved <$> epicOf obj <*> (Readies . Url <$> obj .: "pr_url")
+    "epic_merged" -> EpicMoved <$> epicOf obj <*> pure Merges
+    "task_head" ->
+        TaskHead
+            <$> taskRefOf obj
+            <*> (obj .: "head_sha" >>= named "head sha" (Field.decode Field.sha))
+    "task_base_changed" ->
+        TaskBaseChanged
+            <$> taskRefOf obj
+            <*> (obj .: "base" >>= Artifact.baseOf)
+            <*> (obj .: "reason" >>= named "reason" Artifact.parseNonBlank)
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
@@ -499,16 +535,6 @@ questionKindName = \case
     Confirm -> "confirm"
     Security -> "security"
     Stuck -> "stuck"
-
--- | A task state's @kind@ in the log; the CLI's name is 'State.Run.Codec.taskStateName'.
-taskStateKind :: TaskState -> Text
-taskStateKind = \case
-    InCi _ -> "in_ci"
-    InReview _ -> "in_review"
-    Merged _ -> "merged"
-    Kept _ -> "kept"
-    Round _ -> "round"
-    Parked _ _ -> "parked"
 
 spanIdOf :: Natural -> Parser SpanId
 spanIdOf n = SpanId <$> ijsonNatural n
@@ -567,13 +593,35 @@ requestOf :: Object -> Parser TaskNo
 requestOf obj =
     obj .: "request" >>= \raw -> maybe (fail (show raw <> " is no request, r<n>")) pure (parseTaskNo raw)
 
+epicOf :: Object -> Parser EpicName
+epicOf obj = obj .: "epic" >>= named "epic name" Artifact.parseEpicName
+
 taskOf :: Object -> Parser TaskId
 taskOf obj = TaskId <$> obj .: "task"
+
+-- | A task by its identity: its id under @task@, beside its breakdown's seq.
+taskRefData :: TaskRef -> Series
+taskRefData ref = "task" .= taskIdText ref.task <> "breakdown" .= ref.breakdown
+
+taskRefOf :: Object -> Parser TaskRef
+taskRefOf obj = TaskRef <$> taskOf obj <*> breakdownSeqOf obj
+
+breakdownSeqOf :: Object -> Parser Natural
+breakdownSeqOf obj = obj .: "breakdown" >>= ijsonNatural
+
+-- | A child's task, copied from its @spawned@: @task@ and @breakdown@ both, or neither for an untasked child.
+childTaskRefOf :: Object -> Parser (Maybe TaskRef)
+childTaskRefOf obj =
+    (,) <$> obj .:? "task" <*> obj .:? "breakdown" >>= \case
+        (Just task, Just n) -> Just . TaskRef (TaskId task) <$> ijsonNatural n
+        (Nothing, Nothing) -> pure Nothing
+        (Just _, Nothing) -> fail "a task with no breakdown"
+        (Nothing, Just _) -> fail "a breakdown with no task"
 
 -- | The event is the union: @kind: tasked@ names the child's task, @untasked@ none.
 spawnedData :: Child -> Series
 spawnedData child = case child.task of
-    Tasked task -> tag "tasked" <> common <> "task" .= taskIdText task
+    Tasked ref -> tag "tasked" <> common <> taskRefData ref
     Untasked -> tag "untasked" <> common
   where
     common = "child" .= runIdText child.run <> "worktree" .= child.worktree
@@ -583,7 +631,7 @@ spawnedOf obj =
     Child
         <$> childOf obj
         <*> ( obj .: "kind" >>= \case
-                "tasked" -> Tasked <$> taskOf obj
+                "tasked" -> Tasked <$> taskRefOf obj
                 "untasked" -> pure Untasked
                 other -> unknownCase "spawned kind" other
             )
@@ -618,6 +666,7 @@ taskStateEncoding moved =
         Kept url -> prUrl url
         Round url -> prUrl url
         Parked why pr -> "reason" .= why <> foldMap prUrl pr
+        Delivered url -> prUrl url
   where
     prUrl url = "pr_url" .= urlText url
 
@@ -629,6 +678,7 @@ taskStateOf = tagged "task state" $ \obj -> \case
     "kept" -> Kept <$> prUrlOf obj
     "round" -> Round <$> prUrlOf obj
     "parked" -> Parked <$> obj .: "reason" <*> (fmap Url <$> obj .:? "pr_url")
+    "delivered" -> Delivered <$> prUrlOf obj
     other -> unknownCase "task state" other
   where
     prUrlOf obj = Url <$> obj .: "pr_url"

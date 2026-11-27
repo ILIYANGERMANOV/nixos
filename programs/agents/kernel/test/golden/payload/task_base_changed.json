@@ -1,0 +1,5 @@
+[
+{"task":"t1","breakdown":9,"base":{"kind":"on_default"},"reason":"t2 merged"},
+{"task":"t1","breakdown":9,"base":{"kind":"on_epic","epic":"payments"},"reason":"restack"},
+{"task":"t1","breakdown":9,"base":{"kind":"on_task","task":"t2"},"reason":"restack onto t2"}
+]

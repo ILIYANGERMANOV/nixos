@@ -24,8 +24,9 @@ import Effects.Store.Connection (Durability (Unsynced), withStore)
 import Effects.Store.Events qualified as Store
 import State.Artifact (sha256Of, sha256Text)
 import State.Category.Fuel (Fuel (Low))
-import State.Run.Event (FlowName (TenXFlow), Task (..))
+import State.Run.Event (Base (OnEpic), FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
+import State.Run.EventGen (epicNamed)
 import State.Run.RunGen (
     breakdownJson,
     plainTask,
@@ -1073,7 +1074,7 @@ spec = describe "the state binary" $ do
             it "refuses a malformed task file with the breakdown's error" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
                 malformed <- taskAdded bin repo "{\"id\": \"fix\"}"
-                (malformed.code, malformed.err) `shouldSatisfy` \(code, err) -> code == 2 && mentions "key \"deps\" not found" err
+                (malformed.code, malformed.err) `shouldSatisfy` \(code, err) -> code == 2 && mentions "key \"title\" not found" err
 
             it "adds a task mid-run and spawns it" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
@@ -1480,6 +1481,56 @@ spec = describe "the state binary" $ do
                     recorded kept `shouldBe` []
                     shown <- succeeded =<< state bin repo ["show"]
                     shown `shouldSatisfy` mentions ("PR kept " <> prUrl)
+
+            it
+                "keeps an epic and its tasks' base, head and delivery, and resume prints them in order"
+                $ \repo -> do
+                    parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+                    _ <-
+                        succeeded
+                            =<< state
+                                bin
+                                repo
+                                ["epic", "open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
+                    _ <-
+                        brokenDown
+                            bin
+                            repo
+                            [ (plainTask "t1" []) {base = OnEpic (epicNamed "limits")}
+                            , plainTask "t2" ["t1"]
+                            ]
+                    _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
+                    w1 <- worktree repo "w1"
+                    c1 <- childRun bin w1 parent "n1" "t1"
+                    relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
+                    head' <- Text.strip . Text.pack <$> gitOut w1 ["rev-parse", "HEAD"]
+                    let epicPr = "https://github.com/o/r/pull/40"
+                    for_
+                        [ ["record", "task", "head", "t1", Text.unpack head']
+                        , ["record", "task", "t2", "base", "on_task:t1", "--reason", "restacked"]
+                        , ["record", "task", "t1", "delivered", prUrlString]
+                        , ["epic", "ready", "limits", "--pr", epicPr]
+                        ]
+                        (succeeded <=< state bin repo)
+                    resumed <- succeeded =<< state bin repo ["resume"]
+                    takeWhile
+                        (not . Text.isPrefixOf "context map")
+                        (dropWhile (/= "owed to the user:") resumed)
+                        `shouldBe` [ "owed to the user:"
+                                   , "  - merge epic limits (ready_for_review, " <> Text.pack epicPr <> ")"
+                                   , "epics:"
+                                   , "  limits o/r epic/limits ready_for_review " <> Text.pack epicPr
+                                   , "tasks (breakdown " <> parent <> ":6, in dependency order):"
+                                   , "  id  status     at_work  base            pr                             head     child run"
+                                   , "  t1  delivered  no       on_epic:limits  "
+                                        <> prUrl
+                                        <> "  "
+                                        <> Text.take 7 head'
+                                        <> "  "
+                                        <> c1
+                                   , "  t2  planned    no       on_task:t1      -                              -        -          after t1"
+                                   , ""
+                                   ]
 
         describe "a tree of runs: a 10x under a 10x, an engineer under that" $ do
             it "climbs a question to the top and writes its one answer down to every run" $ \repo -> do

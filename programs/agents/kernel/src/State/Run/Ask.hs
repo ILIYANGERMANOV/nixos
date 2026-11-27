@@ -360,15 +360,16 @@ data Parent = Parent {run :: RunId, link :: Link}
 request its parent handed on whole; a direct child, of a parent at no
 fan-out, none. Either way its questions go up to the parent.
 -}
-data Link = InFan ChildTask | Direct
+data Link = InFan (ChildTask TaskId) | Direct
     deriving stock (Eq, Show)
 
 {- | What a fan-out's child was spawned for: a task of the 10x's breakdown,
 or a request the chief handed on whole (@route.delegate@), which no
-breakdown names.
+breakdown names. The task is its id as the child's own run names it, and
+its 'State.Run.Id.TaskRef' as the parent's fan-out keeps it.
 -}
-data ChildTask = Tasked TaskId | Untasked
-    deriving stock (Eq, Show)
+data ChildTask task = Tasked task | Untasked
+    deriving stock (Eq, Show, Functor, Foldable, Traversable)
 
 -- | What the run's interface can do: a subagent cannot ask the user or wait.
 data Op = AskUser | Await | Notify | Hooks | Background

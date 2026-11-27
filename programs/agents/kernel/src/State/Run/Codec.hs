@@ -22,6 +22,7 @@ module State.Run.Codec (
     branchText,
     repoText,
     taskStateName,
+    taskStateKind,
     taskStateArgs,
     prStates,
     topicText,
@@ -43,6 +44,7 @@ import Numeric.Natural (Natural)
 import State.Category.Step (eventText)
 import State.Role (flowText)
 import State.Run.Event (
+    EpicMove (..),
     Event (..),
     HandoverReason (..),
     Stop (..),
@@ -86,12 +88,12 @@ eventType = \case
     QuestionParked _ _ -> "parked"
     Spawning _ -> "spawning"
     Spawned _ -> "spawned"
-    Resumed _ -> "resumed"
-    HandedBack _ _ -> "handed_back"
+    Resumed _ _ -> "resumed"
+    HandedBack {} -> "handed_back"
     TaskMoved _ _ -> "task"
     Held _ _ -> "held"
     ActedOn _ _ -> "acted"
-    TaskAdded _ -> "task_added"
+    TaskAdded _ _ -> "task_added"
     Restarted -> "restarted"
     WorkerHandedBack _ _ -> "worker_handed_back"
     WorkerSpawned _ _ -> "worker_spawned"
@@ -111,6 +113,12 @@ eventType = \case
         Close (WontFix _) -> "gap_wont_fix"
     SpanStarted _ -> "span_started"
     SpanEnded {} -> "span_ended"
+    EpicMoved _ move -> case move of
+        Opens _ _ -> "epic_opened"
+        Readies _ -> "epic_ready"
+        Merges -> "epic_merged"
+    TaskHead _ _ -> "task_head"
+    TaskBaseChanged {} -> "task_base_changed"
 
 -- | A hand-back token as line 1 opens with it, on the wire (#360).
 tokenWordText :: TokenWord -> Text
@@ -176,6 +184,7 @@ prStates =
     , ("merged", Merged)
     , ("kept", Kept)
     , ("round", Round)
+    , ("delivered", Delivered)
     ]
 
 -- | As @state record task@ names it.
@@ -187,6 +196,20 @@ taskStateName = \case
     Kept _ -> "kept"
     Round _ -> "round"
     Parked _ _ -> "parked"
+    Delivered _ -> "delivered"
+
+{- | A task state as its status (#552's Appendix B section F) and the log's
+@kind@ spell it; @state record task@'s name is 'taskStateName'.
+-}
+taskStateKind :: TaskState -> Text
+taskStateKind = \case
+    InCi _ -> "in_ci"
+    InReview _ -> "in_review"
+    Merged _ -> "merged"
+    Kept _ -> "kept"
+    Round _ -> "round"
+    Parked _ _ -> "parked"
+    Delivered _ -> "delivered"
 
 -- | The arguments @state record task@ takes after the task's id for this state.
 taskStateArgs :: TaskState -> Text
@@ -199,6 +222,7 @@ taskStateArgs moved =
             Kept pr -> [urlText pr]
             Round pr -> [urlText pr]
             Parked why pr -> why : maybe [] (\url -> ["--pr", urlText url]) pr
+            Delivered pr -> [urlText pr]
 
 -- | #360's @AWAIT <what> <refs>@: what a run hands up to be waited on.
 waitingText :: Waiting -> Text

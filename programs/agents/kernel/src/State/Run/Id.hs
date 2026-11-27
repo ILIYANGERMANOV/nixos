@@ -4,6 +4,7 @@ the events carry, such as "State.Run.Ask", can name a run or an event too.
 module State.Run.Id (
     RunId,
     TaskId (..),
+    TaskRef (..),
     AgentId (..),
     SpanId (..),
     TaskNo (..),
@@ -33,13 +34,20 @@ import Data.Text.Read (decimal)
 import Data.Word (Word64, Word8)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
-import State.Step.Artifact (TaskId (..))
+import State.Step.Artifact (TaskId (..), breaksLine)
 
 {- | Short and random, set by @init@; one log holds one run. Built only by
 'parseRunId'.
 -}
 newtype RunId = RunId Text
     deriving stock (Eq, Ord, Show)
+
+{- | A task by its identity across the run: its id within the breakdown
+logged at this seq, the @breakdown.done@ or the @task_added@ that started it.
+A new breakdown may reuse an id.
+-}
+data TaskRef = TaskRef {task :: TaskId, breakdown :: Natural}
+    deriving stock (Eq, Show)
 
 -- | A subagent's id, as its agent gives it: Claude Code's are hex.
 newtype AgentId = AgentId {agentIdText :: Text}
@@ -144,7 +152,3 @@ parseEventId raw = case Text.stripPrefix "h:" raw of
             Just (Hashed (Digest digest))
     Just _ -> Nothing
     Nothing -> uncurry Numbered <$> parseNumbered raw
-
--- | Unicode's mandatory line breaks (UAX #14 classes BK, CR, LF and NL).
-breaksLine :: Char -> Bool
-breaksLine = (`elem` ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'])

@@ -95,6 +95,7 @@ import State.Run.Event (
     AnyOutcome,
     Asker (..),
     Asking (..),
+    Base (..),
     Branch (..),
     Check (..),
     Child (..),
@@ -102,6 +103,7 @@ import State.Run.Event (
     Digest (..),
     DraftPr (..),
     Envelope (..),
+    EpicMove (..),
     Event (..),
     EventId (..),
     FlowName (..),
@@ -134,6 +136,7 @@ import State.Run.Event (
     Task (..),
     TaskId (..),
     TaskNo (..),
+    TaskRef (..),
     TaskState (..),
     TokenWord (..),
     Url (..),
@@ -144,6 +147,7 @@ import State.Run.Event (
  )
 import State.Run.EventGen (
     absolutePath,
+    epicNamed,
     gapText,
     genEnvelope,
     genTaskState,
@@ -154,6 +158,7 @@ import State.Run.EventGen (
     replacing,
     runId,
     tasksOf,
+    titled,
     uri,
  )
 import State.Run.Gap (
@@ -518,7 +523,7 @@ spec = describe "Data.Payload.Event" $ do
         decodeLine
             ( encodeLine
                 reviewRows
-                    { event = HandedBack (runId "c1") (Awaits Merge (oneLine "https://pr/1"))
+                    { event = HandedBack (runId "c1") Nothing (Awaits Merge (oneLine "https://pr/1"))
                     }
                 `replacing` (",\"on\":\"merge\"", "")
             )
@@ -740,7 +745,7 @@ eventGoldens =
                 ( Start
                     TenXFlow
                     "/n"
-                    (ByRole (Parent parent (InFan (Tasked t1))) OwnPr ChildConfirms)
+                    (ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms)
                     (Set.singleton Await)
                     Nothing
                     (absolutePath "/w")
@@ -826,12 +831,22 @@ eventGoldens =
     , Spawning t1 :| []
     , Spawned (Child child (Tasked t1) "/wt/t1")
         :| [Spawned (Child child Untasked "/wt/c1")]
-    , Resumed child :| []
-    , HandedBack child (Finished (oneLine "READY https://github.com/o/r/pull/7"))
-        :| [ HandedBack child (AsksUp qid)
-           , HandedBack child (Awaits Ci (oneLine "https://github.com/o/r/pull/7"))
-           , HandedBack child (Awaits Merge (oneLine "https://github.com/o/r/pull/7"))
-           , HandedBack child (Ended (Stop OutOfRounds "three rounds, still red"))
+    , Resumed child (Just t1) :| [Resumed child Nothing]
+    , HandedBack
+        child
+        (Just t1)
+        (Finished (oneLine "READY https://github.com/o/r/pull/7"))
+        :| [ HandedBack child (Just t1) (AsksUp qid)
+           , HandedBack child (Just t1) (Awaits Ci (oneLine "https://github.com/o/r/pull/7"))
+           , HandedBack
+                child
+                (Just t1)
+                (Awaits Merge (oneLine "https://github.com/o/r/pull/7"))
+           , HandedBack child (Just t1) (Ended (Stop OutOfRounds "three rounds, still red"))
+           , HandedBack
+                child
+                Nothing
+                (Finished (oneLine "READY https://github.com/o/r/pull/7"))
            ]
     , TaskMoved t1 (InCi pr)
         :| [ TaskMoved t1 (InReview pr)
@@ -840,10 +855,13 @@ eventGoldens =
            , TaskMoved t1 (Round pr)
            , TaskMoved t1 (Parked "waits on a decision" (Just pr))
            , TaskMoved t1 (Parked "waits on a decision" Nothing)
+           , TaskMoved t1 (Delivered pr)
            ]
     , Held t1 pr :| []
     , ActedOn t1 pr :| []
-    , TaskAdded everyKey :| [TaskAdded (plainTask "t1" [])]
+    , TaskAdded 9 everyKey
+        :| [ TaskAdded 9 (plainTask "t1" []) {Artifact.base = OnEpic (epicNamed "payments")}
+           ]
     , Restarted :| []
     , WorkerHandedBack implementer (oneLine "READY abc123") :| []
     , WorkerSpawned implementer agent :| []
@@ -907,15 +925,24 @@ eventGoldens =
                 (Usage (Just 10) Nothing Nothing Nothing)
            , SpanEnded (SpanId 6) NoHandback (Usage Nothing Nothing Nothing Nothing)
            ]
+    , EpicMoved payments (Opens (Repo "o" "r") (Branch "epic/payments")) :| []
+    , EpicMoved payments (Readies pr) :| []
+    , EpicMoved payments Merges :| []
+    , TaskHead t1 (Sha "0123456789abcdef0123456789abcdef01234567") :| []
+    , TaskBaseChanged t1 OnDefault (titled "t2 merged")
+        :| [ TaskBaseChanged t1 (OnEpic payments) (titled "restack")
+           , TaskBaseChanged t1 (OnTask (TaskId "t2")) (titled "restack onto t2")
+           ]
     ]
   where
     qid = QId child 3
     parent = runId "r7f2"
     child = runId "c1"
-    t1 = TaskId "t1"
+    t1 = TaskRef (TaskId "t1") 9
     researcher = AgentRole "researcher"
     implementer = AgentRole "implementer"
     agent = AgentId "a1b2"
+    payments = epicNamed "payments"
     ruled =
         RuledOn qid
             . Proposal (oneLine "v2") (oneLine "the docs say so") (oneLine "an hour")
@@ -985,6 +1012,7 @@ everyKey =
         , repo = Just (Repo "o" "r")
         , worktree = shellPath "/wt/t2"
         , Artifact.flow = TenXFlow
+        , Artifact.base = OnTask (TaskId "t1")
         }
 
 -- | #360's example line.

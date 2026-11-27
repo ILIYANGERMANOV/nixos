@@ -38,19 +38,21 @@ import State.Artifact (
 import State.Category.Fuel (fuelName)
 import State.Category.Graph (Node (..))
 import State.Category.Step (stateNameText)
-import State.Cli.View (answerLine, gapHeadline, pendingLines, section)
+import State.Cli.View (answerLine, epicRow, gapHeadline, pendingLines, section)
 import State.Protocol.Advice (recordedPr)
 import State.Run.Ask (Principal (..), Question (..), qidText, rulingLine)
 import State.Run.Codec (
     flowText,
     handoverReasonText,
     repoText,
+    shaText,
     stopToken,
     taskIdText,
-    taskStateName,
+    taskStateKind,
     tokenWordName,
     urlText,
  )
+import State.Run.Epic (Epic (..), ReadyEpic (..), stageName)
 import State.Run.Event (
     Asking (..),
     Child (..),
@@ -73,7 +75,14 @@ import State.Run.Event (
     runIdText,
     spansOf,
  )
-import State.Run.Fan (ChildRun (..), Fan (..), latest, pullRequest)
+import State.Run.Fan (
+    Breakdown (..),
+    ChildRun (..),
+    Fan (..),
+    childTaskId,
+    latest,
+    pullRequest,
+ )
 import State.Run.Fold (
     Answer (..),
     Pending (..),
@@ -91,6 +100,7 @@ import State.Run.Gap (
  )
 import State.Run.Id (numberedText)
 import State.Show (timeText, tshow)
+import State.Step.Artifact (baseText, epicNameText)
 
 {- | A run's log as the packet reads it. The shell cuts the log at
 @--until@ before it replays it, so this one log feeds every section.
@@ -117,6 +127,7 @@ sections =
     , pr
     , next
     , owed
+    , epics
     , tasks
     , heldWakes
     , openQuestions
@@ -199,55 +210,84 @@ next input = case lastHandover input of
                 [1 :: Int ..]
                 (toList handover.next)
 
--- | The questions forwarded to the user that wait for the answer: only a run the user started forwards to the user.
+{- | What the user owes a run the user started: each epic's final PR to
+merge, then each forwarded question's answer. Only a run the user started
+owes the user.
+-}
 owed :: Input -> [Text]
 owed input = case input.state.start.principal of
     ByUser _ ->
         section
             "owed to the user:"
-            ( capped
-                "state pending"
-                [ "- answer " <> qidText p.asking.question.qid
-                | p <- reverse input.state.pending
-                , ForAnswer <- [p.waits]
-                ]
+            ( [ "- merge epic "
+                    <> epicNameText name
+                    <> " ("
+                    <> stageName epic
+                    <> ", "
+                    <> urlText ready.pr
+                    <> ")"
+              | (name, epic@(Ready ready)) <- Map.toList input.state.epics
+              ]
+                <> capped
+                    "state pending"
+                    [ "- answer " <> qidText p.asking.question.qid
+                    | p <- reverse input.state.pending
+                    , ForAnswer <- [p.waits]
+                    ]
             )
     ByRole {} -> []
     ByCaller _ -> []
 
--- | The tasks of each fan-out, in its breakdown's order, with the columns the fold knows.
-tasks :: Input -> [Text]
-tasks input = case rows of
-    [] -> []
-    _ ->
-        "tasks:"
-            : map ("  " <>) (table (["id", "status", "at_work", "pr", "child run"] : rows))
-  where
-    rows = [taskRow fan task | fan <- fans input, task <- fan.tasks]
+-- | The run's epics by name, each at its stage.
+epics :: Input -> [Text]
+epics input =
+    section
+        "epics:"
+        [epicRow name epic | (name, epic) <- Map.toList input.state.epics]
 
+-- | The tasks of each fan-out's breakdown, in its order, with the columns the fold knows.
+tasks :: Input -> [Text]
+tasks input =
+    concat
+        [ ("tasks (breakdown " <> here input listed.seq <> ", in dependency order):")
+            : map
+                ("  " <>)
+                ( table
+                    ( ["id", "status", "at_work", "base", "pr", "head", "child run"]
+                        : map (taskRow fan) (toList listed.tasks)
+                    )
+                )
+        | fan <- fans input
+        , Just listed <- [fan.breakdown]
+        ]
+
+{- | A task's row. Its status is Appendix B section F's: a task an agent
+took is running until a @task@ event moves it, and planned again once a
+restart leaves it no child run.
+-}
 taskRow :: Fan -> Task -> [Text]
 taskRow fan task =
     [ taskIdText task.id
     , status
-    , if task.id `elem` fan.atWork then "yes" else "no"
+    , if atWork then "yes" else "no"
+    , baseText task.base
     , maybe "-" urlText (pullRequest fan task.id)
+    , -- A short sha, as git abbreviates one.
+      maybe "-" (Text.take 7 . shaText) (Map.lookup task.id fan.heads)
     , maybe "-" (runIdText . (.child.run)) (lastMaybe children)
     ]
         <> extra
   where
-    moved = Map.lookup task.id fan.moves
-    children = [c | c <- fan.children, c.child.task == Tasked task.id]
-    status = case (moved, children) of
-        (Just state, _) -> taskStateName state
-        (Nothing, []) -> "planned"
-        (Nothing, _ : _) -> "spawned"
-    extra =
-        ["reason: " <> why | Just (Parked why _) <- [moved]]
-            <> [ "after " <> Text.unwords (map taskIdText task.deps)
-               | null children
-               , not (null task.deps)
-               , Nothing <- [moved]
-               ]
+    atWork = task.id `elem` fan.atWork
+    children = [c | c <- fan.children, childTaskId c.child == Tasked task.id]
+    (status, extra) = case (Map.lookup task.id fan.moves, null children && not atWork) of
+        (Just moved@(Parked why _), _) -> (taskStateKind moved, ["reason: " <> why])
+        (Just moved, _) -> (taskStateKind moved, [])
+        (Nothing, True) ->
+            ( "planned"
+            , ["after " <> Text.unwords (map taskIdText task.deps) | not (null task.deps)]
+            )
+        (Nothing, False) -> ("running", [])
 
 heldWakes :: Input -> [Text]
 heldWakes input =
@@ -400,7 +440,7 @@ childRuns input =
         ( concat
             [ [ Text.unwords
                     [ runIdText childRun.child.run
-                    , case childRun.child.task of
+                    , case childTaskId childRun.child of
                         Tasked task -> taskIdText task
                         Untasked -> "-"
                     , standing

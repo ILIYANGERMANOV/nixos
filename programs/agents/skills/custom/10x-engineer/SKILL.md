@@ -18,7 +18,8 @@ a hand-back. No `recorded` line means it missed: record it yourself,
 
 You are the principal engineer for `$ARGUMENTS`. The user is the captain who
 decides; you make their intent real. Every task ends merged, kept (a round on
-a PR that stays open), or parked with a reason. You work as if the user ran
+a PR that stays open), delivered (its work is done and its PR is left open for
+the user, not merged), or parked with a reason. You work as if the user ran
 N engineers by hand: each engineer runs the whole `engineer` flow on one
 task, and you answer for the user what the user need not see.
 
@@ -121,8 +122,8 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 You spawn each at `engineers`, the group's await, once its task's
 dependencies merged, as `state next` says. `engineers` stays while children
 run and goes on to `merge` by itself, with no record, on the event that
-settles the last task: its child finished, or it is in review, merged, kept
-or parked. `merge` gets the PRs in the breakdown's task order.
+settles the last task: its child finished, or it is in review, merged, kept,
+delivered or parked. `merge` gets the PRs in the breakdown's task order.
 
 ## Steps
 
@@ -213,16 +214,28 @@ base fix included (Failures).
 ### Breakdown
 
 Write `tasks.json` in the notes directory, a JSON array in the plan's order of
-`{"id", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
-"security": [topics], "repo", "worktree"}`, `fuel` one of `low`, `balanced`, `max`,
-`repo` the task's `<owner>/<repo>`, `worktree` the absolute path of its worktree
-(`~` expanded), then `state record breakdown.done --tasks tasks.json`: the
+`{"id", "title", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
+"security": [topics], "repo", "worktree"}`, `title` one line naming the task,
+`fuel` one of `low`, `balanced`, `max`, `repo` the task's `<owner>/<repo>`,
+`worktree` the absolute path of its worktree (`~` expanded). `base` is what
+the task's branch starts from, one of:
+
+- `{"kind": "on_default"}`: the repo's default branch.
+- `{"kind": "on_epic", "epic": "<name>"}`: the epic's branch, opened
+  first (Epics).
+- `{"kind": "on_task", "task": "<id>"}`: the branch of an earlier task.
+  The kernel spawns a task only once its deps merge. So `on_task` fits a
+  stacked task with no dep, spawned once its base task's branch is pushed.
+  A task with a dep takes the base its dep merges into.
+
+A bare branch name is refused, and so are the ids `add` and `head`. Then `state record breakdown.done --tasks tasks.json`: the
 `--tasks` file registers itself. A round task adds
 `"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
 settles it `kept`. A task whose plan is already settled adds
 `"planDecided": true`: its child skips the refine passes and present, and confirms without
 asking you. A task outside it, a base fix or an epic's final PR, joins
 mid-run: one such object in a file, then `state record task add <file>`.
+The final PR's task has base `{"kind": "on_default"}` and branch `epic/<name>`.
 
 ### Engineers
 
@@ -307,7 +320,10 @@ then the merge loop's gates.
 
 **READY.** The child is done. `state handback engineer` records the PR its
 line 1 names, in review, or `kept` for a round task, which skips the queue;
-with none named, `state next` prints the record. Notify as the engineer skill's Ship
+with none named, `state next` prints the record. Record its branch's head,
+`state record task head <id> <sha>`, here and after each fixer's push. A
+task is delivered when its work is done and its PR is left open for the user,
+not merged: `state record task <id> delivered <url>`. Notify as the engineer skill's Ship
 does in a run with no parent: the PR's `## What & Why` and its optional next
 steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or runtime
 change, `/chief feedback for <PR>: ...` for a review or feedback, and
@@ -341,30 +357,34 @@ The user approves on GitHub. Push one line saying how many PRs wait.
 Work that needs a new plan: `state record merge.next_round` takes the run back
 to gather with fresh budgets.
 
-**Finish.** When every task is `merged`, `kept` or `parked`, spawn a
+**Finish.** When every task is `merged`, `kept`, `delivered` or `parked`, spawn a
 fresh-context audit, a `subagent_type: reviewer` agent, given the run
 directory, where it runs `state show`. From that, `gh` and `git worktree list`
-it checks that every task is merged, kept or parked with a reason, issues of
+it checks that every task is merged, kept, delivered or parked with a reason, issues of
 merged tasks are closed, issues of parked tasks stay open and are listed, an epic child's
 issues counting as its final PR's, `state pending` is empty, and worktrees of
 merged tasks are gone. It reports and never closes anything. Fix what fails,
 then run it again. Then `state record merge.done <url>`, the epic's final PR
-or the last PR merged or kept, and send the final report: merged, kept,
-parked and why, every ruling, follow-ups.
+or the last PR merged, kept or delivered, and send the final report: merged,
+kept, delivered, parked and why, every ruling, follow-ups.
 
 ## Epics
 
-- Before its first child, fetch, then
-  `git -C <clone> push origin origin/main:refs/heads/epic/<name>`.
+- Before the breakdown that bases tasks on it, fetch, then
+  `git -C <clone> push origin origin/main:refs/heads/epic/<name>` and
+  `state epic open <name> --repo <owner>/<repo> --branch epic/<name>`.
 - Child PRs target `epic/<name>`. You merge one after its reviews and green
   CI, with no user tap, by the same loop minus the approval gate.
 - Children of a later wave branch from the epic.
 - After the last child, open the final PR to `main` with `pr-description`. It
   lists every `Closes #n`, since issues auto-close only on the default branch.
-  Give it a worktree, so a fixer can rebase it. Join the merged children's
+  Add its task (Breakdown) with base `{"kind": "on_default"}` and branch
+  `epic/<name>`, and give it a worktree, so a fixer can rebase it. Join the merged children's
   requirements files into its `reports/<epic>-requirements.md`. It then takes
   CI, the queue and the merge loop like any PR: the user reviews it and
   approves. Its queue entry summarises per child: PR link, what, rulings.
+  Once it opens, `state epic ready <name> --pr <url>`; once it merges,
+  `state epic merged <name>`.
 - A parked child holds the final PR. Ask once: retry it, ship the rest as a
   partial final PR, or drop the child. A partial final PR leaves the parked
   child's issues out of `Closes`.
@@ -388,7 +408,7 @@ run it, then triage it as any question. No retry spawns before.
 **Base.** A check red on the head of the repo's default branch, unless the PR
 is the base fix itself: an engineer opens `base-fix-<repo>-<n>`, an
 independent PR to that branch, `Heavy` as the red check builds, ahead of the
-queue, with no confirmation. Add it with `state record task add` after
+queue, with no confirmation. Its base is `{"kind": "on_default"}`. Add it with `state record task add` after
 `breakdown.done`, as a breakdown starts a fresh fan-out without it; `state
 next` spawns it at once, at `merge` too, which goes back to `engineers`. No
 check runs there means CI does not run on push, so the base is unknown: treat

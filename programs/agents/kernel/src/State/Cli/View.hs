@@ -14,6 +14,7 @@ module State.Cli.View (
     beginText,
     cardLines,
     minutesSince,
+    epicRow,
 ) where
 
 import Data.Bifunctor qualified as Bifunctor
@@ -72,10 +73,12 @@ import State.Run.Codec (
     branchText,
     flowText,
     reasonText,
+    repoText,
     taskIdText,
     topicText,
     urlText,
  )
+import State.Run.Epic (Epic, epicBranch, epicPr, epicRepo, stageName)
 import State.Run.Event (
     AgentId (..),
     AgentRole (..),
@@ -119,7 +122,14 @@ import State.Run.Gap (
  )
 import State.Run.Id (eventRefText)
 import State.Show (tshow)
-import State.Step.Artifact (shellPathText, slugChar)
+import State.Step.Artifact (
+    EpicName,
+    baseText,
+    epicNameText,
+    nonBlankText,
+    shellPathText,
+    slugChar,
+ )
 import State.Step.Catalog (AnyStep (..))
 import State.Table (Row (..), Steps, agentRoles, row, stepsRunBy)
 
@@ -425,8 +435,9 @@ taskBrief state fan found = Text.unlines (taskLines found) <> "\n" <> taskInit
                 (Just (taskIdText found.id))
     taskLines task =
         [ "Task: " <> taskIdText task.id
+        , "Title: " <> nonBlankText task.title
         , "Fuel: " <> fuelLabel task.fuel
-        , "Base: " <> branchText task.base
+        , "Base: " <> baseText task.base
         , "Branch: " <> branchText task.branch
         , "Depends on: " <> listed (map taskIdText task.deps)
         , "QA: " <> yesNo task.qa
@@ -543,3 +554,17 @@ beginText steps run = \case
   where
     skillBegins =
         "state: this skill begins with `state`: `state init ...`, then `state next`.\n"
+
+{- | An epic as a row: its name, repo, branch, stage and its final PR once
+it has one, as the resume packet's @epics@ section lists it.
+-}
+epicRow :: EpicName -> Epic -> Text
+epicRow name epic =
+    Text.unwords
+        ( [ epicNameText name
+          , repoText (epicRepo epic)
+          , branchText (epicBranch epic)
+          , stageName epic
+          ]
+            <> foldMap (pure . urlText) (epicPr epic)
+        )

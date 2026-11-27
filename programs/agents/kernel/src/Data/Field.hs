@@ -32,7 +32,7 @@ import State.Run.Event (
     runIdText,
  )
 import State.Show (timeText)
-import State.Step.Artifact (lowerHex)
+import State.Step.Artifact (lowerHex, parseSha)
 
 -- | A column's text and its parser, which takes exactly the text it writes.
 data Codec a = Codec (a -> Text) (Text -> Maybe a)
@@ -66,7 +66,7 @@ sha256 = Codec sha256Text parseSha256
 
 -- | A git object id, as @head_sha@ holds it: 40 (SHA-1) or 64 (SHA-256) lowercase hex.
 sha :: Codec Sha
-sha = Codec (\(Sha raw) -> raw) (fmap Sha . lowerHex [40, 64])
+sha = Codec (\(Sha raw) -> raw) parseSha
 
 -- | A harness session's id, never empty: an empty one is no session.
 session :: Codec SessionId

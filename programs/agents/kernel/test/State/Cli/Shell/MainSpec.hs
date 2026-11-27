@@ -7,6 +7,7 @@ import Data.Foldable (for_)
 import Data.IORef (IORef, modifyIORef', readIORef)
 import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
@@ -23,16 +24,21 @@ import State.Run.Ask qualified as Ask
 import State.Run.Codec (eventType)
 import State.Run.Event (
     Asking (..),
+    Base (..),
     Branch (..),
+    Child (..),
+    ChildTask (..),
     Envelope (..),
-    Event (Asked, WorktreeMoved),
+    Event (Asked, HandedBack, Spawned, Spawning, TaskHead, WorktreeMoved),
     FlowName (TenXFlow),
     PlanCall (..),
     Repo (..),
     SessionId (..),
     Task (..),
+    TaskId (..),
+    TaskRef (..),
  )
-import State.Run.EventGen (absolutePath)
+import State.Run.EventGen (absolutePath, epicNamed)
 import State.Run.Id (numberedText)
 import State.Run.RunGen (
     breakdownJson,
@@ -1687,6 +1693,168 @@ spec = describe "state over the doubles" $ do
 
                 shown `shouldContain` ["task t2: not started, tries 0, held https://pr/2#b"]
 
+            it
+                "names the breakdown's seq on the spawn, the child's spawned and its hand-back"
+                $ \world -> do
+                    parent <- tenXAtFanOut world
+                    _ <- succeeded =<< state world ["record", "spawning", "t1"]
+                    _ <- childRun world parent "/child" "t1"
+                    _ <- state world ["stop", "failed", "no", "access"]
+
+                    envelopes <- logged world
+
+                    let breakdownAt = [e.seq | e <- envelopes, eventType e.event == "breakdown.done"]
+                        refs =
+                            [("spawning" :: Text, ref) | Spawning ref <- map (.event) envelopes]
+                                <> [("spawned", ref) | Spawned (Child _ (Tasked ref) _) <- map (.event) envelopes]
+                                <> [("handed_back", ref) | HandedBack _ (Just ref) _ <- map (.event) envelopes]
+                    [(name, ref.task, Just ref.breakdown) | (name, ref) <- refs]
+                        `shouldBe` [ (name, TaskId "t1", listToMaybe breakdownAt)
+                                   | name <- ["spawning", "spawned", "handed_back"]
+                                   ]
+
+            it
+                "moves an epic along its table, printing its row, and refuses every other move"
+                $ \world -> do
+                    _ <- startedIn world ["--flow", "10x"]
+                    let epic argv = (\ran -> (ran.code, ran.out, ran.err)) <$> state world ("epic" : argv)
+                        refusedWith what why fix = (2, [], ["state epic: " <> what <> " - " <> why, "fix: " <> fix])
+                        row = "epic limits o/r epic/limits "
+
+                    ranAll <-
+                        traverse
+                            epic
+                            [ ["ready", "limits", "--pr", prUrl]
+                            , ["open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
+                            , ["open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
+                            , ["merged", "limits"]
+                            , ["ready", "limits", "--pr", prUrl]
+                            , ["ready", "limits", "--pr", prUrl]
+                            , ["merged", "limits"]
+                            , ["merged", "limits"]
+                            ]
+
+                    ranAll
+                        `shouldBe` [ refusedWith
+                                        "unknown_epic"
+                                        "the run never opened epic limits"
+                                        "state epic open limits --repo <owner/name> --branch <branch>"
+                                   ,
+                                       ( 0
+                                       , [row <> "open", "next: state record breakdown.done --tasks <file.json>"]
+                                       , []
+                                       )
+                                   , refusedWith "epic_exists" "the run opened epic limits already" "state resume"
+                                   , refusedWith
+                                        "epic_not_ready"
+                                        "epic limits is not ready for review: it is open still, or merged already"
+                                        "state epic ready limits --pr <url>, once its final PR is open"
+                                   ,
+                                       ( 0
+                                       , [row <> "ready_for_review " <> prUrl, "tasks on it: none", "next: state next"]
+                                       , []
+                                       )
+                                   , refusedWith
+                                        "epic_not_open"
+                                        "epic limits is ready or merged already: only an open epic is made ready"
+                                        "state resume"
+                                   , (0, [row <> "merged " <> prUrl, "next: state next"], [])
+                                   , refusedWith
+                                        "epic_not_ready"
+                                        "epic limits is not ready for review: it is open still, or merged already"
+                                        "state epic ready limits --pr <url>, once its final PR is open"
+                                   ]
+
+            it
+                "refuses a breakdown on an epic the run never opened, then takes it once opened"
+                $ \world -> do
+                    _ <- startedIn world ["--flow", "10x"]
+                    putFile
+                        world
+                        (notes </> "tasks.json")
+                        (breakdownJson [(plainTask "t1" []) {base = OnEpic (epicNamed "limits")}])
+                    _ <-
+                        succeeded
+                            =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
+                    let breakdown =
+                            state
+                                world
+                                ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]
+
+                    refused <- breakdown
+                    _ <-
+                        succeeded
+                            =<< state
+                                world
+                                ["epic", "open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
+                    taken <- breakdown
+
+                    (refused.code, take 1 refused.err, taken.code)
+                        `shouldBe` (2, ["state record: unknown_epic - the run never opened epic limits"], 0)
+
+            it "records a task's head as its row, and refuses a short sha" $ \world -> do
+                _ <- tenXAtFanOut world
+                let sha = Text.replicate 4 "0123456789"
+
+                ran <- succeeded =<< state world ["record", "task", "head", "t1", sha]
+                short <- state world ["record", "task", "head", "t1", "0123456"]
+                envelopes <- logged world
+
+                ran `shouldBe` ["task t1 head " <> sha, "next: state next"]
+                (short.code, take 1 short.err)
+                    `shouldBe` ( 2
+                               ,
+                                   [ "state record: record task - 0123456 is not a full commit sha, 40 or 64 lowercase hex characters"
+                                   ]
+                               )
+                [ref.task | TaskHead ref _ <- map (.event) envelopes] `shouldBe` [TaskId "t1"]
+
+            it
+                "changes a task's base for its brief, and refuses a base on no earlier task or epic"
+                $ \world -> do
+                    _ <- tenXAtFanOut world
+                    let rebase task base = state world ["record", "task", task, "base", base, "--reason", "restack"]
+
+                    changed <- succeeded =<< rebase "t2" "on_task:t1"
+                    brief <- succeeded =<< state world ["brief", "engineer", "--task", "t2"]
+                    refusals <-
+                        traverse
+                            (fmap (\ran -> (ran.code, take 1 ran.err)) . uncurry rebase)
+                            [("t1", "on_task:t2"), ("t1", "on_epic:nope"), ("t9", "on_default")]
+                    unreasoned <- state world ["record", "task", "t1", "base", "on_default"]
+
+                    take 1 changed `shouldSatisfy` all ("task_base_changed" `Text.isInfixOf`)
+                    drop 1 changed `shouldBe` ["next: state next"]
+                    brief `shouldContain` ["Base: on_task:t1"]
+                    refusals
+                        `shouldBe` [
+                                       ( 2
+                                       ,
+                                           [ "state record: unknown_task - task t2 is not in the breakdown, or not earlier than the task whose base names it"
+                                           ]
+                                       )
+                                   , (2, ["state record: unknown_epic - the run never opened epic nope"])
+                                   , (2, ["state record: task t9 - no request's breakdown has such a task"])
+                                   ]
+                    (unreasoned.code, take 1 unreasoned.err)
+                        `shouldBe` ( 2
+                                   ,
+                                       [ "state record: record task - a base change says why, as --reason <r>: one line"
+                                       ]
+                                   )
+
+            it "records a task delivered, its PR left open, as its status" $ \world -> do
+                _ <- tenXAtFanOut world
+
+                _ <- succeeded =<< state world ["record", "task", "t1", "delivered", prUrl]
+                shown <- succeeded =<< state world ["show"]
+
+                shown
+                    `shouldSatisfy` any
+                        ( \l ->
+                            "task t1: " `Text.isPrefixOf` l && ("PR delivered " <> prUrl) `Text.isInfixOf` l
+                        )
+
             it "briefs an engineer with its task's fields, then its init line" $ \world -> do
                 run <- tenXAtFanOut world
 
@@ -1694,8 +1862,9 @@ spec = describe "state over the doubles" $ do
 
                 brief
                     `shouldBe` [ "Task: t2"
+                               , "Title: Task t2"
                                , "Fuel: Balanced"
-                               , "Base: main"
+                               , "Base: on_default"
                                , "Branch: t2"
                                , "Depends on: t1"
                                , "QA: no"
@@ -1713,7 +1882,7 @@ spec = describe "state over the doubles" $ do
                         (\role -> succeeded =<< state world ["brief", role, "--task", "t1"])
                         ["engineer", "10x"]
 
-                map (drop 9) briefs
+                map (drop 10) briefs
                     `shouldBe` replicate
                         2
                         ["state init --notes <dir> --flow 10x --parent " <> run <> " --task t1"]
@@ -1731,7 +1900,7 @@ spec = describe "state over the doubles" $ do
 
                 brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
-                drop 9 brief
+                drop 10 brief
                     `shouldBe` [ "cd /wt/t1 && state init --notes /tmp/engineer-o-r-feat-x/ --parent "
                                     <> run
                                     <> " --task t1"
@@ -1751,7 +1920,7 @@ spec = describe "state over the doubles" $ do
 
                     brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
-                    drop 9 brief
+                    drop 10 brief
                         `shouldBe` [ "state init --notes /tmp/engineer-o-r-feat-x-rm--rf---y--z--w/ --parent "
                                         <> run
                                         <> " --task t1"

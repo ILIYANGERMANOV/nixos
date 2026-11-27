@@ -17,6 +17,7 @@ module State.Run.RunGen (
     breakdownJson,
     taskFileJson,
     childOf,
+    refTo,
     sha,
     commit,
     happyPath,
@@ -99,6 +100,7 @@ import State.Run.EventGen (
     start,
     started,
     tasksOf,
+    titled,
  )
 import State.Run.Fold (
     Append (..),
@@ -108,7 +110,7 @@ import State.Run.Fold (
     append,
     replay,
  )
-import State.Step.Artifact (shellPathText)
+import State.Step.Artifact (epicNameText, nonBlankText, shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Catalog qualified as Catalog
@@ -196,8 +198,9 @@ plainTask :: Text -> [Text] -> Task
 plainTask name deps =
     Task
         { id = TaskId name
+        , title = titled ("Task " <> name)
         , deps = map TaskId deps
-        , base = Branch "main"
+        , base = OnDefault
         , branch = Branch name
         , fuel = Balanced
         , qa = False
@@ -226,8 +229,9 @@ taskJson :: Task -> Aeson.Value
 taskJson task =
     object $
         [ "id" .= taskIdText task.id
+        , "title" .= nonBlankText task.title
         , "deps" .= map taskIdText task.deps
-        , "base" .= branchText task.base
+        , "base" .= baseJson task.base
         , "branch" .= branchText task.branch
         , "fuel" .= fuelName task.fuel
         , "qa" .= task.qa
@@ -248,9 +252,23 @@ taskJson task =
                 ArchitectFlow -> ["flow" .= ("architect" :: Text)]
                 ChiefFlow -> ["flow" .= ("chief" :: Text)]
 
+-- | A task base as a task file spells it.
+baseJson :: Base -> Aeson.Value
+baseJson = \case
+    OnDefault -> object ["kind" .= ("on_default" :: Text)]
+    OnEpic epic -> object ["kind" .= ("on_epic" :: Text), "epic" .= epicNameText epic]
+    OnTask task -> object ["kind" .= ("on_task" :: Text), "task" .= taskIdText task]
+
+{- | The task of this id, as an event names it. The fold reads a task event
+by its id alone, so a test of the fold names any breakdown: the seq here.
+The shell's writers name the right one, which their own tests check.
+-}
+refTo :: Text -> TaskRef
+refTo name = TaskRef (TaskId name) 1
+
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child
-childOf child task = Child (runId child) (Tasked (TaskId task)) (Text.unpack child)
+childOf child task = Child (runId child) (Tasked (refTo task)) (Text.unpack child)
 
 sha :: Sha
 sha = Sha "abc123"

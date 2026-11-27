@@ -68,7 +68,12 @@ module State.Run.Event (
     Check (..),
     StateName (..),
     TaskId (..),
+    TaskRef (..),
     Task (..),
+    Base (..),
+    EpicName,
+    EpicMove (..),
+    NonBlank,
     Shape (..),
     Target (..),
     PlanCall (..),
@@ -78,6 +83,8 @@ module State.Run.Event (
     BreakdownError (..),
     breakdown,
     taskList,
+    tasksInOrder,
+    builtOn,
     Child (..),
     ChildTask (..),
     Said (..),
@@ -114,6 +121,7 @@ import State.Run.Ask (
     Question,
     Reply (..),
  )
+import State.Run.Epic (EpicMove (..))
 import State.Run.Gap (Gap, GapMove)
 import State.Run.Id (
     AgentId (..),
@@ -123,19 +131,23 @@ import State.Run.Id (
     SpanId (..),
     TaskId (..),
     TaskNo (..),
+    TaskRef (..),
     parseRunId,
     parseTaskNo,
     runIdText,
     taskNoText,
  )
 import State.Step.Artifact (
+    Base (..),
     Branch (..),
     BreakdownError (..),
     Check (..),
     Commit (..),
     DraftPr (..),
+    EpicName,
     Judgement (..),
     Label (..),
+    NonBlank,
     Picks (..),
     PlanCall (..),
     Repo (..),
@@ -148,7 +160,9 @@ import State.Step.Artifact (
     Topic (..),
     Url (..),
     breakdown,
+    builtOn,
     taskList,
+    tasksInOrder,
  )
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
 
@@ -227,21 +241,26 @@ data Event
     | -- | An event the run refused, logged so the next read can warn of it.
       Refused Note
     | -- | The 10x spawns an engineer for the task, before the child's @init@ logs 'Spawned'.
-      Spawning TaskId
+      Spawning TaskRef
     | -- | A child run started for a task, at the fan-out (written by the child's @init@).
       Spawned Child
-    | -- | The 10x resumes the child run, which works again until it hands back.
-      Resumed RunId
-    | -- | What a child run's hand-back said, by its run id.
-      HandedBack RunId Said
+    | {- | The 10x resumes the child run, which works again until it hands back.
+      Its task, if it took one, is copied from the child's 'Spawned'.
+      -}
+      Resumed RunId (Maybe TaskRef)
+    | -- | What a child run's hand-back said, by its run id, and its task as 'Resumed' names it.
+      HandedBack RunId (Maybe TaskRef) Said
     | -- | Where a task's PR stands, as the 10x saw it.
-      TaskMoved TaskId TaskState
+      TaskMoved TaskRef TaskState
     | -- | A finding held back from a task's PR, at this url.
-      Held TaskId Url
+      Held TaskRef Url
     | -- | The 10x acted on the task's held wake at this url: it is held no more.
-      ActedOn TaskId Url
-    | -- | A task joins the fan-out after its breakdown: a base fix, an epic's final PR.
-      TaskAdded Task
+      ActedOn TaskRef Url
+    | {- | A task joins the fan-out after its breakdown: a base fix, an epic's
+      final PR. It joins the breakdown logged at this seq; with none, it
+      starts one, at its own seq.
+      -}
+      TaskAdded Natural Task
     | {- | The lead's session started afresh, so every agent it had at work
       is gone: no task has one until the 10x sends one again.
       -}
@@ -299,6 +318,14 @@ data Event
       SpanStarted SpanStart
     | -- | The subagent of this span ended, how, and the tokens its own requests used.
       SpanEnded SpanId SpanEnding Usage
+    | -- | An epic of the run opened, made ready or merged ("State.Run.Epic").
+      EpicMoved EpicName EpicMove
+    | -- | The commit a task's branch is at, as the 10x saw it: its status stays.
+      TaskHead TaskRef Sha
+    | {- | The task builds on another base from here on, and why: its
+      dependency merged, or the stack was reordered.
+      -}
+      TaskBaseChanged TaskRef Base NonBlank
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.
@@ -436,7 +463,7 @@ newtype RefusalCode = RefusalCode {codeText :: Text}
     deriving stock (Eq, Ord, Show)
 
 -- | A child run of the fan-out: its run id, what it was spawned for and its worktree.
-data Child = Child {run :: RunId, task :: ChildTask, worktree :: FilePath}
+data Child = Child {run :: RunId, task :: ChildTask TaskRef, worktree :: FilePath}
     deriving stock (Eq, Show)
 
 -- | A child's hand-back, typed: only 'AsksUp' and 'Awaits' leave it running.
@@ -460,6 +487,10 @@ data TaskState
       Round Url
     | -- | Set aside, and why: a parked task counts as settled.
       Parked Text (Maybe Url)
+    | {- | Done as the run's rules define it, its PR left open: settled, not
+      merged, and no merge awaited.
+      -}
+      Delivered Url
     deriving stock (Eq, Show)
 
 -- | The artifacts these lines log, each with its seq.

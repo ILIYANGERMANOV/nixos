@@ -30,6 +30,7 @@ import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Numeric.Natural (Natural)
 import State.Artifact (FileKind, parseUri, uriRule)
 import State.Artifact qualified as Artifact
 import State.Category.Flow (ScopePath, nameText, unqualify)
@@ -60,9 +61,11 @@ import State.Run.Event (
     Label (..),
     Picks (..),
     Requirement (..),
+    RunId,
     Sha,
     Target (..),
     TaskId (..),
+    TaskRef,
     TaskState (..),
     Url (..),
     parseRunId,
@@ -78,7 +81,15 @@ import State.Run.Gap (
  )
 import State.Run.Gap qualified as Gap
 import State.Run.Id (parseEventRef)
-import State.Step.Artifact (parsePrUrl, prUrlRule)
+import State.Step.Artifact (
+    baseTextForms,
+    parseBase,
+    parseNonBlank,
+    parsePrUrl,
+    parseSha,
+    prUrlRule,
+    shaRule,
+ )
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
@@ -94,7 +105,8 @@ import State.Step.Ticket (Outcome (..), Sing (..))
 the shell can read; a breakdown or an added task is read from a file, by the
 shell too, which registers the file as an artifact of this kind. A plan's
 event only names its file: the shell registers it if it can read it, and a
-file it cannot read refuses nothing.
+file it cannot read refuses nothing. An event naming a task or a child names
+the task's breakdown too, which the shell reads off the run.
 -}
 data Recording
     = Plain Event
@@ -105,6 +117,13 @@ data Recording
       reporter the run's role; its evidence lines are looked up first.
       -}
       Filing GapDraft
+    | OnTask TaskId (TaskRef -> Event)
+    | -- | The child's task as its @spawned@ names it, none for an untasked child.
+      OnChild RunId (Maybe TaskRef -> Event)
+    | -- | A task read from this file joins the breakdown logged at a seq.
+      AddsTask FilePath (Text -> Either Text (Natural -> Event))
+    | -- | The task's branch is at this commit: the shell prints it as @task <id> head <sha>@.
+      HeadOf TaskId Sha
 
 {- | The @state record@ line for an event, its arguments' usage after it. An
 event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
@@ -332,44 +351,66 @@ recordables =
         <> [ atRoot
                 $ Recordable
                     "task"
-                    "<id> <ci|review|merged|kept|round> <pr> | add <task.json> | <id> parked <why>"
-                    [Flag "pr" "<url>" Optional]
+                    ( "<id> <"
+                        <> prStateNames
+                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> | <id> parked <why>"
+                    )
+                    [Flag "pr" "<url>" Optional, Flag "reason" "<r>" Optional]
                 $ \a -> case a.positional of
+                    -- Before a move: no task state is named head.
+                    ["head", task, raw] ->
+                        maybe
+                            (Left (raw <> " is not " <> shaRule))
+                            (Right . HeadOf (TaskId task))
+                            (parseSha raw)
+                    [task, "base", raw] -> do
+                        base <-
+                            maybe
+                                ( Left
+                                    (raw <> " is no base: " <> baseTextForms)
+                                )
+                                Right
+                                (parseBase raw)
+                        reason <-
+                            maybe
+                                (Left "a base change says why, as --reason <r>: one line")
+                                Right
+                                (parseNonBlank =<< option "reason" a)
+                        Right (OnTask (TaskId task) (\ref -> TaskBaseChanged ref base reason))
                     [task, "round", pr] ->
                         maybe
                             (Left (pr <> " is not " <> prUrlRule))
-                            (Right . Plain . TaskMoved (TaskId task) . Round)
+                            (Right . moving task . Round)
                             (parsePrUrl pr)
                     [task, state, pr]
                         | Just moved <- lookup state Codec.prStates ->
-                            Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
+                            Right (moving task (moved (Url pr)))
                     task : "parked" : why@(_ : _) ->
-                        Right
-                            ( Plain
-                                (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a)))
-                            )
-                    -- Two words never move a task, so a task named add stays recordable.
+                        Right (moving task (Parked (Text.unwords why) (Url <$> option "pr" a)))
+                    -- Two words never move a task; a task file refuses the id add.
                     ["add", path] ->
-                        Right
-                            ( FromFile
-                                Artifact.TaskList
-                                (Text.unpack path)
-                                (fmap TaskAdded . Codec.decodeTask)
-                            )
+                        Right (AddsTask (Text.unpack path) (fmap (flip TaskAdded) . Codec.decodeTask))
                     _ ->
                         Left
-                            "the task, then ci, review, merged, kept or round and its PR, or parked and why; or add and a task file"
-           , stay "held" "<task> <url>" $ \case
-                [task, link] -> Right (Held (TaskId task) (Url link))
+                            ( "the task, then "
+                                <> prStateNames
+                                <> " and its PR, base and its base, or parked and why; or add and a task file, or head, the task and its sha"
+                            )
+           , named "held" "<task> <url>" $ \case
+                [task, link] -> Right (OnTask (TaskId task) (`Held` Url link))
                 _ -> Left "the task and the url"
-           , stay "acted" "<task> <url>" $ \case
-                [task, link] -> Right (ActedOn (TaskId task) (Url link))
+           , named "acted" "<task> <url>" $ \case
+                [task, link] -> Right (OnTask (TaskId task) (`ActedOn` Url link))
                 _ -> Left "the task and the held url acted on"
-           , stay "spawning" "<task>" $ \case
-                [task] -> Right (Spawning (TaskId task))
+           , named "spawning" "<task>" $ \case
+                [task] -> Right (OnTask (TaskId task) Spawning)
                 _ -> Left "the task the engineer you spawn takes"
-           , stay "resumed" "<child run>" $ \case
-                [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
+           , named "resumed" "<child run>" $ \case
+                [child] ->
+                    maybe
+                        (Left (child <> " is no run id"))
+                        (\run -> Right (OnChild run (Resumed run)))
+                        (parseRunId child)
                 _ -> Left "the child run you resume"
            ]
         <> concat
@@ -395,7 +436,10 @@ recordables =
                         (fmap (tookIn a.scope . BreakdownDone fan) . Codec.decodeBreakdown)
                     )
             _ -> Left "the tasks file, as --tasks <file.json>"
-    stay name usageText build = atRoot (Recordable name usageText [] (\a -> Plain <$> build a.positional))
+    stay name usageText build = named name usageText (fmap Plain . build)
+    named name usageText build = atRoot (Recordable name usageText [] (build . (.positional)))
+    moving task = OnTask (TaskId task) . flip TaskMoved
+    prStateNames = Text.intercalate "|" (map fst Codec.prStates)
     outcome event = Recordable (eventText event)
     nothing done = outcome (Catalog.outcomeEvent (Catalog.outcome done)) "" [] $ \a -> case a.positional of
         [] -> Right (Plain (tookIn a.scope done))

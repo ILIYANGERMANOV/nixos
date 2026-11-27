@@ -16,7 +16,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight, partitionEithers)
 import Data.Foldable (for_, toList, traverse_)
 import Data.Functor (($>), (<&>))
-import Data.List (find)
+import Data.List (find, genericLength)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -63,7 +63,7 @@ import State.Artifact (
     Blob (..),
     Contents (..),
     FileArtifact (..),
-    FileKind (Transcript),
+    FileKind (TaskList, Transcript),
     FileRef (..),
     Size (..),
     Snapshot (..),
@@ -137,6 +137,7 @@ import State.Cli.View (
     beginText,
     brief,
     briefSection,
+    epicRow,
     pendingLines,
     showRun,
     taskBrief,
@@ -268,9 +269,12 @@ import State.Run.Event (
     AgentRole (..),
     Asker (..),
     Asking (..),
+    Base (OnEpic),
     Child (..),
     DraftPr (..),
     Envelope (..),
+    EpicMove (..),
+    EpicName,
     Event (..),
     FlowName (..),
     Handover,
@@ -1355,9 +1359,13 @@ execute steps = \case
         Record recording -> case recording of
             FromFile _ path _ -> Just path
             NamesFile _ path _ -> Just path
+            AddsTask path _ -> Just path
             Plain _ -> Nothing
             AtHead _ -> Nothing
             Filing _ -> Nothing
+            OnTask _ _ -> Nothing
+            OnChild _ _ -> Nothing
+            HeadOf _ _ -> Nothing
         RecordUnknown _ -> Nothing
         Brief _ _ -> Nothing
         ShowRun -> Nothing
@@ -1373,6 +1381,7 @@ execute steps = \case
         StopRun _ -> Nothing
         Pending -> Nothing
         NoteOn _ _ -> Nothing
+        MoveEpic _ _ -> Nothing
 
 -- | The lines a gap's evidence names: each must be stored, in any run.
 evidenceOf :: RunCommand -> [EventRef]
@@ -1932,6 +1941,45 @@ writtenDown before after qid = Output "" Nothing (downOf before after qid)
 recorded :: [Written] -> Output
 recorded written = printed (recordedLines written <> nextLine)
 
+{- | An epic's row once it moved, then what comes next: an epic opened
+comes before the breakdown that builds on it; one made ready lists its
+tasks, as its PR holds their work.
+-}
+epicMoved :: RunState -> EpicName -> EpicMove -> Text
+epicMoved after epic move =
+    foldMap
+        (\found -> "epic " <> epicRow epic found <> "\n")
+        (Map.lookup epic after.epics)
+        <> case move of
+            Opens _ _ -> "next: state record breakdown.done --tasks <file.json>\n"
+            Readies _ -> "tasks on it: " <> onIt <> "\n" <> nextLine
+            Merges -> nextLine
+  where
+    onIt = case [ taskIdText task.id
+                | fan <- Map.elems after.fans
+                , task <- Fan.tasksOf fan
+                , task.base == OnEpic epic
+                ] of
+        [] -> "none"
+        ids -> Text.unwords ids
+
+{- | What a recording prints: a task's head as its row, @task t4 head
+<sha>@; any other, a line per event it wrote. Then the command to run next.
+-}
+recordedAs :: Recording -> [Written] -> Output
+recordedAs recording written = case recording of
+    HeadOf task sha ->
+        printed
+            ("task " <> taskIdText task <> " head " <> Codec.shaText sha <> "\n" <> nextLine)
+    Plain _ -> recorded written
+    AtHead _ -> recorded written
+    FromFile {} -> recorded written
+    NamesFile {} -> recorded written
+    Filing _ -> recorded written
+    OnTask _ _ -> recorded written
+    OnChild _ _ -> recorded written
+    AddsTask _ _ -> recorded written
+
 -- | What every write that prints no advice of its own says to run next.
 nextLine :: Text
 nextLine = "next: state next\n"
@@ -1955,10 +2003,24 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
             ref : _ -> Left (Refusing (UnknownEvent ref))
             [] -> Right ()
         (registered, unread, text) <- fileRead recording file
-        event <- unlogged (recordedEvent g state worktreeHead text recording)
+        -- The event's seq: the next, after the file's registration.
+        let QId _ first = next
+        event <-
+            unlogged
+                ( recordedEvent
+                    g
+                    state
+                    worktreeHead
+                    text
+                    (first + genericLength registered)
+                    recording
+                )
         -- The file registered first, then the outcome that names it.
         Right
-            (Plan (registered <> [event]) (\_ written -> printed unread <> recorded written))
+            ( Plan
+                (registered <> [event])
+                (\_ written -> printed unread <> recordedAs recording written)
+            )
     NoteOn topic text ->
         Right
             ( Plan
@@ -1972,6 +2034,9 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
                         )
                 )
             )
+    MoveEpic epic move ->
+        Right
+            (Plan [EpicMoved epic move] (\after _ -> printed (epicMoved after epic move)))
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
     AskOwn kind how text -> do
@@ -2131,10 +2196,8 @@ fileRead ::
     Maybe (AbsPath, Contents) ->
     Either Unplanned ([Event], Text, Maybe Text)
 fileRead recording file = case recording of
-    FromFile kind _ _ -> do
-        found <- traverse readable file
-        text <- traverse utf8 found
-        Right (registering kind found, "", text)
+    FromFile kind _ _ -> parsedFrom kind
+    AddsTask _ _ -> parsedFrom TaskList
     NamesFile kind _ _ -> case file of
         Just (path, Unreadable) ->
             Right
@@ -2149,7 +2212,14 @@ fileRead recording file = case recording of
     Plain _ -> Right ([], "", Nothing)
     AtHead _ -> Right ([], "", Nothing)
     Filing _ -> Right ([], "", Nothing)
+    OnTask _ _ -> Right ([], "", Nothing)
+    OnChild _ _ -> Right ([], "", Nothing)
+    HeadOf _ _ -> Right ([], "", Nothing)
   where
+    parsedFrom kind = do
+        found <- traverse readable file
+        text <- traverse utf8 found
+        Right (registering kind found, "", text)
     utf8 (path, bytes) =
         Bifunctor.first
             ( const
@@ -2198,24 +2268,34 @@ forwardedFirst state qid = case (.waits) <$> Fold.pendingAt state qid of
     Just (ForLater _) -> []
     Nothing -> []
 
-{- | The event @state record@ appends: the one its recording names, placed in
-the scope the run is in.
+{- | The event @state record@ appends at seq @n@: the one its recording
+names, placed in the scope the run is in.
 -}
 recordedEvent ::
     OpenGraph ->
     RunState ->
     Maybe Sha ->
     Maybe Text ->
+    Natural ->
     Recording ->
     Either Failure Event
-recordedEvent g state worktreeHead file recording = Fold.inScope g state <$> namedEvent state worktreeHead file recording
+recordedEvent g state worktreeHead file n recording =
+    Fold.inScope g state <$> namedEvent g state worktreeHead file n recording
 
 {- | The event a recording names, from HEAD or the file it read beforehand;
-a gap met at the step the run is at, by the role its flow runs.
+a gap met at the step the run is at, by the role its flow runs; and from
+the run, the breakdown of the task it names: a task unknown to the run is
+refused as its event would be.
 -}
 namedEvent ::
-    RunState -> Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
-namedEvent state worktreeHead file = \case
+    OpenGraph ->
+    RunState ->
+    Maybe Sha ->
+    Maybe Text ->
+    Natural ->
+    Recording ->
+    Either Failure Event
+namedEvent g state worktreeHead file n = \case
     Plain event -> Right event
     Filing gap ->
         Right
@@ -2236,11 +2316,23 @@ namedEvent state worktreeHead file = \case
                     "the event records HEAD and the worktree has none"
                     "git commit"
                 )
-    FromFile _ path parse -> case parse <$> file of
+    FromFile _ path parse -> parsed path parse
+    NamesFile _ _ event -> Right event
+    OnTask task event -> onTask task event
+    OnChild child event -> Right (event (Fold.childRefIn state child))
+    AddsTask path parse -> (\event -> event (Fold.addedTo state n)) <$> parsed path parse
+    HeadOf task sha -> onTask task (`TaskHead` sha)
+  where
+    onTask task event =
+        Bifunctor.bimap
+            (explain g (Fold.fuelOf state) state.at)
+            event
+            (Fold.taskRefIn state task)
+    parsed :: FilePath -> (Text -> Either Text a) -> Either Failure a
+    parsed path parse = case parse <$> file of
         Just (Right event) -> Right event
         Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
         Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
-    NamesFile _ _ event -> Right event
 
 {- | A worker's hand-back as the run records it. One with no kind on its
 question, or a worker's BLOCKED or FAILED, is the run's to triage.
@@ -2883,7 +2975,7 @@ initRun gd args = do
                 (Right said@(_, run), ByRole parent _ _) -> case parent.link of
                     InFan task ->
                         fmap (const said)
-                            <$> spawnedIn parent.run (Child run task (absPathText worktree))
+                            <$> spawnedIn parent.run run task (absPathText worktree)
                     -- No fan-out to tell: the store's runs.parent links it.
                     Direct -> pure (Right said)
                 (Right said, ByUser _) -> pure (Right said)
@@ -3181,17 +3273,31 @@ pointed gd =
                 <$> onLog (\_ loaded -> ([], Right loaded.state)) run
 
 {- | The child's @spawned@, appended to its parent's log under the parent's
-lock, by an id hashed from both runs: a retried init appends it once.
+lock, by an id hashed from both runs: a retried init appends it once. Its
+task is named beside the parent's breakdown that holds it.
 -}
-spawnedIn :: (Shell es) => RunId -> Child -> Eff es (Either Failure ())
-spawnedIn parent child =
+spawnedIn ::
+    (Shell es) =>
+    RunId -> RunId -> ChildTask TaskId -> FilePath -> Eff es (Either Failure ())
+spawnedIn parent child task worktree =
     Monad.void
         <$> onLog
-            ( \stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> mempty)))
+            ( \stamp run ->
+                record
+                    stamp
+                    run
+                    [source]
+                    ( unlogged
+                        ( Bifunctor.bimap
+                            (explain run.g (Fold.fuelOf run.state) run.state.at)
+                            (\ref -> Plan [Spawned (Child child ref worktree)] (\_ _ -> mempty))
+                            (traverse (Fold.taskRefIn run.state) task)
+                        )
+                    )
             )
             parent
   where
-    source = Hook (digestOf [runIdText parent, runIdText child.run])
+    source = Hook (digestOf [runIdText parent, runIdText child])
 
 -- | Whether a run goes on, or how it ended.
 data Liveness = Live | Ended Text

@@ -13,6 +13,7 @@ import State.Golden (golden)
 import State.Role (Rung (..))
 import State.Run.Ask (Above (..), Kind (..), QId (..), Reply (..))
 import State.Run.Ask qualified as Ask
+import State.Run.Epic qualified as Epic
 import State.Run.Event (
     RefusalCode (..),
     RunId,
@@ -23,13 +24,13 @@ import State.Run.Event (
     TaskId (..),
     TaskNo (..),
  )
-import State.Run.EventGen (absolutePath, oneLine, runId)
+import State.Run.EventGen (absolutePath, epicNamed, oneLine, runId)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..))
 import State.Run.Gap qualified as Gap
 import State.Run.Id (EventRef (..))
 import State.Run.RunGen (g)
-import State.Step.Artifact (Url (..))
+import State.Step.Artifact (EpicName, Url (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
 spec :: Spec
@@ -118,6 +119,10 @@ samples =
         , UnknownGap 5
         , GapClosed 5 (Gap.WontFix (oneLine "out of scope"))
         , SpanNotOpen (SpanId 6)
+        , EpicRefused (Epic.EpicExists epic)
+        , EpicRefused (Epic.EpicNotOpen epic)
+        , EpicRefused (Epic.EpicNotReady epic)
+        , EpicRefused (Epic.UnknownEpic epic)
         ]
     cap = case Map.elems g.caps of
         first : _ -> first
@@ -131,3 +136,6 @@ qid = QId run 2
 
 task :: TaskId
 task = TaskId "t1"
+
+epic :: EpicName
+epic = epicNamed "auth"

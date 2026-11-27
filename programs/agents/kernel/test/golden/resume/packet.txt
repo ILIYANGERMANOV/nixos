@@ -1,34 +1,37 @@
-resume run 00010203 (10x), active at engineers: 1 sessions, 23 events, last handover 00010203:21 (context)
+resume run 00010203 (10x), active at engineers: 1 sessions, 27 events, last handover 00010203:25 (context)
 goal: Ship the resume packet
 worktree: /work2   repo: o/r   fuel: balanced
 pr: none yet   notes dir: /notes
-next (handover 00010203:21):
+next (handover 00010203:25):
   1. merge t1
   2. spawn t2
 owed to the user:
-  - answer 00010203:18
-tasks:
-  id  status   at_work  pr                             child run
-  t1  review   no       https://github.com/o/r/pull/3  04050607
-  t2  planned  no       -                              -          after t1
+  - merge epic limits (ready_for_review, https://github.com/o/r/pull/40)
+  - answer 00010203:22
+epics:
+  limits o/r epic/limits ready_for_review https://github.com/o/r/pull/40
+tasks (breakdown 00010203:5, in dependency order):
+  id  status     at_work  base            pr                             head     child run
+  t1  in_review  no       on_default      https://github.com/o/r/pull/3  0123456  04050607
+  t2  planned    no       on_epic:limits  -                              -        -          after t1
 open questions (2):
-  00010203:18 Scope forwarded from this run: ship t2 too?
-  00010203:15 Design to triage from this run: which store?
+  00010203:22 Scope forwarded from this run: ship t2 too?
+  00010203:19 Design to triage from this run: which store?
 decisions (1, newest first):
-  Ruling 00010203:16 Pick: zod - already used - none
-notes by topic: live 1 (last 00010203:14), traps 1 (last 00010203:13)
+  Ruling 00010203:20 Pick: zod - already used - none
+notes by topic: live 1 (last 00010203:18), traps 1 (last 00010203:17)
   load: state sql "select text from notes where run_id = '00010203' and topic = 'live'"
   load: state sql "select text from notes where run_id = '00010203' and topic = 'traps'"
 
 context map (load on demand, or in a subagent):
   files
-    task_list 00010203:4 /notes/tasks.json sha256:ccee37302c5a5ad8c144dc12bc7b4c25665f6d30c2bec3f0f0dce1c5d95b40a4 219 bytes stored
+    task_list 00010203:4 /notes/tasks.json sha256:8516220329e0346f6fc1f869d664380c78d536bca780614b2753d54294c79ec9 285 bytes stored
       load: state artifact show 00010203:4
-    plan 00010203:11 /work/plan.md sha256:81db67b6a5702b9b68f0016f061c409bf3fb16d062fc854d1b424bb4e9c28c56 3 bytes stored
-      load: state artifact show 00010203:11
+    plan 00010203:15 /work/plan.md sha256:81db67b6a5702b9b68f0016f061c409bf3fb16d062fc854d1b424bb4e9c28c56 3 bytes stored
+      load: state artifact show 00010203:15
       older: 1  load: state sql "select id, sha256, size_bytes from artifacts where run_id = '00010203' and path = '/work/plan.md' order by id"
   urls
-    ticket 00010203:12 https://github.com/o/r/issues/7
+    ticket 00010203:16 https://github.com/o/r/issues/7
   child runs
     04050607 t1 finished ready notes dir /child
       load: state resume 04050607

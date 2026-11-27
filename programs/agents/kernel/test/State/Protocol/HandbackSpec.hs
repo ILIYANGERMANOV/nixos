@@ -24,7 +24,6 @@ import State.Run.Event (
     Said (..),
     Sha (..),
     StateName (..),
-    TaskId (..),
     TaskState (..),
     Url (..),
     stepTook,
@@ -55,6 +54,7 @@ import State.Run.RunGen (
     happyPath,
     loadSteps,
     plainTask,
+    refTo,
     runAt,
     sha,
     tenXAt,
@@ -337,19 +337,20 @@ typing = describe "typeHandback" $ do
             fromChild "READY https://pr/1\nRun: c1"
                 `shouldBe` Right
                     ( Typed
-                        [ HandedBack c1 (Finished (oneLine "https://pr/1"))
-                        , TaskMoved (TaskId "t1") (InReview (Url "https://pr/1"))
+                        [ HandedBack c1 (Just (refTo "t1")) (Finished (oneLine "https://pr/1"))
+                        , TaskMoved (refTo "t1") (InReview (Url "https://pr/1"))
                         ]
                         Nothing
                     )
         it "records only the finish of a READY that names no PR" $
             fromChild "READY done\nRun: c1"
-                `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "done"))] Nothing)
+                `shouldBe` Right
+                    (Typed [HandedBack c1 (Just (refTo "t1")) (Finished (oneLine "done"))] Nothing)
         it "records a question as asked up by the child, which joins this run's pending" $
             fromChild "NEEDS_DECISION Design c1:2: which store?\nRun: c1"
                 `shouldBe` Right
                     ( Typed
-                        [ HandedBack c1 (AsksUp (QId c1 2))
+                        [ HandedBack c1 (Just (refTo "t1")) (AsksUp (QId c1 2))
                         , Asked
                             ( Asking
                                 (Question (QId c1 2) Design (oneLine "which store?"))
@@ -365,10 +366,18 @@ typing = describe "typeHandback" $ do
                 [ "AWAIT ci https://pr/1\nRun: c1"
                 , "AWAIT merge https://pr/1 https://pr/2\nRun: c1"
                 ]
-                `shouldBe` [ Right (Typed [HandedBack c1 (Awaits Ci (oneLine "https://pr/1"))] Nothing)
+                `shouldBe` [ Right
+                                ( Typed
+                                    [HandedBack c1 (Just (refTo "t1")) (Awaits Ci (oneLine "https://pr/1"))]
+                                    Nothing
+                                )
                            , Right
                                 ( Typed
-                                    [HandedBack c1 (Awaits Merge (oneLine "https://pr/1 https://pr/2"))]
+                                    [ HandedBack
+                                        c1
+                                        (Just (refTo "t1"))
+                                        (Awaits Merge (oneLine "https://pr/1 https://pr/2"))
+                                    ]
                                     Nothing
                                 )
                            ]
@@ -380,12 +389,17 @@ typing = describe "typeHandback" $ do
                 ]
                 `shouldBe` [ Right
                                 ( Typed
-                                    [HandedBack c1 (Ended (Event.Stop Event.Blocked "no access"))]
+                                    [ HandedBack c1 (Just (refTo "t1")) (Ended (Event.Stop Event.Blocked "no access"))
+                                    ]
                                     (Just (oneLine "BLOCKED no access"))
                                 )
                            , Right
                                 ( Typed
-                                    [HandedBack c1 (Ended (Event.Stop Event.Replan "no such table"))]
+                                    [ HandedBack
+                                        c1
+                                        (Just (refTo "t1"))
+                                        (Ended (Event.Stop Event.Replan "no such table"))
+                                    ]
                                     (Just (oneLine "NEEDS_DECISION plan wrong: no such table"))
                                 )
                            ]
@@ -393,7 +407,11 @@ typing = describe "typeHandback" $ do
             fromChild "BLOCKED out of rounds: three rounds\nRun: c1"
                 `shouldBe` Right
                     ( Typed
-                        [HandedBack c1 (Ended (Event.Stop Event.OutOfRounds "three rounds"))]
+                        [ HandedBack
+                            c1
+                            (Just (refTo "t1"))
+                            (Ended (Event.Stop Event.OutOfRounds "three rounds"))
+                        ]
                         (Just (oneLine "BLOCKED out of rounds: three rounds"))
                     )
         it "refuses a question the child did not ask in its own run" $

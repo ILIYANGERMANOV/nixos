@@ -906,7 +906,7 @@ atOnce at ended state =
         , triage =
             [ (task, TriageStop child.run (retryable task) stop)
             | (child, stop) <- Fan.untriaged here
-            , Tasked task <- [child.task]
+            , Tasked task <- [Fan.childTaskId child]
             ]
         , record = recordsFinished here
         , resume =
@@ -918,7 +918,7 @@ atOnce at ended state =
             | (qid, kind, answer) <- given state
             , Just c <- [Fan.askedBy here qid]
             , c `elem` waiting
-            , Tasked task <- [c.child.task]
+            , Tasked task <- [Fan.childTaskId c.child]
             ]
                 <> lost
         , spawn =
@@ -977,7 +977,7 @@ recordFinished = fmap snd . listToMaybe . recordsFinished
 recordsFinished :: Fan -> [(TaskId, Action)]
 recordsFinished fan =
     [ (task.id, Run (one (recordTask task) "its child finished: record its PR"))
-    | task <- fan.tasks
+    | task <- Fan.tasksOf fan
     , Fan.unrecorded fan task.id
     ]
 
@@ -1074,7 +1074,7 @@ factLines g facts state =
            ]
         <> [ taskLine fan (map (.asking.question.qid) state.pending) task
            | fan <- Map.elems state.fans
-           , task <- fan.tasks
+           , task <- Fan.tasksOf fan
            ]
         -- A chief's parked requests, which next.done would leave suspended unsaid.
         <> [ taskNoText task
@@ -1154,6 +1154,7 @@ taskLine fan open task =
             Kept url -> " " <> urlText url
             Round url -> " " <> urlText url
             Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
+            Delivered url -> " " <> urlText url
 
 {- | The advice held while a worker of the run is still at work and its line
 would hand the run back: a lead hands back only after its workers, as a

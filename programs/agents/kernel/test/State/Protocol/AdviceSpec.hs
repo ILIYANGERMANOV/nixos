@@ -55,6 +55,7 @@ import State.Run.RunGen (
     loadSteps,
     pickOf,
     plainTask,
+    refTo,
     runAt,
     runOf,
     runUnder,
@@ -568,7 +569,7 @@ spec = describe "State.Protocol.Advice" $ do
             asks = Question (QId (runId "c1") 1) Design (oneLine "which store?")
             fromChild =
                 [ Spawned (childOf "c1" "t1")
-                , HandedBack (runId "c1") (AsksUp asks.qid)
+                , HandedBack (runId "c1") Nothing (AsksUp asks.qid)
                 , Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1")))
                 ]
         it "spawns the next free task" $
@@ -579,7 +580,7 @@ spec = describe "State.Protocol.Advice" $ do
             $ [ next
                     noFacts {ended = [runId "c1"]}
                     (tenXAt (t1 :| [t2]) (Spawned (childOf "c1" "t1") : said))
-              | said <- [[], [HandedBack (runId "c1") (Finished (oneLine "done"))]]
+              | said <- [[], [HandedBack (runId "c1") Nothing (Finished (oneLine "done"))]]
               ]
                 `shouldBe` [ offering ["state handback engineer"]
                            , offering ["state record task t1 review <url>"]
@@ -590,12 +591,12 @@ spec = describe "State.Protocol.Advice" $ do
         it "awaits a dependency's merge, not a park of its dependent" $ do
             let reviewed =
                     [ Spawned (childOf "c1" "t1")
-                    , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                    , TaskMoved (TaskId "t1") (InReview prUrl)
+                    , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                    , TaskMoved (refTo "t1") (InReview prUrl)
                     ]
             map
                 (next noFacts . tenXAt (t1 :| [plainTask "t2" ["t1"]]))
-                [reviewed, reviewed <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
+                [reviewed, reviewed <> [TaskMoved (refTo "t1") (Merged prUrl)]]
                 `shouldBe` [ AwaitMerge ((TaskId "t1", Just prUrl) :| [])
                            , Spawn (AgentRole "engineer") (Just (TaskId "t2"))
                            ]
@@ -604,8 +605,8 @@ spec = describe "State.Protocol.Advice" $ do
                 noFacts
                 ( tenXAt
                     (t1 :| [t2])
-                    [ TaskMoved (TaskId "t1") (Parked "out of scope" Nothing)
-                    , TaskMoved (TaskId "t2") (Parked "not needed" Nothing)
+                    [ TaskMoved (refTo "t1") (Parked "out of scope" Nothing)
+                    , TaskMoved (refTo "t2") (Parked "not needed" Nothing)
                     ]
                 )
                 `shouldBe` offering ["state stop blocked \"all tasks parked\""]
@@ -617,7 +618,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "spawns the next task once a spawn is recorded, never the same task twice" $
             map
                 (next noFacts . tenXAt (t1 :| [t2]))
-                [[Spawning (TaskId "t1")], [Spawning (TaskId "t1"), Spawning (TaskId "t2")]]
+                [[Spawning (refTo "t1")], [Spawning (refTo "t1"), Spawning (refTo "t2")]]
                 `shouldBe` [ Spawn (AgentRole "engineer") (Just (TaskId "t2"))
                            , AwaitChildren (TaskId "t1" :| [TaskId "t2"])
                            ]
@@ -629,28 +630,33 @@ spec = describe "State.Protocol.Advice" $ do
                         fromChild
                             <> [ RuledOn asks.qid ruling
                                , Spawned (childOf "c2" "t2")
-                               , HandedBack (runId "c2") (AsksUp asks2.qid)
+                               , HandedBack (runId "c2") Nothing (AsksUp asks2.qid)
                                , Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2")))
                                , RuledOn asks2.qid ruling
                                ]
                 map
                     (next noFacts . tenXAt (t1 :| [t2]))
-                    [ both <> [Resumed (runId "c1")]
-                    , both <> [Resumed (runId "c1"), Resumed (runId "c2")]
+                    [ both <> [Resumed (runId "c1") Nothing]
+                    , both <> [Resumed (runId "c1") Nothing, Resumed (runId "c2") Nothing]
                     ]
                     `shouldBe` [ Resume (runId "c2") "with the answer to c2:1: confirmed"
                                , AwaitChildren (TaskId "t1" :| [TaskId "t2"])
                                ]
         it "sends a child lost at a restart again, and waits on it once resumed" $ do
             let lost = [Spawned (childOf "c1" "t1"), Restarted]
-            map (next noFacts . tenXAt (t1 :| [])) [lost, lost <> [Resumed (runId "c1")]]
+            map
+                (next noFacts . tenXAt (t1 :| []))
+                [lost, lost <> [Resumed (runId "c1") Nothing]]
                 `shouldBe` [ Resume (runId "c1") "lost at a restart: a fresh engineer with its spawn prompt"
                            , AwaitChildren (TaskId "t1" :| [])
                            ]
         it "spawns a task added mid-run" $
             next
                 noFacts
-                (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), TaskAdded (plainTask "fix" [])])
+                ( tenXAt
+                    (t1 :| [])
+                    [Spawned (childOf "c1" "t1"), TaskAdded 1 (plainTask "fix" [])]
+                )
                 `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
         it "waits on CI no more once the child is resumed" $
             next
@@ -658,14 +664,14 @@ spec = describe "State.Protocol.Advice" $ do
                 ( tenXAt
                     (t1 :| [])
                     [ Spawned (childOf "c1" "t1")
-                    , HandedBack (runId "c1") (Awaits Ci (oneLine "https://pr/1"))
-                    , Resumed (runId "c1")
+                    , HandedBack (runId "c1") Nothing (Awaits Ci (oneLine "https://pr/1"))
+                    , Resumed (runId "c1") Nothing
                     ]
                 )
                 `shouldBe` AwaitChildren (TaskId "t1" :| [])
         it "triages a child's stop before a retry, and retries once it is asked" $ do
             let stop = Stop Blocked "no access"
-                stopped = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended stop)]
+                stopped = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") Nothing (Ended stop)]
                 triaged = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
             map
                 (next noFacts . tenXAt (t1 :| []))
@@ -683,11 +689,11 @@ spec = describe "State.Protocol.Advice" $ do
                 triaged = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
                 twice =
                     [ Spawned (childOf "c1" "t1")
-                    , HandedBack (runId "c1") (Ended stop)
+                    , HandedBack (runId "c1") Nothing (Ended stop)
                     , Asked (Asking triaged (StateName "engineers") (ChildRun (runId "c1")))
                     , RuledOn triaged.qid ruling
                     , Spawned (childOf "c2" "t1")
-                    , HandedBack (runId "c2") (Ended stop)
+                    , HandedBack (runId "c2") Nothing (Ended stop)
                     ]
             next noFacts (tenXAt (t1 :| []) twice)
                 `shouldBe` TriageStop (runId "c2") Nothing stop
@@ -695,7 +701,7 @@ spec = describe "State.Protocol.Advice" $ do
             let stuckOn = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
                 forwarded =
                     [ Spawned (childOf "c1" "t1")
-                    , HandedBack (runId "c1") (Ended (Stop Blocked "no access"))
+                    , HandedBack (runId "c1") Nothing (Ended (Stop Blocked "no access"))
                     , Asked (Asking stuckOn (StateName "engineers") (ChildRun (runId "c1")))
                     , Forwarded stuckOn.qid TheUser
                     ]
@@ -708,12 +714,12 @@ spec = describe "State.Protocol.Advice" $ do
             $ do
                 let inReview =
                         [ Spawned (childOf "c1" "t1")
-                        , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                        , TaskMoved (TaskId "t1") (InReview prUrl)
+                        , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                        , TaskMoved (refTo "t1") (InReview prUrl)
                         ]
                 map
                     (next noFacts . tenXAt (t1 :| []))
-                    [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
+                    [inReview, inReview <> [TaskMoved (refTo "t1") (Merged prUrl)]]
                     `shouldBe` [ AwaitMerge ((TaskId "t1", Just prUrl) :| [])
                                , offering ["state record merge.done <url>", "state record merge.next_round"]
                                ]
@@ -729,8 +735,8 @@ spec = describe "State.Protocol.Advice" $ do
                 let indices = map (Text.pack . show) [1 .. n]
                     task i = "t" <> i
                     back i =
-                        [ HandedBack (runId ("c" <> i)) (Finished (oneLine "PR"))
-                        , TaskMoved (TaskId (task i)) (InReview (Url ("pr" <> i)))
+                        [ HandedBack (runId ("c" <> i)) Nothing (Finished (oneLine "PR"))
+                        , TaskMoved (refTo (task i)) (InReview (Url ("pr" <> i)))
                         ]
                 handBacks <- forAll (Gen.shuffle indices)
                 next
@@ -746,10 +752,10 @@ spec = describe "State.Protocol.Advice" $ do
         it "spawns a task added at the merge" $ do
             let merged =
                     [ Spawned (childOf "c1" "t1")
-                    , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                    , TaskMoved (TaskId "t1") (Merged prUrl)
+                    , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                    , TaskMoved (refTo "t1") (Merged prUrl)
                     ]
-            next noFacts (tenXAt (t1 :| []) (merged <> [TaskAdded (plainTask "fix" [])]))
+            next noFacts (tenXAt (t1 :| []) (merged <> [TaskAdded 1 (plainTask "fix" [])]))
                 `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
         it "resumes a ruled child while the user holds another child's question" $ do
             let asks2 = Question (QId (runId "c2") 1) Security (oneLine "token in env?")
@@ -757,25 +763,25 @@ spec = describe "State.Protocol.Advice" $ do
                     fromChild
                         <> [ RuledOn asks.qid ruling
                            , Spawned (childOf "c2" "t2")
-                           , HandedBack (runId "c2") (AsksUp asks2.qid)
+                           , HandedBack (runId "c2") Nothing (AsksUp asks2.qid)
                            , Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2")))
                            , Forwarded asks2.qid TheUser
                            ]
             map
                 (next noFacts . tenXAt (t1 :| [t2]))
-                [forwarded, forwarded <> [Resumed (runId "c1")]]
+                [forwarded, forwarded <> [Resumed (runId "c1") Nothing]]
                 `shouldBe` [Resume (runId "c1") "with the answer to c1:1: confirmed", AwaitAnswer asks2]
         it "records a finished task's PR when the child's READY named none" $
             map
                 ( next noFacts
                     . tenXAt (t1 :| [t2])
                     . ( [ Spawned (childOf "c1" "t1")
-                        , HandedBack (runId "c1") (Finished (oneLine "done"))
+                        , HandedBack (runId "c1") Nothing (Finished (oneLine "done"))
                         ]
                             <>
                       )
                 )
-                [[], [TaskMoved (TaskId "t1") (InReview prUrl)]]
+                [[], [TaskMoved (refTo "t1") (InReview prUrl)]]
                 `shouldBe` [ offering ["state record task t1 review <url>"]
                            , Spawn (AgentRole "engineer") (Just (TaskId "t2"))
                            ]
@@ -809,7 +815,7 @@ spec = describe "State.Protocol.Advice" $ do
                 ( tenXAt
                     (t1 :| [])
                     [ Spawned (childOf "c1" "t1")
-                    , HandedBack (runId "c1") (Awaits on (oneLine "https://pr/1"))
+                    , HandedBack (runId "c1") Nothing (Awaits on (oneLine "https://pr/1"))
                     ]
                 )
             | on <- [Ci, Merge]
@@ -818,8 +824,8 @@ spec = describe "State.Protocol.Advice" $ do
         it "waits on a finished task's CI, recording nothing" $ do
             let inCi =
                     [ Spawned (childOf "c1" "t1")
-                    , TaskMoved (TaskId "t1") (InCi prUrl)
-                    , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
+                    , TaskMoved (refTo "t1") (InCi prUrl)
+                    , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
                     ]
             (next noFacts (tenXAt (t1 :| []) inCi), due noFacts (tenXAt (t1 :| []) inCi))
                 `shouldBe` (AwaitOn Ci "https://pr/1", Nothing)
@@ -842,7 +848,7 @@ spec = describe "State.Protocol.Advice" $ do
                 ( factLines
                     tenXGraph
                     noFacts
-                    (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)]))
+                    (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (refTo "t1") (InCi prUrl)]))
                 )
                 `shouldBe` [ "task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1"
                            , "task t2: not started, tries 0"
@@ -857,8 +863,8 @@ spec = describe "State.Protocol.Advice" $ do
                         (t1 :| [])
                         ( fromChild
                             <> [ RuledOn asks.qid ruling
-                               , Resumed (runId "c1")
-                               , Held (TaskId "t1") (Url "https://pr/1#c")
+                               , Resumed (runId "c1") Nothing
+                               , Held (refTo "t1") (Url "https://pr/1#c")
                                ]
                         )
                     )
