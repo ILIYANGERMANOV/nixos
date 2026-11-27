@@ -1306,7 +1306,7 @@ spec = describe "state over the doubles" $ do
                 (refused.code, refused.err)
                     `shouldBe` ( 2
                                ,
-                                   [ "state init: --task t9 - no fan-out's breakdown has such a task"
+                                   [ "state init: --task t9 - task t9 is not in the breakdown"
                                    , "fix: state brief engineer, in the parent's worktree, prints the init line"
                                    ]
                                )
@@ -1844,7 +1844,7 @@ spec = describe "state over the doubles" $ do
                                            ]
                                        )
                                    , (2, ["state record: unknown_epic - the run never opened epic nope"])
-                                   , (2, ["state record: task t9 - no fan-out's breakdown has such a task"])
+                                   , (2, ["state record: unknown_task - task t9 is not in the breakdown"])
                                    ]
                     (unreasoned.code, take 1 unreasoned.err)
                         `shouldBe` ( 2

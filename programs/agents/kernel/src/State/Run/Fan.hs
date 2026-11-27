@@ -35,8 +35,7 @@ module State.Run.Fan (
     triaged,
     handedBack,
     moved,
-    movable,
-    Movable (..),
+    holds,
     held,
     actedOn,
     leave,
@@ -424,12 +423,11 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
 Only a round's PR is kept, and only under that PR's own URL. A round makes
 the task a round on its PR, refused while a child or an agent works on it.
 A merged task stays merged: a later move, such as a stale review's, is
-ignored, never refused, so a log holding one still replays ('movable'
-refuses one when it is recorded).
+refused.
 -}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
 moved task state fan = case Map.lookup task fan.moves of
-    Just (Merged _) -> Right fan
+    Just (Merged url) -> Left (TaskMerged task url)
     Just (Kept _) -> moving
     Just (Parked _ _) -> moving
     Just (Round _) -> moving
@@ -476,27 +474,11 @@ moved task state fan = case Map.lookup task fan.moves of
         Kept _ -> after
         Delivered _ -> after
 
-{- | A move recorded now: refused once its task merged, as 'moved' ignores
-it. The same merge again holds already: it succeeds, and nothing is
-logged, so voiding the merge undoes it. Checked at record time only, so a
-log holding a later move still replays.
+{- | The task merged already, by this very move: the same merge again holds,
+so a record logs nothing and voiding the merge undoes it.
 -}
-movable :: TaskId -> TaskState -> Fan -> Either Refusal Movable
-movable task state fan = case Map.lookup task fan.moves of
-    Just (Merged url)
-        | state == Merged url -> Right HoldsAlready
-        | otherwise -> Left (TaskMerged task url)
-    Just (Kept _) -> Right Moves
-    Just (Parked _ _) -> Right Moves
-    Just (Round _) -> Right Moves
-    Just (InReview _) -> Right Moves
-    Just (InCi _) -> Right Moves
-    Just (Delivered _) -> Right Moves
-    Nothing -> Right Moves
-
--- | A move recorded now: a fact to log, or one its task holds already.
-data Movable = Moves | HoldsAlready
-    deriving stock (Eq, Show)
+holds :: TaskId -> TaskState -> Fan -> Bool
+holds task state fan = merged fan task && Map.lookup task fan.moves == Just state
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan

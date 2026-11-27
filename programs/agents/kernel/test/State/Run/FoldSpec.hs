@@ -230,7 +230,7 @@ spec = describe "State.Run.Fold" $ do
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
             tenXRun (toEngineers <> [Held (refTo "t9") (Url "u")])
-                `shouldBe` Left (NotOneHolder (TaskId "t9"))
+                `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
         it "takes a stop at the merge once every task is parked" $ do
             let allParked = Stop Blocked "all tasks parked"
             (.stopped)
@@ -1807,7 +1807,7 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
 
     it "refuses a task no fan-out holds" $
         chief (waiting <> [TaskMoved (refTo "t9") (Merged pr)])
-            `shouldBe` Left (NotOneHolder (TaskId "t9"))
+            `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
 
     it "gives a task two requests' fan-outs hold to the latest breakdown's" $
         fmap (.held) . Map.elems . (.fans)
@@ -1949,18 +1949,15 @@ tenXRounds = describe "the 10x's rounds" $ do
         atName <$> tenXRun (added <> [Spawned (childOf "c2" "fix")])
             `shouldBe` Right (Just (StateName "engineers"))
 
-    it "ignores a park of a merged task, keeping its child's question pending" $ do
-        let asks = Question (QId (runId "c1") 1) Design (oneLine "which store?")
-            merged =
-                toEngineers (plainTask "t1" [])
-                    <> [ Spawned (childOf "c1" "t1")
-                       , HandedBack (runId "c1") Nothing (AsksUp asks.qid)
-                       , Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1")))
-                       , TaskMoved (refTo "t1") (Merged pr)
-                       ]
-        map (.asking.question.qid) . (.pending)
-            <$> tenXRun (merged <> [TaskMoved (refTo "t1") (Parked "out of scope" Nothing)])
-            `shouldBe` Right [asks.qid]
+    it "refuses a park of a merged task" $
+        tenXRun
+            ( toEngineers (plainTask "t1" [])
+                <> [ Spawned (childOf "c1" "t1")
+                   , TaskMoved (refTo "t1") (Merged pr)
+                   , TaskMoved (refTo "t1") (Parked "out of scope" Nothing)
+                   ]
+            )
+            `shouldBe` Left (FanRefused (Fan.TaskMerged t1 pr))
   where
     pr = Url "https://pr/1"
     t1 = TaskId "t1"

@@ -32,7 +32,7 @@ module State.Run.Fold (
     taskHolder,
     taskFan,
     taskRefIn,
-    movable,
+    holdsAlready,
     childRefIn,
     addedTo,
     Round (..),
@@ -449,8 +449,6 @@ data Refusal
     | FanRefused Fan.Refusal
     | -- | A child's event no fan-out holds, or a task added, where the run is at no fan-out's state and has none.
       NotAtFan
-    | -- | A task's event no fan-out's breakdown holds.
-      NotOneHolder TaskId
     | -- | A void naming no line the run replays: no such seq, a line voided already, or a void.
       NotVoidable Natural
     | -- | A void of this seq leaves a log that does not replay, for this refusal.
@@ -770,15 +768,12 @@ applyEvent g state n = \case
         (Nothing, Nothing) ->
             atFan g state.at HandsBack
                 >> inFanOf (fanAt state.at) (Fan.handedBack child said)
-    -- 'Fan.moved' ignores a merged task's later move, so the run skips its effects too.
     TaskMoved TaskRef {task} moved ->
         going $
             heldTask task >>= \holder -> do
                 let before = fanIn state.fans holder.fan
                 after <- inFanAt holder.fan (Fan.moved task moved) state
-                if Fan.merged before task
-                    then Right after
-                    else afterMove holder.fan before task moved after
+                afterMove holder.fan before task moved after
     Held ref url -> going (inTaskFan ref.task (Fan.held ref.task url))
     ActedOn ref url -> going (inTaskFan ref.task (Fan.actedOn ref.task url))
     -- A new task joins the fan-out the run is at, else the latest breakdown's ('addingTo').
@@ -1062,9 +1057,10 @@ breakdown is the latest ('latestHolder').
 taskHolder :: RunState -> TaskId -> Maybe (Holder Task)
 taskHolder state task = latestHolder (`Fan.lookupTask` task) state
 
--- | The fan-out holding the task ('taskHolder'), refused when none does.
+-- | The fan-out holding the task ('taskHolder'), refused as a task no breakdown has when none does.
 holderOf :: RunState -> TaskId -> Either Refusal (Holder Task)
-holderOf state task = maybe (Left (NotOneHolder task)) Right (taskHolder state task)
+holderOf state task =
+    maybe (Left (FanRefused (Fan.UnknownTask task))) Right (taskHolder state task)
 
 -- | The fan-out holding the task ('taskHolder'), and an empty one when none does.
 taskFan :: RunState -> TaskId -> Fan
@@ -1084,16 +1080,9 @@ taskRefIn state task = do
     holder <- holderOf state task
     Bifunctor.first FanRefused (Fan.taskRef (fanIn state.fans holder.fan) task)
 
-{- | A move of this task recorded now, by the fan-out that holds it
-('Fan.movable'): refused once the task merged, or as 'taskRefIn' refuses
-the task. Never in the fold, so a log holding such a move still replays.
--}
-movable :: RunState -> TaskId -> TaskState -> Either Refusal Fan.Movable
-movable state task moved = do
-    holder <- holderOf state task
-    Bifunctor.first
-        FanRefused
-        (Fan.movable task moved (fanIn state.fans holder.fan))
+-- | The task holds this move already, in the fan-out that holds it ('Fan.holds').
+holdsAlready :: RunState -> TaskId -> TaskState -> Bool
+holdsAlready state task moved = Fan.holds task moved (taskFan state task)
 
 -- | The task the child of this run id took, as its @spawned@ names it: none for an untasked or unknown child.
 childRefIn :: RunState -> RunId -> Maybe TaskRef

@@ -2095,7 +2095,7 @@ planOf ::
 planOf steps worktreeHead file unstoredEvidence g state next = \case
     -- The same merge again: its goal holds, so nothing is logged and voiding the merge undoes it.
     Record (MovesTask task moved)
-        | Right Fan.HoldsAlready <- Fold.movable state task moved ->
+        | Fold.holdsAlready state task moved ->
             Right
                 ( Plan
                     []
@@ -2446,7 +2446,7 @@ namedEvent g state worktreeHead file n = \case
     -- Never met: the shell appends a need's done in the need's own run first ('closeNeed').
     NeedDone ref note -> Right (UserNeededDone ref.seq note)
     MovesTask task moved ->
-        onTask task (`TaskMoved` moved) <* refusedAs (Fold.movable state task moved)
+        onTask task (`TaskMoved` moved)
   where
     onTask task event = event <$> taskRef task
     taskRef = refusedAs . Fold.taskRefIn state
@@ -3515,7 +3515,7 @@ childTask g taskId state = maybe (Left notOne) (Right . (.held)) (Fold.taskHolde
         Failure
             BadInput
             ("--task " <> taskIdText taskId)
-            (explainIn g state (Fold.NotOneHolder taskId)).why
+            (explainIn g state (Fold.FanRefused (Fan.UnknownTask taskId))).why
             initLineFix
 
 -- | The task's flow; a @--flow@ named must be that one.

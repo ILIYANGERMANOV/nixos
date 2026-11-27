@@ -1433,11 +1433,6 @@ explain g fuel at = \case
             "the child's or task's event"
             ("the run is at " <> atText at <> ", no fan-out's state")
             "state show"
-    NotOneHolder task ->
-        refused
-            ("task " <> Codec.taskIdText task)
-            "no fan-out's breakdown has such a task"
-            "state show"
     NotVoidable n ->
         refused
             ("seq " <> tshow n)
@@ -1600,7 +1595,6 @@ refusalCode =
                 Fan.TaskMerged {} -> "task_merged"
                 Fan.TaskCycle {} -> "task_cycle"
             NotAtFan -> "not_at_fan"
-            NotOneHolder {} -> "not_one_holder"
             NotVoidable {} -> "not_voidable"
             VoidBreaks {} -> "void_breaks"
             NoFocus -> "no_focus"

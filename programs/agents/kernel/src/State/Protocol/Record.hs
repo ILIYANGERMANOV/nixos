@@ -145,8 +145,8 @@ data Recording
       the run that logged it, under that run's lock.
       -}
       NeedDone EventRef (Maybe NonBlank)
-    | {- | The task's PR moves to this state, refused before it appends once
-      the task merged ('State.Run.Fold.movable').
+    | {- | The task's PR moves to this state. The same merge again logs
+      nothing ('State.Run.Fold.holdsAlready').
       -}
       MovesTask TaskId TaskState
 
