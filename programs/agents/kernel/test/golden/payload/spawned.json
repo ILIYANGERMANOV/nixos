@@ -1,0 +1,4 @@
+[
+{"kind":"tasked","child":"c1","worktree":"/wt/t1","task":"t1"},
+{"kind":"untasked","child":"c1","worktree":"/wt/c1"}
+]

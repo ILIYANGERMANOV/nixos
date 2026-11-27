@@ -1,0 +1,6 @@
+[
+{"qid":"c1:3","answer":"v2","reason":"the docs say so","cost":"an hour","basis":{"kind":"none"}},
+{"qid":"c1:3","answer":"v2","reason":"the docs say so","cost":"an hour","basis":{"kind":"event","event":"r7f2:4"}},
+{"qid":"c1:3","answer":"v2","reason":"the docs say so","cost":"an hour","basis":{"kind":"event","event":"h:0123456789abcdef"}},
+{"qid":"c1:3","answer":"v2","reason":"the docs say so","cost":"an hour","basis":{"kind":"obvious","reason":"the docs say so"}}
+]

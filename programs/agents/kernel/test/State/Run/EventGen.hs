@@ -21,6 +21,7 @@ module State.Run.EventGen (
     tasksOf,
     oneLine,
     runId,
+    replacing,
     run,
     start,
     started,
@@ -491,6 +492,14 @@ genEventId =
 -- | A line the test spells, which must hold no line break.
 oneLine :: Text -> OneLine
 oneLine raw = fromMaybe (error ("not one line: " <> show raw)) (parseOneLine raw)
+
+{- | Errors when @old@ is absent, so a stale pattern fails its test instead of
+quietly checking the unchanged line.
+-}
+replacing :: Text -> (Text, Text) -> Text
+replacing whole (old, new)
+    | old `Text.isInfixOf` whole = Text.replace old new whole
+    | otherwise = error ("replacing: " <> show old <> " is not in " <> show whole)
 
 -- | A run id the test spells, which must be one the kernel accepts.
 runId :: Text -> RunId

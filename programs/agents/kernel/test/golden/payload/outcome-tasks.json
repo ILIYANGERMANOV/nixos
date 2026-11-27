@@ -1,0 +1,3 @@
+[
+{"tasks":[{"id":"t1","deps":[],"base":"main","branch":"t1","fuel":"balanced","qa":false,"heavy":false,"security":[],"shape":{"kind":"own_pr"},"plan":"child_confirms"},{"id":"t2","deps":["t1"],"base":"main","branch":"t2","fuel":"max","qa":true,"heavy":true,"security":["ci","auth","database","secrets"],"shape":{"kind":"round_on","pr_url":"https://github.com/o/r/pull/7"},"plan":"parent_decided","repo":"o/r","worktree":"/wt/t2","flow":"10x"}]}
+]

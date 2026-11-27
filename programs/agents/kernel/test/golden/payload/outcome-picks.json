@@ -1,0 +1,4 @@
+[
+{"rows":["A","B"],"verdicts":[{"requirement":"R1","outcome":"met"},{"requirement":"R2","outcome":"not_met"},{"requirement":"R3","outcome":"unverified"}]},
+{"rows":[],"verdicts":[]}
+]
