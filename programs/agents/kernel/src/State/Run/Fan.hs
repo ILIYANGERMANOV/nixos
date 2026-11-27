@@ -359,7 +359,8 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
 Only a round's PR is kept, and only under that PR's own URL. A round makes
 the task a round on its PR, refused while a child or an agent works on it.
 A merged task stays merged: a later move, such as a stale review's, is
-ignored, never refused, so a log holding one still replays.
+ignored, never refused, so a log holding one still replays ('movable'
+refuses one when it is recorded).
 -}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
 moved task state fan = case Map.lookup task fan.moves of

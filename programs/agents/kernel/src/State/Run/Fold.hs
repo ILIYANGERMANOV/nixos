@@ -1090,17 +1090,16 @@ taskRefIn state task = do
     Bifunctor.first FanRefused (Fan.taskRef (fanIn state.fans holder.fan) task)
 
 {- | A move of this task recorded now, by the one request's fan-out that
-holds it ('Fan.movable'): refused once the task merged. Never in the fold,
-so a log holding such a move still replays. A task no one request holds is
-refused by 'taskRefIn' first.
+holds it ('Fan.movable'): refused once the task merged, or as 'taskRefIn'
+refuses the task. Never in the fold, so a log holding such a move still
+replays.
 -}
 movable :: RunState -> TaskId -> TaskState -> Either Refusal ()
-movable state task moved = case taskHolder state task of
-    Right holder ->
-        Bifunctor.first
-            FanRefused
-            (Fan.movable task moved (fanIn state.fans holder.fan))
-    Left _ -> Right ()
+movable state task moved = do
+    holder <- Bifunctor.first (NotOneHolder task) (taskHolder state task)
+    Bifunctor.first
+        FanRefused
+        (Fan.movable task moved (fanIn state.fans holder.fan))
 
 -- | The task the child of this run id took, as its @spawned@ names it: none for an untasked or unknown child.
 childRefIn :: RunState -> RunId -> Maybe TaskRef
