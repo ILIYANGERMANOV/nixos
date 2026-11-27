@@ -616,7 +616,9 @@ commandInfo steps scope =
             <*> textOption "pr" "<url>" "the PR"
     gapAt raw =
         maybe
-            (Left (usage ("gap " <> raw) "a gap is named <run:seq>, as state show prints it"))
+            ( Left
+                (usage ("gap " <> raw) "a gap is named <run:seq>, as state resume prints it")
+            )
             Right
             (parseEventRef raw)
     prUri raw =

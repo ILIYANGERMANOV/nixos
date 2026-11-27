@@ -738,6 +738,21 @@ spec = describe "the state binary" $ do
                 )
                 `shouldBe` (2, ["\"type\":\"gap_fixed\"", "\"type\":\"refused\""], True)
 
+        it "tells a gap move naming a run the store lacks unknown_gap, logging nothing" $ \repo -> do
+            _ <- drive bin repo []
+            before <- logLines bin repo
+            refused <-
+                state
+                    bin
+                    repo
+                    ["gap", "fixed", "nope:1", "--pr", "https://github.com/o/r/pull/3"]
+            after <- logLines bin repo
+            ( refused.code
+                , any (": unknown_gap nope:1 - " `Text.isInfixOf`) refused.err
+                , after - before
+                )
+                `shouldBe` (2, True, 0)
+
         it "refuses a gap whose evidence names no stored line unknown_event" $ \repo -> do
             _ <- drive bin repo []
             refused <- state bin repo ["record", "gap", "--evidence", "nope:9", "a", "gap"]

@@ -40,7 +40,11 @@ import State.Run.EventGen (
     run,
     runId,
  )
-import State.Run.Gap (GapLine (..))
+import State.Run.Gap (
+    GapKind (Process, Tool),
+    GapLine (..),
+    Severity (Blocker, Papercut),
+ )
 import State.Run.RunGen (
     childOf,
     g,
@@ -85,6 +89,16 @@ spec = describe "State.Protocol.Handback" $ do
                     { reviewedHead = Just (Sha "9f8e7d6")
                     , touches = Just (Set.fromList [Auth, DataModel])
                     }
+
+    it "reads every Gap: line below line 1, list items and indented ones too" $
+        (.gaps)
+            <$> parseHandback
+                "READY done\nGap: tool papercut slow grep\n- Gap: process blocker no runner\n  * Gap: odd words\n"
+            `shouldBe` Right
+                [ WellFormed Tool Papercut (oneLine "slow grep")
+                , WellFormed Process Blocker (oneLine "no runner")
+                , Malformed (oneLine "odd words")
+                ]
 
     it
         "hands a re-plan stop up as a plan found wrong, not as a question asked (law Re-plan)"

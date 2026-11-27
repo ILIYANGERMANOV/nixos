@@ -21,19 +21,37 @@ spec :: Spec
 spec = describe "State.Run.Gap" $ do
     describe "a hand-back's Gap: line" $ do
         it "reads a kind, a severity and the text" $
-            parseGapLine " kernel blocker the fold drops a line"
+            parseGapLine "Gap: kernel blocker the fold drops a line"
                 `shouldBe` Just (WellFormed Kernel Blocker (oneLine "the fold drops a line"))
 
         it "keeps a line whose words are no kind and severity whole" $
-            parseGapLine "core blocker a slip"
+            parseGapLine "Gap: core blocker a slip"
                 `shouldBe` Just (Malformed (oneLine "core blocker a slip"))
 
         it "keeps a line with a kind and severity but no text whole" $
-            parseGapLine "kernel blocker"
+            parseGapLine "Gap:kernel blocker"
                 `shouldBe` Just (Malformed (oneLine "kernel blocker"))
 
         it "reads a blank line as no gap" $
-            parseGapLine "  " `shouldBe` Nothing
+            parseGapLine "Gap:  " `shouldBe` Nothing
+
+        it "reads a Gap: line indented, or as a - or * list item" $
+            map
+                parseGapLine
+                [ "  Gap: tool papercut slow grep"
+                , "- Gap: tool papercut slow grep"
+                , "  *  Gap: tool papercut slow grep"
+                ]
+                `shouldBe` replicate 3 (Just (WellFormed Tool Papercut (oneLine "slow grep")))
+
+        it "reads no gap from a line that only mentions Gap: or has another marker" $
+            map
+                parseGapLine
+                [ "see Gap: tool papercut slow grep"
+                , "+ Gap: tool papercut slow grep"
+                , "-Gap: x"
+                ]
+                `shouldBe` [Nothing, Nothing, Nothing]
 
         it "logs a malformed line as other and slowdown, its whole text kept" $
             lineGap (GapArea "fix") fixer (Malformed (oneLine "core blocker a slip"))

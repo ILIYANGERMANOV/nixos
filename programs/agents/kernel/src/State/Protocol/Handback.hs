@@ -201,7 +201,7 @@ parseHandback message = do
     reviewedHead <- traverse (sha "Reviewed head:") (trailer "Reviewed head:")
     simplified <- traverse (sha "Simplified:") (trailer "Simplified:")
     touches <- traverse parseTouches (trailer "Touches:")
-    let gaps = mapMaybe parseGapLine (values "Gap:")
+    let gaps = mapMaybe parseGapLine rest
     Right Handback {token, run, reviewedHead, simplified, touches, gaps}
   where
     (first, rest) = case Text.lines message of

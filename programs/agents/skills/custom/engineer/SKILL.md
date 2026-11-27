@@ -110,10 +110,10 @@ who owns each decision.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
   however is easiest and safest, unless the user asks otherwise.
 - **Gaps.** Log each gap (a missing tool, unclear prose, a kernel bug, a
-  permission wall, slow CI) when you hit it: `state record gap --kind <k>
+  permission wall, slow CI) as you hit it: `state record gap --kind <k>
   --severity <s> "<text>"`, plus `--area` and `--evidence` when known
   (`state record --help`). Refusals, overrides, voids and stuck questions
-  log themselves.
+  are logged as events.
 
 ## States
 

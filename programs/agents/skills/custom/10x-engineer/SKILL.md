@@ -93,7 +93,7 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   permission wall, slow CI) when you hit it: `state record gap --kind <k>
   --severity <s> "<text>"`, plus `--area` and `--evidence` when known
   (`state record --help`). Refusals, overrides, voids and stuck questions
-  log themselves.
+  are logged as events.
 
 ## States
 

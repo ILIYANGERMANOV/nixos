@@ -114,6 +114,7 @@ import State.Cli.Command (
     optparseText,
     parseCommand,
     parseHook,
+    refusalCode,
     refusedNote,
     retryOf,
     tenXInitFix,
@@ -260,6 +261,7 @@ import State.Run.Event (
     FlowName (..),
     Handover,
     Note (..),
+    RefusalCode (..),
     Repo,
     RunId,
     SessionId (..),
@@ -1237,9 +1239,12 @@ moveGap ref move =
                 Left
                     ( Failure
                         BadInput
-                        ("gap " <> eventRefText ref)
+                        ( (refusalCode (FoldRefused (Fold.UnknownGap ref.seq))).codeText
+                            <> " "
+                            <> eventRefText ref
+                        )
                         "no such run in the run store"
-                        "state show names the run's gaps"
+                        "state resume names the open gaps as <run:seq>"
                     )
             Ran result -> (.text) <$> result
 
@@ -2026,8 +2031,14 @@ handbackPlan steps worktreeHead g state next role agent child message = do
                 <> " <question>\n"
         -- A malformed Gap: line is logged with the defaults, never refused: say how it reads.
         untyped =
-            [ "gap logged as other slowdown, its words not " <> Gap.gapLineRule <> "\n"
-            | any (\case Gap.Malformed _ -> True; Gap.WellFormed {} -> False) parsed.gaps
+            [ "gap logged as "
+                <> Gap.gapKindText defaults.kind
+                <> " "
+                <> Gap.severityText defaults.severity
+                <> ", its words not "
+                <> Gap.gapLineRule
+                <> "\n"
+            | defaults <- take 1 [Gap.draft text | Gap.Malformed text <- parsed.gaps]
             ]
     Right
         ( Plan

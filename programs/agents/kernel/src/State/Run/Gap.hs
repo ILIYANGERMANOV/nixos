@@ -31,6 +31,7 @@ module State.Run.Gap (
 ) where
 
 import Data.Char (isSpace)
+import Data.Foldable (asum)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -127,9 +128,21 @@ do not read so: never refused, it logs the whole value with the defaults.
 data GapLine = WellFormed GapKind Severity OneLine | Malformed OneLine
     deriving stock (Eq, Show)
 
--- | The value after @Gap:@; a blank one is no gap.
+{- | A hand-back line that starts @Gap:@, indented or as a @- @ or @* @ list
+item as agents write it; a blank value is no gap, nor is any other line.
+-}
 parseGapLine :: Text -> Maybe GapLine
-parseGapLine raw =
+parseGapLine line = Text.stripPrefix "Gap:" (unlisted (Text.stripStart line)) >>= parseGapValue
+  where
+    unlisted text =
+        maybe
+            text
+            Text.stripStart
+            (asum [Text.stripPrefix marker text | marker <- ["- ", "* "]])
+
+-- | The value after @Gap:@.
+parseGapValue :: Text -> Maybe GapLine
+parseGapValue raw =
     case ( parseByName gapKindText kindWord
          , parseByName severityText severityWord
          , parseGapText (Text.strip rest)
@@ -142,7 +155,7 @@ parseGapLine raw =
     (severityWord, rest) = word afterKind
     word = Text.break isSpace . Text.stripStart
 
--- | The value a @Gap:@ line holds, as 'parseGapLine' reads it back.
+-- | The value a @Gap:@ line holds, as 'parseGapLine' reads it back after @Gap: @.
 gapLineText :: GapLine -> Text
 gapLineText = \case
     WellFormed kind severity text ->
