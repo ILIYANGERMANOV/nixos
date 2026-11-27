@@ -10,6 +10,7 @@ import Control.Exception (IOException)
 import Control.Monad ((<=<))
 import Control.Monad qualified as Monad
 import Data.Bifunctor qualified as Bifunctor
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight, partitionEithers)
@@ -44,7 +45,7 @@ import Effects.Gh (Gh, runGhIO)
 import Effects.Gh qualified as Gh
 import Effects.Git (Git, runGitIO)
 import Effects.Git qualified as Git
-import Effects.Log (Log, runLogIO, shipped)
+import Effects.Log (Appending (..), Log, runLogIO, shipped)
 import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
 import Effects.Store.Connection (
@@ -56,6 +57,28 @@ import Effects.Store.Migration (applicationId)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
+import State.Artifact (
+    AbsPath,
+    Artifact (..),
+    Blob (..),
+    Contents (..),
+    FileArtifact (..),
+    FileRef (..),
+    Size (..),
+    Snapshot (..),
+    absPathText,
+    blobsOf,
+    fileKindText,
+    keepsContent,
+    newest,
+    originRepo,
+    register,
+    resnapshot,
+    sha256Text,
+    snapshotted,
+    uriText,
+    urlKindText,
+ )
 import State.Category.Flow (Name)
 import State.Category.Fuel (Fuel (Balanced), PerFuel, SkipWhen)
 import State.Category.Graph (Node (..), OpenGraph (..), graph, placeName)
@@ -67,6 +90,7 @@ import State.Cli.Command (
     Exit (..),
     Failure (..),
     InitArgs (..),
+    Location (..),
     Origin (..),
     Raise (..),
     RunCommand (..),
@@ -228,7 +252,9 @@ import State.Run.Event (
     Envelope (..),
     Event (..),
     FlowName (..),
+    Handover,
     Note (..),
+    Repo,
     RunId,
     SessionId (..),
     Sha,
@@ -257,7 +283,7 @@ import State.Run.Fold (
     replay,
  )
 import State.Run.Fold qualified as Fold
-import State.Run.Id (digestOf)
+import State.Run.Id (digestOf, numberedText)
 import State.Show (tshow)
 import State.Step.Artifact (
     PlanCall (ChildConfirms, ParentDecided),
@@ -348,6 +374,8 @@ main argv =
         Console.err (failureText sub failure) $> case failure.exit of
             BadInput -> ExitFailure 2
             Outage -> ExitFailure 1
+            NotStored -> ExitFailure 3
+            NotAnArtifact -> ExitFailure 4
 
 -- | Help asked for goes to stdout, exit 0; a usage error to stderr, exit 2.
 usageOut :: (Console :> es) => String -> Usage -> Eff es ExitCode
@@ -909,7 +937,7 @@ runAnswer steps call bound found want = case want of
                             [] -> out.text
                             _ : _ -> ""
                      in ( map (.envelope) opened <> new
-                        , (childrenTold after.g (const recorded) after.state opened).text
+                        , (childrenTold after.g (const (printed . recordedLines)) after.state opened).text
                             <> adviceText
                             <> foldMap (<> "\n") warning
                         )
@@ -982,7 +1010,7 @@ refusalAware act = catchError act (\_ refusal -> pure (Left (refused refusal)))
                 "upgrade state"
 
 -- | A disk or process error is the outage exit, never a crash.
-outageAware :: Eff es (Either Failure Text) -> Eff es (Either Failure Text)
+outageAware :: Eff es (Either Failure a) -> Eff es (Either Failure a)
 outageAware act =
     try act >>= \case
         Right result -> pure result
@@ -1040,6 +1068,9 @@ execute steps = \case
             <$> onRun
                 (\stamp run -> record stamp run (repeat Cli) (focusPlan run target summary))
     Tasks -> tasks
+    HandOver handover -> handOver handover
+    ShowArtifact run n -> showArtifact run n
+    Register location from -> registerArtifact location from
     Dump run -> dump run
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
@@ -1049,7 +1080,8 @@ execute steps = \case
             <$> handingBack
                 steps
                 ( \stamp run ->
-                    let (new, _, out) = adviceOf steps facts told top stamp run in (new, Right out)
+                    let (new, _, out) = adviceOf steps facts told top stamp run
+                     in (eventsOnly new, Right out)
                 )
     HandbackOf role child -> do
         input <- Console.readStdin
@@ -1066,27 +1098,31 @@ execute steps = \case
                                 (repeat Cli)
                                 (handbackPlan steps stamp.head run.g run.state role Nothing child message)
                         )
-    OnRun command -> do
-        -- Read before the lock, as GitHub is.
-        file <- traverse FileSystem.readText (fileOf command)
-        handingBack
-            steps
-            ( \stamp run ->
-                record
-                    stamp
-                    run
-                    (repeat Cli)
-                    (planOf steps stamp.head (Monad.join file) run.g run.state command)
-            )
-            <&> \case
-                -- With no run, nothing says where the run is: every event is named.
-                NoRun | RecordUnknown name <- command -> Left (anyEvent name)
-                NoRun -> Left noRun
-                Ran result -> result
+    OnRun command ->
+        -- Read before the lock, as GitHub is: the file the command names, and the run's files.
+        traverse readAt (fileOf command) >>= \named -> case traverse readable named of
+            Left failure -> pure (Left failure)
+            Right file -> do
+                again <- rereadable
+                handingBack
+                    steps
+                    ( \stamp run ->
+                        ending
+                            again
+                            (map snd (toList file))
+                            stamp
+                            run
+                            (planOf steps stamp.head file run.g run.state command)
+                    )
+                    <&> \case
+                        -- With no run, nothing says where the run is: every event is named.
+                        NoRun | RecordUnknown name <- command -> Left (anyEvent name)
+                        NoRun -> Left noRun
+                        Ran result -> result
   where
     fileOf = \case
         Record recording -> case recording of
-            FromFile path _ -> Just path
+            FromFile _ path _ -> Just path
             Plain _ -> Nothing
             AtHead _ -> Nothing
         RecordUnknown _ -> Nothing
@@ -1103,6 +1139,265 @@ execute steps = \case
         Park _ _ -> Nothing
         StopRun _ -> Nothing
         Pending -> Nothing
+        NoteOn _ _ -> Nothing
+
+-- | A file named on the command line, made absolute, and its bytes read once.
+readAt :: (RoFileSystem :> es) => FilePath -> Eff es (AbsPath, Contents)
+readAt raw = FileSystem.absolute raw >>= \path -> (path,) <$> FileSystem.readContents path
+
+-- | The bytes of a file read before the lock, or its refusal: nothing is written for it.
+readable :: (AbsPath, Contents) -> Either Failure (AbsPath, ByteString)
+readable (path, contents) = case contents of
+    Readable bytes -> Right (path, bytes)
+    Unreadable ->
+        Left
+            ( Failure
+                BadInput
+                ("file_unreadable " <> pathText path)
+                "it does not exist, or may not be read"
+                "write it first, or name the file at its path"
+            )
+
+pathText :: AbsPath -> Text
+pathText = Text.pack . absPathText
+
+{- | @state artifact <path|url> --kind <k> [--from <seq>]@: the worktree's
+run registers a file or a URL. A file is read once, before the lock, and its
+digest and blob come from those bytes, in the append that logs it.
+-}
+registerArtifact ::
+    (Shell es) => Location FilePath -> Maybe Natural -> Eff es (Either Failure Text)
+registerArtifact location from =
+    traverse readAt location >>= \named -> case traverse readable named of
+        Left failure -> pure (Left failure)
+        Right found ->
+            fmap (.text) . orNoRun
+                <$> appendingOn
+                    ( \stamp run ->
+                        withBlobs
+                            (map snd (toList found))
+                            (record stamp run (repeat Cli) (registerPlan run found from))
+                    )
+
+-- | The artifact a location read gives, derived from the run's artifact of this seq, if any.
+registerPlan ::
+    Loaded -> Location (AbsPath, ByteString) -> Maybe Natural -> Either Failure Plan
+registerPlan run found from = do
+    for_ from derivable
+    Right
+        ( Plan
+            [ArtifactLogged artifact from]
+            ( \_ written ->
+                printed
+                    ( foldMap
+                        ( \(n, logged) ->
+                            artifactLine run.state.run n logged
+                                <> "show: state artifact show "
+                                <> numberedText run.state.run n
+                                <> "\n"
+                        )
+                        (artifactsWritten written)
+                    )
+            )
+        )
+  where
+    artifact = case found of
+        AtUrl kind uri -> Url kind uri
+        AtPath kind (path, bytes) -> File (register kind path bytes).file
+    derivable n
+        | n `elem` map fst (artifactsOf run.logged) = Right ()
+        | otherwise =
+            Left
+                ( Failure
+                    BadInput
+                    ("--from " <> tshow n)
+                    ("line " <> tshow n <> " of run " <> runIdText run.state.run <> " is no artifact")
+                    "state artifact <path|url> --kind <k> --from <the seq state artifact printed>"
+                )
+
+{- | @artifact 7f3a:14 plan sha256:3b9c... 14212 bytes, content stored@, or
+@path only@ when its bytes are not kept; a URL's names the URL instead.
+-}
+artifactLine :: RunId -> Natural -> Artifact -> Text
+artifactLine run n artifact =
+    "artifact " <> numberedText run n <> " " <> case artifact of
+        File file ->
+            fileKindText file.kind
+                <> " sha256:"
+                <> sha256Text file.ref.sha256
+                <> " "
+                <> tshow (sizeBytes file.ref.size)
+                <> " bytes, "
+                <> (if snapshotted file.kind file.ref.size then "content stored" else "path only")
+                <> "\n"
+        Url kind uri -> urlKindText kind <> " " <> uriText uri <> "\n"
+  where
+    sizeBytes (Size bytes) = bytes
+
+-- | The artifacts these lines log, each with its seq.
+artifactsWritten :: [Written] -> [(Natural, Artifact)]
+artifactsWritten written = artifactsOf [w.envelope | w <- written]
+
+-- | The artifacts these lines log, each with its seq.
+artifactsOf :: (Foldable t) => t Envelope -> [(Natural, Artifact)]
+artifactsOf logged =
+    [(e.seq, artifact) | e <- toList logged, ArtifactLogged artifact _ <- [e.event]]
+
+{- | The append of these lines and the blobs of the files they register,
+from the bytes read before the lock: a refusal registers none.
+-}
+withBlobs :: [ByteString] -> ([Envelope], a) -> (Appending, a)
+withBlobs bytesRead (new, result) =
+    (Appending new (blobsOf bytesRead (map snd (artifactsOf new))), result)
+
+{- | The newest file of each path the worktree's run registered, of a kind
+that keeps its bytes, each read now: before the lock, as GitHub is. A run
+that does not load reads none: the command's own load tells why.
+-}
+rereadable :: (Shell es) => Eff es [(FileArtifact, Contents)]
+rereadable =
+    onRun
+        ( \_ run ->
+            ( []
+            , Right
+                [file | (_, file) <- newest (artifactsOf run.logged), keepsContent file.kind]
+            )
+        )
+        >>= \case
+            Ran (Right files) ->
+                traverse (\file -> (file,) <$> FileSystem.readContents file.ref.path) files
+            Ran (Left _) -> pure []
+            NoRun -> pure []
+
+{- | The files to register again, from those read before the lock: each whose
+bytes changed, derived from the newest artifact of its path, and the paths
+that could not be read, skipped. A file registered again since it was read
+waits for the next handover or end (#552 ruling 5).
+-}
+resnapshotOf :: Loaded -> [(FileArtifact, Contents)] -> ([Event], [AbsPath])
+resnapshotOf run again =
+    ( [ ArtifactLogged (File fresh.file) (fst <$> Map.lookup fresh.file.ref.path latest)
+      | fresh <- snapshots
+      ]
+    , skipped
+    )
+  where
+    latest =
+        Map.fromList
+            [(file.ref.path, (n, file)) | (n, file) <- newest (artifactsOf run.logged)]
+    (snapshots, skipped) =
+        resnapshot
+            [ (file, contents)
+            | (file, contents) <- again
+            , (snd <$> Map.lookup file.ref.path latest) == Just file
+            ]
+
+-- | The bytes of the files read again.
+readBytes :: [(FileArtifact, Contents)] -> [ByteString]
+readBytes again = [bytes | (_, Readable bytes) <- again]
+
+{- | 'record' with the blobs of the files it registers. A plan that ends the
+run, as it leaves its flow or stops (R8), first registers the run's changed
+files again, as a handover does. 'ArtifactLogged' moves no run, so whether
+the plan ends it does not depend on them.
+-}
+ending ::
+    [(FileArtifact, Contents)] ->
+    [ByteString] ->
+    Stamp ->
+    Loaded ->
+    Either Failure Plan ->
+    (Appending, Either Failure Output)
+ending again bytesRead stamp run plan =
+    withBlobs
+        (bytesRead <> readBytes again)
+        (record stamp run (repeat Cli) (resnapshotting <$> plan))
+  where
+    resnapshotting planned
+        | ends planned =
+            let (events, skipped) = resnapshotOf run again
+             in Plan
+                    (events <> planned.events)
+                    (\after written -> printed (skippedText skipped) <> planned.say after written)
+        | otherwise = planned
+    ends planned = case commit stamp run (map (Cli,) planned.events) of
+        Right (_, after) -> not (Fold.over run.state) && Fold.over after.state
+        Left _ -> False
+
+skippedText :: [AbsPath] -> Text
+skippedText =
+    foldMap
+        ( \path ->
+            "skipped " <> pathText path <> ": gone or unreadable, its last snapshot kept\n"
+        )
+
+{- | @state handover@: the worktree's run handed over to a fresh agent. Each
+registered file whose bytes changed is registered again first, in the same
+append; one gone or unreadable is skipped and named, and never refuses the
+handover (R7).
+-}
+handOver :: (Shell es) => Handover -> Eff es (Either Failure Text)
+handOver handover = do
+    again <- rereadable
+    fmap (.text) . orNoRun
+        <$> appendingOn
+            ( \stamp run ->
+                let (events, skipped) = resnapshotOf run again
+                    said written =
+                        foldMap (uncurry (artifactLine run.state.run)) (artifactsWritten written)
+                            <> foldMap
+                                (\w -> "handover " <> numberedText run.state.run w.envelope.seq <> "\n")
+                                [w | w <- written, HandedOver _ <- [w.envelope.event]]
+                            <> skippedText skipped
+                            <> "resume with: state resume "
+                            <> runIdText run.state.run
+                            <> "\n"
+                 in withBlobs
+                        (readBytes again)
+                        ( record
+                            stamp
+                            run
+                            (repeat Cli)
+                            ( Right
+                                (Plan (events <> [HandedOver handover]) (\_ written -> printed (said written)))
+                            )
+                        )
+            )
+
+{- | @state artifact show <run:seq>@: the stored bytes of a file artifact,
+once the store checked they hash to its key, or a URL artifact's URL. A file
+whose bytes were not stored exits 3 and a line that is no artifact 4
+(#552's Appendix B E). The bytes go out as stored, in no encoding.
+-}
+showArtifact :: (Shell es) => RunId -> Natural -> Eff es (Either Failure Text)
+showArtifact run n =
+    onRunLog (\_ loaded -> ([], Right (find ((== n) . (.seq)) loaded.logged))) run
+        >>= \case
+            NoRun -> pure (Left (noArtifact "no such run in the run store"))
+            Ran (Left failure) -> pure (Left failure)
+            Ran (Right Nothing) -> pure (Left (noArtifact "the run has no such line"))
+            Ran (Right (Just line)) -> case [artifact | ArtifactLogged artifact _ <- [line.event]] of
+                [] -> pure (Left (noArtifact ("it is a " <> eventType line.event <> " line")))
+                artifact : _ -> case artifact of
+                    Url _ uri -> pure (Right (uriText uri <> "\n"))
+                    File file ->
+                        Log.blob file.ref.sha256 >>= \case
+                            Just (Blob bytes) -> Console.outBytes bytes $> Right ""
+                            Nothing ->
+                                pure
+                                    ( Left
+                                        ( Failure
+                                            NotStored
+                                            (pathText file.ref.path)
+                                            ( "sha256:"
+                                                <> sha256Text file.ref.sha256
+                                                <> ", its bytes not stored: a transcript, or over the cap"
+                                            )
+                                            ("read the file at " <> pathText file.ref.path)
+                                        )
+                                    )
+  where
+    noArtifact why = Failure NotAnArtifact ("artifact " <> numberedText run n) why "state resume"
 
 {- | @state focus [rK] --summary <line>@: the chief's request in focus
 waits, unless it recorded nothing, which is dropped, or it is finished, at
@@ -1240,23 +1535,42 @@ one did: the asker read before the answer closed it, the answer after.
 writtenDown :: RunState -> RunState -> QId -> Output
 writtenDown before after qid = Output "" Nothing (downOf before after qid)
 
--- | A line per event written, delivering no hand-back.
+-- | A line per event written, then the command to run next, delivering no hand-back.
 recorded :: [Written] -> Output
-recorded = printed . recordedLines
+recorded written = printed (recordedLines written <> nextLine)
 
--- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
+-- | What every write that prints no advice of its own says to run next.
+nextLine :: Text
+nextLine = "next: state next\n"
+
+-- | The file a recording reads, read beforehand, which it registers as an artifact of its kind.
 planOf ::
     Steps ->
     Maybe Sha ->
-    Maybe Text ->
+    Maybe (AbsPath, ByteString) ->
     OpenGraph ->
     RunState ->
     RunCommand ->
     Either Failure Plan
 planOf steps worktreeHead file g state = \case
-    Record recording ->
-        (\event -> Plan [event] (const recorded))
-            <$> recordedEvent g state worktreeHead file recording
+    Record recording -> do
+        text <- traverse utf8 file
+        event <- recordedEvent g state worktreeHead text recording
+        -- The file registered first, then the outcome that names it.
+        Right (Plan (registering recording <> [event]) (const recorded))
+    NoteOn topic text ->
+        Right
+            ( Plan
+                [Noted topic text]
+                ( \_ written ->
+                    printed
+                        ( foldMap
+                            (\w -> "note " <> numberedText state.run w.envelope.seq <> " " <> topic <> "\n")
+                            written
+                            <> nextLine
+                        )
+                )
+            )
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
     AskOwn kind how text -> do
@@ -1400,6 +1714,17 @@ planOf steps worktreeHead file g state = \case
                 <> kindName kind
                 <> " <question>, without --to: the run answers it"
             )
+    utf8 (path, bytes) =
+        Bifunctor.first
+            (const (Failure BadInput (pathText path) "it is not UTF-8 text" "fix the file"))
+            (decodeUtf8' bytes)
+    registering = \case
+        FromFile kind _ _ ->
+            [ ArtifactLogged (File (register kind path bytes).file) Nothing
+            | (path, bytes) <- toList file
+            ]
+        Plain _ -> []
+        AtHead _ -> []
 
 -- | The events of an answer: forwarded first if still in triage, so one command takes it from triage to closed.
 answerEvents ::
@@ -1464,7 +1789,7 @@ namedEvent worktreeHead file = \case
                     "the event records HEAD and the worktree has none"
                     "git commit"
                 )
-    FromFile path parse -> case parse <$> file of
+    FromFile _ path parse -> case parse <$> file of
         Just (Right event) -> Right event
         Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
         Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
@@ -1536,7 +1861,7 @@ adviceOf steps facts told top stamp run = (map (.envelope) new, advice.action, o
   where
     (new, settled, unsynced, advice) = settledAdvice steps facts stamp run
     out =
-        recorded new
+        printed (recordedLines new)
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( parentRuns top settled.state.start advice
@@ -1724,13 +2049,15 @@ released, as init's spawn is ('spawnedIn').
 handingBack ::
     (Shell es) =>
     Steps ->
-    (Stamp -> Loaded -> ([Envelope], Either Failure Output)) ->
+    (Stamp -> Loaded -> (Appending, Either Failure Output)) ->
     Eff es (Ran Text)
 handingBack steps act =
-    onRun
+    appendingOn
         ( \stamp run ->
             let (new, result) = act stamp run
-             in (new, (\out -> (out.text, upOf run new =<< out.handback, out.down)) <$> result)
+             in ( new
+                , (\out -> (out.text, upOf run new.events =<< out.handback, out.down)) <$> result
+                )
         )
         >>= \case
             NoRun -> pure NoRun
@@ -1921,10 +2248,16 @@ answeredDown down =
 onRun ::
     (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) =>
     (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Ran a)
-onRun act =
+onRun act = appendingOn (\stamp run -> Bifunctor.first eventsOnly (act stamp run))
+
+-- | 'onRun' for a command that appends blobs beside its events.
+appendingOn ::
+    (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) =>
+    (Stamp -> Loaded -> (Appending, Either Failure a)) -> Eff es (Ran a)
+appendingOn act =
     gitDir >>= \case
         Left failure -> pure (Ran (Left failure))
-        Right gd -> readPointer gd >>= maybe (pure NoRun) (onRunLog act)
+        Right gd -> readPointer gd >>= maybe (pure NoRun) (appendingLog act)
 
 -- | The run, locked for one command.
 onLog ::
@@ -1934,17 +2267,27 @@ onLog ::
     Eff es (Either Failure a)
 onLog act run = orNoRun <$> onRunLog act run
 
+-- | What appends these events and no blob.
+eventsOnly :: [Envelope] -> Appending
+eventsOnly events = Appending events []
+
 onRunLog ::
     (Clock :> es, Environment :> es, Git :> es, Log :> es) =>
     (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> RunId -> Eff es (Ran a)
-onRunLog act run = do
+onRunLog act = appendingLog (\stamp loaded -> Bifunctor.first eventsOnly (act stamp loaded))
+
+-- | 'onRunLog' for a command that appends blobs beside its events.
+appendingLog ::
+    (Clock :> es, Environment :> es, Git :> es, Log :> es) =>
+    (Stamp -> Loaded -> (Appending, Either Failure a)) -> RunId -> Eff es (Ran a)
+appendingLog act run = do
     stamp <- now
-    Log.locked run $ \case
-        Left unread -> ([], Ran (Left (unreadRefusal run unread)))
+    Log.appending run $ \case
+        Left unread -> (eventsOnly [], Ran (Left (unreadRefusal run unread)))
         Right logged -> case logged.events of
-            [] -> ([], NoRun)
+            [] -> (eventsOnly [], NoRun)
             first : rest -> case replayed run (first :| rest) of
-                Left failure -> ([], Ran (Left failure))
+                Left failure -> (eventsOnly [], Ran (Left failure))
                 Right (g, state) ->
                     Ran
                         <$> act
@@ -1997,6 +2340,7 @@ initRun gd args = do
     held <- heldHere gd notes
     began <- startOf args
     top <- worktreeTop
+    repo <- originRepoHere
     case (,,) <$> held <*> began <*> top of
         Left failure -> pure (Left failure)
         Right (resuming, Begin {principal, flow, fuel}, worktree) -> do
@@ -2012,9 +2356,9 @@ initRun gd args = do
                                 , notes = notes
                                 , principal
                                 , interface = interfaceOf principal
-                                , goal = Nothing
+                                , goal = args.goal
                                 , worktree
-                                , repo = Nothing
+                                , repo
                                 }
                         -- The run starts at its root's Fuel step: a Fuel given takes it at once.
                         begun =
@@ -2055,6 +2399,7 @@ initRun gd args = do
     initLines verb run worktree =
         Text.unlines
             [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
+            <> nextLine
 
 {- | Whether the user's init is the flow a scope of the worktree's unfinished
 run runs where it is, as when the chief, inside its @engineer@ branch, loads
@@ -2092,15 +2437,35 @@ moveRun gd target = do
     case (,,) <$> maybe (Left noRun) Right here <*> from <*> (to >>= elsewhere) of
         Left failure -> pure (Left failure)
         Right (run, fromTop, (toGd, toTop)) -> do
-            moving <- onLog (\_ loaded -> ([], Right loaded.state.run)) run
             there <- pointed toGd
-            case (,) <$> moving <*> maybe (Right ()) holding (live run =<< there) of
+            repo <- FileSystem.inDirectory toTop originRepoHere
+            -- The move logged before any pointer moves; one cut short and retried logs it once.
+            moving <- case maybe (Right ()) holding (live run =<< there) of
                 Left failure -> pure (Left failure)
-                Right (moved, ()) -> do
+                Right () ->
+                    onLog
+                        ( \stamp loaded ->
+                            if worktreeOf loaded.state.start loaded.logged == toTop
+                                then ([], Right loaded.state.run)
+                                else
+                                    fmap (const loaded.state.run)
+                                        <$> record
+                                            stamp
+                                            loaded
+                                            (repeat Cli)
+                                            (Right (Plan [WorktreeMoved toTop repo] (\_ _ -> mempty)))
+                        )
+                        run
+            case moving of
+                Left failure -> pure (Left failure)
+                Right moved -> do
                     writePointer toGd moved
                     rebind moved fromTop toTop
                     FileSystem.removeFile (pointerOf gd)
-                    pure (Right ("moved " <> runIdText moved <> " to " <> Text.pack toTop <> "\n"))
+                    pure
+                        ( Right
+                            ("moved " <> runIdText moved <> " to " <> Text.pack toTop <> "\n" <> nextLine)
+                        )
   where
     elsewhere (toGd, toTop)
         | equalFilePath toGd gd =
@@ -2129,6 +2494,18 @@ moveRun gd target = do
                 )
                 "state stop <reason> <why> there ends it, or state move <another worktree>"
             )
+
+-- | The worktree the run's log last names: the last it moved to, else its start's.
+worktreeOf :: Start -> NonEmpty Envelope -> FilePath
+worktreeOf start logged = case reverse [top | line <- toList logged, WorktreeMoved top _ <- [line.event]] of
+    top : _ -> top
+    [] -> start.worktree
+
+{- | The GitHub repo of the current directory's @origin@, if it names one: a
+repo with no @origin@, or another host's, has none.
+-}
+originRepoHere :: (Git :> es) => Eff es (Maybe Repo)
+originRepoHere = either (const Nothing) originRepo <$> Git.originUrl
 
 -- | The git dir and the top of the worktree a directory is in.
 worktreeAt ::

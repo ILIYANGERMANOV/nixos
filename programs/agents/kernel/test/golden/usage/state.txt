@@ -27,6 +27,9 @@ Available commands:
   pending                  List the questions awaiting an answer
   focus                    Turn to a waiting request, else a new one
   tasks                    Print each request's card and resume advice
+  artifact                 Register a file or URL; 'artifact show' prints one
+  note                     Note context for a fresh agent, under a topic
+  handover                 Hand the run over to a fresh agent
   help                     Print this help
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck

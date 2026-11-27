@@ -38,6 +38,7 @@ import System.Directory (
     doesFileExist,
     findExecutable,
     getPermissions,
+    removeFile,
     setOwnerExecutable,
     setPermissions,
  )
@@ -140,6 +141,7 @@ spec = describe "the state binary" $ do
                            , "engineer/fuel.set -> engineer/gather"
                            , "engineer/gather.enough -> engineer/gather/notes"
                            , "engineer/gather/notes.done -> engineer/plan"
+                           , "artifact -> engineer/plan"
                            , "engineer/plan.done -> engineer/skip_refine"
                            , "engineer/skip_refine.skip -> engineer/present"
                            , "engineer/present.done -> engineer/confirm"
@@ -326,11 +328,44 @@ spec = describe "the state binary" $ do
                 `shouldBe` replicate 2 (2, ["it is not open; open: " <> qid], ["fix: state pending"])
 
         -- A written plan is taken on every path the transcripts below drive.
+        it
+            "keeps a file's snapshot past its deletion: handover re-registers the edited one, skips the deleted one"
+            $ \repo -> do
+                run <- Text.unpack <$> startedRun bin repo
+                writeFile (repo.work </> "notes.md") "v1\n"
+                writeFile (repo.work </> "b.md") "b\n"
+                _ <- succeeded =<< state bin repo ["artifact", "notes.md", "--kind", "notes"]
+                _ <- succeeded =<< state bin repo ["artifact", "b.md", "--kind", "notes"]
+                writeFile (repo.work </> "notes.md") "v2\n"
+                removeFile (repo.work </> "b.md")
+                handedOver <-
+                    succeeded
+                        =<< state
+                            bin
+                            repo
+                            ["handover", "--reason", "context", "--summary", "s", "--next", "go on"]
+                removeFile (repo.work </> "notes.md")
+                newer <- succeeded =<< state bin repo ["artifact", "show", run <> ":4"]
+                original <- succeeded =<< state bin repo ["artifact", "show", run <> ":3"]
+                ( any ("skipped " `Text.isPrefixOf`) handedOver
+                    , any
+                        (Text.isSuffixOf "b.md: gone or unreadable, its last snapshot kept")
+                        handedOver
+                    , newer
+                    , original
+                    )
+                    `shouldBe` (True, True, ["v2"], ["b"])
+
         it "refuses a plan.done whose plan is not written" $ \repo -> do
             _ <- drive bin repo (Record ["fuel.set", "balanced"] : gathered)
             missing <- state bin repo ["record", "plan.done", "/no/such"]
             (missing.code, missing.err)
-                `shouldBe` (2, ["state record: /no/such - no such file", "fix: write it first"])
+                `shouldBe` ( 2
+                           ,
+                               [ "state record: file_unreadable /no/such - it does not exist, or may not be read"
+                               , "fix: write it first, or name the file at its path"
+                               ]
+                           )
 
         it
             "closes a researcher's child as it returns with its report, which has no token, so the waiting gather goes on to its notes"
@@ -363,13 +398,21 @@ spec = describe "the state binary" $ do
 
         it "prints the run's id, notes dir and worktree top, one line a hook parses" $ \repo -> do
             top <- Text.strip . Text.pack <$> gitOut repo ["rev-parse", "--show-toplevel"]
-            started@[said, _] <-
+            started@[said, _, _] <-
                 succeeded =<< state bin repo ["init", "--notes", repo.notes <> "/"]
             let run = Text.drop (Text.length "started ") said
             resumed <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
             (started, resumed)
-                `shouldBe` ( ["started " <> run, "run " <> run <> " " <> Text.pack repo.notes <> " " <> top]
-                           , ["resumed " <> run, "run " <> run <> " " <> Text.pack repo.notes <> " " <> top]
+                `shouldBe` (
+                               [ "started " <> run
+                               , "run " <> run <> " " <> Text.pack repo.notes <> " " <> top
+                               , "next: state next"
+                               ]
+                           ,
+                               [ "resumed " <> run
+                               , "run " <> run <> " " <> Text.pack repo.notes <> " " <> top
+                               , "next: state next"
+                               ]
                            )
 
         it "refuses another run over the worktree's unfinished one" $ \repo -> do
@@ -425,7 +468,7 @@ spec = describe "the state binary" $ do
             moved <-
                 succeeded
                     =<< state bin repo ["override", "review", "resume", "after", "a", "crash"]
-            moved `shouldBe` ["recorded 2 overridden -> review"]
+            moved `shouldBe` ["recorded 2 overridden -> review", "next: state next"]
             shown <- succeeded =<< state bin repo ["show"]
             shown `shouldContain` ["step: review"]
 
@@ -452,7 +495,7 @@ spec = describe "the state binary" $ do
                 shown <- succeeded =<< state bin repo ["show"]
                 again <- state bin repo ["void", "2", "again"]
                 (voided, "step: review" `elem` shown, again.code, again.err)
-                    `shouldBe` ( ["recorded 3 voided -> fuel"]
+                    `shouldBe` ( ["recorded 3 voided -> fuel", "next: state next"]
                                , False
                                , 2
                                ,
@@ -480,7 +523,7 @@ spec = describe "the state binary" $ do
                             "route"
                             (ranIn repo Null ("cd " <> Text.pack target.work <> " && state next"))
                 (moved, old.code, take 1 there, replyField "decision" routedOld, routedThere)
-                    `shouldBe` ( ["moved " <> run <> " to " <> top]
+                    `shouldBe` ( ["moved " <> run <> " to " <> top, "next: state next"]
                                , 2
                                , ["run: " <> run <> " (engineer)"]
                                , Just "deny"
@@ -1886,7 +1929,7 @@ initBound bin hookBin at agent dir argv = do
     let command = "cd " <> dir.work <> " && state init " <> unwords argv
     _ <- succeeded =<< hook hookBin at "bind" (ranShell at agent command printed)
     case printed of
-        [line, _] | Just run <- Text.stripPrefix "started " line -> pure run
+        [line, _, "next: state next"] | Just run <- Text.stripPrefix "started " line -> pure run
         other -> fail ("not started: " <> show other)
 
 -- | This agent's shell command done, printing these lines: a PostToolUse on Bash.
@@ -2093,7 +2136,7 @@ startedRun bin repo = startedIn bin repo ["--notes", repo.notes]
 startedIn :: FilePath -> Repo -> [String] -> IO Text
 startedIn bin repo argv =
     (succeeded =<< state bin repo ("init" : argv)) >>= \case
-        [line, _] | Just run <- Text.stripPrefix "started " line -> pure run
+        [line, _, "next: state next"] | Just run <- Text.stripPrefix "started " line -> pure run
         other -> fail ("not started: " <> show other)
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
@@ -2489,6 +2532,7 @@ trivialTranscript =
     [ "fuel.set -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
+    , "artifact -> plan"
     , "plan.done -> skip_refine"
     , "skip_refine.skip -> present"
     , "present.done -> confirm"
@@ -2516,6 +2560,7 @@ targetedTranscript :: [Text]
 targetedTranscript =
     [ "engineer/gather.enough -> engineer/gather/notes"
     , "engineer/gather/notes.done -> engineer/plan"
+    , "artifact -> engineer/plan"
     , "engineer/plan.done -> engineer/skip_refine"
     , "engineer/skip_refine.skip -> engineer/present"
     , "engineer/present.done -> engineer/confirm"

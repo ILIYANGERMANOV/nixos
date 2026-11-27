@@ -1,12 +1,16 @@
 module State.Cli.CommandSpec (spec) where
 
 import Data.Either (fromLeft, fromRight)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
+import State.Artifact (Uri, parseUri)
+import State.Artifact qualified as Artifact
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Cap (..), OpenGraph (..))
@@ -19,6 +23,7 @@ import State.Cli.Command (
     Exit (..),
     Failure (..),
     InitArgs (..),
+    Location (..),
     Origin (..),
     RunCommand (..),
     Usage (..),
@@ -51,6 +56,8 @@ import State.Run.Event (
     Branch (..),
     Commit (..),
     Event (..),
+    Handover (..),
+    HandoverReason (..),
     Label (..),
     Picks (..),
     RunId,
@@ -182,11 +189,15 @@ spec = describe "State.Cli.Command" $ do
                 Right (OnRun (RecordUnknown name)) -> name `shouldBe` "security/deploy.done"
                 _ -> expectationFailure "not an unknown event"
 
-        it "reads a plan's path to refuse a plan not written yet" $
-            case parse ["record", "plan.done", "/notes/plan.md"] of
-                Right (OnRun (Record (FromFile path parsed))) ->
-                    (path, parsed "")
-                        `shouldBe` ("/notes/plan.md", Right (stepTook (PlanDone "/notes/plan.md")))
+        it
+            "reads a plan's path to register it as a plan, refusing a plan not written yet"
+            $ case parse ["record", "plan.done", "/notes/plan.md"] of
+                Right (OnRun (Record (FromFile kind path parsed))) ->
+                    (kind, path, parsed "")
+                        `shouldBe` ( Artifact.Plan
+                                   , "/notes/plan.md"
+                                   , Right (stepTook (PlanDone "/notes/plan.md"))
+                                   )
                 _ -> expectationFailure "not a recording read from a file"
 
         it "refuses an option the event does not take" $
@@ -226,6 +237,90 @@ spec = describe "State.Cli.Command" $ do
                     (failure.what, failure.fix)
                         `shouldBe` ("record plan.done", "state record plan.done <path>")
                 _ -> expectationFailure "not a refusal"
+
+    describe "context facts" $ do
+        it "takes init's goal word for word, and none without --goal" $
+            ( goalOf <$> parse ["init", "--notes", "/n/", "--goal", "ship  the  --fix"]
+            , goalOf <$> parse ["init", "--notes", "/n/"]
+            )
+                `shouldBe` (Right (Just "ship  the  --fix"), Right Nothing)
+
+        it "reads a text that is no absolute URI as a file's path, of a file's kind" $
+            registered (parse ["artifact", "notes/r.md", "--kind", "research"])
+                `shouldBe` Right (AtPath Artifact.Research "notes/r.md", Nothing)
+
+        it "reads an absolute URI as a URL, of a URL's kind" $
+            registered
+                (parse ["artifact", "https://github.com/o/r/issues/7", "--kind", "ticket"])
+                `shouldBe` Right
+                    (AtUrl Artifact.Ticket (uri "https://github.com/o/r/issues/7"), Nothing)
+
+        it "takes other as the kind of a file and of a URL" $
+            map
+                (fmap fst . registered . parse)
+                [ ["artifact", "a.bin", "--kind", "other"]
+                , ["artifact", "https://example.com/a", "--kind", "other"]
+                ]
+                `shouldBe` [ Right (AtPath Artifact.OtherFile "a.bin")
+                           , Right (AtUrl Artifact.OtherUrl (uri "https://example.com/a"))
+                           ]
+
+        it "refuses a kind that does not fit the location, and one of neither" $
+            map
+                (registered . parse)
+                [ ["artifact", "notes.md", "--kind", "ticket"]
+                , ["artifact", "https://github.com/o/r#readme", "--kind", "ticket"]
+                , ["artifact", "https://github.com/o/r", "--kind", "plan"]
+                , ["artifact", "notes.md", "--kind", "idea"]
+                ]
+                `shouldBe` [ Left "notes.md"
+                           , Left "https://github.com/o/r#readme"
+                           , Left "--kind plan"
+                           , Left "no artifact kind idea"
+                           ]
+
+        it "takes the seq an artifact derives from, and refuses one that is no number" $
+            ( snd <$> registered (parse ["artifact", "a.md", "--kind", "plan", "--from", "3"])
+            , registered (parse ["artifact", "a.md", "--kind", "plan", "--from", "three"])
+            )
+                `shouldBe` (Right (Just 3), Left "seq three")
+
+        it "names the artifact to show by its run and seq" $
+            ( case parse ["artifact", "show", "r1:4"] of
+                Right (ShowArtifact run n) -> Right (run, n)
+                Right _ -> Left "not a show"
+                Left why -> Left why
+            , failureWhat (parse ["artifact", "show", "r1"])
+            )
+                `shouldBe` (Right (runId "r1", 4), Just "artifact r1")
+
+        it "takes a note's topic and the rest as its text" $
+            case parse ["note", "--topic", "traps", "the", "cache", "-lies"] of
+                Right (OnRun (NoteOn topic text)) -> (topic, text) `shouldBe` ("traps", "the cache -lies")
+                _ -> expectationFailure "not a note"
+
+        it "takes a handover's next steps in order, and needs one" $
+            ( handedOver
+                ( parse
+                    [ "handover"
+                    , "--reason"
+                    , "context"
+                    , "--summary"
+                    , "half done"
+                    , "--next"
+                    , "a"
+                    , "--next"
+                    , "b"
+                    ]
+                )
+            , handedOver (parse ["handover", "--reason", "context", "--summary", "half done"])
+            , handedOver
+                (parse ["handover", "--reason", "bored", "--summary", "s", "--next", "a"])
+            )
+                `shouldBe` ( Right (Handover Context "half done" ("a" :| ["b"]))
+                           , Left "Missing: --next <step>"
+                           , Left "no handover reason bored"
+                           )
 
     describe "other commands" $ do
         it "takes a question's words as one line, asked by the run itself" $
@@ -621,6 +716,23 @@ spec = describe "State.Cli.Command" $ do
     dumped = \case
         Dump run -> Just run
         _ -> Nothing
+    goalOf :: Command -> Maybe Text
+    goalOf = \case
+        Init args -> args.goal
+        _ -> Nothing
+    registered ::
+        Either Text Command -> Either Text (Location FilePath, Maybe Natural)
+    registered = \case
+        Right (Register location from) -> Right (location, from)
+        Right _ -> Left "not a register"
+        Left why -> Left why
+    handedOver :: Either Text Command -> Either Text Handover
+    handedOver = \case
+        Right (HandOver handover) -> Right handover
+        Right _ -> Left "not a handover"
+        Left why -> Left why
+    uri :: Text -> Uri
+    uri raw = fromMaybe (error ("not a URI: " <> show raw)) (parseUri raw)
     notesOf :: Command -> Maybe FilePath
     notesOf = \case
         Init args -> Just (shellPathText args.notes)

@@ -27,6 +27,7 @@ module State.Artifact (
     sizeOf,
     cap,
     snapshotted,
+    keepsContent,
     Blob (..),
     blobKey,
     Snapshot (..),
@@ -34,6 +35,7 @@ module State.Artifact (
     Contents (..),
     newest,
     resnapshot,
+    blobsOf,
     originRepo,
 ) where
 
@@ -229,9 +231,13 @@ register kind path bytes =
 data Contents = Readable ByteString | Unreadable
     deriving stock (Eq, Show)
 
--- | The newest file artifact of each path, of these artifacts oldest first: what 'resnapshot' reads again.
-newest :: [Artifact] -> [FileArtifact]
-newest artifacts = Map.elems (Map.fromList [(file.ref.path, file) | File file <- artifacts])
+{- | The newest file artifact of each path, with its seq, of these artifacts
+oldest first, each with its seq: what 'resnapshot' reads again.
+-}
+newest :: [(Natural, Artifact)] -> [(Natural, FileArtifact)]
+newest artifacts =
+    Map.elems
+        (Map.fromList [(file.ref.path, (n, file)) | (n, File file) <- artifacts])
 
 {- | The files to register again, from the newest artifact of each path and
 its bytes read now: one whose bytes changed, and the paths that could not be
@@ -250,6 +256,20 @@ resnapshot files =
     )
   where
     kept = [file | file@(artifact, _) <- files, keepsContent artifact.kind]
+
+{- | The blobs these artifacts register, from the bytes read for them: one
+per 'snapshotted' file whose digest a read has. A file read that no artifact
+names, or an artifact over the cap, adds none.
+-}
+blobsOf :: [ByteString] -> [Artifact] -> [Blob]
+blobsOf bytesRead artifacts =
+    [ blob
+    | File file <- artifacts
+    , snapshotted file.kind file.ref.size
+    , Just blob <- [Map.lookup file.ref.sha256 byKey]
+    ]
+  where
+    byKey = Map.fromList [(blobKey blob, blob) | blob <- map Blob bytesRead]
 
 {- | The GitHub repo of a git remote's URL, as @git remote get-url@ prints
 it: @ssh://@, @http://@ or @https://@ (a port allowed), or scp's

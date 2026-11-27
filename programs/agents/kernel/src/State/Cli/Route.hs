@@ -75,7 +75,8 @@ data Target = Target {top :: FilePath, parent :: Maybe RunId}
     deriving stock (Eq, Show)
 
 {- | The calls of a command run in this directory that read a run, in order.
-@init@, @help@, @render@, @show@ and argv @state@ refuses never route.
+@init@, @help@, @render@, @show@, @dump@, @artifact show@ and argv @state@
+refuses never route.
 -}
 stateCalls :: Steps -> FilePath -> Text -> [StateCall]
 stateCalls steps cwd command =
@@ -95,6 +96,9 @@ stateCalls steps cwd command =
         Tasks -> True
         -- It names its run and writes nothing, whatever directory it runs in.
         Dump _ -> False
+        ShowArtifact _ _ -> False
+        HandOver _ -> True
+        Register _ _ -> True
         -- It opens with the run's id, so it reads another run's state safely (#432).
         OnRun ShowRun -> False
         OnRun _ -> True
@@ -121,6 +125,7 @@ reachOf = \case
         Park _ _ -> OwnRun
         StopRun _ -> OwnRun
         Pending -> OwnRun
+        NoteOn _ _ -> OwnRun
     Init _ -> OwnRun
     HandbackOf _ _ -> OwnRun
     Next -> OwnRun
@@ -130,6 +135,9 @@ reachOf = \case
     Dump _ -> OwnRun
     Focus _ _ -> OwnRun
     Tasks -> OwnRun
+    HandOver _ -> OwnRun
+    ShowArtifact _ _ -> OwnRun
+    Register _ _ -> OwnRun
 
 {- | Why a subagent's command is denied: a @state init@ in it starts a user's
 run, which may spawn in the background and ask the user, neither of which a

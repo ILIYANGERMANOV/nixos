@@ -6,6 +6,8 @@ and every failure in the shape the @/self-improve@ analyzer parses:
 module State.Cli.Command (
     Command (..),
     RunCommand (..),
+    Location (..),
+    locationOf,
     BriefPart (..),
     InitArgs (..),
     Origin (..),
@@ -38,6 +40,7 @@ module State.Cli.Command (
 import Control.Applicative (many, optional, some, (<**>), (<|>))
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -48,6 +51,15 @@ import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Optparse
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import Paths_state (version)
+import State.Artifact (
+    FileKind,
+    Uri,
+    UrlKind,
+    fileKindText,
+    parseUri,
+    uriRule,
+    urlKindText,
+ )
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, parseByName)
 import State.Category.Graph (
@@ -104,7 +116,7 @@ import State.Run.Ask (
     replyWords,
  )
 import State.Run.Ask qualified as Ask
-import State.Run.Codec (areaText, reasonText)
+import State.Run.Codec (areaText, handoverReasonText, reasonText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (
     AgentRole (..),
@@ -112,6 +124,7 @@ import State.Run.Event (
     Asking (..),
     Child (..),
     FlowName (..),
+    Handover (..),
     Note (..),
     RunId,
     StateName (..),
@@ -129,7 +142,7 @@ import State.Run.Event (
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Answer (about, given), Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
-import State.Run.Id (parseEventId)
+import State.Run.Id (parseEventId, parseNumbered)
 import State.Show (tshow)
 import State.Step.Artifact (
     Shape (..),
@@ -161,6 +174,12 @@ data Command
       Focus (Maybe TaskNo) (Maybe OneLine)
     | -- | A card per request of the chief's run, and per child run.
       Tasks
+    | -- | The worktree's run hands over to a fresh agent, its changed files registered again first.
+      HandOver Handover
+    | -- | The artifact a run logged at this seq: its bytes, its URL, or why neither.
+      ShowArtifact RunId Natural
+    | -- | A file or URL the worktree's run registers, derived from its artifact of this seq, if any.
+      Register (Location FilePath) (Maybe Natural)
     | OnRun RunCommand
 
 -- | A command on the worktree's run, read and written under the log's lock.
@@ -188,6 +207,14 @@ data RunCommand
       Park Text OneLine
     | StopRun Stop
     | Pending
+    | -- | A note under its topic, then its text.
+      NoteOn Text Text
+
+{- | Where an artifact is, with a kind that fits it: a URL, or a file at a
+path, as typed until the shell reads it.
+-}
+data Location path = AtUrl UrlKind Uri | AtPath FileKind path
+    deriving stock (Eq, Show, Functor, Foldable, Traversable)
 
 -- | What of a role's brief to print: all of it, with a child engineer's task, or one step's section.
 data BriefPart = Whole (Maybe TaskId) | Section StateName
@@ -196,7 +223,13 @@ data BriefPart = Whole (Maybe TaskId) | Section StateName
 {- | A child's flow, when not named, is its parent's fan-out's; a top run's
 is 'defaultFlow'.
 -}
-data InitArgs = InitArgs {notes :: ShellPath, flow :: Maybe FlowName, origin :: Origin}
+data InitArgs = InitArgs
+    { notes :: ShellPath
+    , flow :: Maybe FlowName
+    , origin :: Origin
+    , goal :: Maybe Text
+    -- ^ The run's goal, word for word; a resumed run keeps the one it started with.
+    }
 
 {- | Who starts the run: the user, on a PR of its own or a round on the one
 @--pr@ names; a parent run, whose task gives the shape; or, with @--child@,
@@ -223,8 +256,11 @@ line naming the command to run instead.
 data Failure = Failure {exit :: Exit, what :: Text, why :: Text, fix :: Text}
     deriving stock (Eq, Show)
 
--- | Exit 2 for bad usage, a bad log line or a refused event; exit 1 for git or disk.
-data Exit = BadInput | Outage
+{- | Exit 2 for bad usage, a bad log line or a refused event; exit 1 for git
+or disk; for @state artifact show@, exit 3 for an artifact whose bytes were
+not stored and exit 4 for a line that is no artifact (#552's Appendix B E).
+-}
+data Exit = BadInput | Outage | NotStored | NotAnArtifact
     deriving stock (Eq, Show)
 
 failureText :: Text -> Failure -> Text
@@ -506,8 +542,76 @@ commandInfo steps scope =
                             "where the request in focus stands, once it recorded work"
                         )
             , sub "tasks" "Print each request's card and resume advice" (pure (Right Tasks))
+            , Optparse.command
+                "artifact"
+                ( Optparse.info
+                    (artifactShow <|> artifactRegister)
+                    ( Optparse.progDesc
+                        "Register a file or URL; 'artifact show' prints one"
+                    )
+                )
+            , freeText "note" "Note context for a fresh agent, under a topic" $
+                (\topic text -> Right (OnRun (NoteOn topic text)))
+                    <$> textOption "topic" "<t>" "what the note is about"
+                    <*> sentence "<text>"
+            , sub "handover" "Hand the run over to a fresh agent" $
+                ( \reason summary first' rest ->
+                    (\r -> HandOver (Handover r summary (first' :| rest)))
+                        <$> named "handover reason" (parseByName handoverReasonText) reason
+                )
+                    <$> textOption "reason" (choices handoverReasonText) "why the agent hands over"
+                    <*> textOption "summary" "<s>" "where the work stands"
+                    <*> nextStep mempty
+                    <*> many (nextStep Optparse.hidden)
             , sub "help" "Print this help" (pure (Right Help))
             ]
+    artifactShow =
+        Optparse.hsubparser
+            ( Optparse.command
+                "show"
+                ( Optparse.info
+                    (artifactAt <$> textArgument "<run:seq>")
+                    ( Optparse.progDesc
+                        "Print an artifact's stored bytes or its URL; exit 3 when its bytes were not stored, 4 when the line is no artifact"
+                    )
+                )
+            )
+    artifactAt raw =
+        maybe
+            ( Left
+                ( usage
+                    ("artifact " <> raw)
+                    "an artifact is named <run:seq>, as state artifact printed it"
+                )
+            )
+            (Right . uncurry ShowArtifact)
+            (parseNumbered raw)
+    artifactRegister =
+        ( \raw kind from ->
+            Register
+                <$> locationOf raw kind
+                <*> traverse seqOf from
+        )
+            <$> textArgument "<path|url>"
+            <*> textOption
+                "kind"
+                "<kind>"
+                ( Text.unpack
+                    ( "a file's kind, "
+                        <> choices fileKindText
+                        <> ", or a URL's, "
+                        <> choices urlKindText
+                    )
+                )
+            <*> optional
+                (textOption "from" "<seq>" "the seq of the artifact of this run it derives from")
+    nextStep hiding =
+        Optparse.strOption
+            ( Optparse.long "next"
+                <> Optparse.metavar "<step>"
+                <> Optparse.help "a next step, once per step"
+                <> hiding
+            )
     footer =
         [ "kinds: " <> choices kindName
         , "stop reasons: " <> choices reasonText
@@ -572,6 +676,41 @@ commandInfo steps scope =
                     ("state rule " <> qid <> " --answer \"<a>\" --why \"<w>\" --cost \"<c>\"")
                 )
 
+{- | An artifact's location and kind, as typed: text that is an absolute URI
+is a URL, any other a path. A kind that does not fit the location is
+refused, before anything is read or written.
+-}
+locationOf :: Text -> Text -> Either Failure (Location FilePath)
+locationOf raw kind = case (parseUri raw, parseByName fileKindText kind, parseByName urlKindText kind) of
+    (Just uri, _, Just urlKind) -> Right (AtUrl urlKind uri)
+    (Just _, Just _, Nothing) ->
+        Left
+            ( Failure
+                BadInput
+                ("--kind " <> kind)
+                ("a URL's kind is " <> choices urlKindText)
+                ("state artifact " <> raw <> " --kind <kind>, or ./" <> raw <> " for a file")
+            )
+    (Nothing, Just fileKind, _) -> Right (AtPath fileKind (Text.unpack raw))
+    (Nothing, Nothing, Just _) ->
+        Left
+            ( Failure
+                BadInput
+                raw
+                ("a " <> kind <> " is a URL: " <> uriRule)
+                ("state artifact <url> --kind " <> kind)
+            )
+    (_, Nothing, Nothing) ->
+        Left
+            ( usage
+                ("no artifact kind " <> kind)
+                ( "a file's kind is "
+                    <> choices fileKindText
+                    <> ", a URL's "
+                    <> choices urlKindText
+                )
+            )
+
 initArgs :: Optparse.Parser (Either Failure Command)
 initArgs =
     init'
@@ -587,8 +726,9 @@ initArgs =
                 <> Optparse.help
                     "a subagent's run whose spawner holds no run to link: it hands everything back"
             )
+        <*> optional (textOption "goal" "<goal>" "the run's goal, word for word")
   where
-    init' notesRaw flowRaw parentRaw taskRaw prRaw child = do
+    init' notesRaw flowRaw parentRaw taskRaw prRaw child goal = do
         notes <- notesDir notesRaw
         flow <- traverse flowNamed flowRaw
         let mine = if child then FromCaller else FromUser
@@ -607,7 +747,7 @@ initArgs =
                         "--task without --parent"
                         "a child run names its parent's run, and its task at a fan-out"
                     )
-        Right (Init InitArgs {notes, flow, origin})
+        Right (Init InitArgs {notes, flow, origin, goal})
     childWithParent =
         usage
             "--child with --parent"

@@ -3,7 +3,7 @@ module State.ArtifactSpec (spec) where
 
 import Data.ByteString qualified as ByteString
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, maybeToList)
 import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
@@ -20,6 +20,7 @@ import State.Artifact (
     Snapshot (..),
     absPath,
     blobKey,
+    blobsOf,
     cap,
     newest,
     originRepo,
@@ -77,6 +78,24 @@ spec = describe "State.Artifact" $ do
                 snapshot.blob
                     === if snapshotted kind snapshot.file.ref.size then Just (Blob bytes) else Nothing
 
+    describe "blobsOf" $ do
+        it "gives every snapshotted file artifact its blob, and no other artifact one"
+            . hedgehog
+            $ do
+                kind <- forAll Gen.enumBounded
+                bytes <- forAll (Gen.bytes (Range.linear 0 64))
+                let snapshot = register kind (path "/notes/a.md") bytes
+                blobsOf [bytes] [File snapshot.file] === maybeToList snapshot.blob
+
+        it "stores a file under the cap as it was read" . hedgehog $ do
+            bytes <- forAll (Gen.bytes (Range.linear 0 64))
+            blobsOf [bytes] [File (register Notes (path "/notes/a.md") bytes).file]
+                === [Blob bytes]
+
+        it "adds no blob for bytes no artifact names" $
+            blobsOf ["other"] [File (register Notes (path "/notes/a.md") "a").file]
+                `shouldBe` []
+
     describe "resnapshot" $ do
         it
             "registers a changed file again, skips an unreadable one and adds nothing for the same bytes"
@@ -100,10 +119,14 @@ spec = describe "State.Artifact" $ do
                         (Map.elems . Map.fromList . map keyed <$> Gen.list (Range.linear 0 5) genFile)
                 let disk = Map.fromList [(file.ref.path, now) | (file, now) <- files]
                     (fresh, _) = resnapshot files
-                    registered = newest (map (File . fst) files <> map (File . (.file)) fresh)
+                    registered =
+                        newest (zip [1 ..] (map (File . fst) files <> map (File . (.file)) fresh))
                 fst
                     ( resnapshot
-                        [(file, now) | file <- registered, Just now <- [Map.lookup file.ref.path disk]]
+                        [ (file, now)
+                        | (_, file) <- registered
+                        , Just now <- [Map.lookup file.ref.path disk]
+                        ]
                     )
                     === []
 

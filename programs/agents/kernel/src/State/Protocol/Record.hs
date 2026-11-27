@@ -30,6 +30,8 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Artifact (FileKind)
+import State.Artifact qualified as Artifact
 import State.Category.Flow (ScopePath, nameText, unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Graph (
@@ -78,12 +80,13 @@ import State.Step.Ship (Outcome (..), Sing (..))
 import State.Step.Ticket (Outcome (..), Sing (..))
 
 {- | An event to record. Most carry the commit the worktree is at, which only
-the shell can read; a breakdown or an added task is read from a file, by the shell too.
+the shell can read; a plan, a breakdown or an added task is read from a
+file, by the shell too, which registers the file as an artifact of this kind.
 -}
 data Recording
     = Plain Event
     | AtHead (Sha -> Event)
-    | FromFile FilePath (Text -> Either Text Event)
+    | FromFile FileKind FilePath (Text -> Either Text Event)
 
 {- | The @state record@ line for an event, its arguments' usage after it. An
 event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
@@ -246,6 +249,7 @@ recordables =
                 [path] ->
                     Right
                         ( FromFile
+                            Artifact.Plan
                             (Text.unpack path)
                             (const (Right (tookIn a.scope (PlanDone (Text.unpack path)))))
                         )
@@ -319,7 +323,13 @@ recordables =
                                 (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a)))
                             )
                     -- Two words never move a task, so a task named add stays recordable.
-                    ["add", path] -> Right (FromFile (Text.unpack path) (fmap TaskAdded . Codec.decodeTask))
+                    ["add", path] ->
+                        Right
+                            ( FromFile
+                                Artifact.TaskList
+                                (Text.unpack path)
+                                (fmap TaskAdded . Codec.decodeTask)
+                            )
                     _ ->
                         Left
                             "the task, then ci, review, merged, kept or round and its PR, or parked and why; or add and a task file"
@@ -354,6 +364,7 @@ recordables =
             ([], Just path) ->
                 Right
                     ( FromFile
+                        Artifact.TaskList
                         (Text.unpack path)
                         (fmap (tookIn a.scope . BreakdownDone fan) . Codec.decodeBreakdown)
                     )

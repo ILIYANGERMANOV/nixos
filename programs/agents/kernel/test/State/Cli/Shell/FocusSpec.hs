@@ -356,7 +356,8 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
             advised <- succeeded =<< state world ["next"]
 
             recorded (planned <> advised)
-                `shouldBe` [ "plan.done -> skip_refine"
+                `shouldBe` [ "artifact -> plan"
+                           , "plan.done -> skip_refine"
                            , "skip_refine.skip -> present"
                            , "present.done -> confirm"
                            , "confirm.confirmed -> draft"

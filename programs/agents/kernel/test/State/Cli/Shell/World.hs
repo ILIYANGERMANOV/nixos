@@ -82,7 +82,7 @@ import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (decodeUtf8Lenient, encodeUtf8)
 import Data.Time (UTCTime (..), fromGregorian)
 import Data.Word (Word8)
 import Doubles.Clock (runClockFixed)
@@ -139,6 +139,8 @@ data World = World
     -- ^ The tops of other worktrees, apart from the one calls run in.
     , gitOnPath :: Bool
     -- ^ Without it every git call throws, as a missing binary's spawn does.
+    , origin :: Maybe Text
+    -- ^ The URL of the remote @origin@, if the repo has one.
     , branch :: Maybe Branch
     , commits :: Int
     , pr :: PrView
@@ -163,6 +165,7 @@ newWorld = do
             , gitDir = Right "/work/.git"
             , others = []
             , gitOnPath = True
+            , origin = Nothing
             , branch = Just (Branch "feat")
             , commits = 0
             , pr = PrViewFailed "no pull requests found for branch \"feat\"\n"
@@ -208,7 +211,10 @@ run world input program = atomicModifyIORef' world $ \w ->
         -- The double opens no file, so it refuses none.
         ((code, entropy), runs) = either (error . show) id opened
      in ( w {entropy, runs, disk}
-        , Ran (exitNumber code) (Text.lines streams.stdout) (Text.lines streams.stderr)
+        , Ran
+            (exitNumber code)
+            (Text.lines (decodeUtf8Lenient streams.stdout))
+            (Text.lines streams.stderr)
         )
   where
     exitNumber = \case
@@ -228,6 +234,7 @@ worktreeOf w =
                 )
             ]
         , others = w.others
+        , origin = w.origin
         }
 
 -- | HEAD after this many commits on @feat@; 0 is @main@'s.
@@ -258,7 +265,7 @@ startedIn world argv =
             )
     )
         >>= \case
-            [line, _] | Just runId <- Text.stripPrefix "started " line -> pure runId
+            [line, _, "next: state next"] | Just runId <- Text.stripPrefix "started " line -> pure runId
             other -> fail ("not started: " <> show other)
 
 notes :: FilePath

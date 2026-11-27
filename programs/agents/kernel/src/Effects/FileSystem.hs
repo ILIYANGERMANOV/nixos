@@ -8,6 +8,8 @@ module Effects.FileSystem (
     WrFileSystem (..),
     readBytes,
     readText,
+    absolute,
+    readContents,
     listDirectory,
     inDirectory,
     writeText,
@@ -33,6 +35,7 @@ import Effectful (
     (:>),
  )
 import Effectful.Dispatch.Dynamic (interpret, localSeqUnliftIO, send)
+import State.Artifact (AbsPath, Contents (..), absPath, absPathText)
 import System.Directory (
     createDirectoryIfMissing,
     doesFileExist,
@@ -42,11 +45,13 @@ import System.Directory (
 import System.Directory qualified as Directory
 import System.FilePath (takeDirectory, takeFileName)
 import System.IO (hClose, openTempFile)
-import System.IO.Error (isDoesNotExistError)
+import System.IO.Error (isDoesNotExistError, isPermissionError)
 
 data RoFileSystem :: Effect where
     ReadBytes :: FilePath -> RoFileSystem m ByteString
     ReadText :: FilePath -> RoFileSystem m (Maybe Text)
+    Absolute :: FilePath -> RoFileSystem m AbsPath
+    ReadContents :: AbsPath -> RoFileSystem m Contents
     ListDirectory :: FilePath -> RoFileSystem m [FilePath]
     InDirectory :: FilePath -> m a -> RoFileSystem m a
 
@@ -68,6 +73,19 @@ readText :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe Text)
 readText = send . ReadText
 
 -- | The names in a directory, none when it does not exist.
+
+{- | The path against the current directory, normalised: symlinks kept, as
+the path the user named is the one registered.
+-}
+absolute :: (RoFileSystem :> es) => FilePath -> Eff es AbsPath
+absolute = send . Absolute
+
+{- | The file's bytes, read once, or 'Unreadable' when it does not exist or
+may not be read. Any other failure throws.
+-}
+readContents :: (RoFileSystem :> es) => AbsPath -> Eff es Contents
+readContents = send . ReadContents
+
 listDirectory :: (RoFileSystem :> es) => FilePath -> Eff es [FilePath]
 listDirectory = send . ListDirectory
 
@@ -105,6 +123,17 @@ runRoFileSystemIO = interpret $ \env -> \case
             doesFileExist path >>= \case
                 False -> pure Nothing
                 True -> Just <$> Text.readFile path
+    -- makeAbsolute normalises: a path it gives is one absPath takes.
+    Absolute path ->
+        liftIO $
+            Directory.makeAbsolute path
+                >>= maybe (ioError (userError ("not absolute: " <> path))) pure . absPath
+    ReadContents path ->
+        liftIO $
+            catchJust
+                (\e -> guard (isDoesNotExistError e || isPermissionError e))
+                (Readable <$> BS.readFile (absPathText path))
+                (const (pure Unreadable))
     ListDirectory dir -> liftIO (orIfAbsent [] (Directory.listDirectory dir))
     InDirectory dir act -> localSeqUnliftIO env $ \unlift -> withCurrentDirectory dir (unlift act)
 
