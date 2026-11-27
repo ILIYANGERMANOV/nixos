@@ -3,7 +3,7 @@ remembering to (#360's hooks contract): the neutral hook event in
 (programs/agents/hooks/agent_hook.py), what the run is asked, and the reply out.
 
 @
-resume    sessionStart          a fresh or resumed session records restarted; context: show and next
+resume    sessionStart          records session_started, and restarted for a fresh or resumed session; context: show and next
 spawn     beforeTool delegate   context: next, and a warning off the advice
 handback  beforeTool handback   records a worker's hand-back; context: what it recorded
 bind      afterTool shell       binds the agent to the run its @state init@ started or resumed
@@ -39,6 +39,8 @@ module State.Protocol.Hook (
     Agent (..),
     Tool (..),
     StartSource (..),
+    Opened (..),
+    sessionOf,
     parseHookEvent,
     Job (..),
     Want (..),
@@ -92,6 +94,7 @@ import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Artifact (AbsPath, absPath)
 import State.Category.Flow (ScopePath)
 import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
@@ -110,9 +113,12 @@ import State.Run.Event (
     DraftPr (..),
     Envelope (..),
     Event (Restarted, Took),
+    Harness,
     RunId,
+    Session (..),
     SessionId,
     Source (..),
+    parseHarness,
     parseSessionId,
     roleText,
     runIdText,
@@ -162,7 +168,7 @@ hookPurpose = \case
 
 -- | One event of the neutral contract. @history@ and @context@ are required, never read.
 data HookEvent
-    = SessionStart Call StartSource
+    = SessionStart Call Opened
     | BeforeTool Call Tool Object
     | -- | The tool's input, and its output as the client gave it.
       AfterTool Call Tool Object Value
@@ -211,6 +217,25 @@ data Tool
 data StartSource = Startup | Resumed | Compact
     deriving stock (Eq, Show, Enum, Bounded)
 
+-- | What a session start tells: why it started, and the harness's own facts of the session.
+data Opened = Opened
+    { source :: StartSource
+    , harness :: Harness
+    , transcript :: Maybe AbsPath
+    , model :: Maybe Text
+    }
+    deriving stock (Eq, Show)
+
+-- | The session as its run keeps it ('SessionStarted').
+sessionOf :: Opened -> Session
+sessionOf opened =
+    Session
+        { harness = opened.harness
+        , transcript = opened.transcript
+        , trigger = startSourceName opened.source
+        , model = opened.model
+        }
+
 -- | The event on stdin; an unknown event, tool or source is an error, as in @agent_hook.py@.
 parseHookEvent :: LBS.ByteString -> Either Text HookEvent
 parseHookEvent input = either (Left . Text.pack) Right $ do
@@ -222,7 +247,14 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
                 <*> o .: "cwd"
                 <*> (o .: "agent" >>= agentOf)
         (o .: "event" :: Parser Text) >>= \case
-            "sessionStart" -> SessionStart call <$> (o .: "source" >>= named "source" startSourceName)
+            "sessionStart" ->
+                SessionStart call
+                    <$> ( Opened
+                            <$> (o .: "source" >>= named "source" startSourceName)
+                            <*> (o .: "harness" >>= harnessOf)
+                            <*> (o .: "transcript_path" >>= traverse transcriptPath)
+                            <*> o .: "request_model"
+                        )
             "beforeTool" -> do
                 _ <- o .: "history" :: Parser [Text]
                 BeforeTool call <$> tool o <*> o .: "input"
@@ -250,6 +282,13 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
                         <$> (Agent . fmap AgentId <$> a .: "id" <*> (fmap AgentRole <$> a .: "role"))
                 )
                 value
+    harnessOf raw = maybe (fail "no harness: empty") pure (parseHarness raw)
+    -- Not absolute is no transcript the contract allows: refused, as an unknown source is.
+    transcriptPath raw =
+        maybe
+            (fail ("no absolute normalised transcript_path " <> raw))
+            pure
+            (absPath raw)
     named :: (Enum a, Bounded a) => String -> (a -> Text) -> Text -> Parser a
     named what name raw =
         maybe
@@ -296,7 +335,7 @@ data Gate
 -- | What a hook asks of the worktree's run.
 data Want
     = -- | Why the session started.
-      ResumeRun StartSource
+      ResumeRun Opened
     | -- | The role the lead spawns, when its input names one.
       SpawnRole (Maybe AgentRole)
     | -- | A flow role's hand-back: its message, and who sent it.
@@ -342,7 +381,7 @@ is an error.
 wants :: Steps -> HookName -> HookEvent -> Either Text (Maybe Job)
 wants steps hook event = case hook of
     ResumeHook -> case event of
-        SessionStart call source -> Right (lead call (ResumeRun source))
+        SessionStart call opened -> Right (lead call (ResumeRun opened))
         BeforeTool {} -> undeclared
         AfterTool {} -> undeclared
         AgentStart _ -> undeclared

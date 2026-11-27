@@ -21,12 +21,19 @@ module State.Run.EventGen (
     tasksOf,
     oneLine,
     runId,
+    absolutePath,
+    uri,
     replacing,
     run,
     start,
     started,
     fuelSet,
     genStart,
+    genArtifact,
+    genFileArtifact,
+    genAbsPath,
+    genUri,
+    genRepo,
     genTime,
     line,
     lineOf,
@@ -34,6 +41,7 @@ module State.Run.EventGen (
     logOf,
 ) where
 
+import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -48,6 +56,18 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Artifact (
+    AbsPath,
+    Artifact (File),
+    FileArtifact (..),
+    FileRef (..),
+    Size (..),
+    Uri,
+    absPath,
+    parseUri,
+    sha256Of,
+ )
+import State.Artifact qualified as Registry (Artifact (Url))
 import State.Category.FlowGen (genScopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
@@ -127,7 +147,65 @@ genEvent =
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo
         , Voided <$> genIJsonNatural <*> genText
+        , WorktreeMoved <$> genAbsPath <*> Gen.maybe genRepo
+        , ArtifactLogged <$> genArtifact <*> Gen.maybe genIJsonNatural
+        , Noted <$> genText <*> genText
+        , HandedOver
+            <$> ( Handover
+                    <$> Gen.enumBounded
+                    <*> genText
+                    <*> Gen.nonEmpty (Range.linear 1 3) genText
+                )
+        , SessionStarted
+            <$> ( Session
+                    <$> Gen.mapMaybe parseHarness genText
+                    <*> Gen.maybe genAbsPath
+                    <*> genText
+                    <*> Gen.maybe genText
+                )
         ]
+
+-- | A file artifact of any kind, or a URL's: its location's kinds only.
+genArtifact :: Gen Artifact
+genArtifact =
+    Gen.choice
+        [ File <$> genFileArtifact
+        , Registry.Url <$> Gen.enumBounded <*> genUri
+        ]
+
+-- | A file as registered: any kind, path, digest and I-JSON size.
+genFileArtifact :: Gen FileArtifact
+genFileArtifact =
+    FileArtifact
+        <$> Gen.enumBounded
+        <*> ( FileRef
+                <$> genAbsPath
+                <*> (sha256Of <$> Gen.bytes (Range.linear 0 32))
+                <*> (Size <$> genIJsonNatural)
+            )
+
+-- | An absolute, normalised path: segments of any character but @/@, none @.@.
+genAbsPath :: Gen AbsPath
+genAbsPath =
+    Gen.mapMaybe
+        (absPath . ('/' :) . intercalate "/")
+        ( Gen.list
+            (Range.linear 0 4)
+            ( Gen.filter
+                (/= ".")
+                (Gen.string (Range.linear 1 10) (Gen.filter (/= '/') Gen.unicode))
+            )
+        )
+
+-- | An RFC 3986 absolute URI: a scheme, then unreserved and sub-delimiter characters.
+genUri :: Gen Uri
+genUri =
+    Gen.mapMaybe
+        parseUri
+        ( (\scheme rest -> scheme <> ":" <> rest)
+            <$> Gen.element ["https", "http", "ftp", "urn", "mailto"]
+            <*> Gen.text (Range.linear 0 20) (Gen.element ("aZ09-._~/?:@!$&'()*+,;=" :: String))
+        )
 
 {- | An I-JSON integer (RFC 7493 s2.2), 0 to 2^53-1, its two edges drawn
 often: the log's only payload integer, a voided seq, stays in that range.
@@ -252,6 +330,9 @@ genStart =
             , ByCaller <$> genShape
             ]
         <*> genSet Gen.enumBounded
+        <*> Gen.maybe genText
+        <*> genAbsPath
+        <*> Gen.maybe genRepo
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
 genOutcomeNamed :: EventName -> Maybe (Gen AnyOutcome)
@@ -505,12 +586,28 @@ replacing whole (old, new)
 runId :: Text -> RunId
 runId raw = fromMaybe (error ("not a run id: " <> show raw)) (parseRunId raw)
 
+-- | A path the test spells, which must be absolute and normalised.
+absolutePath :: FilePath -> AbsPath
+absolutePath raw = fromMaybe (error ("not an absolute path: " <> show raw)) (absPath raw)
+
+-- | A URL the test spells, which must be an absolute URI.
+uri :: Text -> Uri
+uri raw = fromMaybe (error ("not a URI: " <> show raw)) (parseUri raw)
+
 run :: RunId
 run = runId "r7f2"
 
 -- | A user's engineer run, in a session that can ask the user.
 start :: Start
-start = Start EngineerFlow "notes" (ByUser OwnPr) (Set.fromList [AskUser, Hooks])
+start =
+    Start
+        EngineerFlow
+        "notes"
+        (ByUser OwnPr)
+        (Set.fromList [AskUser, Hooks])
+        Nothing
+        (absolutePath "/work")
+        Nothing
 
 started :: Event
 started = Started start

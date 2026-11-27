@@ -54,7 +54,7 @@ Write `$run/prompt.md`, the engineer's task:
   cwd is its checkout, or the prompt names it) holding the fixes the user
   picks; its body states the before numbers and, where measurable, the after
   numbers. The rest, and fixes in other repos, become follow-up `/engineer`
-  runs, named in the hand-over.
+  runs, named in the delivery.
 
 ## 3. Engineer
 

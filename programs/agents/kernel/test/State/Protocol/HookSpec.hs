@@ -19,6 +19,8 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as Text
+import State.Artifact (absPath)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (stepName)
 import State.Protocol.Advice (Readiness (..))
@@ -30,6 +32,8 @@ import State.Run.Event (
     DraftPr (..),
     Envelope (..),
     Event (Restarted, Spawned, Stopped, Voided, WorkerSpawned),
+    Harness (..),
+    Session (..),
     SessionId (..),
     Stop (..),
     StopReason (..),
@@ -79,11 +83,47 @@ spec = describe "the hooks" $ do
 
         it "reads the lead, whose agent is null" $
             parseHookEvent (sessionStart "startup")
-                `shouldBe` Right (SessionStart (Call (Just (SessionId "s")) "/w" Nothing) Startup)
+                `shouldBe` Right
+                    (SessionStart (Call (Just (SessionId "s")) "/w" Nothing) (claudeOpened Startup))
 
         it "reads an empty session as none" $
             parseHookEvent (withField "session" "" (sessionStart "startup"))
-                `shouldBe` Right (SessionStart (Call Nothing "/w" Nothing) Startup)
+                `shouldBe` Right (SessionStart (Call Nothing "/w" Nothing) (claudeOpened Startup))
+
+        it "reads a session start that names no transcript or model" $
+            parseHookEvent
+                ( withNull "request_model"
+                    . withNull "transcript_path"
+                    . withField "harness" "opencode"
+                    $ sessionStart "resume"
+                )
+                `shouldBe` Right
+                    ( SessionStart
+                        (Call (Just (SessionId "s")) "/w" Nothing)
+                        (Opened Resumed (Harness "opencode") Nothing Nothing)
+                    )
+
+        it "refuses a session start whose transcript path is not absolute" $
+            parseHookEvent
+                (withField "transcript_path" "p/s.jsonl" (sessionStart "startup"))
+                `shouldSatisfy` isLeft
+
+        it "refuses a session start that names no harness" $
+            parseHookEvent (without "harness" (sessionStart "startup"))
+                `shouldSatisfy` isLeft
+
+        it "refuses a session start whose harness is empty" $
+            parseHookEvent (withField "harness" "" (sessionStart "startup"))
+                `shouldSatisfy` isLeft
+
+        it "keeps the session as its run logs it, its source by the hook's own word" $
+            sessionOf (claudeOpened Resumed)
+                `shouldBe` Session
+                    { harness = Harness "claude-code"
+                    , transcript = absPath transcriptFile
+                    , trigger = "resume"
+                    , model = Just "claude-opus-5-5"
+                    }
 
         it "reads a subagent's start, by its agent" $
             parseHookEvent (agentStart "engineer")
@@ -177,11 +217,11 @@ spec = describe "the hooks" $ do
                     wants
                         steps
                         ResumeHook
-                        (SessionStart (Call (Just (SessionId "s")) "/w" agent) Startup)
+                        (SessionStart (Call (Just (SessionId "s")) "/w" agent) (claudeOpened Startup))
                 )
                 [Nothing, Just (Agent Nothing (Just (AgentRole "engineer")))]
-                `shouldBe` [ Right (Just (Asks (ResumeRun Startup)))
-                           , Right (Just (Asks (ResumeRun Startup)))
+                `shouldBe` [ Right (Just (Asks (ResumeRun (claudeOpened Startup))))
+                           , Right (Just (Asks (ResumeRun (claudeOpened Startup))))
                            ]
 
         it "ignores a subagent's spawn" $
@@ -256,7 +296,7 @@ spec = describe "the hooks" $ do
             wants
                 steps
                 SpawnHook
-                (SessionStart (Call (Just (SessionId "s")) "/w" Nothing) Startup)
+                (SessionStart (Call (Just (SessionId "s")) "/w" Nothing) (claudeOpened Startup))
                 `shouldBe` Left "state-hook spawn does not run at sessionStart"
 
     describe "what a call routes" $ do
@@ -412,7 +452,7 @@ spec = describe "the hooks" $ do
 
         it "never stashes a want that is no hand-back" $
             [ delivery want worker slot Nothing
-            | want <- [ResumeRun Startup, SpawnRole Nothing]
+            | want <- [ResumeRun (claudeOpened Startup), SpawnRole Nothing]
             ]
                 `shouldBe` [ToRun, ToRun]
 
@@ -539,7 +579,8 @@ spec = describe "the hooks" $ do
                 `shouldBe` ["run 0a1b2c3d: state hook resume: gone\n", "state hook resume: gone\n"]
 
         it "prints nothing with nothing to say" $
-            encodeReply (replyOf (Asks (ResumeRun Startup)) "") `shouldBe` Nothing
+            encodeReply (replyOf (Asks (ResumeRun (claudeOpened Startup))) "")
+                `shouldBe` Nothing
 
         it "tells what a hand-back recorded as context, never rewriting the call" $
             decoded
@@ -586,7 +627,7 @@ spec = describe "the hooks" $ do
         it "gives sessionStart and afterTool context alone" $
             map
                 (\job -> decoded (replyOf job "state: noted"))
-                [ Asks (ResumeRun Startup)
+                [ Asks (ResumeRun (claudeOpened Startup))
                 , Binds (BindChild (AgentId "a1") (AgentRole "researcher"))
                 ]
                 `shouldBe` replicate 2 (Right (object ["context" .= ("state: noted" :: Text)]))
@@ -605,12 +646,31 @@ reviewLead = Agent (Just (AgentId "a2")) (Just (AgentRole "review-lead"))
 message :: Text -> Object
 message text = KeyMap.fromList [("message", String text)]
 
+-- | The lead's Claude Code session starting for this reason.
 sessionStart :: Text -> LBS.ByteString
 sessionStart source =
     encodeObject
         ( common Null
-            <> KeyMap.fromList [("event", "sessionStart"), ("source", String source)]
+            <> KeyMap.fromList
+                [ ("event", "sessionStart")
+                , ("source", String source)
+                , ("harness", "claude-code")
+                , ("transcript_path", String (Text.pack transcriptFile))
+                , ("request_model", "claude-opus-5-5")
+                ]
         )
+
+-- | What 'sessionStart' tells, for this reason.
+claudeOpened :: StartSource -> Opened
+claudeOpened source =
+    Opened
+        source
+        (Harness "claude-code")
+        (absPath transcriptFile)
+        (Just "claude-opus-5-5")
+
+transcriptFile :: FilePath
+transcriptFile = "/home/u/.claude/projects/p/s.jsonl"
 
 beforeTool :: Text -> Value -> Value -> LBS.ByteString
 beforeTool tool agent input =
@@ -673,8 +733,17 @@ common :: Value -> Object
 common agent = KeyMap.fromList [("session", "s"), ("cwd", "/w"), ("agent", agent)]
 
 withField :: Text -> Text -> LBS.ByteString -> LBS.ByteString
-withField key value raw = case eitherDecode raw of
-    Right (Object o) -> encodeObject (KeyMap.insert (Key.fromText key) (String value) o)
+withField key value = edited (KeyMap.insert (Key.fromText key) (String value))
+
+withNull :: Text -> LBS.ByteString -> LBS.ByteString
+withNull key = edited (KeyMap.insert (Key.fromText key) Null)
+
+without :: Text -> LBS.ByteString -> LBS.ByteString
+without key = edited (KeyMap.delete (Key.fromText key))
+
+edited :: (Object -> Object) -> LBS.ByteString -> LBS.ByteString
+edited change raw = case eitherDecode raw of
+    Right (Object o) -> encodeObject (change o)
     _ -> raw
 
 encodeObject :: Object -> LBS.ByteString
@@ -700,7 +769,7 @@ toolOf = \case
 
 sourceOf :: HookEvent -> Maybe StartSource
 sourceOf = \case
-    SessionStart _ source -> Just source
+    SessionStart _ opened -> Just opened.source
     BeforeTool {} -> Nothing
     AfterTool {} -> Nothing
     AgentStart _ -> Nothing

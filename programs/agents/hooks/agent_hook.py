@@ -4,7 +4,7 @@ A hook is a program. It reads one event as JSON on stdin and prints one result
 as JSON on stdout, or nothing, which allows:
 
     stdin:  {event, tool, input, output, cwd, session, agent: {id, role} | null, source,
-             history, context, skill, running}
+             harness, transcript_path, request_model, history, context, skill, running}
     stdout: beforeTool: {decision: allow | deny, reason, context, updatedInput}
             sessionStart, afterTool, agentStart, promptExpansion: {context}
             agentStop: dropped
@@ -20,6 +20,11 @@ the agent has done so far, so a hook needs no state of its own:
     context: afterTool: {tokens, previous} | null, the tokens of context the
              newest model call sent, and those of the last earlier call that
              ran a tool (null when there is none); null when unknown
+
+A sessionStart names the harness that runs the session (`harness`, its
+backend's own constant: `claude-code`, `opencode`) and, as `null` when its
+harness gives none, the session's transcript file (`transcript_path`, an
+absolute path) and the model it asked for (`request_model`).
 
 `agentStart` is a subagent starting, its `agent` never null; `promptExpansion`
 is a typed `/skill` expanding into the prompt, `skill` its name. `agentStop`
@@ -63,6 +68,7 @@ SessionId = NewType("SessionId", str)
 AgentId = NewType("AgentId", str)
 Role = NewType("Role", str)
 HookName = NewType("HookName", str)
+Harness = NewType("Harness", str)
 SkillName = NewType("SkillName", str)
 
 
@@ -117,10 +123,16 @@ class ContextSize:
 
 @dataclass(frozen=True, slots=True)
 class SessionStart:
+    """A session starts. `transcript` is absolute; it and `model` are None when
+    the harness gives none."""
+
     session: SessionId
     cwd: Path
     agent: Agent | None
     source: Source
+    harness: Harness
+    transcript: Path | None
+    model: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,9 +424,18 @@ def parse_event(text: str) -> Event:
             "cwd": str(cwd),
             "agent": agent,
             "source": str(source),
+            "harness": str(harness),
+            "transcript_path": transcript,
+            "request_model": None | str() as model,
         }:
             return SessionStart(
-                SessionId(session), Path(cwd), parse_agent(agent), Source(source)
+                SessionId(session),
+                Path(cwd),
+                parse_agent(agent),
+                Source(source),
+                Harness(harness),
+                parse_transcript(transcript),
+                model,
             )
         case {
             "event": "beforeTool",
@@ -507,6 +528,31 @@ def parse_subagent(agent: Json) -> Agent:
             raise ValueError(f"not an agent: {agent!r}")
 
 
+def parse_transcript(transcript: Json) -> Path | None:
+    """A session's transcript file: an absolute, normalised path, or None when
+    there is none. The kernel refuses any other, so it is refused here."""
+    match transcript:
+        case None:
+            return None
+        case str() if absolute_normalised(transcript):
+            return Path(transcript)
+        case _:
+            raise ValueError(
+                f"not an absolute normalised transcript path: {transcript!r}"
+            )
+
+
+def absolute_normalised(path: str) -> bool:
+    """What the kernel's `absPath` takes: an absolute path equal to Haskell
+    filepath's `normalise` of it. That collapses `//` and drops a `.` part,
+    but keeps a `..` part and a trailing `/`."""
+    match path.split("/"):
+        case ["", *inner, last]:
+            return all(part not in ("", ".") for part in inner) and last != "."
+        case _:
+            return False
+
+
 def parse_context_size(context: Json) -> ContextSize | None:
     match context:
         case None:
@@ -531,8 +577,18 @@ def emit_event(event: Event) -> str:
             return json.dumps(common | {"skill": skill})
         case AgentStop(running=running):
             return json.dumps(common | {"running": list(running)})
-        case SessionStart(source=source):
-            return json.dumps(common | {"source": source.value})
+        case SessionStart(
+            source=source, harness=harness, transcript=transcript, model=model
+        ):
+            return json.dumps(
+                common
+                | {
+                    "source": source.value,
+                    "harness": harness,
+                    "transcript_path": None if transcript is None else str(transcript),
+                    "request_model": model,
+                }
+            )
         case BeforeTool(tool=tool, input=tool_input, history=history):
             return json.dumps(
                 common

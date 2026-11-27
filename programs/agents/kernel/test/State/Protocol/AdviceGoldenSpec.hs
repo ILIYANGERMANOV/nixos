@@ -31,7 +31,7 @@ import State.Run.Event (
     Shape (..),
     Start (..),
  )
-import State.Run.EventGen (fuelSet, logOf)
+import State.Run.EventGen (absolutePath, fuelSet, logOf)
 import State.Run.Fold (RunState (..), replay)
 import State.Run.RunGen (
     architectGraph,
@@ -78,7 +78,18 @@ spec = describe "the advice at every state" $ do
             ( replay
                 architectGraph
                 ( logOf
-                    (Started (Start ArchitectFlow "notes" (ByUser OwnPr) Set.empty) :| [fuelSet fuel])
+                    ( Started
+                        ( Start
+                            ArchitectFlow
+                            "notes"
+                            (ByUser OwnPr)
+                            Set.empty
+                            Nothing
+                            (absolutePath "/work")
+                            Nothing
+                        )
+                        :| [fuelSet fuel]
+                    )
                 )
             )
 

@@ -1,6 +1,6 @@
 ---
 name: engineer
-description: Delivers a feature end to end as a senior software engineer - plans its own research, interviews, confirms the plan, opens a draft PR with it, implements through subagents, refactors and reviews as its Fuel says, and hands over a ready PR with green CI. Driven by the `state` kernel. Orchestrates the grilling, refactor, pragmatic-review and pr-description skills and sends every question through `state ask`. Use when asked to build, fix or change something end to end and deliver it as a PR.
+description: Delivers a feature end to end as a senior software engineer - plans its own research, interviews, confirms the plan, opens a draft PR with it, implements through subagents, refactors and reviews as its Fuel says, and delivers a ready PR with green CI. Driven by the `state` kernel. Orchestrates the grilling, refactor, pragmatic-review and pr-description skills and sends every question through `state ask`. Use when asked to build, fix or change something end to end and deliver it as a PR.
 argument-hint: "[feature or task]"
 ---
 
@@ -81,6 +81,15 @@ who owns each decision.
   the plan, a plan file you were given, else `plan.md` in the notes directory.
   Never write a second plan beside one. Every brief and review prompt names
   its path and never inlines it; the PR body is the reader's copy.
+- **Register a file once.** `state artifact <path> --kind <kind>` logs a file
+  the run relies on: the notes file is `--kind notes`, a researcher's file
+  `--kind research`, a report its own kind. The bytes it stores are a
+  snapshot (up to 1 MiB, never a transcript). At a handover and at the run's
+  end the kernel snapshots each registered file that changed. Run `state
+  artifact` again only to snapshot sooner. A `plan.done` path registers
+  itself. At the context budget, run `state note --topic <t> "<text>"` for
+  what matters, then `state handover --reason context --summary "<s>" --next
+  "<step>"`, and the kernel re-snapshots the registered files.
 - **Stuck guard.** The same failing check or the same review row in 2 rounds
   in a row, whatever the commit, is stuck: `state ask --kind Stuck "<check or
   row>"`. It covers the review loop, the CI fix, refactor in this PR and a

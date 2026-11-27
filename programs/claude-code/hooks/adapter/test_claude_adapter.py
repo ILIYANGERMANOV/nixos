@@ -20,6 +20,7 @@ from agent_hook import (
     BeforeTool,
     ContextSize,
     Deny,
+    Harness,
     Json,
     JsonObject,
     Note,
@@ -320,10 +321,25 @@ def test_no_transcript_gives_no_context(payload: JsonObject) -> None:
     assert event.context is None
 
 
-def test_a_session_start_reads_its_source() -> None:
+def test_a_session_start_reads_its_source_transcript_and_model() -> None:
     assert parse_claude(SESSION_START, TOOLS, NO_TRANSCRIPT) == SessionStart(
-        SessionId("abc123"), Path("/work/repo"), None, Source.COMPACT
+        SessionId("abc123"),
+        Path("/work/repo"),
+        None,
+        Source.COMPACT,
+        Harness("claude-code"),
+        Path("/home/u/.claude/projects/p/abc123.jsonl"),
+        "claude-opus-5-5",
     )
+
+
+def test_a_session_start_naming_no_model_has_none() -> None:
+    payload = {k: v for k, v in SESSION_START.items() if k != "model"}
+
+    event = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
+
+    assert isinstance(event, SessionStart)
+    assert event.model is None
 
 
 @pytest.mark.parametrize("payload", RECORDED_STARTS)
@@ -536,6 +552,11 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
     ("payload", "error"),
     [
         pytest.param(SESSION_START | {"source": "clear"}, "clear", id="unknown source"),
+        pytest.param(
+            SESSION_START | {"transcript_path": "p/abc123.jsonl"},
+            "not an absolute normalised transcript path",
+            id="relative transcript path",
+        ),
         pytest.param(
             COMMON | {"hook_event_name": "Notification"},
             "not a SessionStart",

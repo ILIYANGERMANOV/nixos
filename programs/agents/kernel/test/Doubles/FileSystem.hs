@@ -22,6 +22,7 @@ import Effectful.Dispatch.Dynamic (interpret, localSeqUnlift)
 import Effectful.Exception (finally, throwIO)
 import Effectful.State.Static.Local (State, gets, modify)
 import Effects.FileSystem (RoFileSystem (..), WrFileSystem (..))
+import State.Artifact (Contents (..), absPath, absPathText)
 import System.FilePath (normalise, splitDirectories, takeDirectory, (</>))
 import System.IO.Error (
     IOErrorType,
@@ -41,6 +42,13 @@ runRoFileSystemInMemory ::
     (State Disk :> es) => Eff (RoFileSystem : es) a -> Eff es a
 runRoFileSystemInMemory = interpret $ \env -> \case
     ReadBytes path -> absolute path >>= readFile'
+    Absolute path ->
+        absolute path
+            >>= maybe (failure userErrorType "makeAbsolute" path) pure . absPath
+    -- Only absence fails a read here: the double keeps no file modes.
+    ReadContents path ->
+        maybe Unreadable Readable
+            <$> gets @Disk (Map.lookup (absPathText path) . (.files))
     ReadText path ->
         absolute path >>= \file ->
             gets @Disk (Map.member file . (.files)) >>= \case

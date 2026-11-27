@@ -15,10 +15,13 @@ module State.Cli.Shell.World (
     startedRun,
     startedIn,
     putFile,
+    putBytes,
     tenXAtFanOut,
     tenXAtFanOutOf,
     tenXAtFanOutBy,
     childRun,
+    delegating,
+    untaskedChild,
     atWorktree,
     addWorktree,
     childWorktree,
@@ -42,6 +45,7 @@ module State.Cli.Shell.World (
     notes,
     sessionStart,
     sessionStartIn,
+    transcriptFile,
     handedBack,
     spawned,
     agentStarted,
@@ -66,6 +70,7 @@ module State.Cli.Shell.World (
     gathered,
 ) where
 
+import Control.Monad ((<=<))
 import Data.Aeson (Value (..), encode, object, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
@@ -82,7 +87,7 @@ import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (decodeUtf8Lenient, encodeUtf8)
 import Data.Time (UTCTime (..), fromGregorian)
 import Data.Word (Word8)
 import Doubles.Clock (runClockFixed)
@@ -139,6 +144,8 @@ data World = World
     -- ^ The tops of other worktrees, apart from the one calls run in.
     , gitOnPath :: Bool
     -- ^ Without it every git call throws, as a missing binary's spawn does.
+    , origin :: Maybe Text
+    -- ^ The URL of the remote @origin@, if the repo has one.
     , branch :: Maybe Branch
     , commits :: Int
     , pr :: PrView
@@ -163,6 +170,7 @@ newWorld = do
             , gitDir = Right "/work/.git"
             , others = []
             , gitOnPath = True
+            , origin = Nothing
             , branch = Just (Branch "feat")
             , commits = 0
             , pr = PrViewFailed "no pull requests found for branch \"feat\"\n"
@@ -172,8 +180,8 @@ newWorld = do
   where
     stepsPath = "/etc/steps.json"
 
--- | One call: its exit code and its output, line by line.
-data Ran = Ran {code :: Int, out :: [Text], err :: [Text]}
+-- | One call: its exit code, its output line by line, and its stdout as written.
+data Ran = Ran {code :: Int, out :: [Text], err :: [Text], stdout :: ByteString}
 
 state :: IORef World -> [Text] -> IO Ran
 state world = stateIn world ""
@@ -208,7 +216,11 @@ run world input program = atomicModifyIORef' world $ \w ->
         -- The double opens no file, so it refuses none.
         ((code, entropy), runs) = either (error . show) id opened
      in ( w {entropy, runs, disk}
-        , Ran (exitNumber code) (Text.lines streams.stdout) (Text.lines streams.stderr)
+        , Ran
+            (exitNumber code)
+            (Text.lines (decodeUtf8Lenient streams.stdout))
+            (Text.lines streams.stderr)
+            streams.stdout
         )
   where
     exitNumber = \case
@@ -228,6 +240,7 @@ worktreeOf w =
                 )
             ]
         , others = w.others
+        , origin = w.origin
         }
 
 -- | HEAD after this many commits on @feat@; 0 is @main@'s.
@@ -258,7 +271,7 @@ startedIn world argv =
             )
     )
         >>= \case
-            [line, _] | Just runId <- Text.stripPrefix "started " line -> pure runId
+            [line, _, "next: state next"] | Just runId <- Text.stripPrefix "started " line -> pure runId
             other -> fail ("not started: " <> show other)
 
 notes :: FilePath
@@ -266,9 +279,13 @@ notes = "/notes"
 
 -- | A file written outside @state@, as an agent writes the breakdown.
 putFile :: IORef World -> FilePath -> Text -> IO ()
-putFile world path content = modifyIORef' world $ \w ->
+putFile world path = putBytes world path . encodeUtf8
+
+-- | 'putFile' of bytes, in no encoding.
+putBytes :: IORef World -> FilePath -> ByteString -> IO ()
+putBytes world path content = modifyIORef' world $ \w ->
     let disk = w.disk
-     in w {disk = disk {files = Map.insert path (encodeUtf8 content) disk.files}}
+     in w {disk = disk {files = Map.insert path content disk.files}}
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
 @t1@, @t2@ heavy; the run's id.
@@ -303,6 +320,21 @@ childRun :: IORef World -> Text -> FilePath -> Text -> IO Text
 childRun world parent dir task = do
     atWorktree world childWorktree
     startedIn world ["--notes", Text.pack dir, "--parent", parent, "--task", task]
+
+-- | A chief run whose first request is routed to a child run: at the fork that hands it on.
+delegating :: IORef World -> IO Text
+delegating world = do
+    chief <- startedIn world ["--flow", "chief"]
+    mapM_
+        (succeeded <=< state world)
+        ([["record", "fuel.set", "balanced"], ["record", "route.delegate"]] :: [[Text]])
+    pure chief
+
+-- | A child run of the chief that names no task, in 'childWorktree', where later calls run; its id.
+untaskedChild :: IORef World -> Text -> IO Text
+untaskedChild world chief = do
+    atWorktree world childWorktree
+    startedIn world ["--notes", "/child", "--parent", chief]
 
 -- | The worktree a child runs in, apart from the parent's at @/work@.
 childWorktree :: FilePath
@@ -450,13 +482,21 @@ hookEventIn cwd agent fields =
 sessionStart :: LBS.ByteString
 sessionStart = sessionStartIn "/work"
 
--- | The lead's session starting in this directory.
+-- | The lead's fresh Claude Code session starting in this directory, its transcript 'transcriptFile'.
 sessionStartIn :: FilePath -> LBS.ByteString
 sessionStartIn cwd =
     hookEventIn
         cwd
         Null
-        ["event" .= String "sessionStart", "source" .= String "startup"]
+        [ "event" .= String "sessionStart"
+        , "source" .= String "startup"
+        , "harness" .= String "claude-code"
+        , "transcript_path" .= transcriptFile
+        , "request_model" .= Null
+        ]
+
+transcriptFile :: FilePath
+transcriptFile = "/home/u/.claude/projects/p/s1.jsonl"
 
 -- | A subagent of this role hands back @READY@.
 handedBack :: Text -> LBS.ByteString

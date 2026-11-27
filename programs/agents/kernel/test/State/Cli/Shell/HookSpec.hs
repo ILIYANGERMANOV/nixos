@@ -12,9 +12,16 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Doubles.FileSystem (Disk (..))
+import State.Artifact (absPath)
 import State.Cli.Shell.World
 import State.Protocol.Advice (Readiness (..))
-import State.Run.Event (Branch (..))
+import State.Run.Event (
+    Branch (..),
+    Envelope (..),
+    Event (SessionStarted),
+    Harness (..),
+    Session (..),
+ )
 import Test.Hspec (
     Spec,
     before,
@@ -42,6 +49,21 @@ spec = describe "state-hook over the doubles" $ do
 
                 (said.code, said.err) `shouldBe` (0, [])
                 contextOf said `shouldSatisfy` maybe False ("step: gather" `Text.isInfixOf`)
+
+            it "logs the session's start, by its harness, transcript and source" $ \world -> do
+                _ <- drive world [Record ["fuel.set", "balanced"]]
+
+                said <- hook world "resume" sessionStart
+
+                events <- map (.event) <$> logged world
+                (said.code, take 1 (reverse events))
+                    `shouldBe` ( 0
+                               ,
+                                   [ SessionStarted
+                                        (Session (Harness "claude-code") (absPath transcriptFile) "startup" Nothing)
+                                   ]
+                               )
+                contextOf said `shouldSatisfy` maybe False ("session_started" `Text.isInfixOf`)
 
             it "is silent off the branch the draft PR bound the run to" $ \world -> do
                 _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)
@@ -148,7 +170,7 @@ spec = describe "state-hook over the doubles" $ do
                     `shouldBe` Just
                         ( "run "
                             <> run
-                            <> ": state: recorded 17 implement.done -> skip_refactor\nstate: recorded 18 worker_returned -> skip_refactor\n"
+                            <> ": state: recorded 18 implement.done -> skip_refactor\nstate: recorded 19 worker_returned -> skip_refactor\n"
                         )
                 first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
@@ -383,7 +405,7 @@ spec = describe "state-hook over the doubles" $ do
                     contextOf bound
                         `shouldSatisfy` maybe
                             False
-                            ( "state: recorded 17 implement.done -> skip_refactor\nstate: recorded 18 worker_returned -> skip_refactor"
+                            ( "state: recorded 18 implement.done -> skip_refactor\nstate: recorded 19 worker_returned -> skip_refactor"
                                 `Text.isInfixOf`
                             )
                     (length once, length twice) `shouldBe` (length before' + 3, length once)
@@ -402,7 +424,7 @@ spec = describe "state-hook over the doubles" $ do
                     `shouldBe` Just
                         ( "run "
                             <> run
-                            <> ": state: recorded 17 implement.done -> skip_refactor\nstate: recorded 18 worker_returned -> skip_refactor\n"
+                            <> ": state: recorded 18 implement.done -> skip_refactor\nstate: recorded 19 worker_returned -> skip_refactor\n"
                         )
 
             it "binds no subagent no flow knows, whose hand-back stays its own" $ \world -> do

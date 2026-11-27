@@ -36,6 +36,7 @@ library
     Data.Entity.Event
     Data.Entity.Run
     Data.Field
+    Data.Payload.Blob
     Data.Payload.Event
     Data.Payload.Upcast
     Effects.Clock
@@ -49,6 +50,7 @@ library
     Effects.Store.Connection
     Effects.Store.Events
     Effects.Store.Migration
+    State.Artifact
     State.Category.Effect
     State.Category.Flow
     State.Category.Fuel
@@ -104,10 +106,12 @@ library
     , aeson
     , bytestring
     , containers
+    , cryptohash-sha256
     , direct-sqlite
     , directory
     , effectful
     , filepath
+    , network-uri
     , optparse-applicative
     , process
     , sqlite-simple
@@ -159,6 +163,7 @@ test-suite state-test
     Effects.Store.MigrationSpec
     SpecHook
     State.ArchitectureSpec
+    State.ArtifactSpec
     State.Category.FlowGen
     State.Category.FlowSpec
     State.Category.FuelSpec
@@ -169,6 +174,7 @@ test-suite state-test
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec
     State.Cli.RouteSpec
+    State.Cli.Shell.ContextSpec
     State.Cli.Shell.FocusSpec
     State.Cli.Shell.HookSpec
     State.Cli.Shell.MainSpec

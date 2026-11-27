@@ -49,6 +49,22 @@ import Data.Text.Encoding qualified as Text
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
+import State.Artifact (
+    AbsPath,
+    Artifact (File),
+    FileArtifact (..),
+    FileRef (..),
+    Size (..),
+    absPath,
+    absPathText,
+    fileKindText,
+    parseSha256,
+    parseUri,
+    sha256Text,
+    uriText,
+    urlKindText,
+ )
+import State.Artifact qualified as Registry (Artifact (Url))
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (eventText)
@@ -66,7 +82,7 @@ import State.Run.Ask (
     parseQId,
     qidText,
  )
-import State.Run.Codec (eventType, reasonText, waitingText)
+import State.Run.Codec (eventType, handoverReasonText, reasonText, waitingText)
 import State.Run.Event (
     AgentId (..),
     AgentRole (..),
@@ -78,14 +94,18 @@ import State.Run.Event (
     Digest,
     Envelope (..),
     Event (..),
+    Handover (..),
+    Harness (..),
     Link (..),
     Note (..),
     Op (..),
     Parent (..),
     Principal (..),
     Reply (..),
+    Repo,
     RunId,
     Said (..),
+    Session (..),
     Source (..),
     Start (..),
     StateName (..),
@@ -94,6 +114,7 @@ import State.Run.Event (
     TaskNo,
     TaskState (..),
     Url (..),
+    parseHarness,
     parseRunId,
     parseTaskNo,
     runIdText,
@@ -102,8 +123,10 @@ import State.Run.Event (
 import State.Run.Id (eventIdText, parseEventId)
 import State.Step.Artifact (
     named,
+    parseRepo,
     planData,
     planOf,
+    repoText,
     shapeData,
     shapeOf,
     tag,
@@ -259,6 +282,9 @@ eventData = \case
     Started start ->
         "flow" .= flowText start.flow
             <> "notes_dir" .= start.notes
+            <> foldMap ("goal" .=) start.goal
+            <> "worktree" .= absPathText start.worktree
+            <> repoData start.repo
             <> pair "principal" (principalEncoding start.principal)
             <> "interface" .= map opText (Set.toList start.interface)
     Targeted target -> targetData target
@@ -301,6 +327,18 @@ eventData = \case
     Suspended task summary -> "request" .= taskNoText task <> "summary" .= oneLineText summary
     Focused task -> "request" .= taskNoText task
     Voided n why -> "seq" .= n <> "reason" .= why
+    WorktreeMoved worktree repo -> "worktree" .= absPathText worktree <> repoData repo
+    ArtifactLogged artifact from -> artifactData artifact <> foldMap ("derived_from" .=) from
+    Noted topic text -> "topic" .= topic <> "text" .= text
+    HandedOver handover ->
+        "reason" .= handoverReasonText handover.reason
+            <> "summary" .= handover.summary
+            <> "next_steps" .= handover.next
+    SessionStarted session ->
+        "harness" .= (\(Harness name) -> name) session.harness
+            <> foldMap (("transcript_path" .=) . absPathText) session.transcript
+            <> "source" .= session.trigger
+            <> foldMap ("request_model" .=) session.model
   where
     qidData qid = "qid" .= qidText qid
 
@@ -346,6 +384,27 @@ eventOf kind obj = case kind of
     "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
     "focused" -> Focused <$> requestOf obj
     "voided" -> Voided <$> (obj .: "seq" >>= ijsonNatural) <*> obj .: "reason"
+    "worktree_moved" -> WorktreeMoved <$> (obj .: "worktree" >>= pathOf) <*> repoOf obj
+    "artifact" ->
+        ArtifactLogged
+            <$> artifactOf obj
+            <*> (obj .:? "derived_from" >>= traverse ijsonNatural)
+    "note" -> Noted <$> obj .: "topic" <*> obj .: "text"
+    "handover" ->
+        HandedOver
+            <$> ( Handover
+                    <$> (obj .: "reason" >>= named "handover reason" (parseByName handoverReasonText))
+                    <*> obj .: "summary"
+                    <*> obj .: "next_steps"
+                )
+    "session_started" ->
+        SessionStarted
+            <$> ( Session
+                    <$> (obj .: "harness" >>= named "harness" parseHarness)
+                    <*> (obj .:? "transcript_path" >>= traverse pathOf)
+                    <*> obj .: "source"
+                    <*> obj .:? "request_model"
+                )
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
@@ -482,6 +541,64 @@ startOf obj =
         <*> (obj .: "principal" >>= principalOf)
         <*> ( Set.fromList
                 <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText)))
+            )
+        <*> obj .:? "goal"
+        <*> (obj .: "worktree" >>= pathOf)
+        <*> repoOf obj
+
+-- | An absolute, normalised path, as 'absPath' takes it.
+pathOf :: Text -> Parser AbsPath
+pathOf = named "absolute normalised path" (absPath . Text.unpack)
+
+-- | A run's GitHub repo, @OWNER/REPO@: left out when it has none.
+repoData :: Maybe Repo -> Series
+repoData = foldMap (("repo" .=) . repoText)
+
+repoOf :: Object -> Parser (Maybe Repo)
+repoOf obj = obj .:? "repo" >>= traverse (named "repo" parseRepo)
+
+{- | An artifact's kind and its @location@, the union by @kind@: a file's
+path and digest (the OCI descriptor's), or a URL. The kind is read as one
+of its location's, so a kind that fits none is refused.
+-}
+artifactData :: Artifact -> Series
+artifactData = \case
+    File file ->
+        "artifact_kind" .= fileKindText file.kind
+            <> pair
+                "location"
+                ( pairs
+                    ( tag "file"
+                        <> "path" .= absPathText file.ref.path
+                        <> "sha256" .= sha256Text file.ref.sha256
+                        <> "size_bytes" .= file.ref.size.bytes
+                    )
+                )
+    Registry.Url kind uri ->
+        "artifact_kind" .= urlKindText kind
+            <> pair "location" (pairs (tag "url" <> "url" .= uriText uri))
+
+artifactOf :: Object -> Parser Artifact
+artifactOf obj = do
+    kind <- obj .: "artifact_kind"
+    obj .: "location"
+        >>= tagged
+            "location"
+            ( \location -> \case
+                "file" ->
+                    fmap File $
+                        FileArtifact
+                            <$> named "file artifact kind" (parseByName fileKindText) kind
+                            <*> ( FileRef
+                                    <$> (location .: "path" >>= pathOf)
+                                    <*> (location .: "sha256" >>= named "sha256" parseSha256)
+                                    <*> (Size <$> (location .: "size_bytes" >>= ijsonNatural))
+                                )
+                "url" ->
+                    Registry.Url
+                        <$> named "url artifact kind" (parseByName urlKindText) kind
+                        <*> (location .: "url" >>= named "absolute URI" parseUri)
+                other -> unknownCase "location" other
             )
 
 -- | Who started the run, and for a parent run how it links the child and settles its plan.

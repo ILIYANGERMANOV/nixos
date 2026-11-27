@@ -8,7 +8,6 @@ module Data.Field (
     encode,
     decode,
     time,
-    Sha256,
     sha256,
     sha,
     session,
@@ -22,6 +21,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, parseTimeM)
 import Numeric.Natural (Natural)
+import State.Artifact (Sha256, parseSha256, sha256Text)
 import State.Run.Event (
     Digest (..),
     RunId,
@@ -31,6 +31,7 @@ import State.Run.Event (
     parseSessionId,
     runIdText,
  )
+import State.Step.Artifact (lowerHex)
 
 -- | A column's text and its parser, which takes exactly the text it writes.
 data Codec a = Codec (a -> Text) (Text -> Maybe a)
@@ -60,15 +61,12 @@ time =
                     if encode time parsed == raw then Just parsed else Nothing
 
 -- | A SHA-256 digest, as @blobs.sha256@ keys content: 64 lowercase hex.
-newtype Sha256 = Sha256 Text
-    deriving stock (Eq, Ord, Show)
-
 sha256 :: Codec Sha256
-sha256 = Codec (\(Sha256 raw) -> raw) (fmap Sha256 . hex [64])
+sha256 = Codec sha256Text parseSha256
 
 -- | A git object id, as @head_sha@ holds it: 40 (SHA-1) or 64 (SHA-256) lowercase hex.
 sha :: Codec Sha
-sha = Codec (\(Sha raw) -> raw) (fmap Sha . hex [40, 64])
+sha = Codec (\(Sha raw) -> raw) (fmap Sha . lowerHex [40, 64])
 
 -- | A harness session's id, never empty: an empty one is no session.
 session :: Codec SessionId
@@ -76,7 +74,7 @@ session = Codec (\(SessionId raw) -> raw) parseSessionId
 
 -- | A hook record's dedupe key: FNV-1a 64 as 16 lowercase hex, zero padded.
 digest :: Codec Digest
-digest = Codec (\(Digest raw) -> raw) (fmap Digest . hex [16])
+digest = Codec (\(Digest raw) -> raw) (fmap Digest . lowerHex [16])
 
 runId :: Codec RunId
 runId = Codec runIdText parseRunId
@@ -84,11 +82,3 @@ runId = Codec runIdText parseRunId
 -- | A count or position from an @INTEGER@ column; a negative one is none.
 natural :: Int64 -> Maybe Natural
 natural n = if n < 0 then Nothing else Just (fromIntegral n)
-
--- | The text, when it is lowercase hex of one of these lengths.
-hex :: [Int] -> Text -> Maybe Text
-hex lengths raw
-    | Text.length raw `elem` lengths
-        && Text.all (`elem` ("0123456789abcdef" :: String)) raw =
-        Just raw
-    | otherwise = Nothing

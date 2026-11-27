@@ -24,12 +24,14 @@ import State.Run.Codec (eventType)
 import State.Run.Event (
     Branch (..),
     Envelope (..),
+    Event (WorktreeMoved),
     FlowName (TenXFlow),
     PlanCall (..),
     Repo (..),
     SessionId (..),
     Task (..),
  )
+import State.Run.EventGen (absolutePath)
 import State.Run.RunGen (
     breakdownJson,
     loadSteps,
@@ -63,7 +65,7 @@ spec = describe "state over the doubles" $ do
                     ran <- state world ["init", "--notes", "/notes"]
 
                     (ran.code, ran.out, ran.err)
-                        `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work"], [])
+                        `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work", "next: state next"], [])
                     loggedEvents world `shouldReturn` ["started"]
 
             it "resumes the run whichever way its notes dir is spelled" $ \world -> do
@@ -73,8 +75,8 @@ spec = describe "state over the doubles" $ do
                 dotted <- succeeded =<< state world ["init", "--notes", "/./notes"]
 
                 (again, dotted)
-                    `shouldBe` ( ["resumed " <> run, "run " <> run <> " /notes /work"]
-                               , ["resumed " <> run, "run " <> run <> " /notes /work"]
+                    `shouldBe` ( ["resumed " <> run, "run " <> run <> " /notes /work", "next: state next"]
+                               , ["resumed " <> run, "run " <> run <> " /notes /work", "next: state next"]
                                )
 
             it
@@ -143,7 +145,11 @@ spec = describe "state over the doubles" $ do
 
                             events <- loggedEvents fresh
                             (ran.code, ran.out, ran.err, events)
-                                `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work"], [], begun)
+                                `shouldBe` ( 0
+                                           , ["started 00010203", "run 00010203 /notes /work", "next: state next"]
+                                           , []
+                                           , begun
+                                           )
 
             it
                 "refuses an engineer, 10x or architect init over a run no branch of which runs that flow, as before"
@@ -191,7 +197,7 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["init", "--notes", "/other"]
 
                 (ran.code, ran.out)
-                    `shouldBe` (0, ["started 04050607", "run 04050607 /other /work"])
+                    `shouldBe` (0, ["started 04050607", "run 04050607 /other /work", "next: state next"])
 
             it "starts a run over a pointer whose run is gone" $ \world -> do
                 putFile world "/work/.git/state-run" "deadbeef\n"
@@ -207,7 +213,8 @@ spec = describe "state over the doubles" $ do
 
                 refused <- state world ["init", "--notes", "/notes"]
 
-                again `shouldBe` ["resumed " <> run, "run " <> run <> " /notes /work"]
+                again
+                    `shouldBe` ["resumed " <> run, "run " <> run <> " /notes /work", "next: state next"]
                 (refused.code, refused.err)
                     `shouldBe` ( 2
                                ,
@@ -449,7 +456,7 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["record", "fuel.set", "max"]
 
                 (ran.code, ran.out, ran.err)
-                    `shouldBe` (0, ["recorded 2 fuel.set -> gather"], [])
+                    `shouldBe` (0, ["recorded 2 fuel.set -> gather", "next: state next"], [])
                 loggedEvents world `shouldReturn` ["started", "fuel.set"]
 
             it
@@ -603,7 +610,7 @@ spec = describe "state over the doubles" $ do
                     succeeded
                         =<< state world ["override", "review", "resume", "after", "a", "crash"]
 
-                moved `shouldBe` ["recorded 2 overridden -> review"]
+                moved `shouldBe` ["recorded 2 overridden -> review", "next: state next"]
                 shown <- succeeded =<< state world ["show"]
                 shown `shouldContain` ["step: review"]
 
@@ -636,7 +643,7 @@ spec = describe "state over the doubles" $ do
                 shown <- succeeded =<< state world ["show"]
 
                 (voided, "step: review" `elem` shown)
-                    `shouldBe` (["recorded 3 voided -> fuel"], False)
+                    `shouldBe` (["recorded 3 voided -> fuel", "next: state next"], False)
 
             it "voids a gap by the seq state show lists it with" $ \world -> do
                 let gapsOf =
@@ -704,11 +711,25 @@ spec = describe "state over the doubles" $ do
                     rebound <- traverse (fileBytes world . (sessionBindings </>)) ["main", "a1"]
 
                     (moved, old.code, take 1 shown)
-                        `shouldBe` (["moved " <> run <> " to /target"], 2, ["run: " <> run <> " (engineer)"])
+                        `shouldBe` ( ["moved " <> run <> " to /target", "next: state next"]
+                                   , 2
+                                   , ["run: " <> run <> " (engineer)"]
+                                   )
                     rebound
                         `shouldBe` [ Just (encodeUtf8 ("run " <> run <> " /notes /target\n"))
                                    , Just "run ffff0000 /elsewhere /work\n"
                                    ]
+
+            it "logs worktree_moved with the new git top and origin's repo" $ \world -> do
+                _ <- startedRun world
+                modifyIORef' world (\w -> w {origin = Just "git@github.com:o/r.git"})
+                addWorktree world "/target"
+
+                _ <- succeeded =<< state world ["move", "/target"]
+
+                events <- logged world
+                map (.event) (take 1 (reverse events))
+                    `shouldBe` [WorktreeMoved (absolutePath "/target") (Just (Repo "o" "r"))]
 
             it
                 "refuses an init in the worktree a run moved from, naming the cd to where it went"
@@ -1048,7 +1069,11 @@ spec = describe "state over the doubles" $ do
                         succeeded
                             =<< state world ["init", "--notes", "/child", "--parent", parent, "--task", "t1"]
 
-                    again `shouldBe` ["resumed " <> child, "run " <> child <> " /child /child-work"]
+                    again
+                        `shouldBe` [ "resumed " <> child
+                                   , "run " <> child <> " /child /child-work"
+                                   , "next: state next"
+                                   ]
                     filter (== "spawned") <$> loggedEvents world `shouldReturn` ["spawned"]
 
             it "starts a child on the flow its parent's fan-out runs" $ \world -> do
@@ -1113,7 +1138,7 @@ spec = describe "state over the doubles" $ do
                         =<< state world ["init", "--notes", "/other", "--parent", parent, "--task", "t2"]
                 unnamedShown <- succeeded =<< state world ["show"]
 
-                map (Text.takeWhile (/= ' ')) named `shouldBe` ["started", "run"]
+                map (Text.takeWhile (/= ' ')) named `shouldBe` ["started", "run", "next:"]
                 map (take 1) [namedShown, unnamedShown]
                     `shouldSatisfy` all (all (" (10x)" `Text.isSuffixOf`))
 
@@ -1177,7 +1202,7 @@ spec = describe "state over the doubles" $ do
                         ]
 
                 (accepted.code, map (Text.takeWhile (/= ' ')) accepted.out)
-                    `shouldBe` (0, ["started", "run"])
+                    `shouldBe` (0, ["started", "run", "next:"])
 
             it "refuses a child for a task the parent's breakdown lacks, logging no spawn" $ \world -> do
                 parent <- tenXAtFanOut world
@@ -1268,12 +1293,17 @@ spec = describe "state over the doubles" $ do
             for_
                 [
                     ( ChildConfirms
-                    , ["plan.done -> skip_refine", "skip_refine.run -> simplify_plan"]
+                    ,
+                        [ "artifact -> plan"
+                        , "plan.done -> skip_refine"
+                        , "skip_refine.run -> simplify_plan"
+                        ]
                     )
                 ,
                     ( ParentDecided
                     ,
-                        [ "plan.done -> skip_refine"
+                        [ "artifact -> plan"
+                        , "plan.done -> skip_refine"
                         , "skip_refine.skip -> present"
                         , "present.done -> confirm"
                         , "confirm.confirmed -> draft"
@@ -1918,6 +1948,7 @@ trivialTranscript =
     [ "fuel.set -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
+    , "artifact -> plan"
     , "plan.done -> skip_refine"
     , "skip_refine.skip -> present"
     , "present.done -> confirm"

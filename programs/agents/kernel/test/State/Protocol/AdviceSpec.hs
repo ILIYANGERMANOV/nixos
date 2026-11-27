@@ -30,6 +30,7 @@ import State.Run.Ask (
 import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (
+    absolutePath,
     fuelSet,
     genStart,
     genText,
@@ -157,7 +158,16 @@ spec = describe "State.Protocol.Advice" $ do
                             ( replay
                                 chiefGraph
                                 ( logOf
-                                    ( Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty)
+                                    ( Started
+                                        ( Event.Start
+                                            ChiefFlow
+                                            "notes"
+                                            (ByUser OwnPr)
+                                            Set.empty
+                                            Nothing
+                                            (absolutePath "/work")
+                                            Nothing
+                                        )
                                         :| [fuelSet Max, Took mempty (pickOf "route" "engineer")]
                                     )
                                 )
@@ -180,7 +190,18 @@ spec = describe "State.Protocol.Advice" $ do
                     ( replay
                         chiefGraph
                         ( logOf
-                            (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| events)
+                            ( Started
+                                ( Event.Start
+                                    ChiefFlow
+                                    "notes"
+                                    (ByUser OwnPr)
+                                    Set.empty
+                                    Nothing
+                                    (absolutePath "/work")
+                                    Nothing
+                                )
+                                :| events
+                            )
                         )
                     )
             atChief events = advise steps chiefGraph noFacts (chiefAt events)

@@ -68,6 +68,7 @@ from agent_hook import (
     ContextSize,
     Deny,
     Event,
+    Harness,
     Json,
     JsonObject,
     Manifest,
@@ -115,6 +116,8 @@ NEUTRAL_KEYS: Mapping[Tool, Mapping[str, str]] = {
     Tool.SKILL: {"name": "skill"},
     Tool.DELEGATE: {"background": "run_in_background"},
 }
+
+HARNESS = Harness("opencode")
 
 # A header of apply_patch's patch (OpenCode 1.19.5, patch/index.ts parsePatch):
 # the file it adds, updates, deletes or moves one to. Every other line of a
@@ -375,13 +378,14 @@ def started(
 ) -> tuple[Event, ...]:
     """A session's first message starts it: the lead's session, or a child. A
     lead this process did not see created was resumed. OpenCode has no hook
-    after a compaction, so no start is a compact one."""
+    after a compaction, so no start is a compact one. Its hooks name neither the
+    session's transcript nor the model it asked for."""
     match first, agent:
         case False, _:
             return ()
         case True, None:
             source = Source.STARTUP if created else Source.RESUME
-            return (SessionStart(session, cwd, None, source),)
+            return (SessionStart(session, cwd, None, source, HARNESS, None, None),)
         case True, Agent():
             return (AgentStart(session, cwd, agent),)
 

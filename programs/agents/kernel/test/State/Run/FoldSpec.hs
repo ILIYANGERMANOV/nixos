@@ -86,6 +86,7 @@ import State.Run.Ask (
 import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (Merge)
 import State.Run.EventGen (
+    absolutePath,
     fuelSet,
     genOneLine,
     genProposal,
@@ -2217,7 +2218,7 @@ landing s =
 
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
-startOf flow principal = Start flow "notes" principal Set.empty
+startOf flow principal = Start flow "notes" principal Set.empty Nothing (absolutePath "/work") Nothing
 
 -- | The chief run a user started, replayed over these lines.
 chief :: [Event] -> Either Fold.Refusal RunState

@@ -572,6 +572,11 @@ runStart = \case
     Suspended _ _ -> Nothing
     Focused _ -> Nothing
     Voided _ _ -> Nothing
+    WorktreeMoved _ _ -> Nothing
+    ArtifactLogged _ _ -> Nothing
+    Noted _ _ -> Nothing
+    HandedOver _ -> Nothing
+    SessionStarted _ -> Nothing
 
 {- | The logged event that answers an effect ('Eff'), its handler's input. A
 run's live command and its replay append the same event, so one handler
@@ -697,6 +702,12 @@ applyEvent g state n = \case
     AgentEnded agent -> going (Right state {agentEnded = Just agent})
     Suspended task summary -> going (handle FocusHandler g state (Suspends task summary))
     Focused task -> going (handle FocusHandler g state (Focuses task))
+    -- Context facts for a fresh agent: they move nothing.
+    WorktreeMoved _ _ -> going (Right state)
+    ArtifactLogged _ _ -> going (Right state)
+    Noted _ _ -> going (Right state)
+    HandedOver _ -> going (Right state)
+    SessionStarted _ -> going (Right state)
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where

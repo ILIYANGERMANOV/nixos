@@ -1,5 +1,5 @@
 {- | One row of @blobs@, flat as SQL holds it: a registered file's content,
-stored once per content. No writer yet: the first is the @artifact@ event's.
+stored once per content. What a row means is "Data.Payload.Blob"'s.
 -}
 module Data.Entity.Blob (BlobRow (..)) where
 

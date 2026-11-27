@@ -8,6 +8,7 @@ module Effects.Git (
     headSha,
     headBranch,
     numstat,
+    originUrl,
     runGitIO,
 ) where
 
@@ -35,6 +36,7 @@ data Git :: Effect where
     HeadSha :: Git m (Maybe Sha)
     HeadBranch :: Git m (Maybe Branch)
     Numstat :: Branch -> Git m (Either Text Text)
+    OriginUrl :: Git m (Either Text Text)
 
 type instance DispatchOf Git = Dynamic
 
@@ -58,6 +60,12 @@ headBranch = send HeadBranch
 numstat :: (Git :> es) => Branch -> Eff es (Either Text Text)
 numstat = send . Numstat
 
+{- | The URL of the remote @origin@, as git expands it (@insteadOf@ applied),
+or why git has none.
+-}
+originUrl :: (Git :> es) => Eff es (Either Text Text)
+originUrl = send OriginUrl
+
 runGitIO :: (IOE :> es) => Eff (Git : es) a -> Eff es a
 runGitIO = interpret $ \_ -> \case
     GitDir -> fmap (Text.unpack . Text.strip) <$> git ["rev-parse", "--absolute-git-dir"]
@@ -69,6 +77,7 @@ runGitIO = interpret $ \_ -> \case
         either (const Nothing) (Just . Branch . Text.strip)
             <$> git ["symbolic-ref", "--short", "--quiet", "HEAD"]
     Numstat (Branch base) -> git ["diff", "--numstat", "origin/" <> base <> "...HEAD"]
+    OriginUrl -> fmap Text.strip <$> git ["remote", "get-url", "origin"]
 
 -- | Stdout, or the first line of why git failed.
 git :: (IOE :> es) => [Text] -> Eff es (Either Text Text)

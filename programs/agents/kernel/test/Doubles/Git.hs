@@ -25,6 +25,8 @@ data Worktree = Worktree
     -- ^ By base branch; a base origin lacks fails as git does.
     , others :: [FilePath]
     -- ^ The other worktrees' tops, each with its git dir at its top's @.git@.
+    , origin :: Maybe Text
+    -- ^ The URL of the remote @origin@ every worktree shares, if there is one.
     }
 
 runGitScripted :: (State Disk :> es) => Worktree -> Eff (Git : es) a -> Eff es a
@@ -44,6 +46,13 @@ runGitScripted worktree = interpret $ \_ -> \case
                     <> name
                     <> "...HEAD': unknown revision or path not in the working tree."
                 )
+    OriginUrl ->
+        pure
+            ( maybe
+                (Left "git remote get-url origin: error: No such remote 'origin'")
+                Right
+                worktree.origin
+            )
 
 -- | The git dir of the worktree the current directory is in.
 gitDirHere :: (State Disk :> es) => Worktree -> Eff es (Either Text FilePath)

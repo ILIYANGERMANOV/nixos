@@ -295,7 +295,8 @@ refined =
 -- | 'refined' as @state next@ walks it, one transition line per event.
 refinedTranscript :: [Text]
 refinedTranscript =
-    [ "plan.done -> skip_refine"
+    [ "artifact -> plan"
+    , "plan.done -> skip_refine"
     , "skip_refine.run -> simplify_plan"
     , "simplify_plan.done -> standards_plan"
     , "standards_plan.done -> align_plan"

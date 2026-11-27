@@ -207,6 +207,7 @@ kernelData =
     , "Data.Entity.Event"
     , "Data.Entity.Run"
     , "Data.Field"
+    , "Data.Payload.Blob"
     , "Data.Payload.Event"
     , "Data.Payload.Upcast"
     ]
