@@ -92,12 +92,13 @@ data EventId = Numbered RunId Natural | Hashed Digest
 newtype Digest = Digest Text
     deriving stock (Eq, Ord, Show)
 
-{- | The digest of these parts: FNV-1a, 64 bits, over their UTF-8 joined by
-NUL, in hex. A dedupe key, no security.
+{- | The digest of these parts: FNV-1a 64 (RFC 9923), over their UTF-8 joined
+by NUL, as 16 lowercase hex digits, zero padded. A dedupe key, no security.
 -}
 digestOf :: [Text] -> Digest
 digestOf =
     Digest
+        . Text.justifyRight 16 '0'
         . Text.pack
         . (`showHex` "")
         . BS.foldl' step 0xcbf29ce484222325

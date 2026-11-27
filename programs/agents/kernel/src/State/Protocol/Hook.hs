@@ -111,8 +111,9 @@ import State.Run.Event (
     Envelope (..),
     Event (Restarted, Took),
     RunId,
-    SessionId (..),
+    SessionId,
     Source (..),
+    parseSessionId,
     roleText,
     runIdText,
     tookIn,
@@ -175,7 +176,8 @@ data HookEvent
       AgentStop Call [AgentId]
     deriving stock (Eq, Show)
 
-data Call = Call {session :: SessionId, cwd :: FilePath, agent :: Maybe Agent}
+-- | A hook's caller; a hook naming an empty session names none.
+data Call = Call {session :: Maybe SessionId, cwd :: FilePath, agent :: Maybe Agent}
     deriving stock (Eq, Show)
 
 callOf :: HookEvent -> Call
@@ -215,7 +217,7 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
     value <- eitherDecode input
     flip parseEither value $ withObject "hook event" $ \o -> do
         call <-
-            Call . SessionId
+            Call . parseSessionId
                 <$> o .: "session"
                 <*> o .: "cwd"
                 <*> (o .: "agent" >>= agentOf)

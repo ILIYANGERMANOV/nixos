@@ -96,41 +96,55 @@ erDiagram
   runs |o--o{ runs : "parent of"
   runs {
     text id PK
-    text parent FK
+    text parent_run_id FK
     text flow
-    text notes
+    text notes_dir
     text created_at
   }
   events {
-    text run PK
-    integer seq PK
-    text json
-    text at "generated: json ts"
-    text kind "generated: json type"
+    integer position PK
+    text run_id FK
+    integer seq
+    integer schema_version
+    text type
+    text time
+    text session_id
+    text head_sha
+    text hook_digest
+    text data "one JSON object"
+  }
+  blobs {
+    text sha256 PK
+    integer size_bytes
+    blob content
   }
 ```
 
 All runs of a machine user live in one SQLite database,
-`$XDG_STATE_HOME/state/kernel.db` (else `~/.local/state/state/kernel.db`;
-[`runStore`][runstore]).
+`$XDG_STATE_HOME/state/kernel-v2.db` (else
+`~/.local/state/state/kernel-v2.db`; [`runStore`][runstore]). An older
+`kernel.db` beside it is never opened. `events` is the only truth. `runs`
+indexes each run's first event. `blobs` holds file content by sha256
+([ADR 0023](../adr/0023-append-only-event-store-with-rebuilt-projections.md)).
 
 | Property | How | Code |
 |---|---|---|
-| Many readers, one writer | WAL mode; a writer waits up to 5 s for another | [`withStore`][busy] |
-| No two events share a number | each write is `BEGIN IMMEDIATE`: read, decide, append under one lock; a misnumbered batch throws | [`locked`][locked] |
-| Append-only | a line is never edited. A line logged in error gets a `Voided` reversal line; replay drops both | [`unvoided`][unvoided] |
-| Hook records are idempotent | a hook can fire twice; its record is keyed on a hash of the run, agent and message, and a second copy is a no-op | [`Source`][source], [`append`][append] |
-| Parent and child runs | the first event of a run adds its `runs` row with its parent; a 10x's engineers and a chief's delegates are children | [`children`][children] |
-| One wire format | each event is one JSON line, version 4: `v`, `id`, `seq`, `ts`, `run`, `head` (the git sha), `session`, `type`, `data`. Older logs are refused, not guessed at | [`Codec.hs`][codec] |
-| Queries without parsing | `at` and `kind` are generated from each line's `ts` and `type`, so they cannot drift from it | [`migrations`][migrations] |
-| Schema migrations | `PRAGMA user_version` counts the migrations applied | [`migrations`][migrations] |
+| Many readers, one writer | WAL mode; a writer waits up to 5 s for another | [`Connection.hs`][connection] |
+| Our file only | open reads `application_id` and `user_version` before it writes; another app's file or a newer schema is refused | [`Connection.hs`][connection] |
+| No two events share a number | each write is `BEGIN IMMEDIATE`: read, decide, append under one lock; a misnumbered batch throws | [`Events.hs`][events] |
+| Append-only | triggers abort every UPDATE and DELETE on the three tables. A line logged in error gets a `Voided` reversal line; replay drops both | [`Migration.hs`][migration], [`unvoided`][unvoided] |
+| Hook records are idempotent | a hook can fire twice; its record is keyed on a hash of the run, agent and message (`hook_digest`), and a second copy is a no-op | [`Source`][source], [`append`][append] |
+| Parent and child runs | the first event of a run adds its `runs` row with its parent, in the same transaction; a 10x's engineers and a chief's delegates are children | [`Events.hs`][events] |
+| The envelope is columns | `seq`, `time` (UTC, 3 fraction digits), `session_id`, `head_sha` and `hook_digest` are columns; `data` is the payload, one JSON object | [`Codec.hs`][codec] |
+| Every line stays readable | each event type has its own `schema_version`. A line this binary cannot read decodes to `Unknown`: dump reads it, while append refuses, naming its seq and type | [`Codec.hs`][codec] |
+| Schema migrations | `PRAGMA user_version` counts the migrations applied | [`Migration.hs`][migration] |
 
 To look inside a run:
 
 | Command | Prints |
 |---|---|
 | `state show` | where the run is and what it holds: step, facts, questions, rulings, gaps |
-| `state dump <run>` | the run's log, one JSON envelope per line, with each `ts` |
+| `state dump <run>` | the run's raw rows, as JSON Lines: one object per `events` row, every column but `position` (store-internal append order) a key, `data` as stored |
 | `state pending` | the questions awaiting an answer |
 | `state tasks` | each request's card and its resume advice |
 | `state render mermaid --flow <f>` | the flow's graph (the flow, not one run's walk through it) |
@@ -196,9 +210,11 @@ The limits that end a run on purpose are in [GUARDRAILS](GUARDRAILS.md).
 ## Decisions
 
 [ADR 0014](../adr/0014-pure-core-event-sourced-flow.md) (a run is a pure
-fold over an event log in one SQLite store) and
+fold over an event log in one SQLite store),
 [ADR 0016](../adr/0016-hooks-drive-the-state-record.md) (hooks drive the
-record; PR state comes from GitHub). All ADRs:
+record; PR state comes from GitHub) and
+[ADR 0023](../adr/0023-append-only-event-store-with-rebuilt-projections.md)
+(an append-only event store with rebuilt projections). All ADRs:
 [ARCHITECTURE](ARCHITECTURE.md#the-adrs). The flows themselves are in
 [FLOWS](FLOWS.md).
 
@@ -211,14 +227,13 @@ record; PR state comes from GitHub). All ADRs:
 [upto]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Protocol/Advice.hs#L1259
 [tokenword]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Protocol/Handback.hs#L146
 [runstore]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Protocol/Binding.hs#L94
-[busy]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/Effects/Store.hs#L77
-[locked]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/Effects/Store.hs#L112
+[connection]: ../../programs/agents/kernel/src/Effects/Store/Connection.hs
+[events]: ../../programs/agents/kernel/src/Effects/Store/Events.hs
+[migration]: ../../programs/agents/kernel/src/Effects/Store/Migration.hs
 [unvoided]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L462
 [source]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Event.hs#L145
 [append]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L495
-[children]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/Effects/Store.hs#L169
 [codec]: ../../programs/agents/kernel/src/State/Run/Codec.hs
-[migrations]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/Effects/Store.hs#L232
 [foldhs]: ../../programs/agents/kernel/src/State/Run/Fold.hs
 [replay]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L434
 [fold]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L486

@@ -9,24 +9,22 @@ import Concurrently (bothAtOnce)
 import Control.Monad (replicateM_, void, (<=<))
 import Data.Aeson (Value (..), encode, object, (.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
-import Data.Either (rights)
 import Data.Foldable (for_)
 import Data.List (isSuffixOf)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Database.SQLite.Simple qualified as SQLite
-import Effects.Store (Durability (Unsynced), withStore)
-import Effects.Store qualified as Store
+import Effects.Store.Connection (Durability (Unsynced), withStore)
+import Effects.Store.Events qualified as Store
 import State.Category.Fuel (Fuel (Low))
-import State.Run.Codec (decodeLine, eventType)
-import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
+import State.Run.Event (FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
-import State.Run.EventGen (runId)
 import State.Run.RunGen (
     breakdownJson,
     plainTask,
@@ -36,6 +34,8 @@ import State.Run.RunGen (
  )
 import System.Directory (
     createDirectory,
+    createDirectoryIfMissing,
+    doesFileExist,
     findExecutable,
     getPermissions,
     setOwnerExecutable,
@@ -43,7 +43,7 @@ import System.Directory (
  )
 import System.Environment (getEnv, getEnvironment)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode)
 import Test.Hspec (
@@ -541,12 +541,36 @@ spec = describe "the state binary" $ do
                                         <> Text.pack sub
                                         <> ": run "
                                         <> run
-                                        <> " event 2 is not read - log version 3, this state reads 4"
-                                   , "fix: state init --notes <a new dir> starts afresh"
+                                        <> " has an event this state cannot read - seq 2, type fuel (schema_version 2)"
+                                   , "fix: upgrade state"
                                    ]
                                )
             after <- storedRows repo run
             after `shouldBe` before
+
+        it "dumps a row it cannot read raw, its columns as stored" $ \repo -> do
+            _ <- drive bin repo []
+            run <- runOf bin repo
+            appendByHand repo run 2 olderEvent
+            rows <- dumpOf bin repo run
+            drop 1 rows
+                `shouldBe` [ "{\"run_id\":\""
+                                <> run
+                                <> "\",\"seq\":2,\"schema_version\":2,\"type\":\"fuel\",\"time\":\"2025-11-21T00:00:00.000Z\",\"session_id\":null,\"head_sha\":null,\"hook_digest\":null,\"data\":{}}"
+                           ]
+
+        it "keeps kernel.db byte for byte, its runs written to kernel-v2.db" $ \repo -> do
+            let old = takeDirectory (storeOf repo) </> "kernel.db"
+                bytes = "SQLite format 3\NULan older kernel's store"
+            createDirectoryIfMissing True (takeDirectory old)
+            LBS8.writeFile old bytes
+            _ <- drive bin repo []
+            _ <- succeeded =<< state bin repo ["record", "gap", "a gap"]
+            _ <- succeeded =<< state bin repo ["void", "2", "logged", "in", "error"]
+            types <- loggedTypes bin repo
+            stored <- doesFileExist (storeOf repo)
+            kept <- LBS8.readFile old
+            (types, stored, kept) `shouldBe` (["started", "gap", "voided"], True, bytes)
 
         it "loses no event of two state processes appending to one run at once" $ \repo -> do
             _ <- drive bin repo []
@@ -555,8 +579,8 @@ spec = describe "the state binary" $ do
                 -- Each call appends one event: a gap never moves the run.
                 appending = replicateM_ perProcess (void (state bin repo ["record", "gap", "a gap"]))
             bothAtOnce appending appending
-            seqs <- map (.seq) . rights . map decodeLine <$> dumped bin repo
-            seqs `shouldBe` [1 .. fromIntegral (before + 2 * perProcess)]
+            seqs <- mapMaybe (column "seq") <$> dumped bin repo
+            seqs `shouldBe` map (Number . fromIntegral) [1 .. before + 2 * perProcess]
 
         it
             "records a child's parent run, and the store lists it among the parent's children"
@@ -568,8 +592,8 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
-                        (\store -> Store.children store (runId parent))
-                listed `shouldBe` [runId child]
+                        (`Store.children` parent)
+                listed `shouldBe` Right [child]
 
         it
             "pauses the chief's architect request, answers an engineer child's question meanwhile, and turns back to the architect at the same node"
@@ -623,9 +647,9 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
-                        (\store -> Store.children store (runId parent))
+                        (`Store.children` parent)
 
-                listed `shouldBe` map runId [asking, sibling]
+                listed `shouldBe` Right [asking, sibling]
                 take 1 waiting
                     `shouldSatisfy` all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`)
                 recorded moved `shouldBe` ["fuel.set -> gather"]
@@ -1408,7 +1432,7 @@ spec = describe "the state binary" $ do
                 "name the record by hand on a log of another version, as they record nothing there"
                 $ \repo -> do
                     run <- startedRun bin repo
-                    replaceByHand repo run 1 "{\"v\":2,\"ts\":\"t\",\"type\":\"started\"}"
+                    replaceByHand repo run 1 2
                     said <-
                         succeeded =<< hook hookBin repo "spawn" (spawned' repo Null "researcher")
                     replyField "context" said
@@ -1419,7 +1443,7 @@ spec = describe "the state binary" $ do
                 run <- runOf bin repo
                 appendByHand repo run 2 olderEvent
                 said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
-                said `shouldSatisfy` mentions "event 2 is not read"
+                said `shouldSatisfy` mentions "seq 2, type fuel (schema_version 2)"
 
             it
                 "records a restart of the lead's resumed session, so its lost child is sent again"
@@ -1923,12 +1947,24 @@ childEngineer bin hookBin repo = do
 
 -- | The event types the worktree's run holds.
 loggedTypes :: FilePath -> Repo -> IO [Text]
-loggedTypes bin repo = map (eventType . (.event)) . rights . map decodeLine <$> dumped bin repo
+loggedTypes bin repo =
+    (\rows -> [kind | Just (String kind) <- map (column "type") rows])
+        <$> dumped bin repo
 
--- | The worktree's run's events as @state dump@ prints them, one envelope a line.
+-- | A column of a row as @state dump@ prints it.
+column :: Text -> Text -> Maybe Value
+column key row =
+    Aeson.decodeStrictText row >>= \case
+        Object columns -> KeyMap.lookup (Key.fromText key) columns
+        _ -> Nothing
+
+-- | The worktree's run's rows as @state dump@ prints them, one JSON object a line.
 dumped :: FilePath -> Repo -> IO [Text]
-dumped bin repo =
-    runOf bin repo >>= \run -> succeeded =<< state bin repo ["dump", Text.unpack run]
+dumped bin repo = runOf bin repo >>= dumpOf bin repo
+
+-- | A run's rows as @state dump@ prints them.
+dumpOf :: FilePath -> Repo -> Text -> IO [Text]
+dumpOf bin repo run = succeeded =<< state bin repo ["dump", Text.unpack run]
 
 -- | The worktree's run's id, as @state show@ names it.
 runOf :: FilePath -> Repo -> IO Text
@@ -1943,36 +1979,44 @@ runOf bin repo =
 own, never the user's.
 -}
 storeOf :: Repo -> FilePath
-storeOf repo = repo.root </> ".local" </> "state" </> "state" </> "kernel.db"
+storeOf repo = repo.root </> ".local" </> "state" </> "state" </> "kernel-v2.db"
 
 -- | An event row written by hand, at this seq, as another kernel would write it.
-appendByHand :: Repo -> Text -> Int -> Text -> IO ()
-appendByHand repo run n json = SQLite.withConnection (storeOf repo) $ \c ->
+appendByHand :: Repo -> Text -> Int -> OlderEvent -> IO ()
+appendByHand repo run n (OlderEvent version kind payload) = SQLite.withConnection (storeOf repo) $ \c ->
     SQLite.execute
         c
-        "INSERT INTO events (run, seq, json) VALUES (?, ?, ?)"
-        (run, n, json)
+        "INSERT INTO events (run_id, seq, schema_version, type, time, data) VALUES (?, ?, ?, ?, ?, ?)"
+        (run, n, version, kind, "2025-11-21T00:00:00.000Z" :: Text, payload)
 
--- | An event row rewritten by hand, at this seq.
-replaceByHand :: Repo -> Text -> Int -> Text -> IO ()
-replaceByHand repo run n json = SQLite.withConnection (storeOf repo) $ \c ->
+{- | An event row's payload version rewritten by hand, at this seq, as
+another kernel's store would hold it: its append-only trigger dropped first.
+-}
+replaceByHand :: Repo -> Text -> Int -> Int -> IO ()
+replaceByHand repo run n version = SQLite.withConnection (storeOf repo) $ \c -> do
+    SQLite.execute_ c "DROP TRIGGER events_no_update"
     SQLite.execute
         c
-        "UPDATE events SET json = ? WHERE run = ? AND seq = ?"
-        (json, run, n)
+        "UPDATE events SET schema_version = ? WHERE run_id = ? AND seq = ?"
+        (version, run, n)
 
--- | The run's rows as stored.
-storedRows :: Repo -> Text -> IO [Text]
+-- | The run's rows as stored, every column but SQLite's position.
+storedRows ::
+    Repo ->
+    Text ->
+    IO [(Int, Int, Text, Text, Maybe Text, Maybe Text, Maybe Text, Text)]
 storedRows repo run = SQLite.withConnection (storeOf repo) $ \c ->
-    map SQLite.fromOnly
-        <$> SQLite.query
-            c
-            "SELECT json FROM events WHERE run = ? ORDER BY seq"
-            (SQLite.Only run)
+    SQLite.query
+        c
+        "SELECT seq, schema_version, type, time, session_id, head_sha, hook_digest, data FROM events WHERE run_id = ? ORDER BY seq"
+        (SQLite.Only run)
 
--- | An event of log version 3, which this kernel does not read.
-olderEvent :: Text
-olderEvent = "{\"v\":3,\"ts\":\"2025-11-21T00:00:00Z\",\"type\":\"fuel\"}"
+-- | An event row's payload version, type and data.
+data OlderEvent = OlderEvent Int Text Text
+
+-- | An event of payload version 2, which this kernel does not read.
+olderEvent :: OlderEvent
+olderEvent = OlderEvent 2 "fuel" "{}"
 
 -- | Each expected entry is in the list.
 shouldReturnContaining :: IO [Text] -> [Text] -> IO ()

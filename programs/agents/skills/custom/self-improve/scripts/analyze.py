@@ -2960,12 +2960,14 @@ def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:
 # --- State event logs --------------------------------------------------------
 #
 # Each engineer or 10x run appends its steps to the kernel's SQLite run store
-# (programs/agents/kernel/src/Effects/Store.hs): one `events` row per step, its
-# `json` one envelope of version 4 (programs/agents/kernel/src/State/Run/Codec.hs).
+# (programs/agents/kernel/src/Effects/Store/): one `events` row per step. Its
+# columns are the envelope, `data` the payload as one JSON object, and
+# `schema_version` the version of that event type's payload. The store's CHECK
+# constraints guarantee `time` is RFC 3339 UTC and `data` a JSON object.
 # A 10x re-asks a child's question in its own log under the child's qid, so a
 # question counts once, in the log of the run whose qid it bears.
 
-LOG_VERSION = 4  # the version `read_log` matches on
+KNOWN_SCHEMA_VERSION = 1  # the newest payload version of every type read here
 REPLAN = "replan"  # the stop reason that ends a run for a new plan
 STUCK = "Stuck"  # the question kind the stuck guard asks
 
@@ -2983,7 +2985,7 @@ def default_store() -> Path | None:
             base = home / ".local" / "state"
         case (None, None):
             return None
-    return base / "state" / "kernel.db"
+    return base / "state" / "kernel-v2.db"
 
 
 def absolute(value: str | None) -> Path | None:
@@ -3019,46 +3021,61 @@ class RunLog:
 @dataclass(frozen=True)
 class StateLogs:
     runs: list[RunLog]
-    older: int  # logs of another version or with an unreadable start, not read
+    newer: int  # rows of a schema_version above KNOWN_SCHEMA_VERSION, not read
+
+
+@dataclass(frozen=True)
+class EventRow:
+    """One `events` row, the columns the analyzer reads."""
+
+    run: str
+    schema_version: int
+    type: str
+    time: str
+    data: str
 
 
 def load_logs(store: Path | None) -> StateLogs:
-    """The runs `store` holds; none when there is no store yet."""
+    """The runs `store` holds; none when there is no store yet. A run whose
+    `started` row is newer has no start to place it in a window, so it is not read."""
     if store is None or not store.exists():
         return StateLogs([], 0)
-    loaded = [read_log(lines) for lines in read_store(store)]
-    runs = [log for log in loaded if log is not None]
-    return StateLogs(runs, len(loaded) - len(runs))
+    rows = read_store(store)
+    known = [row for row in rows if row.schema_version <= KNOWN_SCHEMA_VERSION]
+    logs = [read_log(list(run)) for _, run in groupby(known, key=lambda row: row.run)]
+    return StateLogs([log for log in logs if log is not None], len(rows) - len(known))
 
 
-def read_store(store: Path) -> list[list[dict[str, Json]]]:
-    """Each run's events in order, read-only so the kernel's writes stay its own."""
+def read_store(store: Path) -> list[EventRow]:
+    """Every event, by run and in order, read-only so the kernel's writes stay its own."""
     with closing(sqlite3.connect(f"{store.as_uri()}?mode=ro", uri=True)) as db:
-        rows = db.execute("SELECT run, json FROM events ORDER BY run, seq").fetchall()
+        rows = db.execute("""
+            SELECT run_id, seq, schema_version, type, time, data
+            FROM events ORDER BY run_id, seq
+        """).fetchall()
     return [
-        [event for _, text in run if isinstance(event := parse_json(text), dict)]
-        for _, run in groupby(cast("list[tuple[str, str]]", rows), key=lambda r: r[0])
+        EventRow(run, version, kind, time, data)
+        for run, _, version, kind, time, data in cast(
+            "list[tuple[str, int, int, str, str, str]]", rows
+        )
     ]
 
 
-def read_log(lines: list[dict[str, Json]]) -> RunLog | None:
-    """The run `lines` log, None when the first is not a `LOG_VERSION` start."""
-    match lines:
-        case [
-            {"v": v, "type": "started", "run": str(run), "ts": str(ts)} as first,
-            *rest,
-        ] if v == LOG_VERSION and (start := iso_timestamp(ts)) is not None:
-            started = as_object(first.get("data"))
-            events = [(line.get("type"), as_object(line.get("data"))) for line in rest]
+def read_log(rows: list[EventRow]) -> RunLog | None:
+    """The run `rows` log, None when the first is not its `started` event."""
+    match rows:
+        case [EventRow(type="started") as first, *rest]:
+            started = payload(first)
+            events = [(row.type, payload(row)) for row in rest]
             flow = text_of(started.get("flow"))
             return RunLog(
-                run,
-                start,
+                first.run,
+                datetime.fromisoformat(first.time).timestamp(),
                 text_of(started.get("notes")),
                 [
                     question(flow, data)
                     for kind, data in events
-                    if kind == "asked" and qid_of(data).split(":")[0] == run
+                    if kind == "asked" and qid_of(data).split(":")[0] == first.run
                 ],
                 {qid_of(data) for kind, data in events if kind == "ruled"},
                 {qid_of(data) for kind, data in events if kind == "answered"},
@@ -3072,12 +3089,8 @@ def read_log(lines: list[dict[str, Json]]) -> RunLog | None:
             return None
 
 
-def iso_timestamp(value: str) -> float | None:
-    """`value` as a POSIX timestamp, None when it is not ISO 8601."""
-    try:
-        return datetime.fromisoformat(value).timestamp()
-    except ValueError:
-        return None
+def payload(row: EventRow) -> dict[str, Json]:
+    return as_object(parse_json(row.data))
 
 
 def question(flow: str, asked: dict[str, Json]) -> Question:
@@ -3102,7 +3115,7 @@ def select_logs(logs: StateLogs, since: float | None, project: str | None) -> St
         if (since is None or r.start >= since)
         and (project is None or project in r.notes)
     ]
-    return StateLogs(sorted(chosen, key=lambda r: r.start), logs.older)
+    return StateLogs(sorted(chosen, key=lambda r: r.start), logs.newer)
 
 
 class Settled(Enum):
@@ -3151,7 +3164,7 @@ def state_log(logs: StateLogs) -> Section:
         "state-log",
         fact,
         [
-            f"logs older than version {LOG_VERSION}, skipped: {logs.older}",
+            f"rows newer than this analyzer, skipped: {logs.newer}",
             *table(["step", "asked", "ruled", "answered", "open", "kinds"], step_rows),
             "stops:",
             *table(["reason", "n", "latest why"], stop_rows),

@@ -33,6 +33,9 @@ module State.Cli.Shell.World (
     prOn,
     editLog,
     editLogIn,
+    appendUnread,
+    lessUnread,
+    newerStart,
     logRows,
     fileBytes,
     prUrl,
@@ -68,10 +71,14 @@ import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Entity.Event (EventRow (..))
+import Data.Entity.Event qualified as Row
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Payload.Event (Decoded (..), decodeRow)
+import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -84,13 +91,23 @@ import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
 import Doubles.Gh (printedPr, runGhScripted)
 import Doubles.Git (Worktree (..), runGitMissing, runGitScripted)
-import Doubles.Log (Runs (..), editRows, rowsOf, runLogInMemory)
+import Doubles.Log (
+    Access (..),
+    Runs,
+    editRows,
+    noRuns,
+    rowsOf,
+    runLogInMemory,
+    withAccess,
+ )
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
+import Effectful.Error.Static (runErrorNoCallStack)
 import Effectful.State.Static.Local (runState)
+import Effects.Store.Connection (OpenRefusal)
 import State.Cli.Shell qualified as Shell
 import State.Protocol.Advice (PrView (..), PullRequest (..), Readiness (..))
-import State.Run.Codec (LogError (..), decodeLine, decodeLines, eventType)
+import State.Run.Codec (eventType)
 import State.Run.Event (
     Branch (..),
     DraftPr (..),
@@ -142,7 +159,7 @@ newWorld = do
                     , dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"]
                     , cwd = "/work"
                     }
-            , runs = Runs []
+            , runs = noRuns
             , gitDir = Right "/work/.git"
             , others = []
             , gitOnPath = True
@@ -174,7 +191,7 @@ run ::
     (forall es. (Shell.Shell es) => Eff es ExitCode) ->
     IO Ran
 run world input program = atomicModifyIORef' world $ \w ->
-    let ((((code, entropy), runs), disk), streams) =
+    let ((opened, disk), streams) =
             runPureEff
                 . runClockFixed w.clock
                 . runConsoleCaptured input
@@ -183,10 +200,13 @@ run world input program = atomicModifyIORef' world $ \w ->
                 . runFileSystemInMemory
                 . runGhScripted w.pr
                 . (if w.gitOnPath then runGitScripted (worktreeOf w) else runGitMissing)
+                . runErrorNoCallStack @OpenRefusal
                 . runState w.runs
-                . runLogInMemory
+                . runLogInMemory shipped
                 . runRandomFixed w.entropy
                 $ program
+        -- The double opens no file, so it refuses none.
+        ((code, entropy), runs) = either (error . show) id opened
      in ( w {entropy, runs, disk}
         , Ran (exitNumber code) (Text.lines streams.stdout) (Text.lines streams.stderr)
         )
@@ -314,9 +334,18 @@ logged world = loggedIn world notes
 loggedIn :: IORef World -> FilePath -> IO [Envelope]
 loggedIn world dir =
     either
-        (\bad -> [] <$ expectationFailure ("the log does not read: " <> show bad.line))
+        ( \(n, why) ->
+            []
+                <$ expectationFailure
+                    ("the log's row " <> show n <> " does not read: " <> show why)
+        )
         pure
-        . decodeLines
+        . traverse
+            ( \(n, row) -> case decodeRow shipped row of
+                Known e -> Right e
+                other -> Left (n :: Int, other)
+            )
+        . zip [1 ..]
         =<< logRowsIn world dir
 
 -- | The id of the worktree's notes' run.
@@ -345,25 +374,46 @@ prOn :: Text -> Readiness -> PrView
 prOn base = printedPr . PullRequest (DraftPr (Url prUrl) (Branch base) (Branch "feat"))
 
 -- | Edit the log of the worktree's notes' run by hand, row by row, as a store's rows are.
-editLog :: IORef World -> ([Text] -> [Text]) -> IO ()
+editLog :: IORef World -> ([EventRow] -> [EventRow]) -> IO ()
 editLog world = editLogIn world notes
 
 -- | Edit the log of the run started in these notes by hand, row by row.
-editLogIn :: IORef World -> FilePath -> ([Text] -> [Text]) -> IO ()
+editLogIn :: IORef World -> FilePath -> ([EventRow] -> [EventRow]) -> IO ()
 editLogIn world dir edit = modifyIORef' world $ \w ->
     w
         { runs =
             maybe
-                (Runs (rowsOf w.runs))
+                (withAccess Writable w.runs)
                 (\found -> editRows found edit w.runs)
                 (runIn w dir)
         }
 
+{- | The rows and one more after them that this kernel does not read, as
+another kernel could write it: an event type it does not know.
+-}
+appendUnread :: [EventRow] -> [EventRow]
+appendUnread rows =
+    rows
+        <> [ lastRow {Row.seq = lastRow.seq + 1, Row.eventType = unknownType, payload = "{}"}
+           | lastRow <- take 1 (reverse rows)
+           ]
+
+-- | The rows less those 'appendUnread' added.
+lessUnread :: [EventRow] -> [EventRow]
+lessUnread = filter ((/= unknownType) . (.eventType))
+
+unknownType :: Text
+unknownType = "no_such_event"
+
+-- | The run's first row alone, of payload version 2, as a newer kernel could write it.
+newerStart :: [EventRow] -> [EventRow]
+newerStart rows = [row {Row.schemaVersion = 2} | row <- take 1 rows]
+
 -- | The log of the worktree's notes' run as the rows the store holds.
-logRows :: IORef World -> IO [Text]
+logRows :: IORef World -> IO [EventRow]
 logRows world = logRowsIn world notes
 
-logRowsIn :: IORef World -> FilePath -> IO [Text]
+logRowsIn :: IORef World -> FilePath -> IO [EventRow]
 logRowsIn world dir =
     ( \w ->
         maybe [] (\found -> fromMaybe [] (lookup found (rowsOf w.runs))) (runIn w dir)
@@ -376,13 +426,13 @@ runIn w dir =
     listToMaybe
         [ found
         | (found, first : _) <- rowsOf w.runs
-        , Right Envelope {event = Started start} <- [decodeLine first]
+        , Known Envelope {event = Started start} <- [decodeRow shipped first]
         , start.notes == dir
         ]
 
 -- | The run store takes no write from now on, as on a disk failure; it still reads.
 storeDown :: IORef World -> IO ()
-storeDown world = modifyIORef' world (\w -> w {runs = ReadOnly (rowsOf w.runs)})
+storeDown world = modifyIORef' world (\w -> w {runs = withAccess ReadOnly w.runs})
 
 -- | A file's bytes as written, if it exists.
 fileBytes :: IORef World -> FilePath -> IO (Maybe ByteString)

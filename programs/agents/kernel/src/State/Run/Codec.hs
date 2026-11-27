@@ -1,21 +1,12 @@
-{- | The log on the wire: one JSON object per line, version 4.
-
-> {"v":4,"id":"r7f2:12","seq":12,"ts":"...","run":"r7f2","head":"abc123",
->  "session":null,"type":"review.rows","data":{"head":"abc123"}}
-
-A step event's @type@ is its edge's name in the flow's graph. A log the
-Python @state@ wrote (versions 1 and 2, no @v@ on the line) is refused, not
-read: the rewrite breaks it on purpose. So is a version 3 log: version 4
-split the review flow, and no run resumes across it.
+{- | An event's payload as the store keeps it: its type, and one JSON object
+whose keys the type names, such as @review.rows@ with
+@{"head":"abc123"}@. A step event's @type@ is its edge's name in the flow's
+graph. The columns around it are "Data.Payload.Event"'s.
 -}
 module State.Run.Codec (
-    version,
-    encodeLine,
-    decodeLine,
-    decodeLog,
-    decodeLines,
-    LineError (..),
-    LogError (..),
+    schemaVersion,
+    payloadText,
+    decodePayload,
     eventType,
     areaText,
     reasonText,
@@ -69,7 +60,6 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
-import Numeric.Natural (Natural)
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (eventText)
@@ -97,9 +87,7 @@ import State.Run.Event (
     Asking (..),
     Child (..),
     ChildTask (..),
-    Envelope (..),
     Event (..),
-    EventId (..),
     Link (..),
     Note (..),
     Op (..),
@@ -108,9 +96,6 @@ import State.Run.Event (
     Reply (..),
     RunId,
     Said (..),
-    SessionId (..),
-    Sha (..),
-    Source (..),
     Start (..),
     StateName (..),
     Stop (..),
@@ -120,7 +105,6 @@ import State.Run.Event (
     TaskState (..),
     Url (..),
     Waiting (..),
-    eventId,
     parseRunId,
     parseTaskNo,
     runIdText,
@@ -154,92 +138,23 @@ import State.Step.Artifact (
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders)
 
--- | The log version this kernel writes and reads.
-version :: Int
-version = 4
-
--- | Why a line was not read.
-data LineError
-    = -- | Another log version: 1 and 2 are the Python @state@'s, 3 an earlier kernel's.
-      Unsupported Int
-    | Malformed Text
-    deriving stock (Eq, Show)
-
--- | The first line not read, counted from 1.
-data LogError = LogError {line :: Int, why :: LineError}
-    deriving stock (Eq, Show)
-
--- | Every line, or the first that is not read.
-decodeLog :: Text -> Either LogError [Envelope]
-decodeLog = decodeLines . Text.lines
-
--- | Every line, counted from 1, or the first that is not read.
-decodeLines :: [Text] -> Either LogError [Envelope]
-decodeLines = traverse numbered . zip [1 ..]
-  where
-    numbered (n, raw) = first (LogError n) (decodeLine raw)
-
-decodeLine :: Text -> Either LineError Envelope
-decodeLine raw = do
-    obj <- malformed (eitherDecodeStrictText raw)
-    v <- malformed (parseEither lineVersion obj)
-    if v == version
-        then malformed (parseEither envelope obj)
-        else Left (Unsupported v)
-  where
-    malformed = first (Malformed . Text.pack)
-
-{- | Versions 3 and on name it on every line. A Python log names none, but its
-@started@ event carries @version@ from version 2 on.
+{- | The payload version every event type has in the store, from 1: a
+change of one type's shape bumps that type's.
 -}
-lineVersion :: Object -> Parser Int
-lineVersion obj =
-    obj .:? "v" >>= \case
-        Just v -> pure v
-        Nothing -> do
-            event <- obj .:? "event"
-            legacy <- maybe (pure Nothing) (.:? "version") event
-            pure (fromMaybe 1 legacy)
+schemaVersion :: Int
+schemaVersion = 1
 
--- | One line, without its newline, its keys in the order above.
-encodeLine :: Envelope -> Text
-encodeLine e =
-    Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . pairs $
-        "v" .= version
-            <> "id" .= eventIdText (eventId e)
-            <> "seq" .= e.seq
-            <> "ts" .= e.ts
-            <> "run" .= runIdText e.run
-            <> "head" .= fmap shaText e.head
-            <> "session" .= fmap (\(SessionId session) -> session) e.session
-            <> "type" .= eventType e.event
-            <> pair "data" (pairs (eventData e.event))
+-- | An event's payload, the store's @data@: one JSON object, its keys by type.
+payloadText :: Event -> Text
+payloadText =
+    Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . pairs . eventData
 
-envelope :: Object -> Parser Envelope
-envelope obj = do
-    n <- obj .: "seq"
-    run <- obj .: "run" >>= runIdOf
-    source <- obj .: "id" >>= sourceOf run n
-    ts <- obj .: "ts"
-    sha <- fmap Sha <$> obj .: "head"
-    session <- fmap SessionId <$> obj .: "session"
-    kind <- obj .: "type"
-    event <- obj .: "data" >>= withObject "data" (eventOf kind)
-    pure Envelope {source, seq = n, ts, run, head = sha, session, event}
-
--- | The line's own run and seq are the truth, so a CLI id naming others is refused.
-sourceOf :: RunId -> Natural -> Text -> Parser Source
-sourceOf run n raw
-    | raw == eventIdText (Numbered run n) = pure Cli
-    | Just (Hashed digest) <- parseEventId raw = pure (Hook digest)
-    | otherwise =
-        fail
-            ( "id "
-                <> show raw
-                <> " is neither "
-                <> show (eventIdText (Numbered run n))
-                <> " nor h:<hash>"
-            )
+-- | The event of this type whose payload this is, or why it does not read.
+decodePayload :: Text -> Text -> Either Text Event
+decodePayload kind raw =
+    first
+        Text.pack
+        (eitherDecodeStrictText raw >>= parseEither (withObject "data" (eventOf kind)))
 
 eventType :: Event -> Text
 eventType = \case

@@ -147,3 +147,6 @@ meter). Graph rules are `Clash`es in `GraphSpec` (`NotAwaited`,
 - #379, #392: flows compose from small lawful flows; step meters.
 - #457, #462: the core from sums, cases and Elgot iteration.
 - #478: inline handlers, plain names, `upTo`.
+- #552: [ADR 0023](0023-append-only-event-store-with-rebuilt-projections.md)
+  replaces wire version 4 with a `schema_version` per event type. No log
+  is refused for its age.

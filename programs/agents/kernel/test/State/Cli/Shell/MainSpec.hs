@@ -369,7 +369,7 @@ spec = describe "state over the doubles" $ do
             it "names a hand-edited bad line and appends nothing after it" $ \world -> do
                 _ <- drive world []
                 run <- runOf world
-                editLog world (<> ["{\"v\":3,broken"])
+                editLog world appendUnread
                 before' <- logRows world
 
                 for_ [("next", []), ("show", []), ("record", ["fuel.set", "max"])] $ \(sub, args) -> do
@@ -377,22 +377,19 @@ spec = describe "state over the doubles" $ do
                     (bad.code, map (fst . Text.breakOn " - ") bad.err)
                         `shouldBe` ( 2
                                    ,
-                                       [ "state " <> sub <> ": run " <> run <> " event 2 is not read"
-                                       , "fix: state init --notes <a new dir> starts afresh"
+                                       [ "state " <> sub <> ": run " <> run <> " has an event this state cannot read"
+                                       , "fix: upgrade state"
                                        ]
                                    )
                 after <- logRows world
                 after `shouldBe` before'
 
-            it "names the recovery for an older state's log: start fresh" $ \world -> do
+            it "names the recovery for a newer state's log: upgrade state" $ \world -> do
                 _ <- drive world []
                 run <- runOf world
                 editLog
                     world
-                    ( const
-                        [ "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
-                        ]
-                    )
+                    newerStart
 
                 old <- state world ["next"]
 
@@ -401,8 +398,8 @@ spec = describe "state over the doubles" $ do
                                ,
                                    [ "state next: run "
                                         <> run
-                                        <> " event 1 is not read - log version 2, this state reads 4"
-                                   , "fix: state init --notes <a new dir> starts afresh"
+                                        <> " has an event this state cannot read - seq 1, type started (schema_version 2)"
+                                   , "fix: upgrade state"
                                    ]
                                )
 
@@ -1345,12 +1342,11 @@ spec = describe "state over the doubles" $ do
                 $ \world -> do
                     (_, mid, grand) <- threeLevels world
                     let qid = grand <> ":1"
-                        broken = "{broken"
                     climbed world qid
-                    editLogIn world grandNotes (<> [broken])
+                    editLogIn world grandNotes appendUnread
 
                     failed <- succeeded =<< state world ["answer", qid, "it's postgres"]
-                    editLogIn world grandNotes (filter (/= broken))
+                    editLogIn world grandNotes lessUnread
                     retried <- succeeded =<< state world ["answer", qid, "it's postgres"]
 
                     drop 1 failed `shouldSatisfy` \case
@@ -1378,7 +1374,7 @@ spec = describe "state over the doubles" $ do
                         world
                         "/home/.local/state/state/bindings/s1/e1"
                         ("run " <> grand <> " " <> Text.pack grandNotes <> " /grand work\n")
-                    editLogIn world grandNotes (<> ["{broken"])
+                    editLogIn world grandNotes appendUnread
 
                     failed <- succeeded =<< state world ["answer", qid, "postgres"]
 

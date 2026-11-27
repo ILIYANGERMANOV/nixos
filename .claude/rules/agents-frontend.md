@@ -55,10 +55,12 @@ from a higher layer, lowest first:
 | `State/Protocol/` | advice, hand-backs, hooks, the `record` grammar |
 | `State/Cli/` | commands, views, the effect shell |
 
-A run appends its events, version 4 (`State/Run/Codec.hs`), to the kernel's
-run store: one SQLite database, `$XDG_STATE_HOME/state/kernel.db`
-(`Effects/Store.hs`); `state dump <run>` prints them. The `self-improve`
-analyzer reads the events, so a format change updates `analyze.py` too. The step table is `flows/steps.nix`, handed
+A run appends its events to the kernel's run store: one SQLite database,
+`$XDG_STATE_HOME/state/kernel-v2.db`. Each event type has its own
+`schema_version`, stored beside its payload (`State/Run/Codec.hs`). `Data/`
+maps events to rows, and only `Effects/Store/` speaks SQL. `state dump <run>`
+prints the raw rows. The `self-improve` analyzer reads the events, so a
+format change updates `analyze.py` too. The step table is `flows/steps.nix`, handed
 to the kernel as JSON (`State/Table.hs`) and to the roles, whose capabilities
 and skills derive from it (`lib/derive.nix`). Why: the ADR table in
 `docs/harness/ARCHITECTURE.md#the-adrs`.

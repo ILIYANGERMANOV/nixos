@@ -23,7 +23,7 @@
 //
 // The adapter runs synchronously, with the user's XDG dirs as a shell gets
 // them and XDG_STATE_HOME moved, so the hooks' `state` shares the shells'
-// kernel.db. One that fails lets the call go on, with a note saying so.
+// run store. One that fails lets the call go on, with a note saying so.
 //
 // Known gaps, as docs/KATEGORY.md says:
 // - No agent can stop another: OpenCode has no such tool.
