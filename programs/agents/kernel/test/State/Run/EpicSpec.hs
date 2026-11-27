@@ -54,6 +54,12 @@ spec = describe "State.Run.Epic" $ do
         -- The last edge was taken, so the property is not passed by refusals alone.
         cover 5 "an epic merged" ("merged" `elem` map stageName (Map.elems final))
 
+    it "takes a replacement final PR of a ready epic, and the same one as it is" $
+        map
+            (\url -> epicPr <$> (moved limits (Readies url) (at (Just ready')) >>= found))
+            [replacement, pr]
+            `shouldBe` [Right (Just replacement), Right (Just pr)]
+
     describe "names only an opened epic in a base" $ do
         it "takes an epic opened at any stage" $
             opened (at (Just merged')) (OnEpic limits) `shouldBe` Right ()
@@ -77,6 +83,10 @@ branch = Branch "epic/limits"
 pr :: Url
 pr = Url "https://github.com/o/r/pull/40"
 
+-- | A final PR opened again, after the first one closed.
+replacement :: Url
+replacement = Url "https://github.com/o/r/pull/41"
+
 open', ready', merged' :: Epic
 open' = Open (OpenEpic repo branch)
 ready' = Ready (ready (OpenEpic repo branch) pr)
@@ -96,11 +106,11 @@ table =
     , (Just open', Readies pr, Right "ready_for_review")
     , (Just open', Merges, Left (EpicNotReady limits))
     , (Just ready', Opens repo branch, Left (EpicExists limits))
-    , (Just ready', Readies pr, Left (EpicNotOpen limits))
+    , (Just ready', Readies pr, Right "ready_for_review")
     , (Just ready', Merges, Right "merged")
     , (Just merged', Opens repo branch, Left (EpicExists limits))
     , (Just merged', Readies pr, Left (EpicNotOpen limits))
-    , (Just merged', Merges, Left (EpicNotReady limits))
+    , (Just merged', Merges, Right "merged")
     ]
 
 -- | The stage a listed edge leads to, from the stage before it.
@@ -108,5 +118,7 @@ listed :: Maybe Text -> EpicMove -> Text
 listed from move = case (from, move) of
     (Nothing, Opens _ _) -> "open"
     (Just "open", Readies _) -> "ready_for_review"
+    (Just "ready_for_review", Readies _) -> "ready_for_review"
     (Just "ready_for_review", Merges) -> "merged"
+    (Just "merged", Merges) -> "merged"
     _ -> "no listed edge"

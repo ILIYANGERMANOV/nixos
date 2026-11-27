@@ -1444,15 +1444,15 @@ explain g fuel at = \case
                 "epic_not_open"
                 ( "epic "
                     <> epicNameText epic
-                    <> " is ready or merged already: only an open epic is made ready"
+                    <> " merged already: a merged epic takes no new final PR"
                 )
-                "state resume"
+                "state epic open <new name> --repo <owner/name> --branch <branch>, for a next epic"
         Epic.EpicNotReady epic ->
             refused
                 "epic_not_ready"
                 ( "epic "
                     <> epicNameText epic
-                    <> " is not ready for review: it is open still, or merged already"
+                    <> " is not ready for review: it is open still"
                 )
                 ( "state epic ready "
                     <> epicNameText epic
