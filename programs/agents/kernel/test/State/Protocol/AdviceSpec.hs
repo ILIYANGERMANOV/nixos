@@ -1046,7 +1046,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it
             "sends a question its row answers to the user at once, asked and forwarded: up to a parent from a child"
-            $ [ ownAsk state ToUser Pick (oneLine "which rows?")
+            $ [ ownAsk state (QId state.run 1) ToUser Pick (oneLine "which rows?")
               | state <- [atImplement, runUnder child (knobs Balanced <> take 13 happyPath)]
               ]
                 `shouldBe` [ Right (askedPick askUser TheUser)
@@ -1055,7 +1055,7 @@ spec = describe "State.Protocol.Advice" $ do
                            ]
 
         it "refuses to send the user a question the run's row must answer itself" $
-            ownAsk atImplement ToUser Fact (oneLine "which file?")
+            ownAsk atImplement (QId run 1) ToUser Fact (oneLine "which file?")
                 `shouldBe` Left (MustAnswer Lead Fact)
   where
     -- The user reads the question as the turn's last text, so no tool call may follow it;
@@ -1153,7 +1153,7 @@ spec = describe "State.Protocol.Advice" $ do
 
 -- | The run's own question as its row sends it, which no row refuses.
 byRow :: RunState -> Kind -> OneLine -> (Question, [Event], Text)
-byRow state kind text = either (error . show) id (ownAsk state ByRow kind text)
+byRow state kind text = either (error . show) id (ownAsk state (QId state.run 1) ByRow kind text)
 
 knobs :: Fuel -> [Event]
 knobs fuel = [fuelSet fuel]

@@ -19,7 +19,7 @@ module Data.Field (
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Time (UTCTime, defaultTimeLocale, formatTime, parseTimeM)
+import Data.Time (UTCTime, defaultTimeLocale, parseTimeM)
 import Numeric.Natural (Natural)
 import State.Artifact (Sha256, parseSha256, sha256Text)
 import State.Run.Event (
@@ -31,6 +31,7 @@ import State.Run.Event (
     parseSessionId,
     runIdText,
  )
+import State.Show (timeText)
 import State.Step.Artifact (lowerHex)
 
 -- | A column's text and its parser, which takes exactly the text it writes.
@@ -42,15 +43,14 @@ encode (Codec to _) = to
 decode :: Codec a -> Text -> Maybe a
 decode (Codec _ from) = from
 
-{- | A time as the store writes it: RFC 3339 s5.6, in the DDL's profile: UTC,
-uppercase @T@ and @Z@, exactly 3 fraction digits, so 24 characters and text
-order is time order. A finer time loses its digits past the millisecond in
+{- | A time as the store writes it: 'timeText', RFC 3339 s5.6 in the DDL's
+profile. A finer time loses its digits past the millisecond in
 the text: the Clock interpreter hands over whole milliseconds. The parser
 refuses any other spelling, an offset, lowercase and the leap second @:60@.
 -}
 time :: Codec UTCTime
 time =
-    Codec (Text.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S.%3qZ") parse
+    Codec timeText parse
   where
     -- %Q reads any fraction; the text it was must be the one written.
     parse raw

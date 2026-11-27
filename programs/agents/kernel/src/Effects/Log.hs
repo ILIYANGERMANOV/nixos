@@ -9,6 +9,7 @@ module Effects.Log (
     exists,
     firstEvent,
     rows,
+    readUntil,
     locked,
     appending,
     Appending (..),
@@ -22,6 +23,7 @@ module Effects.Log (
     Upcasts,
     shipped,
     firstOf,
+    loggedUntil,
     decision,
     blobRead,
 ) where
@@ -66,7 +68,7 @@ import Effects.Store.Connection (Durability, OpenRefusal, Store, withStore)
 import Effects.Store.Events (Batch (..), Write (..))
 import Effects.Store.Events qualified as Store
 import Numeric.Natural (Natural)
-import State.Artifact (Blob, Sha256)
+import State.Artifact (Blob, Sha256, digestText)
 import State.Protocol.Binding (runStore)
 import State.Run.Event (Envelope, EventId (..), RunId, parseRunId, runIdText)
 
@@ -76,6 +78,8 @@ data Log :: Effect where
     FirstEvent :: RunId -> Log m (Maybe (Either Unread Envelope))
     -- | The run's rows raw, one JSON Lines line each, without the write lock.
     Rows :: RunId -> Log m [Text]
+    -- | The run's log as the fold reads it, its rows up to this seq if one is given, without the write lock.
+    ReadUntil :: RunId -> Maybe Natural -> Log m (Either Unread Logged)
     Locked :: RunId -> (Either Unread Logged -> (Appending, a)) -> Log m a
     -- | The blob stored under this key, if any: across runs, as content is stored once.
     ReadBlob :: Sha256 -> Log m (Maybe Blob)
@@ -118,6 +122,15 @@ any type or version included: none for a run never started.
 -}
 rows :: (Log :> es) => RunId -> Eff es [Text]
 rows = send . Rows
+
+{- | The run's log as the fold reads it, read in one statement without the
+lock: its first @k@ rows when @k@ is given, so a row it cannot read after
+them refuses nothing, as a store of only those rows holds none. None for a
+run never started.
+-}
+readUntil ::
+    (Log :> es) => RunId -> Maybe Natural -> Eff es (Either Unread Logged)
+readUntil run = send . ReadUntil run
 
 {- | The run's log, locked for one decision: @decide@ gets the log so far,
 or the first row it cannot read, and returns the events to append. The lock lasts
@@ -175,6 +188,7 @@ onStore upcasts op store = case op of
     Exists run -> Store.exists store (runIdText run)
     FirstEvent run -> firstOf upcasts <$> Store.rows store (runIdText run)
     Rows run -> map dumpLine <$> Store.rows store (runIdText run)
+    ReadUntil run k -> loggedUntil upcasts k <$> Store.rows store (runIdText run)
     Locked run decide -> Store.locked store (runIdText run) (decision upcasts decide)
     ReadBlob key ->
         Store.blob store (Field.encode Field.sha256 key)
@@ -222,10 +236,16 @@ blobRead key = traverse $ \row -> case blobOf row of
     Just found -> Right found
     Nothing ->
         Left
-            ( "the blob stored under sha256:"
-                <> Text.unpack (Field.encode Field.sha256 key)
+            ( "the blob stored under "
+                <> Text.unpack (digestText key)
                 <> " does not hash to its key: the store was edited"
             )
+
+-- | The log of a run's rows up to this seq if one is given: cut before any row is read.
+loggedUntil :: Upcasts -> Maybe Natural -> [EventRow] -> Either Unread Logged
+loggedUntil upcasts k =
+    loggedOf upcasts
+        . maybe id (\n -> takeWhile ((<= toInteger n) . toInteger . (.seq))) k
 
 loggedOf :: Upcasts -> [EventRow] -> Either Unread Logged
 loggedOf upcasts logged = case [unread row u | (row, Unknown u) <- decoded] of

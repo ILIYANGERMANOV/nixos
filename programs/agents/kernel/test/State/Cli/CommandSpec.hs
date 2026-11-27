@@ -25,6 +25,7 @@ import State.Cli.Command (
     Location (..),
     Origin (..),
     RunCommand (..),
+    Until (..),
     Usage (..),
     anyEvent,
     explain,
@@ -466,6 +467,15 @@ spec = describe "State.Cli.Command" $ do
             (fmap dumped . parse <$> [["dump", "r1"], ["dump", "r1:2"]])
                 `shouldBe` [Right (Just (runId "r1")), Left "no run id r1:2"]
 
+        it "takes resume with an optional run id and an --until seq from 1" $
+            map
+                (fmap resumed . parse)
+                [["resume"], ["resume", "r1", "--until", "3"], ["resume", "--until", "0"]]
+                `shouldBe` [ Right (Just (Nothing, Nothing))
+                           , Right (Just (Just (runId "r1"), Just 3))
+                           , Left "--until 0"
+                           ]
+
         it "refuses a notes dir that is relative or holds what a shell reads" $
             map
                 (failureWhat . parse . (["init", "--notes"] <>) . pure)
@@ -716,6 +726,10 @@ spec = describe "State.Cli.Command" $ do
     dumped :: Command -> Maybe RunId
     dumped = \case
         Dump run -> Just run
+        _ -> Nothing
+    resumed :: Command -> Maybe (Maybe RunId, Maybe Natural)
+    resumed = \case
+        Resume run k -> Just (run, (.seq) <$> k)
         _ -> Nothing
     goalOf :: Command -> Maybe Text
     goalOf = \case

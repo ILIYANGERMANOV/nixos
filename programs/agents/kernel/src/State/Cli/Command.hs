@@ -5,6 +5,7 @@ and every failure in the shape the @/self-improve@ analyzer parses:
 -}
 module State.Cli.Command (
     Command (..),
+    Until (seq),
     RunCommand (..),
     Location (..),
     locationOf,
@@ -180,7 +181,17 @@ data Command
       ShowArtifact RunId Natural
     | -- | A file or URL the worktree's run registers, derived from its artifact of this seq, if any.
       Register (Location FilePath) (Maybe Natural)
+    | {- | The packet a fresh agent resumes from: of the run named, else the
+      session's or the worktree's, as it was after this line, if one is given.
+      -}
+      Resume (Maybe RunId) (Maybe Until)
     | OnRun RunCommand
+
+{- | The packet as it was after the line of this seq (@--until@): a seq
+counts from 1, as the log's first line is its @started@.
+-}
+newtype Until = Until {seq :: Natural}
+    deriving stock (Eq, Show)
 
 -- | A command on the worktree's run, read and written under the log's lock.
 data RunCommand
@@ -563,6 +574,15 @@ commandInfo steps scope =
                     <*> textOption "summary" "<s>" "where the work stands"
                     <*> nextStep mempty
                     <*> many (nextStep Optparse.hidden)
+            , sub "resume" "Print the packet a fresh agent resumes the run from" $
+                (\run k -> Resume <$> traverse runId run <*> traverse untilOf k)
+                    <$> optional (textArgument "<run>")
+                    <*> optional
+                        ( textOption
+                            "until"
+                            "<seq>"
+                            "the packet as it was after the line of this seq"
+                        )
             , sub "help" "Print this help" (pure (Right Help))
             ]
     artifactShow =
@@ -858,6 +878,14 @@ seqOf raw =
         (Left (usage ("seq " <> raw) "a seq is a line's number in the log, from 1"))
         Right
         (readMaybe (Text.unpack raw))
+
+-- | An @--until@ seq: a line's, so from 1.
+untilOf :: Text -> Either Failure Until
+untilOf raw =
+    seqOf raw >>= \case
+        0 ->
+            Left (usage ("--until " <> raw) "a seq is a line's number in the log, from 1")
+        n -> Right (Until n)
 
 -- | A kind in any case: the hand-back's @NEEDS_DECISION <Kind>@ alone is spelled exactly.
 kindOf :: Text -> Either Failure Kind

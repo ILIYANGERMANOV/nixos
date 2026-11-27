@@ -26,6 +26,7 @@ module State.Protocol.Handback (
 
 import Control.Applicative ((<|>))
 import Data.Bifunctor qualified as Bifunctor
+import Data.List (genericLength)
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -46,6 +47,7 @@ import State.Role (leads)
 import State.Run.Ask (
     Kind (Stuck),
     OneLine,
+    QId (..),
     Question (..),
     oneLineText,
     parseKind,
@@ -90,7 +92,6 @@ import State.Run.Fold (
     askedAt,
     fanIn,
     forks,
-    nextQId,
     returnOf,
     untaskedFan,
  )
@@ -308,18 +309,20 @@ step's done outcome, from the step's own runner only; a question is asked;
 @BLOCKED@, @FAILED@, a plan found wrong and a question with no kind are the
 run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. A worker's hand-back also says it returned, when it was logged at
-work ('returnOf'). The sha is the worktree's HEAD.
+work ('returnOf'). The sha is the worktree's HEAD; the qid is the id of the
+next line, which a question the run mints counts on from.
 -}
 typeHandback ::
     Steps ->
     OpenGraph ->
     RunState ->
     Maybe Sha ->
+    QId ->
     AgentRole ->
     Maybe AgentId ->
     Handback ->
     Either Refusal Typed
-typeHandback steps g state worktreeHead agent agentId handback = case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]]
+typeHandback steps g state worktreeHead next agent agentId handback = case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]]
     <> [ ScopedFan place.scope fan
        | Just _ <- [leads agent]
        , At place <- [state.at]
@@ -329,7 +332,7 @@ typeHandback steps g state worktreeHead agent agentId handback = case [fan | Jus
     [] ->
         ( \typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}
         )
-            <$> fromWorker steps g state worktreeHead agent handback
+            <$> fromWorker steps g state worktreeHead next agent handback
 
 {- | A direct child's hand-back, wherever this run is: only a question is
 this run's, which joins its pending to rule on or forward up. The rest
@@ -407,17 +410,18 @@ fromWorker ::
     OpenGraph ->
     RunState ->
     Maybe Sha ->
+    QId ->
     AgentRole ->
     Handback ->
     Either Refusal Typed
-fromWorker steps g state worktreeHead agent handback = case handback.token of
+fromWorker steps g state worktreeHead next agent handback = case handback.token of
     -- A forked worker reports in its own shape (a researcher's opens with its index): any hand-back closes its child.
     Nothing -> recorded <$> done (not forked)
     Just (Ready _) -> recorded <$> done False
     Just token@(NeedsDecision need) ->
         closing <$> case need of
             Asks question -> Right (recorded (asked question))
-            StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why)))
+            StuckOn why -> Right (recorded (asked (Question stuckQId Stuck why)))
             PlanWrong _ -> triage token
             Untyped _ -> triage token
     -- The parent waits: nothing changes in this run.
@@ -427,9 +431,13 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
   where
     recorded events = Typed events Nothing
     -- A forked worker is done whatever it says: its child hands back first.
-    closing typed = case (forked, done False) of
-        (True, Right events) -> typed {events = events <> typed.events}
-        _ -> typed
+    closing typed = typed {events = donePrefix <> typed.events}
+    donePrefix = case (forked, done False) of
+        (True, Right events) -> events
+        _ -> []
+    -- The question's line comes after the done prefix: its qid is that line's id.
+    stuckQId = case next of
+        QId run n -> QId run (n + genericLength donePrefix)
     forked = isJust openFork
     {- A worker of a group hands back wherever the run is, before its bind
     too (structured concurrency): its step is the one forked. Else the step here.

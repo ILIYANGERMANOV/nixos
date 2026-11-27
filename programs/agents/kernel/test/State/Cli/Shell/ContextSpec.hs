@@ -3,11 +3,9 @@ module State.Cli.Shell.ContextSpec (spec) where
 
 import Data.Foldable (for_)
 import Data.IORef (IORef, modifyIORef')
-import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
-import Doubles.FileSystem (Disk (..))
 import Hedgehog (evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
@@ -33,6 +31,7 @@ import State.Cli.Shell.World (
     newWorld,
     putBytes,
     putFile,
+    removeFile,
     startedIn,
     startedRun,
     state,
@@ -319,12 +318,6 @@ handover world =
 
 digest :: Text -> Text
 digest = sha256Text . sha256Of . encodeUtf8
-
-removeFile :: IORef World -> FilePath -> IO ()
-removeFile world path =
-    modifyIORef'
-        world
-        (\w -> w {disk = w.disk {files = Map.delete path w.disk.files}})
 
 -- | Each start's goal, worktree and repo.
 startsOf :: IORef World -> IO [(Maybe Text, FilePath, Maybe Repo)]

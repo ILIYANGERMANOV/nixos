@@ -12,10 +12,12 @@ module State.Cli.Shell.World (
     stateIn,
     hook,
     succeeded,
+    askedQId,
     startedRun,
     startedIn,
     putFile,
     putBytes,
+    removeFile,
     tenXAtFanOut,
     tenXAtFanOutOf,
     tenXAtFanOutBy,
@@ -38,6 +40,7 @@ module State.Cli.Shell.World (
     editLogIn,
     appendUnread,
     lessUnread,
+    unknownType,
     newerStart,
     logRows,
     fileBytes,
@@ -256,6 +259,13 @@ succeeded ran
             <$ expectationFailure
                 ("exit " <> show ran.code <> ": " <> Text.unpack (Text.unlines ran.err))
 
+-- | @state ask@ with these words, which must succeed: the qid it prints.
+askedQId :: IORef World -> [Text] -> IO Text
+askedQId world argv =
+    (succeeded =<< state world ("ask" : argv)) >>= \case
+        asked : _ | Just qid <- Text.stripPrefix "asked " asked -> pure qid
+        out -> "" <$ expectationFailure ("no asked line: " <> show out)
+
 -- | @init@ in the worktree's notes; the run's id.
 startedRun :: IORef World -> IO Text
 startedRun world = startedIn world []
@@ -286,6 +296,13 @@ putBytes :: IORef World -> FilePath -> ByteString -> IO ()
 putBytes world path content = modifyIORef' world $ \w ->
     let disk = w.disk
      in w {disk = disk {files = Map.insert path content disk.files}}
+
+-- | A file deleted outside @state@.
+removeFile :: IORef World -> FilePath -> IO ()
+removeFile world path =
+    modifyIORef'
+        world
+        (\w -> w {disk = w.disk {files = Map.delete path w.disk.files}})
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
 @t1@, @t2@ heavy; the run's id.

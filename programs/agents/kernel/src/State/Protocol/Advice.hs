@@ -27,6 +27,7 @@ module State.Protocol.Advice (
     ownAsk,
     factLines,
     childBudget,
+    recordedPr,
 ) where
 
 import Control.Applicative ((<|>))
@@ -200,7 +201,6 @@ import State.Run.Fold (
     fuelOf,
     given,
     ledger,
-    nextQId,
     nodeName,
     onRound,
     planSettled,
@@ -1026,7 +1026,11 @@ outputUrl out facts state = case out of
 
 -- | The PR's url as GitHub reports it, else the PR the run recorded.
 prUrl :: Facts -> RunState -> Maybe Url
-prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$> state.drafted
+prUrl facts state = (.draft.url) <$> facts.pr <|> recordedPr state
+
+-- | The PR the run recorded last: the one it published, else its draft.
+recordedPr :: RunState -> Maybe Url
+recordedPr state = state.published <|> (.url) <$> state.drafted
 
 -- | The record of each of a step's outcomes, exit first, and where it goes.
 recordOutcomes ::
@@ -1282,17 +1286,20 @@ deliverPrompt start advice
     | otherwise = advice.prompt
 
 {- | The run's own question: the events to record, oldest first, and the line
-saying where it goes. A question the run's row forwards, or one sent to the
-user at once, is forwarded at once, before any answer can come down; one sent
-to the user that the row answers itself is refused.
+saying where it goes. Its @asked@ line comes first, so its qid is that
+line's id. A question the run's row forwards, or one sent to the user at
+once, is forwarded at once, before any answer can come down; one sent to the
+user that the row answers itself is refused.
 -}
 ownAsk ::
     RunState ->
+    -- | The id of the next line, which asks the question.
+    QId ->
     Route ->
     Kind ->
     OneLine ->
     Either Ask.Refusal (Question, [Event], Text)
-ownAsk state how kind text =
+ownAsk state qid how kind text =
     sent
         <$> Ask.route
             how
@@ -1300,7 +1307,7 @@ ownAsk state how kind text =
             (Role.rungAt state.start.flow (askedAt state))
             question
   where
-    question = Question (nextQId state) kind text
+    question = Question qid kind text
     sent delivery = (question, Asked (Asking question (askedAt state) Itself) : forward, line)
       where
         (forward, line) = case delivery of

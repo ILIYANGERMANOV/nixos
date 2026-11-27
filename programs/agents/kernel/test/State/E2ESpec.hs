@@ -22,6 +22,7 @@ import Data.Text.IO qualified as Text
 import Database.SQLite.Simple qualified as SQLite
 import Effects.Store.Connection (Durability (Unsynced), withStore)
 import Effects.Store.Events qualified as Store
+import State.Artifact (sha256Of, sha256Text)
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Event (FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
@@ -357,6 +358,51 @@ spec = describe "the state binary" $ do
                     `shouldBe` (True, True, ["v2"], ["b"])
 
         it
+            "resumes from a file's snapshot past its deletion: register, delete, hand over, resume, show"
+            $ \repo -> do
+                run <- startedRun bin repo
+                let notes = repo.work </> "notes.md"
+                writeFile notes "v1\n"
+                _ <- succeeded =<< state bin repo ["artifact", "notes.md", "--kind", "notes"]
+                removeFile notes
+                _ <-
+                    succeeded
+                        =<< state
+                            bin
+                            repo
+                            ["handover", "--reason", "context", "--summary", "s", "--next", "go on"]
+                resumed <- succeeded =<< state bin repo ["resume"]
+                shown <-
+                    succeeded =<< state bin repo ["artifact", "show", Text.unpack run <> ":2"]
+                ( filter (Text.isPrefixOf "notes " . Text.strip) resumed
+                    , filter (Text.isInfixOf "load: state artifact show") resumed
+                    , filter (Text.isPrefixOf "  1. ") resumed
+                    , shown
+                    )
+                    `shouldBe` (
+                                   [ "    notes "
+                                        <> run
+                                        <> ":2 "
+                                        <> Text.pack notes
+                                        <> " sha256:"
+                                        <> sha256Text (sha256Of "v1\n")
+                                        <> " 3 bytes stored"
+                                   ]
+                               , ["      load: state artifact show " <> run <> ":2"]
+                               , ["  1. go on"]
+                               , ["v1"]
+                               )
+
+        it "resumes a moved run at its new worktree" $ \repo -> do
+            _ <- startedRun bin repo
+            target <- worktree repo "target"
+            top <- Text.strip . Text.pack <$> gitOut target ["rev-parse", "--show-toplevel"]
+            _ <- succeeded =<< state bin repo ["move", target.work]
+            resumed <- succeeded =<< state bin target ["resume"]
+            filter (Text.isPrefixOf "worktree: ") resumed
+                `shouldBe` ["worktree: " <> top <> "   repo: none   fuel: balanced"]
+
+        it
             "logs a plan.done whose plan may not be read, with no artifact, and names the path"
             $ \repo -> do
                 _ <- drive bin repo (Record ["fuel.set", "balanced"] : gathered)
@@ -656,8 +702,7 @@ spec = describe "the state binary" $ do
                     succeeded =<< state bin repo ["focus", "--summary", "the architect gathers"]
                 w1 <- worktree repo "w1"
                 child <- directChild bin w1 parent "n1"
-                let qid = child <> ":1"
-                _ <- succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
+                qid <- askedQid bin w1 "Design" ["which", "store?"]
                 _ <- succeeded =<< state bin w1 ["next"]
 
                 _ <- succeeded =<< state bin repo ["answer", Text.unpack qid, "postgres"]
@@ -680,8 +725,7 @@ spec = describe "the state binary" $ do
                 w2 <- worktree repo "w2"
                 asking <- directChild bin w1 parent "n1"
                 sibling <- directChild bin w2 parent "n2"
-                let qid = asking <> ":1"
-                _ <- succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
+                qid <- askedQid bin w1 "Design" ["which", "store?"]
                 waiting <- succeeded =<< state bin w1 ["next"]
                 moved <- succeeded =<< state bin w2 ["record", "fuel.set", "low"]
                 siblingAsked <- succeeded =<< state bin w2 ["next"]
@@ -805,11 +849,8 @@ spec = describe "the state binary" $ do
                     w2 <- worktree repo "w2"
                     c1 <- childRun bin w1 parent "n1" "t1"
                     c2 <- childRun bin w2 parent "n2" "t2"
-                    _ <- succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
-                    _ <-
-                        succeeded =<< state bin w2 ["ask", "--kind", "Security", "token", "in", "env?"]
-                    let q1 = Text.unpack c1 <> ":1"
-                        q2 = Text.unpack c2 <> ":1"
+                    q1 <- Text.unpack <$> askedQid bin w1 "Design" ["which", "store?"]
+                    q2 <- Text.unpack <$> askedQid bin w2 "Security" ["token", "in", "env?"]
                     _ <-
                         succeeded
                             =<< state
@@ -857,7 +898,7 @@ spec = describe "the state binary" $ do
                     take 1 third `shouldBe` ["AWAIT children t2"]
 
             it "asks the user its own breakdown Confirm, and refuses to rule on it" $ \repo -> do
-                run <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+                _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 for_
                     [["override", "confirm", "the", "plan", "is", "written"]]
                     (succeeded <=< state bin repo)
@@ -870,7 +911,7 @@ spec = describe "the state binary" $ do
                         bin
                         repo
                         [ "rule"
-                        , Text.unpack run <> ":1"
+                        , Text.unpack (Text.drop (Text.length "asked ") (Text.concat (take 1 asked)))
                         , "--answer"
                         , "yes"
                         , "--why"
@@ -884,15 +925,14 @@ spec = describe "the state binary" $ do
                 parent <- tenXAtFanOut bin repo
                 w1 <- worktree repo "w1"
                 c1 <- childRun bin w1 parent "n1" "t1"
-                _ <-
-                    succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
+                qid <- askedQid bin w1 "Confirm" ["the", "plan", "holds?"]
                 _ <-
                     succeeded
                         =<< state
                             bin
                             repo
                             [ "rule"
-                            , Text.unpack c1 <> ":1"
+                            , Text.unpack qid
                             , "--answer"
                             , "confirmed"
                             , "--why"
@@ -902,7 +942,7 @@ spec = describe "the state binary" $ do
                             ]
                 resume <- succeeded =<< state bin repo ["next"]
                 take 1 resume
-                    `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed"]
+                    `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> qid <> ": confirmed"]
 
             it "refuses a malformed task file with the breakdown's error" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
@@ -1087,9 +1127,10 @@ spec = describe "the state binary" $ do
                 w2 <- worktree repo "w2"
                 c1 <- childRun bin w1 parent "n1" "t1"
                 c2 <- childRun bin w2 parent "n2" "t2"
-                _ <- succeeded =<< state bin w2 ["ask", "--kind", "Design", "which", "store?"]
+                qid <- askedQid bin w2 "Design" ["which", "store?"]
                 advice <- succeeded =<< state bin repo ["next"]
-                take 1 advice `shouldSatisfy` mentions ("state rule " <> c2 <> ":1")
+                qid `shouldSatisfy` ((c2 <> ":") `Text.isPrefixOf`)
+                take 1 advice `shouldSatisfy` mentions ("state rule " <> qid)
                 advice `shouldContain` ["  task t1: child " <> c1 <> " running, tries 1"]
 
             it
@@ -1157,15 +1198,14 @@ spec = describe "the state binary" $ do
                     _ <- succeeded =<< taskAdded bin repo (taskFileJson (plainTask "fix" []))
                     w1 <- worktree repo "w1"
                     c1 <- childRun bin w1 parent "n1" "t1"
-                    _ <-
-                        succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
+                    qid <- askedQid bin w1 "Confirm" ["the", "plan", "holds?"]
                     _ <-
                         succeeded
                             =<< state
                                 bin
                                 repo
                                 [ "rule"
-                                , Text.unpack c1 <> ":1"
+                                , Text.unpack qid
                                 , "--answer"
                                 , "confirmed"
                                 , "--why"
@@ -1175,7 +1215,7 @@ spec = describe "the state binary" $ do
                                 ]
                     advice <- succeeded =<< state bin repo ["next"]
                     take 3 advice
-                        `shouldBe` [ "RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed"
+                        `shouldBe` [ "RESUME " <> c1 <> " with the answer to " <> qid <> ": confirmed"
                                    , "SPAWN engineer --task fix background: yes"
                                    , "  at engineers: children at work - each runs on its own; do what each unindented line says, then state next"
                                    ]
@@ -1318,10 +1358,8 @@ spec = describe "the state binary" $ do
         describe "a tree of runs: a 10x under a 10x, an engineer under that" $ do
             it "climbs a question to the top and writes its one answer down to every run" $ \repo -> do
                 Tree {mid, midRun, grand, grandRun} <- treeOfRuns bin repo
-                let qid = grandRun <> ":1"
-                    q = Text.unpack qid
-                asked <-
-                    succeeded =<< state bin grand ["ask", "--kind", "Design", "which", "store?"]
+                qid <- askedQid bin grand "Design" ["which", "store?"]
+                let q = Text.unpack qid
                 midAsked <- succeeded =<< state bin mid ["next"]
                 _ <- succeeded =<< state bin mid ["forward", q]
                 topAsked <- succeeded =<< state bin repo ["next"]
@@ -1340,7 +1378,7 @@ spec = describe "the state binary" $ do
                     succeeded
                         =<< state bin grand ["answer", q, "postgres", "--by", Text.unpack midRun]
                 again <- succeeded =<< state bin grand ["show"]
-                take 1 asked `shouldBe` ["asked " <> qid]
+                qid `shouldSatisfy` ((grandRun <> ":") `Text.isPrefixOf`)
                 take 1 midAsked `shouldSatisfy` mentions ("state forward " <> qid)
                 take 1 topAsked `shouldSatisfy` mentions ("state rule " <> qid)
                 take 1 topResume
@@ -2261,7 +2299,7 @@ lastMaybe = foldl (\_ line -> Just line) Nothing
 -- | @state ask --kind <kind> <question>@; the id it prints.
 askedQid :: FilePath -> Repo -> String -> [String] -> IO Text
 askedQid bin repo kind question = do
-    [asked, _] <- succeeded =<< state bin repo (["ask", "--kind", kind] <> question)
+    asked : _ <- succeeded =<< state bin repo (["ask", "--kind", kind] <> question)
     pure (Text.drop (Text.length "asked ") asked)
 
 -- | The plan the lead writes to the notes dir; its path.

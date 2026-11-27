@@ -37,7 +37,7 @@ import Effectful (Eff, (:>))
 import Effectful.Dispatch.Dynamic (interpret)
 import Effectful.Exception (throwIO)
 import Effectful.State.Static.Local (State, get, put)
-import Effects.Log (Log (..), blobRead, decision, firstOf)
+import Effects.Log (Log (..), blobRead, decision, firstOf, loggedUntil)
 import Effects.Store.Events (Batch (..), Write (..), misnumbered)
 import State.Run.Event (RunId, runIdText)
 
@@ -67,6 +67,7 @@ runLogInMemory upcasts = interpret $ \_ -> \case
     Exists run -> any ((== run) . fst) . rowsOf <$> get
     FirstEvent run -> firstOf upcasts . rowsIn run <$> get
     Rows run -> map dumpLine . rowsIn run <$> get
+    ReadUntil run k -> loggedUntil upcasts k . rowsIn run <$> get
     Locked run decide ->
         get >>= \case
             -- The lock is a write lock, as the real store's BEGIN IMMEDIATE is.
