@@ -21,6 +21,9 @@ module State.Run.EventGen (
     genSeq,
     titled,
     epicNamed,
+    genEpicName,
+    genEpicMove,
+    genSha,
     genSaid,
     genTaskState,
     tasksOf,
@@ -195,6 +198,9 @@ genEvent =
                     <*> Gen.maybe genText
                 )
         , SpanEnded . SpanId <$> genIJsonNatural <*> genSpanEnding <*> genUsage
+        , EpicMoved <$> genEpicName <*> genEpicMove
+        , TaskHead <$> genTaskRef <*> genSha
+        , TaskBaseChanged <$> genTaskRef <*> (Gen.int (Range.linear 1 6) >>= genBaseAt) <*> genNonBlank
         ]
 
 -- | Any gap: its evidence of both kinds, none to a few.
@@ -238,6 +244,15 @@ genUsage =
         <*> Gen.maybe genIJsonNatural
         <*> Gen.maybe genIJsonNatural
         <*> Gen.maybe genIJsonNatural
+
+-- | Any epic move: an open on a repo and branch, a ready with its PR, a merge.
+genEpicMove :: Gen EpicMove
+genEpicMove =
+    Gen.choice
+        [ Opens <$> genRepo <*> (Branch <$> genText)
+        , Readies . Url <$> genText
+        , pure Merges
+        ]
 
 -- | A file artifact of any kind, or a URL's: its location's kinds only.
 genArtifact :: Gen Artifact
@@ -313,6 +328,7 @@ genTaskState =
         , Kept . Url <$> genText
         , Round . Url <$> genText
         , Parked <$> genText <*> Gen.maybe (Url <$> genText)
+        , Delivered . Url <$> genText
         ]
 
 -- | Few ids, so tasks, children and moves name the same ones often.

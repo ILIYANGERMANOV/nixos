@@ -99,6 +99,7 @@ import State.Run.Event (
     Branch (..),
     Check (..),
     Child (..),
+    EpicMove (..),
     Commit (..),
     Digest (..),
     DraftPr (..),
@@ -148,6 +149,7 @@ import State.Run.EventGen (
     absolutePath,
     epicNamed,
     gapText,
+    titled,
     genEnvelope,
     genTaskState,
     genText,
@@ -853,6 +855,7 @@ eventGoldens =
            , TaskMoved t1 (Round pr)
            , TaskMoved t1 (Parked "waits on a decision" (Just pr))
            , TaskMoved t1 (Parked "waits on a decision" Nothing)
+           , TaskMoved t1 (Delivered pr)
            ]
     , Held t1 pr :| []
     , ActedOn t1 pr :| []
@@ -922,6 +925,14 @@ eventGoldens =
                 (Usage (Just 10) Nothing Nothing Nothing)
            , SpanEnded (SpanId 6) NoHandback (Usage Nothing Nothing Nothing Nothing)
            ]
+    , EpicMoved payments (Opens (Repo "o" "r") (Branch "epic/payments")) :| []
+    , EpicMoved payments (Readies pr) :| []
+    , EpicMoved payments Merges :| []
+    , TaskHead t1 (Sha "0123456789abcdef0123456789abcdef01234567") :| []
+    , TaskBaseChanged t1 OnDefault (titled "t2 merged")
+        :| [ TaskBaseChanged t1 (OnEpic payments) (titled "restack")
+           , TaskBaseChanged t1 (OnTask (TaskId "t2")) (titled "restack onto t2")
+           ]
     ]
   where
     qid = QId child 3
@@ -931,6 +942,7 @@ eventGoldens =
     researcher = AgentRole "researcher"
     implementer = AgentRole "implementer"
     agent = AgentId "a1b2"
+    payments = epicNamed "payments"
     ruled =
         RuledOn qid
             . Proposal (oneLine "v2") (oneLine "the docs say so") (oneLine "an hour")

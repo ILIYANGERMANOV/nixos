@@ -297,6 +297,54 @@ spec = describe "State.Run.Fan" $ do
                 [oneTask, emptyFan]
                 `shouldBe` [Right (Just 1), Right (Just 7)]
 
+    describe "a delivered task" $ do
+        let delivered = moved t1 (Delivered (Url "pr")) twoTasks
+        it "is settled, so the fan-out may leave and its round end" $
+            (delivered >>= moved t2 (Delivered (Url "pr2")) >>= \fan -> (,) <$> leave fan <*> closed fan)
+                `shouldBe` Right ((), ())
+        it "is not merged: its dependents are not spawned" $
+            map (.id) . spawnable [] <$> delivered `shouldBe` Right []
+        it "awaits no merge" $
+            mergesAwaited <$> delivered `shouldBe` Right []
+        it "names its PR" $
+            (`pullRequest` t1) <$> delivered `shouldBe` Right (Just (Url "pr"))
+
+    describe "a base change" $ do
+        it "replaces the task's base, and only its" $
+            map (.base) . Fan.tasksOf <$> rebased t2 (OnTask t1) twoTasks
+                `shouldBe` Right [OnDefault, OnTask t1]
+        it "is refused on a task the breakdown lacks" $
+            rebased (TaskId "t9") OnDefault twoTasks `shouldBe` Left (UnknownTask (TaskId "t9"))
+        it "is refused naming the task itself or a later one" $
+            map (\on -> rebased t1 (OnTask on) twoTasks) [t1, t2]
+                `shouldBe` [Left (BaseNotEarlier t1 t1), Left (BaseNotEarlier t1 t2)]
+        it "leaves_no_base_or_dependency_naming_a_task_not_before_it" . hedgehog $ do
+            fan <- forAll (fresh <$> genTasks)
+            let ids = map (.id) (Fan.tasksOf fan)
+            changes <-
+                forAll
+                    ( Gen.list
+                        (Range.linear 0 6)
+                        ( (,)
+                            <$> Gen.element ids
+                            <*> Gen.choice [pure OnDefault, OnTask <$> Gen.element ids]
+                        )
+                    )
+            let after = foldl' (\now (task, base) -> fromRight now (rebased task base now)) fan changes
+                placed = zip (inits (map (.id) (Fan.tasksOf after))) (Fan.tasksOf after)
+            cover 5 "a base change taken" (after /= fan)
+            assert
+                ( and
+                    [ all (`elem` before) (task.deps <> toList (builtOn task.base))
+                    | (before, task) <- placed
+                    ]
+                )
+
+    it "keeps the head a task's branch was last seen at" $
+        Map.lookup t1 . (.heads)
+            <$> (headed t1 (Sha "a") oneTask >>= headed t1 (Sha "b"))
+            `shouldBe` Right (Just (Sha "b"))
+
     describe "a round on a task's PR" $ do
         let finishedInReview =
                 applied

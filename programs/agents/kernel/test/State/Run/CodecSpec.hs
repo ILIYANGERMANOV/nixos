@@ -1,23 +1,41 @@
 -- | A breakdown and a task file read as the 10x and the chief write them.
 module State.Run.CodecSpec (spec) where
 
-import State.Run.Codec (decodeBreakdown, decodeTask)
+import Data.Text qualified as Text
+import Hedgehog (forAll, (===))
+import State.Run.Codec (decodeBreakdown, decodeTask, prStates, taskStateArgs, taskStateName)
 import State.Run.Event (
     Base (..),
     FlowName (..),
     Repo (..),
     Task (..),
     TaskId (..),
+    TaskState (..),
+    Url (..),
     taskList,
  )
-import State.Run.EventGen (epicNamed, replacing, titled)
+import State.Run.EventGen (epicNamed, genTaskState, replacing, titled)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import State.Step.Artifact (shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
+import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Run.Codec" $ do
+    {- @state record task <id> <state> <pr>@ reads its word off 'prStates';
+    the advice writes it with 'taskStateName': the two lists name the same states. -}
+    it "reads_back_every_state_naming_its_pr_as_the_cli_writes_it" . hedgehog $ do
+        moved <- forAll genTaskState
+        let (name, pr) = Text.breakOn " " (taskStateArgs moved)
+        case lookup name prStates of
+            Just state -> state (Url (Text.drop 1 pr)) === moved
+            Nothing -> taskStateName moved === "parked"
+
+    it "names delivered as the CLI writes it" $
+        taskStateArgs (Delivered (Url "https://github.com/o/r/pull/7"))
+            `shouldBe` "delivered https://github.com/o/r/pull/7"
+
     it "reads a breakdown's tasks in order" $
         map (.id) . taskList
             <$> decodeBreakdown (breakdownJson [plainTask "t1" [], plainTask "t2" ["t1"]])
