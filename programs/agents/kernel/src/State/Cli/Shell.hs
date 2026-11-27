@@ -1086,7 +1086,7 @@ runAnswer steps call bound found want = case want of
                 ( []
                 , failureText
                     "resume"
-                    (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
+                    (explainIn run.g run.state refusal)
                 )
             Right (restart, after) ->
                 let (new, _, out) = adviceOf steps facts told Nothing stamp after
@@ -1106,7 +1106,7 @@ runAnswer steps call bound found want = case want of
              in case commit stamp run (opening <> spanStarted run parent spawn) of
                     Left refusal ->
                         ( []
-                        , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
+                        , failureText "spawn" (explainIn run.g run.state refusal)
                         )
                     Right (written, after) ->
                         let opened = take (length opening) written
@@ -1129,7 +1129,7 @@ runAnswer steps call bound found want = case want of
         onHook Nothing $ \stamp run -> case commit stamp run (spanStarted run parent (Just spawn)) of
             Left refusal ->
                 ( []
-                , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
+                , failureText "spawn" (explainIn run.g run.state refusal)
                 )
             Right (written, _) -> (map (.envelope) written, "")
     Hook.HandedBack message agent role usage -> do
@@ -1852,7 +1852,7 @@ focusPlan run target summary = do
                 . fromMaybe [focusLine after]
                 $ View.cardLines <$> focusedAt <*> card
   where
-    refusal = explain run.g (Fold.fuelOf run.state) run.state.at
+    refusal = explainIn run.g run.state
     focusLine after = taskNoText after.focus <> " in focus at " <> stateNameText (askedAt after)
 
 {- | @state tasks@: the card of each request of the worktree's run, by the
@@ -1912,7 +1912,7 @@ tasks = do
 cardsOf :: Loaded -> Either Failure [Card.Card]
 cardsOf run =
     Bifunctor.first
-        (explain run.g (Fold.fuelOf run.state) run.state.at)
+        (explainIn run.g run.state)
         (Card.cards <$> Fold.trace run.g run.logged)
 
 {- | @state dump <run>@: the run's rows as stored, one JSON Lines line each in
@@ -2268,7 +2268,7 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
         Failure
             BadInput
             ("--to user on a " <> kindName kind <> " question")
-            (explain g (Fold.fuelOf state) state.at (Fold.NotAllowed refusal)).why
+            (explainIn g state (Fold.NotAllowed refusal)).why
             ( "state ask --kind "
                 <> kindName kind
                 <> " <question>, without --to: the run answers it"
@@ -2423,7 +2423,7 @@ namedEvent g state worktreeHead file n = \case
     onTask task event = event <$> taskRef task
     taskRef = refusedAs . Fold.taskRefIn state
     refusedAs :: Either Fold.Refusal a -> Either Failure a
-    refusedAs = Bifunctor.first (explain g (Fold.fuelOf state) state.at)
+    refusedAs = Bifunctor.first (explainIn g state)
     parsed :: FilePath -> (Text -> Either Text a) -> Either Failure a
     parsed path parse = case parse <$> file of
         Just (Right event) -> Right event
@@ -2588,7 +2588,7 @@ settledAdvice steps facts stamp run =
                 , current
                 ,
                     [ "PR sync refused: "
-                        <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why
+                        <> (explainIn current.g current.state refusal).why
                     ]
                 )
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
@@ -2698,6 +2698,10 @@ record stamp run sources = \case
     g = run.g
     fuel = Fold.fuelOf run.state
     at = run.state.at
+
+-- | Why the fold refused, told from where the run is and at its Fuel.
+explainIn :: OpenGraph -> RunState -> Fold.Refusal -> Failure
+explainIn g state = explain g (Fold.fuelOf state) state.at
 
 {- | Why a command plans no events: a failure it only tells, or a refusal it
 also logs as @refused@.
@@ -2928,7 +2932,7 @@ answeredDown down =
     write stamp run = case commit stamp run [(source, event)] of
         Right (new, after) -> (map (.envelope) new, Right (run.state, after.state))
         -- The answering run tells the refusal; the child's log does not keep it.
-        Left refusal -> ([], Left (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
+        Left refusal -> ([], Left (explainIn run.g run.state refusal))
     -- Not the fan's stored worktree: @state move@ leaves it stale.
     told why top =
         "child "
@@ -3386,7 +3390,7 @@ spawnedIn parent child task worktree =
                     [source]
                     ( unlogged
                         ( Bifunctor.bimap
-                            (explain run.g (Fold.fuelOf run.state) run.state.at)
+                            (explainIn run.g run.state)
                             (\ref -> Plan [Spawned (Child child ref worktree)] (\_ _ -> mempty))
                             (traverse (Fold.taskRefIn run.state) task)
                         )
@@ -3483,7 +3487,7 @@ childTask g taskId state = maybe (Left notOne) (Right . (.held)) (Fold.taskHolde
         Failure
             BadInput
             ("--task " <> taskIdText taskId)
-            (explain g (Fold.fuelOf state) state.at (Fold.NotOneHolder taskId)).why
+            (explainIn g state (Fold.NotOneHolder taskId)).why
             initLineFix
 
 -- | The task's flow; a @--flow@ named must be that one.
