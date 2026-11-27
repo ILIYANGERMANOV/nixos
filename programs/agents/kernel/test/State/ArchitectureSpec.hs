@@ -222,6 +222,7 @@ kernelData =
     , "Data.Projection.Tasks"
     , "Data.Projection.Views"
     , "Data.Report"
+    , "Data.Table"
     , "Data.Tsv"
     ]
 

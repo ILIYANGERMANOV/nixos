@@ -16,6 +16,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Projection (
     Insert (..),
+    OnConflict (..),
     Projection (..),
     Table,
     Value (..),
@@ -116,6 +117,7 @@ spanInsert :: SpanRow -> Insert
 spanInsert row =
     Insert
         "spans"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("parent_span_id", nullable (integer . (.spanSeq)) row.start.parent)

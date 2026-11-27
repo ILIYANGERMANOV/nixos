@@ -1,7 +1,7 @@
 {- | The store's runs and events, read and appended as rows. Every write runs
 in an immediate transaction (@BEGIN IMMEDIATE@): a read-decide-append takes
 the write lock before it reads, so two processes never number an event alike.
-Each row's column order lives here, beside its SQL.
+Each row's columns are its entity's ("Data.Entity").
 -}
 module Effects.Store.Events (
     Write (..),
@@ -16,9 +16,9 @@ module Effects.Store.Events (
 ) where
 
 import Control.Exception (throwIO)
-import Data.Entity.Blob (BlobRow (..))
-import Data.Entity.Event (EventRow (..))
-import Data.Entity.Run (RunRow (..))
+import Data.Entity.Blob (BlobRow (..), blobInsert)
+import Data.Entity.Event (EventRow (..), eventInsert)
+import Data.Entity.Run (RunRow, runInsert)
 import Data.Foldable (for_, toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (listToMaybe)
@@ -27,14 +27,12 @@ import Database.SQLite.Simple (
     Connection,
     Only (..),
     Query,
-    execute,
-    executeMany,
     query,
     withImmediateTransaction,
  )
 import Effects.Store.Connection (Store (..))
 import Effects.Store.EventRows (selectRows)
-import Effects.Store.Projection (replace)
+import Effects.Store.Projection (insert, replace)
 
 {- | What a decision appends: events to a started run, or a run's start, its
 @runs@ row with its first events. A @runs@ row without its event 1 is no
@@ -71,11 +69,7 @@ locked (Store conn projections) run decide = withImmediateTransaction conn $ do
     logged <- selectRows conn run
     let (batch, result) = decide logged
     for_ batch $ \Batch {write, blobs} -> do
-        -- Not INSERT OR REPLACE: a replace deletes first, which the blobs' trigger forbids.
-        executeMany
-            conn
-            "INSERT INTO blobs (sha256, size_bytes, content) VALUES (?, ?, ?) ON CONFLICT (sha256) DO NOTHING"
-            [(row.sha256, row.sizeBytes, row.content) | row <- blobs]
+        for_ blobs (insert conn . blobInsert)
         writing (length logged) write
         replace projections conn run (logged <> toList (rowsOf write))
     pure result
@@ -83,31 +77,14 @@ locked (Store conn projections) run decide = withImmediateTransaction conn $ do
     writing count = \case
         Append new -> append count new
         Start start new -> do
-            execute
-                conn
-                "INSERT INTO runs (id, parent_run_id, flow, notes_dir, created_at) VALUES (?, ?, ?, ?, ?)"
-                (start.id, start.parentRunId, start.flow, start.notesDir, start.createdAt)
+            insert conn (runInsert start)
             append count new
     rowsOf = \case
         Append new -> new
         Start _ new -> new
     append count new = do
         for_ (misnumbered count new) (throwIO . userError)
-        executeMany
-            conn
-            "INSERT INTO events (run_id, seq, schema_version, type, time, session_id, head_sha, hook_digest, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            [ ( row.runId
-              , row.seq
-              , row.schemaVersion
-              , row.eventType
-              , row.time
-              , row.sessionId
-              , row.headSha
-              , row.hookDigest
-              , row.payload
-              )
-            | row <- toList new
-            ]
+        for_ new (insert conn . eventInsert)
 
 -- | The blob stored under this key, if any.
 blob :: Store -> Text -> IO (Maybe BlobRow)

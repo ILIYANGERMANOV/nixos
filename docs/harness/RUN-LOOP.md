@@ -142,7 +142,7 @@ indexes each run's first event. `blobs` holds file content by sha256
 | Many readers, one writer | WAL mode; a writer waits up to 5 s for another | [`Connection.hs`][connection] |
 | Our file only | open reads `application_id` and `user_version` before it writes; another app's file or a newer schema is refused | [`Connection.hs`][connection] |
 | No two events share a number | each write is `BEGIN IMMEDIATE`: read, decide, append under one lock; a misnumbered batch throws | [`Events.hs`][events] |
-| Append-only | triggers abort every UPDATE and DELETE on the three tables. A line logged in error gets a `Voided` reversal line; replay drops both | [`Migration.hs`][migration], [`unvoided`][unvoided] |
+| Append-only | triggers abort every UPDATE and DELETE on the three tables. A line logged in error gets a `Voided` reversal line; replay drops both | [`appendOnly`][appendonly], [`unvoided`][unvoided] |
 | Hook records are idempotent | a hook can fire twice; its record is keyed on a hash of the run, agent and message (`hook_digest`), and a second copy is a no-op | [`Source`][source], [`append`][append] |
 | Parent and child runs | the first event of a run adds its `runs` row with its parent, in the same transaction; a 10x's engineers and a chief's delegates are children | [`Events.hs`][events] |
 | The envelope is columns | `seq`, `time` (UTC, 3 fraction digits), `session_id`, `head_sha` and `hook_digest` are columns; `data` is the payload, one JSON object | [`Codec.hs`][codec] |
@@ -269,6 +269,7 @@ record; PR state comes from GitHub) and
 [connection]: ../../programs/agents/kernel/src/Effects/Store/Connection.hs
 [events]: ../../programs/agents/kernel/src/Effects/Store/Events.hs
 [migration]: ../../programs/agents/kernel/src/Effects/Store/Migration.hs
+[appendonly]: ../../programs/agents/kernel/src/Data/Table.hs
 [unvoided]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L462
 [source]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Event.hs#L145
 [append]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L495

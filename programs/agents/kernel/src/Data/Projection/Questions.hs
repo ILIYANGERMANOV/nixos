@@ -29,6 +29,7 @@ import Data.Map.Strict qualified as Map
 import Data.Payload.Event (questionKindName)
 import Data.Projection (
     Insert (..),
+    OnConflict (..),
     Projection (..),
     Table,
     Value (..),
@@ -284,6 +285,7 @@ questionInsert :: QuestionRow -> Insert
 questionInsert row =
     Insert
         "questions"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("origin_run_id", runIdValue origin)
@@ -315,6 +317,7 @@ rulingInsert :: RulingRow -> Insert
 rulingInsert row =
     Insert
         "rulings"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("question_id", integer row.questionId)
                , ("answer", SqlText (oneLineText row.answer))
@@ -336,6 +339,7 @@ answerInsert :: AnswerRow -> Insert
 answerInsert row =
     Insert
         "answers"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("question_id", integer row.questionId)
                , ("answer", SqlText answer)
@@ -357,6 +361,7 @@ userNeedInsert :: UserNeedRow -> Insert
 userNeedInsert row =
     Insert
         "user_needs"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("text", SqlText (nonBlankText row.need.text))
@@ -368,6 +373,7 @@ userNeedBlockInsert :: UserNeedBlockRow -> Insert
 userNeedBlockInsert row =
     Insert
         "user_need_blocks"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("user_need_id", integer row.need)
                , ("breakdown_id", integer row.task.breakdown)

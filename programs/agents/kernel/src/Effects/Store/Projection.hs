@@ -18,6 +18,7 @@ import Data.Foldable (for_, toList)
 import Data.Int (Int64)
 import Data.Projection (
     Insert (..),
+    OnConflict (..),
     Projection (..),
     Projections (..),
     Table (..),
@@ -78,16 +79,23 @@ insert conn row =
                 <> ") VALUES ("
                 <> Text.intercalate ", " ("?" <$ values)
                 <> ")"
+                <> conflictClause row.onConflict
             )
         )
         (map (sqlData . snd) values)
   where
     values = toList row.values
 
+conflictClause :: OnConflict -> Text
+conflictClause = \case
+    Abort -> ""
+    DoNothing column -> " ON CONFLICT (" <> column <> ") DO NOTHING"
+
 sqlData :: Value -> SQLData
 sqlData = \case
     SqlText t -> SQLText t
     SqlInteger i -> SQLInteger i
+    SqlBlob b -> SQLBlob b
     SqlNull -> SQLNull
 
 -- | Whether the stored projections are these, DDL and versions alike.

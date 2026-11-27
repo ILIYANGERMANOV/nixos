@@ -16,6 +16,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Projection (
     Insert (..),
+    OnConflict (..),
     Projection (..),
     Table,
     Value (..),
@@ -96,6 +97,7 @@ gapInsert :: GapRow -> Insert
 gapInsert row =
     Insert
         "gaps"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("kind", SqlText (gapKindText gap.kind))
@@ -121,6 +123,7 @@ evidenceInserts :: GapRow -> [Insert]
 evidenceInserts row =
     [ Insert
         "gap_evidence"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("gap_id", integer row.id)
                , ("ordinal", integer ordinal)

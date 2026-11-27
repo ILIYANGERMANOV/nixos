@@ -33,6 +33,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Projection (
     Insert (..),
+    OnConflict (..),
     Projection (..),
     Table,
     Value (..),
@@ -342,6 +343,7 @@ breakdownInsert :: BreakdownRow -> Insert
 breakdownInsert row =
     Insert
         "breakdowns"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [("id", integer row.id), ("fan", SqlText (nameText row.fan))]
         )
@@ -350,6 +352,7 @@ epicInsert :: EpicRow -> Insert
 epicInsert row =
     Insert
         "epics"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("name", SqlText (epicNameText row.name))
                , ("repo", SqlText (repoText (epicRepo row.epic)))
@@ -363,6 +366,7 @@ taskInsert :: TaskRow -> Insert
 taskInsert row =
     Insert
         "tasks"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("breakdown_id", integer row.breakdown)
                , ("id", SqlText (taskIdText row.task.id))
@@ -402,6 +406,7 @@ taskDependencyInsert :: TaskDependencyRow -> Insert
 taskDependencyInsert row =
     Insert
         "task_dependencies"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("breakdown_id", integer row.breakdown)
                , ("task_id", SqlText (taskIdText row.task))
@@ -413,6 +418,7 @@ childRunInsert :: ChildRunRow -> Insert
 childRunInsert row =
     Insert
         "child_runs"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("child_run_id", runIdValue row.child.run)
@@ -431,6 +437,7 @@ taskHoldInsert :: TaskHoldRow -> Insert
 taskHoldInsert row =
     Insert
         "task_holds"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("breakdown_id", integer row.task.breakdown)

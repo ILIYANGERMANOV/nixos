@@ -26,6 +26,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Projection (
     Insert (..),
+    OnConflict (..),
     Projection (..),
     Table,
     Value (..),
@@ -140,6 +141,7 @@ noteInsert :: NoteRow -> Insert
 noteInsert row =
     Insert
         "notes"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("topic", SqlText row.topic)
@@ -151,6 +153,7 @@ artifactInsert :: ArtifactRow -> Insert
 artifactInsert row =
     Insert
         "artifacts"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("kind", SqlText kind)
@@ -173,6 +176,7 @@ handoverInserts :: HandoverRow -> [Insert]
 handoverInserts row =
     Insert
         "handovers"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("reason", SqlText (handoverReasonText row.handover.reason))
@@ -181,6 +185,7 @@ handoverInserts row =
         )
         : [ Insert
                 "handover_next_steps"
+                Abort
                 ( ("run_id", runIdValue row.runId)
                     :| [ ("handover_id", integer row.id)
                        , ("ordinal", integer ordinal)
@@ -194,6 +199,7 @@ stopgapInsert :: StopgapRow -> Insert
 stopgapInsert row =
     Insert
         "stopgaps"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.stopgap.seq)
                , ("breakdown_id", nullable (integer . (.breakdown)) row.at.scope)

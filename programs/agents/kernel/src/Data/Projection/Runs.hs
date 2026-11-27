@@ -24,6 +24,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Projection (
     Insert (..),
+    OnConflict (..),
     Projection (..),
     Table,
     Value (..),
@@ -238,6 +239,7 @@ runStateInsert :: RunStateRow -> Insert
 runStateInsert row =
     Insert
         "run_states"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("status", SqlText (statusName (statusCase row.status)))
                , ("step", SqlText row.step)
@@ -263,6 +265,7 @@ stepVisitInsert :: StepVisitRow -> Insert
 stepVisitInsert row =
     Insert
         "step_visits"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("step", SqlText row.step)
@@ -275,6 +278,7 @@ loopRoundInsert :: LoopRoundRow -> Insert
 loopRoundInsert row =
     Insert
         "loop_rounds"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("loop", SqlText (nameText row.loop))
                , ("id", integer row.id)
@@ -286,6 +290,7 @@ roundProblemInsert :: RoundProblemRow -> Insert
 roundProblemInsert row =
     Insert
         "round_problems"
+        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("loop", SqlText (nameText row.loop))
                , ("loop_round_id", integer row.loopRoundId)
