@@ -9,7 +9,6 @@ module State.Run.IJson (
     ijsonOf,
     ijsonCap,
     maxIJsonInteger,
-    isNoncharacter,
     repeatedKeys,
 ) where
 

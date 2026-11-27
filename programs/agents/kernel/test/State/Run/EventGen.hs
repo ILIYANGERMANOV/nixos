@@ -4,7 +4,6 @@ module State.Run.EventGen (
     genInstruction,
     genStopgapEvent,
     genStopgapAt,
-    genStopgapKey,
     genStopgapKeyText,
     genJson,
     genIJson,

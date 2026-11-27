@@ -386,7 +386,7 @@ spec = describe "State.Cli.Command" $ do
                            , "a blocked task's id, as --blocks t3,t4"
                            ]
 
-        it "records a stopgap set or unset, the run's or a task's" $ do
+        it "records the run's stopgap set or unset" $
             map
                 recorded
                 [
@@ -401,6 +401,8 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` [ Right (StopgapSet window (ijson "{\"days\":[1,2]}") reason)
                            , Right (StopgapUnset window reason)
                            ]
+
+        it "records a task's stopgap by the task's breakdown" $
             case parse
                 [ "record"
                 , "stopgap"

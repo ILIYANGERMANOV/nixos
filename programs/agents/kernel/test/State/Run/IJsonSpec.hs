@@ -1,20 +1,18 @@
 -- | A stopgap's value: I-JSON (RFC 7493), one rule at a time.
 module State.Run.IJsonSpec (spec) where
 
-import Data.Aeson (Value (..), encode)
+import Data.Aeson (Value (..))
 import Data.Aeson.Key qualified as Key
 import Data.Char (chr)
 import Data.Either (isRight)
-import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Lazy qualified as Lazy
-import Data.Text.Lazy.Encoding qualified as Lazy
 import Hedgehog (cover, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric (showHex)
 import State.Run.EventGen (genIJson, genText)
 import State.Run.IJson
+import State.Show (jsonText)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -80,9 +78,9 @@ spec = describe "State.Run.IJson" $ do
             cover 20 "within" (abs n <= maxIJsonInteger)
             cover 10 "past, positive" (n > maxIJsonInteger)
             cover 10 "past, negative" (n < negate maxIJsonInteger)
-            parseIJson (Text.pack (show n))
+            fmap ijsonValue (parseIJson (Text.pack (show n)))
                 === if abs n <= maxIJsonInteger
-                    then Right (ijsonOfInteger n)
+                    then Right (Number (fromInteger n))
                     else Left (BigInteger (fromInteger n))
 
         it "an integer written with an exponent, past 2^53-1, at once however large" $ do
@@ -130,17 +128,15 @@ spec = describe "State.Run.IJson" $ do
             let raw = Text.replicate spaces " " <> jsonText (String (Text.replicate size "a"))
             cover 5 "at the cap" (size == 1022)
             cover 5 "one past" (size == 1023)
-            parseIJson raw
+            fmap ijsonValue (parseIJson raw)
                 === if size + 2 <= 1024
-                    then Right (stringValue (Text.replicate size "a"))
+                    then Right (String (Text.replicate size "a"))
                     else Left (OverCap (fromIntegral size + 2))
   where
     notJson = \case
         Left (NotJson _) -> True
         _ -> False
     nest asArray inner = if asArray then "[" <> inner <> "]" else "{\"w\": " <> inner <> "}"
-    ijsonOfInteger n = either (error . show) id (ijsonOf (Number (fromInteger n)))
-    stringValue text = either (error . show) id (ijsonOf (String text))
     quoted c = "\"" <> Text.singleton c <> "\""
     genPlain = Gen.text (Range.linear 0 5) Gen.alphaNum
 
@@ -153,6 +149,3 @@ noncharacters =
             <> concat
                 [[plane * 0x10000 + 0xFFFE, plane * 0x10000 + 0xFFFF] | plane <- [0 .. 16]]
         )
-
-jsonText :: Value -> Text
-jsonText = Lazy.toStrict . Lazy.decodeUtf8 . encode

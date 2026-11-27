@@ -33,7 +33,6 @@ import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Read (decimal)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import State.Artifact (FileKind, parseUri, uriRule)
@@ -88,7 +87,7 @@ import State.Run.Gap (
  )
 import State.Run.Gap qualified as Gap
 import State.Run.IJson (IJsonRefusal (..), ijsonCap, parseIJson)
-import State.Run.Id (EventRef (..), parseEventRef)
+import State.Run.Id (EventRef (..), parseEventRef, parseSeq)
 import State.Run.Stopgap (StopgapAt (..), parseStopgapKey, stopgapKeyRule)
 import State.Step.Artifact (
     NonBlank,
@@ -659,9 +658,11 @@ verbatim words'
 
 -- | A line's seq in the run's log.
 seqOf :: Text -> Either Text Natural
-seqOf raw = case decimal raw of
-    Right (n, "") -> Right n
-    _ -> Left (raw <> " is no seq: a line's number in the log")
+seqOf raw =
+    maybe
+        (Left (raw <> " is no seq: a line's number in the log"))
+        Right
+        (parseSeq raw)
 
 oneLine :: Text -> Text -> Either Text NonBlank
 oneLine what = maybe (Left (what <> ", one line")) Right . parseNonBlank
