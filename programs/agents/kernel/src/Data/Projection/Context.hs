@@ -19,6 +19,7 @@ module Data.Projection.Context (
 
 import Control.Monad (mfilter)
 import Data.Foldable (toList)
+import Data.Json (jsonText)
 import Data.List (nub)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -34,7 +35,9 @@ import Data.Projection (
     nullable,
     spellings,
     strictTable,
+    uniqueOn,
  )
+import Data.Projection.Column (runIdValue)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -57,20 +60,18 @@ import State.Run.Event (
     Handover (..),
     RunId,
     TaskRef (..),
-    runIdText,
  )
 import State.Run.Fold (RunState (..))
 import State.Run.IJson (ijsonValue)
 import State.Run.Id (SpanId (..))
 import State.Run.Stopgap (Stopgap (..), StopgapAt (..), stopgapKeyText)
-import State.Show (jsonText)
 import State.Step.Artifact (nonBlankText, taskIdText)
 
 projection :: Projection
 projection =
     Projection
         { name = "context"
-        , version = 1
+        , version = 2
         , tables = notes :| [artifacts, handovers, handoverNextSteps, stopgaps]
         }
 
@@ -138,7 +139,7 @@ noteInsert :: NoteRow -> Insert
 noteInsert row =
     Insert
         "notes"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("topic", SqlText row.topic)
                , ("text", SqlText row.text)
@@ -149,7 +150,7 @@ artifactInsert :: ArtifactRow -> Insert
 artifactInsert row =
     Insert
         "artifacts"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("kind", SqlText kind)
                , ("location_kind", SqlText (locationKindName location))
@@ -171,7 +172,7 @@ handoverInserts :: HandoverRow -> [Insert]
 handoverInserts row =
     Insert
         "handovers"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("reason", SqlText (handoverReasonText row.handover.reason))
                , ("summary", SqlText row.handover.summary)
@@ -179,7 +180,7 @@ handoverInserts row =
         )
         : [ Insert
                 "handover_next_steps"
-                ( ("run_id", SqlText (runIdText row.runId))
+                ( ("run_id", runIdValue row.runId)
                     :| [ ("handover_id", integer row.id)
                        , ("ordinal", integer ordinal)
                        , ("next_step", SqlText step)
@@ -192,7 +193,7 @@ stopgapInsert :: StopgapRow -> Insert
 stopgapInsert row =
     Insert
         "stopgaps"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.stopgap.seq)
                , ("breakdown_id", nullable (integer . (.breakdown)) row.at.scope)
                , ("task_id", nullable (SqlText . taskIdText . (.task)) row.at.scope)
@@ -313,31 +314,38 @@ handoverNextSteps =
         , "  FOREIGN KEY (run_id, handover_id) REFERENCES handovers (run_id, id)"
         ]
 
+{- | One row per run, scope and key. A unique index treats NULLs as distinct,
+so the run's own scope, NULL in both columns, is coalesced to one value: no
+task id is blank and no seq is negative.
+-}
 stopgaps :: Table
 stopgaps =
-    strictTable
-        "stopgaps"
-        [ "  -- A fact an agent recorded when no typed command fit, by key, for the run or one of its tasks."
-        , "  -- One row per stopgap in force, at its newest value. An unset one leaves the table;"
-        , "  -- the run's log keeps every event. Nothing the kernel decides reads a stopgap."
-        , ""
-        , "  -- The run."
-        , "  run_id       TEXT    NOT NULL REFERENCES runs (id),"
-        , "  -- The seq of the stopgap_set event that set this value."
-        , "  id           INTEGER NOT NULL,"
-        , "  -- The breakdown of the task the stopgap is for. NULL: the run's own."
-        , "  -- No foreign key to tasks: the log may name a task no breakdown holds."
-        , "  breakdown_id INTEGER,"
-        , "  -- The task the stopgap is for. Set only with breakdown_id."
-        , "  task_id      TEXT,"
-        , "  -- The key, as OpenTelemetry names attributes, such as deploy.window."
-        , "  key          TEXT    NOT NULL,"
-        , "  -- The value: I-JSON (RFC 7493) text."
-        , "  value        TEXT    NOT NULL"
-        , "               CONSTRAINT stopgaps_value_json CHECK (json_valid(value)),"
-        , "  -- Why it was set."
-        , "  reason       TEXT    NOT NULL,"
-        , "  PRIMARY KEY (run_id, id),"
-        , "  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),"
-        , "  CONSTRAINT stopgaps_task_id_iff_breakdown_id CHECK ((task_id IS NOT NULL) = (breakdown_id IS NOT NULL))"
-        ]
+    uniqueOn
+        "stopgaps_run_id_scope_key_key"
+        ["run_id", "coalesce(breakdown_id, -1)", "coalesce(task_id, '')", "key"]
+        $ strictTable
+            "stopgaps"
+            [ "  -- A fact an agent recorded when no typed command fit, by key, for the run or one of its tasks."
+            , "  -- One row per stopgap in force, at its newest value. An unset one leaves the table;"
+            , "  -- the run's log keeps every event. Nothing the kernel decides reads a stopgap."
+            , ""
+            , "  -- The run."
+            , "  run_id       TEXT    NOT NULL REFERENCES runs (id),"
+            , "  -- The seq of the stopgap_set event that set this value."
+            , "  id           INTEGER NOT NULL,"
+            , "  -- The breakdown of the task the stopgap is for. NULL: the run's own."
+            , "  -- No foreign key to tasks: the log may name a task no breakdown holds."
+            , "  breakdown_id INTEGER,"
+            , "  -- The task the stopgap is for. Set only with breakdown_id."
+            , "  task_id      TEXT,"
+            , "  -- The key, as OpenTelemetry names attributes, such as deploy.window."
+            , "  key          TEXT    NOT NULL,"
+            , "  -- The value: I-JSON (RFC 7493) text."
+            , "  value        TEXT    NOT NULL"
+            , "               CONSTRAINT stopgaps_value_json CHECK (json_valid(value)),"
+            , "  -- Why it was set."
+            , "  reason       TEXT    NOT NULL,"
+            , "  PRIMARY KEY (run_id, id),"
+            , "  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),"
+            , "  CONSTRAINT stopgaps_task_id_iff_breakdown_id CHECK ((task_id IS NOT NULL) = (breakdown_id IS NOT NULL))"
+            ]

@@ -37,6 +37,7 @@ import Data.Projection (
     spellings,
     strictTable,
  )
+import Data.Projection.Column (runIdValue)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
@@ -63,7 +64,6 @@ import State.Run.Event (
     RunId,
     Source (..),
     TaskRef (..),
-    runIdText,
  )
 import State.Run.Fold (Pending (..), RunState (..), Waits (..))
 import State.Run.Id (Digest, EventId (..), EventRef (..))
@@ -283,16 +283,16 @@ questionInsert :: QuestionRow -> Insert
 questionInsert row =
     Insert
         "questions"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
-               , ("origin_run_id", SqlText (runIdText origin))
+               , ("origin_run_id", runIdValue origin)
                , ("origin_question_id", integer originSeq)
                , ("kind", SqlText (questionKindName row.kind))
                , ("text", SqlText (oneLineText row.asking.question.text))
                , ("step", SqlText (stateNameText row.asking.step))
                , ("asker_kind", SqlText (askerKindName askerKind))
                , ("asker_role", nullable (SqlText . roleText) role)
-               , ("asker_run_id", nullable (SqlText . runIdText) child)
+               , ("asker_run_id", nullable runIdValue child)
                , ("status", SqlText (questionStatusName (questionStatus row.standing)))
                , ("parked_reason", nullable (SqlText . oneLineText) parked)
                ]
@@ -314,13 +314,13 @@ rulingInsert :: RulingRow -> Insert
 rulingInsert row =
     Insert
         "rulings"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("question_id", integer row.questionId)
                , ("answer", SqlText (oneLineText row.answer))
                , ("reason", SqlText (oneLineText row.why))
                , ("cost", SqlText (oneLineText row.cost))
                , ("basis_kind", SqlText (basisKindName kind))
-               , ("basis_event_run_id", nullable (SqlText . runIdText . (.run)) event)
+               , ("basis_event_run_id", nullable (runIdValue . (.run)) event)
                , ("basis_event_seq", nullable (integer . (.seq)) event)
                , ("basis_reason", nullable (SqlText . oneLineText) reason)
                ]
@@ -335,12 +335,12 @@ answerInsert :: AnswerRow -> Insert
 answerInsert row =
     Insert
         "answers"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("question_id", integer row.questionId)
                , ("answer", SqlText answer)
                , ("reply_kind", SqlText (replyKindName replyKind))
                , ("answerer_kind", SqlText (answererKindName answerer))
-               , ("answerer_run_id", nullable (SqlText . runIdText) parent)
+               , ("answerer_run_id", nullable runIdValue parent)
                ]
         )
   where
@@ -356,7 +356,7 @@ userNeedInsert :: UserNeedRow -> Insert
 userNeedInsert row =
     Insert
         "user_needs"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("text", SqlText (nonBlankText row.need.text))
                , ("url", nullable (SqlText . uriText) row.need.url)
@@ -367,7 +367,7 @@ userNeedBlockInsert :: UserNeedBlockRow -> Insert
 userNeedBlockInsert row =
     Insert
         "user_need_blocks"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("user_need_id", integer row.need)
                , ("breakdown_id", integer row.task.breakdown)
                , ("task_id", SqlText (taskIdText row.task.task))

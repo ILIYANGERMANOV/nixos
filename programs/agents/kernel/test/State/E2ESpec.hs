@@ -935,24 +935,38 @@ spec = describe "the state binary" $ do
             (refused.code, any ("\"code\":\"unknown_event\"" `Text.isInfixOf`) rows)
                 `shouldBe` (2, True)
 
-        it
-            "prints the same next, show, tasks and resume with every projection table dropped; the next open brings their rows back"
-            $ \repo -> do
-                _ <- drive bin repo balancedPath
-                let deciding =
-                        traverse
-                            (fmap (\ran -> (ran.code, ran.out, ran.err)) . state bin repo)
-                            [["next"], ["show"], ["tasks"], ["resume"]]
-                    projected' = SQLite.withConnection (storeOf repo) projectionRows
-                before <- deciding
-                rows <- projected'
-                SQLite.withConnection (storeOf repo) $ \c ->
-                    for_ ("projection_versions" : projectionTables) $ \table ->
-                        SQLite.execute_ c (SQLite.Query ("DROP TABLE " <> table))
-                after <- deciding
-                rowsAfter <- projected'
-                (after, rowsAfter) `shouldBe` (before, rows)
-                rows `shouldSatisfy` (not . null)
+        for_ lawRuns $ \(name, setUp) ->
+            it
+                ( "prints the same next, show, tasks and resume of "
+                    <> name
+                    <> " with every projection table and view dropped; the next open brings them back"
+                )
+                $ \repo -> do
+                    setUp bin repo
+                    let deciding =
+                            traverse
+                                (fmap (\ran -> (ran.code, ran.out, ran.err)) . state bin repo)
+                                [["next"], ["show"], ["tasks"], ["resume"]]
+                        projected' =
+                            SQLite.withConnection (storeOf repo) $ \c ->
+                                (,)
+                                    <$> projectionRows c
+                                    <*> ( SQLite.query_
+                                            c
+                                            "SELECT name, sql FROM sqlite_schema WHERE type = 'view' ORDER BY name" ::
+                                            IO [(Text, Text)]
+                                        )
+                    before <- deciding
+                    (rows, views) <- projected'
+                    SQLite.withConnection (storeOf repo) $ \c -> do
+                        for_ views $ \(view, _) ->
+                            SQLite.execute_ c (SQLite.Query ("DROP VIEW " <> view))
+                        for_ ("projection_versions" : projectionTables) $ \table ->
+                            SQLite.execute_ c (SQLite.Query ("DROP TABLE " <> table))
+                    after <- deciding
+                    rowsAfter <- projected'
+                    (after, rowsAfter) `shouldBe` (before, (rows, views))
+                    (rows, views) `shouldSatisfy` \(r, v) -> not (null r) && not (null v)
 
         it "loses no event of two state processes appending to one run at once" $ \repo -> do
             _ <- drive bin repo []
@@ -2753,10 +2767,6 @@ runOf bin repo =
                 pure (Text.takeWhile (/= ' ') named)
         other -> fail ("no run shown: " <> show other)
 
-{- | The run store's file: the environment's @XDG_STATE_HOME@ is the repo's
-own, never the user's.
--}
-
 {- | The query of a packet line's @state sql "<query>"@, its shell
 escapes undone: what @state sql@ would be handed.
 -}
@@ -2771,6 +2781,9 @@ sqlLoaded packetLine = case Text.breakOn "state sql \"" packetLine of
             Just (c, more) -> done <> Text.singleton c <> unescaped more
             Nothing -> done
 
+{- | The run store's file: the environment's @XDG_STATE_HOME@ is the repo's
+own, never the user's.
+-}
 storeOf :: Repo -> FilePath
 storeOf repo = repo.root </> ".local" </> "state" </> "state" </> "kernel-v2.db"
 
@@ -2905,6 +2918,25 @@ startedIn bin repo argv =
     (succeeded =<< state bin repo ("init" : argv)) >>= \case
         [line, _, "next: state next"] | Just run <- Text.stripPrefix "started " line -> pure run
         other -> fail ("not started: " <> show other)
+
+{- | The runs the projection law holds on, each set up in a fresh repo: an
+engineer's that ran its path, with a gap and a stopgap, and a 10x's at its
+fan-out, with tasks.
+-}
+lawRuns :: [(String, FilePath -> Repo -> IO ())]
+lawRuns =
+    [
+        ( "an engineer run"
+        , \bin repo -> do
+            _ <- drive bin repo balancedPath
+            for_
+                [ ["record", "gap", "the plan step was slow"]
+                , ["record", "stopgap", "a.b", "\"x\"", "--reason", "r"]
+                ]
+                (succeeded <=< state bin repo)
+        )
+    , ("a 10x run at its fan-out", \bin repo -> void (tenXAtFanOut bin repo))
+    ]
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
 @t1@; the run's id.

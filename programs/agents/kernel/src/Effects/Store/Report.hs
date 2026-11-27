@@ -18,15 +18,13 @@ module Effects.Store.Report (
 ) where
 
 import Control.Exception (throwIO)
-import Data.Aeson (encode)
-import Data.ByteString.Lazy qualified as Lazy
-import Data.Int (Int64)
+import Data.Aeson (FromJSON, eitherDecodeStrict)
+import Data.Json (jsonText)
 import Data.Report (SpanTime (..), Visit (..), rests, restsJson)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding (decodeUtf8)
-import Data.Tsv (Result)
-import Database.SQLite.Simple (Connection, NamedParam ((:=)), queryNamed)
+import Data.Text.Encoding (encodeUtf8)
+import Data.Tsv (Cell (..), Result (..))
 import Database.SQLite3 (SQLData (..))
 import Effects.Store.Sql (ReadOnly, select)
 
@@ -68,7 +66,7 @@ runs open ro window =
         , "WHERE (?1 IS NULL OR last.last_event_at >= ?1) AND (?2 IS NULL OR runs.id = ?2)"
         , "ORDER BY runs.id"
         ]
-        (bound window <> [SQLText (decodeUtf8 (Lazy.toStrict (encode open)))])
+        (bound window <> [SQLText (jsonText open)])
 
 -- | The columns of @v_steps@, by the visit's entry.
 steps :: ReadOnly -> Filter -> IO Result
@@ -117,25 +115,38 @@ gaps ro window =
 {- | One row per run and step over its visits, by their entry: how many,
 their length and agent time summed (open visits count, but have neither),
 and the rest time, which only the left visits have. The rest comes from
-"Data.Report" over visits and spans read on the store's connection, bound
-as JSON, so SQLite spells its seconds as it spells the others.
+"Data.Report" over visits and spans read back as JSON, bound as JSON, so
+SQLite spells its seconds as it spells the others.
 -}
-waits :: Connection -> ReadOnly -> Filter -> IO Result
-waits conn ro window = do
+waits :: ReadOnly -> Filter -> IO Result
+waits ro window = do
     visits <-
         map (\(runId, step, entered, left) -> Visit {runId, step, entered, left})
-            <$> queryNamed
-                conn
-                "SELECT run_id, step, CAST(round(unixepoch(entered_at, 'subsec') * 1000) AS INTEGER), CAST(round(unixepoch(left_at, 'subsec') * 1000) AS INTEGER) FROM step_visits WHERE left_at IS NOT NULL AND (:since IS NULL OR entered_at >= :since) AND (:run IS NULL OR run_id = :run)"
-                [":since" := window.since, ":run" := window.run]
+            <$> readBack
+                ro
+                [ "SELECT json_group_array(json_array(run_id, step, "
+                    <> millis "entered_at"
+                    <> ", "
+                    <> millis "left_at"
+                    <> "))"
+                , "FROM step_visits"
+                , "WHERE left_at IS NOT NULL"
+                , "  AND (?1 IS NULL OR entered_at >= ?1) AND (?2 IS NULL OR run_id = ?2)"
+                ]
+                (bound window)
     spans <-
         map (\(runId, started, ended) -> SpanTime {runId, started, ended})
-            <$> ( queryNamed
-                    conn
-                    "SELECT run_id, CAST(round(unixepoch(started_at, 'subsec') * 1000) AS INTEGER), CAST(round(unixepoch(ended_at, 'subsec') * 1000) AS INTEGER) FROM spans WHERE :run IS NULL OR run_id = :run"
-                    [":run" := window.run] ::
-                    IO [(Text, Int64, Maybe Int64)]
-                )
+            <$> readBack
+                ro
+                [ "SELECT json_group_array(json_array(run_id, "
+                    <> millis "started_at"
+                    <> ", "
+                    <> millis "ended_at"
+                    <> "))"
+                , "FROM spans"
+                , "WHERE ?1 IS NULL OR run_id = ?1"
+                ]
+                [maybe SQLNull SQLText window.run]
     fixed
         ro
         [ "SELECT"
@@ -152,6 +163,26 @@ waits conn ro window = do
         , "ORDER BY run_id, min(step_visit_id)"
         ]
         (bound window <> [SQLText (restsJson (rests visits spans))])
+
+{- | Rows read back for Haskell: the statement selects one JSON array of
+them, which decodes to these. A statement or JSON the code does not match
+is a bug.
+-}
+readBack :: (FromJSON a) => ReadOnly -> [Text] -> [SQLData] -> IO [a]
+readBack ro statement params =
+    fixed ro statement params >>= \case
+        Result _ [[Text json]] ->
+            either
+                (throwIO . userError . ("a report's read-back: " <>))
+                pure
+                (eitherDecodeStrict (encodeUtf8 json))
+        result ->
+            throwIO
+                (userError ("a report's read-back is not one JSON cell: " <> show result))
+
+-- | A stored time as milliseconds since the epoch, rounded.
+millis :: Text -> Text
+millis column = "CAST(round(unixepoch(" <> column <> ", 'subsec') * 1000) AS INTEGER)"
 
 -- | The filter's parameters, @?1@ and @?2@.
 bound :: Filter -> [SQLData]

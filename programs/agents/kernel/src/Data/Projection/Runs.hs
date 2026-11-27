@@ -18,7 +18,6 @@ module Data.Projection.Runs (
     roundProblemInsert,
 ) where
 
-import Data.Field qualified as Field
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -33,6 +32,7 @@ import Data.Projection (
     spellings,
     strictTable,
  )
+import Data.Projection.Column (runIdValue, timeValue)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -53,7 +53,6 @@ import State.Run.Event (
     Start (..),
     Stop (..),
     placeOf,
-    runIdText,
  )
 import State.Run.Fold (
     Problem (..),
@@ -238,7 +237,7 @@ runStateInsert :: RunStateRow -> Insert
 runStateInsert row =
     Insert
         "run_states"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("status", SqlText (statusName (statusCase row.status)))
                , ("step", SqlText row.step)
                , ("stop_reason", nullable (SqlText . reasonText . (.reason)) stop)
@@ -263,11 +262,11 @@ stepVisitInsert :: StepVisitRow -> Insert
 stepVisitInsert row =
     Insert
         "step_visits"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("step", SqlText row.step)
-               , ("entered_at", time row.enteredAt)
-               , ("left_at", nullable time row.leftAt)
+               , ("entered_at", timeValue row.enteredAt)
+               , ("left_at", nullable timeValue row.leftAt)
                ]
         )
 
@@ -275,7 +274,7 @@ loopRoundInsert :: LoopRoundRow -> Insert
 loopRoundInsert row =
     Insert
         "loop_rounds"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("loop", SqlText (nameText row.loop))
                , ("id", integer row.id)
                , ("ordinal", integer row.ordinal)
@@ -286,16 +285,13 @@ roundProblemInsert :: RoundProblemRow -> Insert
 roundProblemInsert row =
     Insert
         "round_problems"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("loop", SqlText (nameText row.loop))
                , ("loop_round_id", integer row.loopRoundId)
                , ("kind", SqlText (problemKindName row.kind))
                , ("name", SqlText row.name)
                ]
         )
-
-time :: UTCTime -> Value
-time = SqlText . Field.encode Field.time
 
 runStates :: Table
 runStates =

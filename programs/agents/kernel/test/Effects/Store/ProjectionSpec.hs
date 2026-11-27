@@ -376,6 +376,22 @@ spec = describe "Effects.Store.Projection" $ do
                     refused <- try (insert store.connection bad)
                     refused `shouldSatisfy` refusedBy ("CHECK constraint failed: " <> check)
 
+        it "refuses a second stopgap of the run's own scope and key" $
+            withRun $ \dir _ -> opened dir shippedProjections $ \store -> do
+                execute_ store.connection "DELETE FROM stopgaps"
+                let setAt n =
+                        stopgapInsert
+                            ( StopgapRow
+                                run
+                                (StopgapAt Nothing (stopgapKey "a.b"))
+                                (Stopgap n (ijson "1") (titled "r"))
+                            )
+                insert store.connection (setAt 1)
+                refused <- try (insert store.connection (setAt 2))
+                refused
+                    `shouldSatisfy` refusedBy
+                        "UNIQUE constraint failed: index 'stopgaps_run_id_scope_key_key'"
+
     describe "a 10x run's tasks and questions" $ do
         let rowsOf table =
                 [ columns

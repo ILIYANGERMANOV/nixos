@@ -13,14 +13,12 @@ module Data.Report (
     restsJson,
 ) where
 
-import Data.Aeson (encode)
-import Data.ByteString.Lazy qualified as Lazy
 import Data.Int (Int64)
+import Data.Json (jsonText)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8)
 
 {- | A visit the run has left: its run, its step, and when it began and
 ended, in milliseconds since the epoch.
@@ -85,4 +83,4 @@ waits report's SQL reads them with @json_each@, so SQLite spells the seconds.
 -}
 restsJson :: [Rest] -> Text
 restsJson =
-    decodeUtf8 . Lazy.toStrict . encode . map (\r -> (r.runId, r.step, r.millis))
+    jsonText . map (\r -> (r.runId, r.step, r.millis))

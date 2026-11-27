@@ -19,17 +19,19 @@ import Data.Projection (
     Projection (..),
     Table,
     Value (..),
+    enumIn,
     integer,
     nullable,
     spellings,
     strictTable,
  )
+import Data.Projection.Column (runIdValue)
 import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Artifact (uriText)
 import State.Category.Flow (roleText)
 import State.Run.Ask (oneLineText)
-import State.Run.Event (Envelope, RunId, runIdText)
+import State.Run.Event (Envelope, RunId)
 import State.Run.Fold (RunState (..))
 import State.Run.Gap (
     Closure (..),
@@ -93,7 +95,7 @@ gapInsert :: GapRow -> Insert
 gapInsert row =
     Insert
         "gaps"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("kind", SqlText (gapKindText gap.kind))
                , ("severity", SqlText (severityText gap.severity))
@@ -118,11 +120,11 @@ evidenceInserts :: GapRow -> [Insert]
 evidenceInserts row =
     [ Insert
         "gap_evidence"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("gap_id", integer row.id)
                , ("ordinal", integer ordinal)
                , ("kind", SqlText (evidenceKindName kind))
-               , ("event_run_id", nullable (SqlText . runIdText . (.run)) event)
+               , ("event_run_id", nullable (runIdValue . (.run)) event)
                , ("event_seq", nullable (integer . (.seq)) event)
                , ("url", nullable (SqlText . uriText) url)
                ]
@@ -169,7 +171,9 @@ gaps =
         , "  wont_fix_reason TEXT,"
         , "  PRIMARY KEY (run_id, id),"
         , "  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),"
-        , "  CONSTRAINT gaps_fix_pr_url_iff_fix_proposed_or_fixed CHECK ((fix_pr_url IS NOT NULL) = (status IN ('fix_proposed', 'fixed'))),"
+        , "  CONSTRAINT gaps_fix_pr_url_iff_fix_proposed_or_fixed CHECK ((fix_pr_url IS NOT NULL) = (status IN "
+            <> enumIn (map gapStatusName [FixProposedCase, FixedCase])
+            <> ")),"
         , "  CONSTRAINT gaps_wont_fix_reason_iff_wont_fix CHECK ((wont_fix_reason IS NOT NULL) = (status = 'wont_fix'))"
         ]
 

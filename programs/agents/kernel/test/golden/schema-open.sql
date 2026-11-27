@@ -628,6 +628,7 @@ CREATE TABLE stopgaps (
   FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),
   CONSTRAINT stopgaps_task_id_iff_breakdown_id CHECK ((task_id IS NOT NULL) = (breakdown_id IS NOT NULL))
 ) STRICT;
+CREATE UNIQUE INDEX stopgaps_run_id_scope_key_key ON stopgaps (run_id, coalesce(breakdown_id, -1), coalesce(task_id, ''), key);
 CREATE TABLE spans (
   -- One row per subagent a run's lead spawned: from its brief to its hand-back.
   -- OpenTelemetry GenAI invoke_agent span. The lead itself has no span.

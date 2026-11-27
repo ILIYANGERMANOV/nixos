@@ -11,7 +11,6 @@ module Data.Projection.Spans (
 ) where
 
 import Control.Monad (mfilter)
-import Data.Field qualified as Field
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -25,6 +24,7 @@ import Data.Projection (
     spellings,
     strictTable,
  )
+import Data.Projection.Column (runIdValue, timeValue)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -39,7 +39,6 @@ import State.Run.Event (
     SpanEnding (..),
     SpanStart (..),
     Usage (..),
-    runIdText,
  )
 import State.Run.Fold (RunState)
 import State.Run.Id (SpanId (..))
@@ -117,7 +116,7 @@ spanInsert :: SpanRow -> Insert
 spanInsert row =
     Insert
         "spans"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("parent_span_id", nullable (integer . (.spanSeq)) row.start.parent)
                , ("operation_name", SqlText (operationName InvokeAgent))
@@ -126,8 +125,8 @@ spanInsert row =
                , ("harness_agent_id", SqlNull)
                , ("provider_name", SqlNull)
                , ("request_model", nullable SqlText row.start.model)
-               , ("started_at", time row.startedAt)
-               , ("ended_at", nullable (time . (.endedAt)) row.end)
+               , ("started_at", timeValue row.startedAt)
+               , ("ended_at", nullable (timeValue . (.endedAt)) row.end)
                , ("status_code", nullable (SqlText . statusCodeName) status)
                , ("handback_token", nullable (SqlText . tokenWordName) token)
                , ("error_type", nullable SqlText errorType)
@@ -141,7 +140,6 @@ spanInsert row =
         )
   where
     Harness harness = row.start.harness
-    time = SqlText . Field.encode Field.time
     count field = nullable integer (field . (.usage) =<< row.end)
     (status, token, errorType, handback) = case (.ending) <$> row.end of
         Nothing -> (Nothing, Nothing, Nothing, Nothing)

@@ -229,7 +229,7 @@ onStore upcasts path op store = case op of
         StepsReport -> Report.steps
         SignalsReport -> Report.signals
         GapsReport -> Report.gaps
-        WaitsReport -> Report.waits store.connection
+        WaitsReport -> Report.waits
     filterOf window =
         Report.Filter
             { since = Field.encode Field.time <$> window.since

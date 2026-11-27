@@ -12,6 +12,7 @@ module Data.Projection (
     Table (..),
     strictTable,
     indexed,
+    uniqueOn,
     Insert (..),
     Value (..),
     integer,
@@ -67,6 +68,24 @@ indexed columns table =
                         <> table.name
                         <> " ("
                         <> Text.intercalate ", " columns
+                        <> ")"
+                   ]
+        }
+
+{- | The table with a unique index of this name on these expressions, for a
+key an expression states, such as one whose NULL counts as one value.
+-}
+uniqueOn :: Text -> [Text] -> Table -> Table
+uniqueOn index expressions table =
+    table
+        { indexes =
+            table.indexes
+                <> [ "CREATE UNIQUE INDEX "
+                        <> index
+                        <> " ON "
+                        <> table.name
+                        <> " ("
+                        <> Text.intercalate ", " expressions
                         <> ")"
                    ]
         }

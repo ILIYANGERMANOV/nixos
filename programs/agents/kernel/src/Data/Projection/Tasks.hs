@@ -36,11 +36,13 @@ import Data.Projection (
     Projection (..),
     Table,
     Value (..),
+    enumIn,
     integer,
     nullable,
     spellings,
     strictTable,
  )
+import Data.Projection.Column (runIdValue)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -73,7 +75,6 @@ import State.Run.Event (
     TaskState (..),
     TokenWord (..),
     Url,
-    runIdText,
  )
 import State.Run.Fan (ChildRun (..), Fan (..), Heard (..))
 import State.Run.Fan qualified as Fan
@@ -340,7 +341,7 @@ breakdownInsert :: BreakdownRow -> Insert
 breakdownInsert row =
     Insert
         "breakdowns"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [("id", integer row.id), ("fan", SqlText (nameText row.fan))]
         )
 
@@ -348,7 +349,7 @@ epicInsert :: EpicRow -> Insert
 epicInsert row =
     Insert
         "epics"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("name", SqlText (epicNameText row.name))
                , ("repo", SqlText (repoText (epicRepo row.epic)))
                , ("branch", SqlText (branchText (epicBranch row.epic)))
@@ -361,7 +362,7 @@ taskInsert :: TaskRow -> Insert
 taskInsert row =
     Insert
         "tasks"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("breakdown_id", integer row.breakdown)
                , ("id", SqlText (taskIdText row.task.id))
                , ("title", SqlText (nonBlankText row.task.title))
@@ -400,7 +401,7 @@ taskDependencyInsert :: TaskDependencyRow -> Insert
 taskDependencyInsert row =
     Insert
         "task_dependencies"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("breakdown_id", integer row.breakdown)
                , ("task_id", SqlText (taskIdText row.task))
                , ("after_task_id", SqlText (taskIdText row.after))
@@ -411,9 +412,9 @@ childRunInsert :: ChildRunRow -> Insert
 childRunInsert row =
     Insert
         "child_runs"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
-               , ("child_run_id", SqlText (runIdText row.child.run))
+               , ("child_run_id", runIdValue row.child.run)
                , ("breakdown_id", nullable integer ((.breakdown) <$> tasked))
                , ("task_id", nullable (SqlText . taskIdText . (.task)) tasked)
                , ("worktree", SqlText (Text.pack row.child.worktree))
@@ -429,7 +430,7 @@ taskHoldInsert :: TaskHoldRow -> Insert
 taskHoldInsert row =
     Insert
         "task_holds"
-        ( ("run_id", SqlText (runIdText row.runId))
+        ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("breakdown_id", integer row.task.breakdown)
                , ("task_id", SqlText (taskIdText row.task.task))
@@ -477,7 +478,9 @@ epics =
         , "  -- The final pull request. Set once ready_for_review, kept when merged."
         , "  pr_url TEXT,"
         , "  PRIMARY KEY (run_id, name),"
-        , "  CONSTRAINT epics_pr_url_iff_ready_or_merged CHECK ((pr_url IS NOT NULL) = (status IN ('ready_for_review', 'merged')))"
+        , "  CONSTRAINT epics_pr_url_iff_ready_or_merged CHECK ((pr_url IS NOT NULL) = (status IN "
+            <> enumIn (map epicStatusName [EpicReady, EpicMerged])
+            <> "))"
         ]
 
 tasks :: Table
@@ -535,8 +538,22 @@ tasks =
         , "  CONSTRAINT tasks_base_task_id_not_self CHECK (base_task_id IS NOT id),"
         , "  CONSTRAINT tasks_parked_reason_iff_parked CHECK ((parked_reason IS NOT NULL) = (status = 'parked')),"
         , "  CONSTRAINT tasks_pr_url_required_by_status CHECK ("
-        , "    status NOT IN ('in_ci', 'in_review', 'round', 'merged', 'kept', 'delivered') OR pr_url IS NOT NULL),"
-        , "  CONSTRAINT tasks_at_work_never_planned_or_parked CHECK (at_work = 0 OR status NOT IN ('planned', 'parked'))"
+        , "    status NOT IN "
+            <> enumIn
+                ( map
+                    taskStatusName
+                    [ InCiStatus
+                    , InReviewStatus
+                    , RoundStatus
+                    , MergedStatus
+                    , KeptStatus
+                    , DeliveredStatus
+                    ]
+                )
+            <> " OR pr_url IS NOT NULL),"
+        , "  CONSTRAINT tasks_at_work_never_planned_or_parked CHECK (at_work = 0 OR status NOT IN "
+            <> enumIn (map taskStatusName [PlannedStatus, ParkedStatus])
+            <> ")"
         ]
 
 taskDependencies :: Table
