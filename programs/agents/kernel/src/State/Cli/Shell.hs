@@ -212,6 +212,7 @@ import State.Protocol.Hook (
     LeadSkill,
     Reply (..),
     Spawn (..),
+    StartSource (..),
     ToolCallId,
     Want (..),
     aboutKnown,
@@ -718,7 +719,7 @@ bindAnswer ::
 bindAnswer steps name call bind slot bound = case bind of
     BindSelf binding -> telling name (Just binding.run) $ do
         traverse_ (bindSelf binding) slot
-        sessionBound call binding.run
+        sessionBound steps call binding.run
     BindSpawned child toolCall worker -> do
         -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
         spawner <- boundOrHere call bound
@@ -763,22 +764,25 @@ linkSpan run at toolCall =
         Left failure -> pure (aboutRun run (failureText "bind" failure))
 
 {- | The caller's session started on the run its @state init@ bound it to,
-logged once, by the session's own facts ('initSession'). Its failure is told.
+logged once, by the session's own facts ('initSession'). A new session lost
+every agent the run had at work, as a fresh start does ('restartOf'): a resume
+from a session whose start hook read another worktree's run still sends them
+again. Its failure is told.
 -}
-sessionBound :: (Shell es) => Call -> RunId -> Eff es Text
-sessionBound call run = either (failureText "bind") (const "") <$> onLog start run
+sessionBound :: (Shell es) => Steps -> Call -> RunId -> Eff es Text
+sessionBound steps call run = either (failureText "bind") (const "") <$> onLog start run
   where
     start stamp loaded =
         record
             (Stamp stamp.ts stamp.head call.session)
             loaded
-            [Cli]
-            ( Right
-                ( Plan
-                    (SessionStarted <$> maybeToList (initSession call loaded.logged))
-                    (\_ _ -> mempty)
-                )
-            )
+            [Cli, Cli]
+            (Right (Plan (started loaded) (\_ _ -> mempty)))
+    started loaded = case initSession call loaded.logged of
+        Just session ->
+            SessionStarted session
+                : maybeToList (restartOf steps Startup loaded.state)
+        Nothing -> []
 
 -- | The agent bound to the run its own init printed, and marked its lead ('ledFile').
 bindSelf :: (WrFileSystem :> es) => Binding -> Slot -> Eff es ()
@@ -2846,14 +2850,14 @@ sentEvent down = case down.sent of
         Ask.Other _ -> " --other "
 
 {- | The answer the run holds to the question, or why it parked it, for the
-child that asked it: the fan-out's child waiting on it, else the direct
-child it came up from. A fan-out's child that stopped, its stop asked here,
-is neither.
+child that asked it: the fan-out's live child that asked it, in any of its
+hand-backs, else the direct child it came up from. A fan-out's child that
+stopped, its stop asked here, is neither.
 -}
 downOf :: RunState -> RunState -> QId -> Maybe Down
 downOf before after qid = do
     asker <-
-        ((.child.run) <$> Fan.askedBy fan qid)
+        ((.child.run) <$> Fan.askerOf fan qid)
             <|> listToMaybe
                 [ run
                 | open <- maybeToList (Fold.pendingAt before qid)

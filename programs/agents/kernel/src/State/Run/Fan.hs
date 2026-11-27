@@ -46,6 +46,7 @@ module State.Run.Fan (
     untriaged,
     latest,
     askedBy,
+    askerOf,
     pullRequest,
     statePr,
     childrenOf,
@@ -310,7 +311,9 @@ unparked task fan = case Map.lookup task fan.moves of
         lastChild : _ -> triaged lastChild.child.run after
         [] -> after
 
--- | The 10x resumes a child that waits on it: refused while an agent works on its task.
+{- | The 10x resumes a child that waits on it: refused while an agent works
+on its task. A parked task resumed runs again, as one sent a new child does.
+-}
 resumed :: RunId -> Fan -> Either Refusal Fan
 resumed run fan = case find ((== run) . (.child.run)) fan.children of
     Nothing -> Left (UnknownChild run)
@@ -319,7 +322,8 @@ resumed run fan = case find ((== run) . (.child.run)) fan.children of
         | otherwise -> case found.child.task of
             Tasked ref
                 | Set.member ref.task fan.atWork -> Left (AtWork ref.task)
-                | otherwise -> Right fan {atWork = Set.insert ref.task fan.atWork}
+                | otherwise ->
+                    Right (unparked ref.task fan) {atWork = Set.insert ref.task fan.atWork}
             Untasked -> Right fan
 
 -- | A question the 10x asked from this child: after the child stopped, it triages the stop.
@@ -506,6 +510,14 @@ answer goes down to, and the one resumed with it.
 -}
 askedBy :: Fan -> QId -> Maybe ChildRun
 askedBy fan qid = find ((== Just (AsksUp qid)) . latest) fan.children
+
+{- | The live child that asked this question up in any hand-back: the one
+its answer goes down to, even after it asked another. Only 'askedBy' resumes
+it, so a child is never resumed with an answer it asked before its latest.
+-}
+askerOf :: Fan -> QId -> Maybe ChildRun
+askerOf fan qid =
+    find (\childRun -> live childRun && Heard (AsksUp qid) `elem` childRun.said) fan.children
 
 -- | The task's PR as last recorded, if one was.
 pullRequest :: Fan -> TaskId -> Maybe Url

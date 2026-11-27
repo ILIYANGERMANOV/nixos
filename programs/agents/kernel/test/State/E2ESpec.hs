@@ -1323,6 +1323,27 @@ spec = describe "the state binary" $ do
                     third <- succeeded =<< state bin repo ["next"]
                     take 1 third `shouldBe` ["AWAIT children t2"]
 
+            it "writes every ruling down to a child that asked two questions" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                q1 <- askedQid bin w1 "Design" ["which", "store?"]
+                q2 <- askedQid bin w1 "Design" ["which", "queue?"]
+                for_ [(q1, "postgres"), (q2, "kafka")] $ \(qid, answer) ->
+                    succeeded
+                        =<< state
+                            bin
+                            repo
+                            ["rule", Text.unpack qid, "--answer", answer, "--why", "fine", "--cost", "none"]
+                shown <- succeeded =<< state bin w1 ["show"]
+                resumed <- succeeded =<< state bin repo ["next"]
+                map
+                    (`mentions` shown)
+                    [q1 <> " Design: which store? - postgres", q2 <> " Design: which queue? - kafka"]
+                    `shouldBe` [True, True]
+                -- Resumed once, with its latest question's answer: the earlier one is in its log.
+                take 1 resumed `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> q2 <> ": kafka"]
+
             it "asks the user its own breakdown Confirm, and refuses to rule on it" $ \repo -> do
                 _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 for_
@@ -2026,6 +2047,38 @@ spec = describe "the state binary" $ do
                     succeeded =<< hook hookBin repo "resume" (sessionFrom "compact" repo)
                 compacted `shouldSatisfy` (not . mentions "restarted")
 
+            it
+                "records a restart when a new session's state init resumes the run, so its lost child is sent again"
+                $ \repo -> do
+                    let resumedIn session = do
+                            printed <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+                            succeeded
+                                =<< hook
+                                    hookBin
+                                    repo
+                                    "bind"
+                                    ( ranShellIn
+                                        session
+                                        repo
+                                        Null
+                                        ("state init --notes " <> repo.notes)
+                                        printed
+                                    )
+                    parent <- tenXAtFanOut bin repo
+                    _ <- resumedIn "s1"
+                    w1 <- worktree repo "w1"
+                    c1 <- childRun bin w1 parent "n1" "t1"
+                    sameSession <- resumedIn "s1"
+                    newSession <- resumedIn "s2"
+                    lost <- succeeded =<< state bin repo ["next"]
+                    logged <- eventsOf ["restarted"] repo parent
+                    (sameSession, newSession, length logged, take 1 lost)
+                        `shouldBe` ( []
+                                   , []
+                                   , 1
+                                   , ["RESUME " <> c1 <> " lost at a restart: a fresh engineer with its spawn prompt"]
+                                   )
+
             it "records no second restart at a startup, once no child is at work" $ \repo -> do
                 _ <- childAtWork bin repo
                 _ <- succeeded =<< hook hookBin repo "resume" (sessionFrom "resume" repo)
@@ -2681,8 +2734,13 @@ initBound bin hookBin at agent dir argv = do
 
 -- | This agent's shell command done, printing these lines: a PostToolUse on Bash.
 ranShell :: Repo -> Value -> String -> [Text] -> String
-ranShell repo agent command printed =
-    hookEvent
+ranShell = ranShellIn "s1"
+
+-- | 'ranShell' in this session.
+ranShellIn :: Text -> Repo -> Value -> String -> [Text] -> String
+ranShellIn session repo agent command printed =
+    hookEventIn
+        session
         repo
         agent
         [ "event" .= String "afterTool"
@@ -2878,11 +2936,15 @@ transcriptOf repo = repo.root </> "s1.jsonl"
 Claude Code session in the worktree.
 -}
 hookEvent :: Repo -> Value -> [Pair] -> String
-hookEvent repo agent fields =
+hookEvent = hookEventIn "s1"
+
+-- | 'hookEvent' fired in this session.
+hookEventIn :: Text -> Repo -> Value -> [Pair] -> String
+hookEventIn session repo agent fields =
     LBS8.unpack
         ( encode
             ( object
-                ( [ "session" .= String "s1"
+                ( [ "session" .= String session
                   , "cwd" .= repo.work
                   , "agent" .= agent
                   , "harness" .= String "claude-code"

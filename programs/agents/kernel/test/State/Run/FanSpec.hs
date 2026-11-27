@@ -184,6 +184,18 @@ spec = describe "State.Run.Fan" $ do
             [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
             `shouldBe` [Right (Just (runId "c1")), Right Nothing]
 
+    it "finds the live child that asked a question in any hand-back, as its answer goes down to it" $ do
+        let first = QId (runId "c1") 1
+            asked =
+                [ spawned [] (childFor "c1" t1)
+                , handedBack (runId "c1") (AsksUp first)
+                , handedBack (runId "c1") (AsksUp (QId (runId "c1") 3))
+                ]
+        map
+            (fmap (fmap (.child.run) . (`askerOf` first)) . applied)
+            [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
+            `shouldBe` [Right (Just (runId "c1")), Right Nothing]
+
     it "settles a parked task, so the fan-out may leave" $
         (applied [moved t1 (Parked "out of scope" Nothing)] >>= leave)
             `shouldBe` Right ()
@@ -197,6 +209,16 @@ spec = describe "State.Run.Fan" $ do
             )
             [spawning [] t1, spawned [] (childFor "c1" t1)]
             `shouldBe` replicate 2 (Right (False, False))
+
+    it "runs a parked task again once its waiting child is resumed" $
+        (\fan -> (settled fan t1, allParked fan, map (.child.run) (running fan)))
+            <$> applied
+                [ spawned [] (childFor "c1" t1)
+                , handedBack (runId "c1") (Awaits Ci (oneLine "PR #1"))
+                , moved t1 (Parked "later" Nothing)
+                , resumed (runId "c1")
+                ]
+            `shouldBe` Right (False, False, [runId "c1"])
 
     it "respawns a parked task whose last child stopped: parking settled the stop" $
         map
