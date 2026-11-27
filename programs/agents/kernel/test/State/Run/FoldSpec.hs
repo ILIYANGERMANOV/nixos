@@ -350,6 +350,8 @@ spec = describe "State.Run.Fold" $ do
                     )
             let result = open (replicate starts (started' fixer) <> map ended ends)
                 twice = [n | (i, n) <- zip [0 :: Int ..] ends, n `elem` take i ends]
+            cover 20 "a span ended twice" (not (null twice))
+            cover 20 "every span ended once at most" (null twice)
             case twice of
                 n : _ -> result === Left (SpanNotOpen (SpanId n))
                 [] ->

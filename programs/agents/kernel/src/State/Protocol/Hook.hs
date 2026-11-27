@@ -488,14 +488,15 @@ wants steps hook event = case hook of
     -- Every spawn in a run starts a span; only the lead's is a step of its flow.
     SpawnHook -> case event of
         BeforeTool call _ toolCall input _ ->
-            Right $ case lead call (SpawnRole (AgentRole <$> textAt "subagent_type" input) spawn) of
+            Right $ case lead call (SpawnRole role spawn) of
                 Just job -> Just job
                 Nothing -> Asks . StartsSpan <$> spawn
           where
+            role = AgentRole <$> textAt "subagent_type" input
             spawn =
                 Spawn
                     <$> toolCall
-                    <*> (AgentRole <$> textAt "subagent_type" input)
+                    <*> role
                     <*> textAt "prompt" input
                     <*> pure (textAt "model" input)
         SessionStart {} -> undeclared

@@ -793,7 +793,7 @@ refuses or does not read.
 agentsEnded ::
     (Shell es) => Steps -> BS.ByteString -> Call -> End -> Eff es Text
 agentsEnded steps input call = \case
-    StopsAgent agent -> stopped (const True) Event.unreported agent
+    StopsAgent agent -> stopped (const True) agent
     Stops key running usage -> do
         own <- case key of
             AgentKey agent ->
@@ -807,13 +807,13 @@ agentsEnded steps input call = \case
             Just binding -> do
                 agents <- sessionAgents call.session
                 traverse
-                    (stopped (== binding.run) Event.unreported)
+                    (stopped (== binding.run))
                     [agent | agent <- agents, agent `notElem` running, AgentKey agent /= key]
         pure (own <> Text.concat unseen)
   where
-    stopped under usage agent =
+    stopped under agent =
         (<>)
-            <$> spanStopped call.session under usage agent
+            <$> spanStopped call.session under agent
             <*> agentEnded steps call.session under agent
     -- A foreground agent stops before its spawner's hook links its span: its stop waits for it.
     ownStop agent usage =
@@ -826,13 +826,16 @@ agentsEnded steps input call = \case
                         writeWhole (stopFile at) (decodeUtf8Lenient input)
                         slotSpan (Just at) >>= maybe (pure "") (const (replayStash steps StopHook at))
 
--- | The agent's span ended with no hand-back, when it is linked to one in a run this takes and still open.
+{- | The agent's span ended with no hand-back, when it is linked to one in a
+run this takes and still open. Seen from another agent's hook, its tokens are
+unknown.
+-}
 spanStopped ::
     (Shell es) =>
-    Maybe SessionId -> (RunId -> Bool) -> Event.Usage -> AgentId -> Eff es Text
-spanStopped session under usage agent =
+    Maybe SessionId -> (RunId -> Bool) -> AgentId -> Eff es Text
+spanStopped session under agent =
     (slotSpan =<< slotFor session (AgentKey agent)) >>= \case
-        Just link | under link.run -> endLinked session NoHandback usage link
+        Just link | under link.run -> endLinked session NoHandback Event.unreported link
         _ -> pure ""
 
 -- | The subagents with a slot in the session's bindings.

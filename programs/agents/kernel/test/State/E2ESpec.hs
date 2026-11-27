@@ -1778,16 +1778,10 @@ spec = describe "the state binary" $ do
                                     repo
                                     ["handover", "--reason", "context", "--summary", "s", "--next", "go on"]
 
-                        rows <- storedRows repo run
-                        let payloads kind =
-                                [ payload
-                                | (_, _, kind', _, _, _, _, raw) <- rows
-                                , kind' == kind
-                                , Just payload <- [Aeson.decodeStrictText raw]
-                                ]
-                        ( map (field "source") (payloads "session_started")
+                        logged <- eventsOf ["session_started", "artifact"] repo run
+                        ( [field "source" payload | ("session_started", payload) <- logged]
                             , [ (field "artifact_kind" payload, field "location" payload >>= field "path")
-                              | payload <- payloads "artifact"
+                              | ("artifact", payload) <- logged
                               ]
                             )
                             `shouldBe` ( [Just "init"]
@@ -2221,11 +2215,15 @@ stoppedWith repo agent running =
 
 -- | The run's span events, each its type and payload, in log order.
 spanEvents :: Repo -> Text -> IO [(Text, Value)]
-spanEvents repo run =
+spanEvents = eventsOf ["span_started", "span_ended"]
+
+-- | The run's events of these types, each its type and payload, in log order.
+eventsOf :: [Text] -> Repo -> Text -> IO [(Text, Value)]
+eventsOf kinds repo run =
     ( \rows ->
         [ (kind, payload)
         | (_, _, kind, _, _, _, _, raw) <- rows
-        , kind `elem` ["span_started", "span_ended"]
+        , kind `elem` kinds
         , Just payload <- [Aeson.decodeStrictText raw]
         ]
     )

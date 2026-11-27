@@ -807,26 +807,18 @@ def test_only_a_hand_back_carries_usage() -> None:
     assert usage_of(SHELL_CALL, disk) is None
 
 
-@pytest.mark.parametrize(
-    ("session", "line"),
-    [
-        ("abc123", "export STATE_SESSION=abc123\n"),
-        ("a b'c", "export STATE_SESSION='a b'\"'\"'c'\n"),
-    ],
-)
-def test_the_session_export_line_is_shell_quoted(session: str, line: str) -> None:
-    assert session_export(SessionId(session)) == line
-
-
 @pytest.mark.parametrize("session", ["abc123", "a b", "it's", "$HOME `ls`", "a\nb"])
-def test_a_shell_sourcing_the_export_reads_the_session_back(session: str) -> None:
-    script = session_export(SessionId(session)) + 'printf %s "$STATE_SESSION"'
+def test_a_shell_sourcing_the_export_hands_its_commands_the_session(
+    session: str,
+) -> None:
+    # printenv runs as a child, so it sees the session only if it is exported.
+    script = session_export(SessionId(session)) + "printenv STATE_SESSION"
 
     done = subprocess.run(
         ["bash", "-c", script], capture_output=True, text=True, check=True
     )
 
-    assert done.stdout == session
+    assert done.stdout == session + "\n"
 
 
 START_EVENT = parse_claude(SESSION_START, TOOLS, NO_TRANSCRIPT)
