@@ -58,7 +58,6 @@ module State.Run.Fold (
     budgets,
     extendable,
     usedUp,
-    nextQId,
     given,
     heldAnswer,
     pendingAt,
@@ -1528,16 +1527,6 @@ unaskedBy fan task state = state {pending = filter (not . byChild . (.asking.fro
 -- | The children whose question is still open, in triage or with the user: none of their tasks is retried.
 askingChildren :: RunState -> [RunId]
 askingChildren state = [run | pending <- state.pending, ChildRun run <- [pending.asking.from]]
-
--- | The id of the run's next own question: one past the highest it asked.
-nextQId :: RunState -> QId
-nextQId state =
-    QId
-        state.run
-        ( 1
-            + maximum
-                (0 : [n | QId asker n <- Set.toList state.everAsked, asker == state.run])
-        )
 
 -- | The state a question asked now is asked at, inside its scopes; past the end, the port's name.
 askedAt :: RunState -> StateName

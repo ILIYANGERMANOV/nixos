@@ -99,7 +99,9 @@ spec = describe "State.Protocol.Handback" $ do
 typing :: Spec
 typing = describe "typeHandback" $ do
     steps <- runIO loadSteps
-    let typed at role = typeHandback steps g at (Just sha) (AgentRole role) Nothing . parsed
+    -- The id of the line the hand-back's first event takes.
+    let next = QId run 7
+        typed at role = typeHandback steps g at (Just sha) next (AgentRole role) Nothing . parsed
 
     it "types an implementer's READY as implement.done at the head, with its areas" $
         typed atImplement "implementer" "READY built\nTouches: auth"
@@ -138,6 +140,7 @@ typing = describe "typeHandback" $ do
                             g
                             fixing
                             (Just sha)
+                            next
                             (AgentRole "fixer")
                             agent
                             (parsed "READY fixed")
@@ -179,19 +182,26 @@ typing = describe "typeHandback" $ do
         typed (runAt (fuelSet Balanced : take 9 happyPath)) "researcher" findings
             `shouldSatisfy` isLeft
 
-    it "asks a stuck question under the run's next own id" $
+    it "asks a stuck question under the id of the line that asks it" $
         typed atImplement "implementer" "NEEDS_DECISION stuck: the same test fails"
             `shouldBe` Right
                 ( Typed
                     [ Asked
                         ( Asking
-                            (Question (QId run 1) Stuck (oneLine "the same test fails"))
+                            (Question (QId run 7) Stuck (oneLine "the same test fails"))
                             implement
                             (Subagent (AgentRole "implementer"))
                         )
                     ]
                     Nothing
                 )
+
+    it
+        "asks a forked worker's stuck question under its line's id, after the line closing its child"
+        $ fmap
+            (\typed' -> [asking.question.qid | Asked asking <- typed'.events])
+            (typed atGather "researcher" "NEEDS_DECISION stuck: two sources disagree")
+            `shouldBe` Right [QId run 8]
 
     it "asks a typed question as the child run that sent it" $
         typed atImplement "engineer" "NEEDS_DECISION Design c1:2: which store?\nRun: c1"
@@ -221,7 +231,7 @@ typing = describe "typeHandback" $ do
                 ( Typed
                     [ Asked
                         ( Asking
-                            (Question (QId run 1) Stuck (oneLine "two stores"))
+                            (Question (QId run 7) Stuck (oneLine "two stores"))
                             implement
                             (Subagent (AgentRole "implementer"))
                         )

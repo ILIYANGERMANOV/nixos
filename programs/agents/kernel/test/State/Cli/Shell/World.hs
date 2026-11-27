@@ -12,6 +12,7 @@ module State.Cli.Shell.World (
     stateIn,
     hook,
     succeeded,
+    askedQId,
     startedRun,
     startedIn,
     putFile,
@@ -255,6 +256,13 @@ succeeded ran
         []
             <$ expectationFailure
                 ("exit " <> show ran.code <> ": " <> Text.unpack (Text.unlines ran.err))
+
+-- | @state ask@ with these words, which must succeed: the qid it prints.
+askedQId :: IORef World -> [Text] -> IO Text
+askedQId world argv =
+    (succeeded =<< state world ("ask" : argv)) >>= \case
+        asked : _ | Just qid <- Text.stripPrefix "asked " asked -> pure qid
+        out -> "" <$ expectationFailure ("no asked line: " <> show out)
 
 -- | @init@ in the worktree's notes; the run's id.
 startedRun :: IORef World -> IO Text

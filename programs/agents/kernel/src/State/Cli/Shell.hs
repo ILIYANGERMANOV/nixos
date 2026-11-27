@@ -231,7 +231,7 @@ import State.Run.Ask (
     Parent (..),
     Principal (..),
     Proposal (..),
-    QId,
+    QId (..),
     Question (..),
     kindName,
     oneLineText,
@@ -281,7 +281,6 @@ import State.Run.Fold (
     RunState (..),
     Waits (..),
     askedAt,
-    nextQId,
     replay,
  )
 import State.Run.Fold qualified as Fold
@@ -961,7 +960,17 @@ runAnswer steps call bound found want = case want of
                     (False, True, _) ->
                         said
                             <$> told
-                                (handbackPlan steps stamp.head run.g run.state role agent.agentId Nothing message)
+                                ( handbackPlan
+                                    steps
+                                    stamp.head
+                                    run.g
+                                    run.state
+                                    (nextAsk run)
+                                    role
+                                    agent.agentId
+                                    Nothing
+                                    message
+                                )
                     -- A worker spawned beside the advice returns, its report its spawner's alone.
                     (False, False, Just back) -> said <$> told (Right (Plan [back] (\_ _ -> mempty)))
                     (False, False, Nothing) -> ([], "")
@@ -1104,7 +1113,17 @@ execute steps = \case
                                 []
                                 stamp
                                 run
-                                (handbackPlan steps stamp.head run.g run.state role Nothing child message)
+                                ( handbackPlan
+                                    steps
+                                    stamp.head
+                                    run.g
+                                    run.state
+                                    (nextAsk run)
+                                    role
+                                    Nothing
+                                    child
+                                    message
+                                )
                         )
     OnRun command -> do
         -- Read before the lock, as GitHub is: the file the command names, and the run's files.
@@ -1118,7 +1137,7 @@ execute steps = \case
                     (readBytes (toList file))
                     stamp
                     run
-                    (planOf steps stamp.head file run.g run.state command)
+                    (planOf steps stamp.head file run.g run.state (nextAsk run) command)
             )
             <&> \case
                 -- With no run, nothing says where the run is: every event is named.
@@ -1556,16 +1575,19 @@ recorded written = printed (recordedLines written <> nextLine)
 nextLine :: Text
 nextLine = "next: state next\n"
 
--- | The file a recording reads, read beforehand, which it registers as an artifact of its kind.
+{- | The file a recording reads, read beforehand, which it registers as an
+artifact of its kind, and 'nextAsk', the qid of a question the plan asks.
+-}
 planOf ::
     Steps ->
     Maybe Sha ->
     Maybe (AbsPath, Contents) ->
     OpenGraph ->
     RunState ->
+    QId ->
     RunCommand ->
     Either Failure Plan
-planOf steps worktreeHead file g state = \case
+planOf steps worktreeHead file g state next = \case
     Record recording -> do
         (registered, unread, text) <- fileRead recording file
         event <- recordedEvent g state worktreeHead text recording
@@ -1590,11 +1612,11 @@ planOf steps worktreeHead file g state = \case
     AskOwn kind how text -> do
         notOpenYet state Itself text
         (question, events, line) <-
-            Bifunctor.first (notSent kind) (ownAsk state how kind text)
+            Bifunctor.first (notSent kind) (ownAsk state next how kind text)
         Right (Plan events (\after _ -> asked question <> delivered after line))
     AskFrom kind from text ->
         notOpenYet state from text >> do
-            let question = Question (nextQId state) kind text
+            let question = Question next kind text
             Right
                 ( Plan
                     [Asked (Asking question (askedAt state) from)]
@@ -1614,7 +1636,7 @@ planOf steps worktreeHead file g state = \case
         retryOf state task <&> \(found, child, stop) ->
             let question =
                     Question
-                        (nextQId state)
+                        next
                         Ask.Stuck
                         ( Ask.flattened
                             ( "retry task "
@@ -1843,18 +1865,28 @@ handbackPlan ::
     Maybe Sha ->
     OpenGraph ->
     RunState ->
+    QId ->
     AgentRole ->
     Maybe AgentId ->
     Maybe RunId ->
     Text ->
     Either Failure Plan
-handbackPlan steps worktreeHead g state role agent child message = do
+handbackPlan steps worktreeHead g state next role agent child message = do
     parsed <- Bifunctor.first refused (parseHandback message)
     let run = parsed.run <|> child
     typed <-
         Bifunctor.first
             refused
-            (typeHandback steps g state worktreeHead role agent parsed {Handback.run = run})
+            ( typeHandback
+                steps
+                g
+                state
+                worktreeHead
+                next
+                role
+                agent
+                parsed {Handback.run = run}
+            )
     let from = maybe (roleText role) runIdText run
         triage line =
             "triage: "
@@ -2071,6 +2103,14 @@ record stamp run sources = \case
 nextSeq :: Loaded -> Natural
 nextSeq run = run.rows + 1
 
+{- | The qid of a question the next line asks: that line's id, as CloudEvents'
+@id@ names its event. A plan puts its question's line first, or counts on
+from this. No line of a plan is skipped alone: a plan already logged drops
+whole, so its seqs hold.
+-}
+nextAsk :: Loaded -> QId
+nextAsk run = QId run.state.run (nextSeq run)
+
 stamped :: Stamp -> Source -> RunId -> Natural -> Event -> Envelope
 stamped stamp source run n event =
     Envelope
@@ -2181,6 +2221,7 @@ handedUp steps up =
                 stamp.head
                 run.g
                 run.state
+                (nextAsk run)
                 up.role
                 Nothing
                 (Just up.child)

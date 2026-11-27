@@ -72,6 +72,7 @@ spec = do
         $ it
             "gives the request in focus and each waiting one its node, its own decisions and open questions, and its last worker"
         $ do
+            -- Each question's qid is its line's seq, as the shell writes it.
             let asked n kind =
                     Asking
                         (Question (QId run n) kind (oneLine "which store?"))
@@ -93,9 +94,9 @@ spec = do
                                , Forwarded (QId run 1) TheUser
                                , WorkerSpawned (AgentRole "researcher") agent
                                , Suspended (TaskNo 1) (oneLine "asked which store")
-                               , Asked (asked 2 Pick)
+                               , Asked (asked 5 Pick)
                                , RuledOn
-                                    (QId run 2)
+                                    (QId run 5)
                                     (Proposal (oneLine "sqlite") (oneLine "one user") (oneLine "none") Nothing)
                                , fuelSet Balanced
                                ]
@@ -107,7 +108,7 @@ spec = do
                         (TaskNo 2)
                         InFocus
                         (StateName "route")
-                        [(QId run 2, Pick, Chose "sqlite")]
+                        [(QId run 5, Pick, Chose "sqlite")]
                         []
                         Nothing
                     , Card

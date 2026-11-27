@@ -11,7 +11,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Data.Traversable (for)
-import Hedgehog (evalIO, forAll, (===))
+import Hedgehog (cover, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (Max))
@@ -22,9 +22,10 @@ import State.Protocol.Advice (PrView (..), Readiness (..))
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (eventType)
 import State.Run.Event (
+    Asking (..),
     Branch (..),
     Envelope (..),
-    Event (WorktreeMoved),
+    Event (Asked, WorktreeMoved),
     FlowName (TenXFlow),
     PlanCall (..),
     Repo (..),
@@ -32,6 +33,7 @@ import State.Run.Event (
     Task (..),
  )
 import State.Run.EventGen (absolutePath)
+import State.Run.Id (numberedText)
 import State.Run.RunGen (
     breakdownJson,
     loadSteps,
@@ -1035,6 +1037,89 @@ spec = describe "state over the doubles" $ do
                                )
                 loggedEvents world `shouldReturn` before'
 
+        describe "a question's qid" $ do
+            it "numbers the run's own question by the seq of the line that asks it" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+
+                qid <- askedQId world ["--kind", "Pick", "which", "rows?"]
+
+                ownAsked <$> logged world `shouldReturn` [(qid, qid)]
+
+            it "numbers a worker's question the run asks by the seq of its line" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+
+                qid <-
+                    askedQId world ["--kind", "Pick", "--from", "implementer", "which", "rows?"]
+
+                ownAsked <$> logged world `shouldReturn` [(qid, qid)]
+
+            it "numbers a worker's stuck hand-back by the seq of the line asking it" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+
+                _ <-
+                    succeeded
+                        =<< stateIn
+                            world
+                            "NEEDS_DECISION stuck: the same test fails\n"
+                            ["handback", "implementer"]
+
+                map (uncurry (==)) . ownAsked <$> logged world `shouldReturn` [True]
+
+            it
+                "numbers a forked worker's stuck hand-back by the seq of its line, after the line closing its child"
+                $ \world -> do
+                    _ <- drive world ([Record ["fuel.set", "balanced"]] <> take 2 toImplement)
+
+                    _ <-
+                        succeeded
+                            =<< stateIn
+                                world
+                                "NEEDS_DECISION stuck: two sources disagree\n"
+                                ["handback", "researcher"]
+
+                    map (uncurry (==)) . ownAsked <$> logged world `shouldReturn` [True]
+
+            it "numbers a retry's question by the seq of the line that asks it" $ \world -> do
+                parent <- tenXAtFanOut world
+                child <- childRun world parent "/child" "t1"
+                atWorktree world "/work"
+                _ <-
+                    succeeded
+                        =<< stateIn
+                            world
+                            ("BLOCKED no access\nRun: " <> encodeUtf8 child)
+                            ["handback", "engineer", "--child", child]
+
+                _ <- succeeded =<< state world ["retry", "t1", "--why", "the token is set now"]
+
+                map (uncurry (==)) . ownAsked <$> logged world `shouldReturn` [True]
+
+            it "numbers_every_own_question_the_kernel_logs_by_the_seq_of_its_line" $ \_ -> hedgehog $ do
+                writes <-
+                    forAll (Gen.list (Range.linear 1 10) (Gen.element [minBound .. maxBound]))
+                asked <- evalIO $ do
+                    world <- newWorld
+                    _ <- drive world ([Record ["fuel.set", "balanced"]] <> take 2 toImplement)
+                    for_ (zip [1 :: Int ..] writes) $ \(i, write) ->
+                        let text = Text.pack (show i)
+                         in case write of
+                                Note -> state world ["note", "--topic", "t", text]
+                                OwnAsk -> state world ["ask", "--kind", "Pick", "q" <> text <> "?"]
+                                AskFrom ->
+                                    state
+                                        world
+                                        ["ask", "--kind", "Pick", "--from", "researcher", "q" <> text <> "?"]
+                                Stuck ->
+                                    stateIn
+                                        world
+                                        (encodeUtf8 ("NEEDS_DECISION stuck: s" <> text <> "\n"))
+                                        ["handback", "researcher"]
+                                Spawn -> state world ["record", "gather/research.spawned"]
+                                Next -> state world ["next"]
+                    ownAsked <$> logged world
+                cover 30 "a question" (not (null asked))
+                map fst asked === map snd asked
+
         describe "the 10x" $ do
             it "spawns the first task, the second waiting on it" $ \world -> do
                 _ <- tenXAtFanOut world
@@ -1270,9 +1355,8 @@ spec = describe "state over the doubles" $ do
                 "refuses a child's own answer to the question its parent answers, telling it to hand the question back"
                 $ \world -> do
                     parent <- tenXAtFanOut world
-                    child <- childRun world parent "/child" "t1"
-                    let qid = child <> ":1"
-                    _ <- succeeded =<< state world ["ask", "--kind", "Scope", "which", "scope?"]
+                    _ <- childRun world parent "/child" "t1"
+                    qid <- askedQId world ["--kind", "Scope", "which", "scope?"]
                     before' <- loggedEvents world
 
                     own <- state world ["answer", qid, "yes"]
@@ -1348,8 +1432,7 @@ spec = describe "state over the doubles" $ do
                 "writes the top's answer down to every run below, each resuming the next with it"
                 $ \world -> do
                     (_, mid, grand) <- threeLevels world
-                    let qid = grand <> ":1"
-                    climbed world qid
+                    qid <- climbed world
 
                     answered <- succeeded =<< state world ["answer", qid, "postgres"]
                     topNext <- succeeded =<< state world ["next"]
@@ -1371,8 +1454,7 @@ spec = describe "state over the doubles" $ do
                 "tells an answer it could not write down, and a retry lands it once in every run below"
                 $ \world -> do
                     (_, mid, grand) <- threeLevels world
-                    let qid = grand <> ":1"
-                    climbed world qid
+                    qid <- climbed world
                     editLogIn world grandNotes appendUnread
 
                     failed <- succeeded =<< state world ["answer", qid, "it's postgres"]
@@ -1398,8 +1480,7 @@ spec = describe "state over the doubles" $ do
                 "names the cd into the asking child's worktree its binding names, for an answer it could not write down"
                 $ \world -> do
                     (_, mid, grand) <- threeLevels world
-                    let qid = grand <> ":1"
-                    climbed world qid
+                    qid <- climbed world
                     putFile
                         world
                         "/home/.local/state/state/bindings/s1/e1"
@@ -1412,9 +1493,8 @@ spec = describe "state over the doubles" $ do
                         `shouldBe` ["fix: cd '/grand work' && state answer " <> qid <> " postgres --by " <> mid]
 
             it "takes the same answer again, appending nothing to any run" $ \world -> do
-                (_, _, grand) <- threeLevels world
-                let qid = grand <> ":1"
-                climbed world qid
+                _ <- threeLevels world
+                qid <- climbed world
                 _ <- succeeded =<< state world ["answer", qid, "postgres"]
 
                 same <- succeeded =<< state world ["answer", qid, "postgres"]
@@ -1423,9 +1503,8 @@ spec = describe "state over the doubles" $ do
                 answersIn world `shouldReturn` [1, 1, 1]
 
             it "refuses another answer to a question it holds an answer to" $ \world -> do
-                (_, _, grand) <- threeLevels world
-                let qid = grand <> ":1"
-                climbed world qid
+                _ <- threeLevels world
+                qid <- climbed world
                 _ <- succeeded =<< state world ["answer", qid, "postgres"]
 
                 other <- state world ["answer", qid, "sqlite"]
@@ -1461,9 +1540,8 @@ spec = describe "state over the doubles" $ do
                 it
                     "writes a grandchild's question, forwarded by the middle run and ruled at the top, down to the grandchild"
                     $ \world -> do
-                        (_, _, grand) <- directLevels world
-                        let qid = grand <> ":1"
-                        _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                        _ <- directLevels world
+                        qid <- askedQId world ["--kind", "Design", "which", "store?"]
                         atWorktree world midWorktree
                         _ <- succeeded =<< state world ["forward", qid]
                         atWorktree world "/work"
@@ -1486,9 +1564,8 @@ spec = describe "state over the doubles" $ do
                 it
                     "answers a child's question in triage with state answer, forwarding and answering in one, down to the grandchild"
                     $ \world -> do
-                        (_, _, grand) <- directLevels world
-                        let qid = grand <> ":1"
-                        _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                        _ <- directLevels world
+                        qid <- askedQId world ["--kind", "Design", "which", "store?"]
                         atWorktree world midWorktree
                         _ <- succeeded =<< state world ["forward", qid]
                         atWorktree world "/work"
@@ -1504,9 +1581,8 @@ spec = describe "state over the doubles" $ do
                 it
                     "parks a child's question from the parent: the grandchild's next says so, the parent goes on, a later answer closes it"
                     $ \world -> do
-                        (_, _, grand) <- directLevels world
-                        let qid = grand <> ":1"
-                        _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                        _ <- directLevels world
+                        qid <- askedQId world ["--kind", "Design", "which", "store?"]
                         atWorktree world midWorktree
                         _ <- succeeded =<< state world ["forward", qid]
                         atWorktree world "/work"
@@ -1530,9 +1606,8 @@ spec = describe "state over the doubles" $ do
                 it
                     "tells a child its parked question stays open until the parent's answer comes down"
                     $ \world -> do
-                        (_, mid, grand) <- directLevels world
-                        let qid = grand <> ":1"
-                        _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                        (_, mid, _) <- directLevels world
+                        qid <- askedQId world ["--kind", "Design", "which", "store?"]
                         atWorktree world midWorktree
                         _ <- succeeded =<< state world ["forward", qid]
                         atWorktree world "/work"
@@ -1563,16 +1638,15 @@ spec = describe "state over the doubles" $ do
                     (asked, ruled) <- evalIO $ do
                         world <- newWorld
                         parent <- startedIn world ["--flow", "10x"]
-                        runs <- for [1 .. children] $ \i -> do
+                        qids <- for [1 .. children] $ \i -> do
                             atWorktree world (directWorktree i)
-                            run <-
+                            _ <-
                                 startedIn world ["--notes", Text.pack (directNotes i), "--parent", parent]
-                            _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
-                            pure run
+                            askedQId world ["--kind", "Design", "which", "store?"]
                         asked <- traverse (loggedIn world . directNotes) [1 .. children]
                         atWorktree world "/work"
-                        for_ [run | (i, run) <- zip [1 ..] runs, i == asker] $ \run ->
-                            succeeded =<< state world ([command, run <> ":1"] <> rest)
+                        for_ [qid | (i, qid) <- zip [1 ..] qids, i == asker] $ \qid ->
+                            succeeded =<< state world ([command, qid] <> rest)
                         ruled <- traverse (loggedIn world . directNotes) [1 .. children]
                         pure (asked, ruled)
                     let others = filter ((/= asker) . fst) . zip [1 ..]
@@ -1856,15 +1930,32 @@ directWorktree i = "/direct-work-" <> show i
 
 {- | The grandchild asks a Design question, the middle run forwards it, and
 the top forwards it to the user; later calls run in the top's worktree.
+Its qid.
 -}
-climbed :: IORef World -> Text -> IO ()
-climbed world qid = do
-    _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+climbed :: IORef World -> IO Text
+climbed world = do
+    qid <- askedQId world ["--kind", "Design", "which", "store?"]
     atWorktree world midWorktree
     _ <- succeeded =<< state world ["forward", qid]
     atWorktree world "/work"
     _ <- succeeded =<< state world ["forward", qid]
-    pure ()
+    pure qid
+
+{- | Each question of the run's own the log asks: its qid, and the id of the
+line asking it.
+-}
+ownAsked :: [Envelope] -> [(Text, Text)]
+ownAsked envelopes =
+    [ (Ask.qidText qid, numberedText envelope.run envelope.seq)
+    | envelope <- envelopes
+    , Asked asking <- [envelope.event]
+    , let qid@(Ask.QId asker _) = asking.question.qid
+    , asker == envelope.run
+    ]
+
+-- | A write of the run's, as an agent makes it: one that asks a question, or one between.
+data Write = Note | OwnAsk | AskFrom | Stuck | Spawn | Next
+    deriving stock (Bounded, Enum, Show)
 
 -- | How many answers each run's log holds, top first.
 answersIn :: IORef World -> IO [Int]
