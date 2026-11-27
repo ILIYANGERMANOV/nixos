@@ -458,14 +458,39 @@ spec = describe "State.Run.Fan" $ do
             map (.id) . spawnable [] . restarted <$> spawning [] t1 oneTask
                 `shouldBe` Right [t1]
 
+    it "keeps_every_merge_head_try_and_held_wake_through_any_in_place_edit"
+        . hedgehog
+        $ do
+            fan <- forAll genFan
+            edits <- forAll (Gen.list (Range.linear 0 10) genEdit)
+            let after = foldl' (\now edit -> fromRight now (edited edit now)) fan edits
+                ids = map (.id) (Fan.tasksOf fan)
+                mergedOf now = Map.filter isMerged now.moves
+            cover 10 "an edit taken" (after /= fan)
+            (mergedOf after, after.heads, map (tries after) ids, after.held)
+                === (mergedOf fan, fan.heads, map (tries fan) ids, fan.held)
+
     describe "a new breakdown" $ do
-        it "starts a fresh fan-out" $
-            ( spawned [] (childFor "c1" t1) independent
-                >>= handedBack (runId "c1") (Finished (oneLine "PR"))
-                >>= moved t1 (Merged (Url "pr"))
-                >>= broken 1 (tasksOf (plainTask "t3" [] :| []))
-            )
-                `shouldBe` Right (fresh (tasksOf (plainTask "t3" [] :| [])))
+        it "starts a fresh fan-out, the old breakdown kept as it ended" $ do
+            let old =
+                    spawned [] (childFor "c1" t1) independent
+                        >>= handedBack (runId "c1") (Finished (oneLine "PR"))
+                        >>= moved t1 (Merged (Url "pr"))
+                        >>= held t2 (Url "pull/2")
+                        >>= headed t1 (Sha "a")
+                next = old >>= broken 2 (tasksOf (plainTask "t1" [] :| []))
+            ( map (.id) . spawnable [] <$> next
+                , map asFan . (.replaced) <$> next
+                )
+                `shouldBe` (Right [t1], (\ended -> [ended {atWork = Set.empty}]) <$> old)
+
+        it "keeps_each_replaced_breakdown_as_it_ended_oldest_first" . hedgehog $ do
+            old <- forAll genFan
+            tasks <- forAll genTasks
+            let twice = broken 100 tasks old >>= \mid -> (mid,) <$> broken 101 tasks mid
+            cover 10 "replaced twice" (isRight twice)
+            for_ twice $ \(mid, after) ->
+                map asFan after.replaced === [old, mid {replaced = []}]
 
         it "is refused while an agent is at work" $
             ( spawning [] t1 independent
@@ -562,6 +587,37 @@ genLoose =
         name <- Gen.element ids
         pure task {Artifact.id = name, Artifact.deps = deps, Artifact.base = base}
     ids = map (TaskId . ("t" <>) . Text.pack . show) [1 :: Int .. 5]
+
+{- | An edit of the breakdown in place: a task added, a base changed, a
+task parked to drop it.
+-}
+data Edit = Add Task | Rebase TaskId Base | Drop TaskId
+    deriving stock (Show)
+
+genEdit :: Gen Edit
+genEdit =
+    Gen.choice
+        [ Add <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
+        , Rebase <$> genTaskId <*> Gen.choice [pure OnDefault, OnTask <$> genTaskId]
+        , Drop <$> genTaskId
+        ]
+
+edited :: Edit -> Fan -> Either Refusal Fan
+edited = \case
+    Add task -> added 1 task
+    Rebase task base -> rebased task base
+    Drop task -> moved task (Parked "dropped" Nothing)
+
+-- | The task's PR merged, by any URL.
+isMerged :: TaskState -> Bool
+isMerged = \case
+    Merged _ -> True
+    Parked _ _ -> False
+    InReview _ -> False
+    InCi _ -> False
+    Kept _ -> False
+    Round _ -> False
+    Delivered _ -> False
 
 -- | A breakdown, then spawns, hand-backs and moves, each kept only where the fan accepts it.
 genFan :: Gen Fan

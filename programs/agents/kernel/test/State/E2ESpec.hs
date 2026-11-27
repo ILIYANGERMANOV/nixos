@@ -2010,6 +2010,131 @@ spec = describe "the state binary" $ do
                     fixOf bin repo ["record", "task", "t9", "base", "on_default", "--reason", "r"]
                 followed bin fix repo ["show"]
 
+        {- The reviewer's probes p2, p3 and p10: a 10x re-plans with its
+        children at work, and starts a next round. -}
+        describe "a re-plan with children at work" $ do
+            it
+                "takes a live child's hand-back, a merge and a held wake off the fan-out, then keeps the old breakdown as history"
+                $ \repo -> do
+                    parent <- tenXAtFanOut bin repo
+                    let pr n = "https://github.com/o/r/pull/" <> show (n :: Int)
+                        next = repo.root </> "next.json"
+                    Text.writeFile next (breakdownJson [plainTask "t3" []])
+                    for_
+                        [["record", "task", "t1", "merged", pr 1], ["record", "spawning", "t2"]]
+                        (succeeded <=< state bin repo)
+                    w2 <- worktree repo "w2"
+                    c2 <- childRun bin w2 parent "n2" "t2"
+                    _ <-
+                        succeeded
+                            =<< state bin repo ["override", "plan", "the", "user", "reshaped", "it"]
+                    relay bin repo ["HANDBACK READY " <> Text.pack (pr 2), "Run: " <> c2]
+                    for_
+                        [ ["record", "task", "t2", "merged", pr 2]
+                        , ["record", "held", "t2", pr 3]
+                        , ["override", "breakdown", "a", "next", "round"]
+                        , ["record", "breakdown.done", "--tasks", next]
+                        ]
+                        (succeeded <=< state bin repo)
+                    spawns <- succeeded =<< state bin repo ["next"]
+                    shown <- succeeded =<< state bin repo ["show"]
+                    resumed <- succeeded =<< state bin repo ["resume"]
+                    workers <- eventsOf ["worker_handed_back"] repo parent
+                    -- The old breakdown's merged tasks are history: only the new one's task is sent.
+                    ( take 1 spawns
+                        , filter (\line -> any (`Text.isInfixOf` line) ["task t", "replaced:"]) shown
+                        , [ Text.unwords (take 2 (Text.words line))
+                          | line <- resumed
+                          , any (`Text.isPrefixOf` Text.strip line) ["tasks (", "t1 ", "t2 ", "t3 "]
+                          ]
+                        , length workers
+                        )
+                        `shouldBe` ( ["SPAWN engineer --task t3 background: yes"]
+                                   ,
+                                       [ "task t3: not started, tries 0"
+                                       , "breakdown 5, replaced:"
+                                       , "  task t1: not started, PR merged " <> Text.pack (pr 1) <> ", tries 0"
+                                       , "  task t2: child "
+                                            <> c2
+                                            <> " finished: "
+                                            <> Text.pack (pr 2)
+                                            <> ", PR merged "
+                                            <> Text.pack (pr 2)
+                                            <> ", tries 1, held "
+                                            <> Text.pack (pr 3)
+                                       ]
+                                   ,
+                                       [ "tasks (breakdown"
+                                       , "t1 merged"
+                                       , "t2 merged"
+                                       , "tasks (breakdown"
+                                       , "t3 planned"
+                                       ]
+                                   , 0
+                                   )
+
+            it
+                "takes a child's question and another's stop while the 10x re-plans, and a new spawn there"
+                $ \repo -> do
+                    parent <- tenXAtFanOut bin repo
+                    _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
+                    w1 <- worktree repo "w1"
+                    c1 <- childRun bin w1 parent "n1" "t1"
+                    _ <- succeeded =<< state bin repo ["record", "spawning", "t2"]
+                    w2 <- worktree repo "w2"
+                    _ <- childRun bin w2 parent "n2" "t2"
+                    _ <- succeeded =<< state bin repo ["override", "plan", "reshaping"]
+                    q1 <- askedQid bin w1 "Design" ["A", "or", "B?"]
+                    _ <- succeeded =<< state bin w2 ["stop", "failed", "broke"]
+                    _ <-
+                        succeeded
+                            =<< state
+                                bin
+                                repo
+                                ["rule", Text.unpack q1, "--answer", "A", "--why", "simpler", "--cost", "none"]
+                    _ <- succeeded =<< state bin repo ["retry", "t2", "--why", "a fresh agent"]
+                    w3 <- worktree repo "w3"
+                    c3 <- childRun bin w3 parent "n3" "t2"
+                    child <- succeeded =<< state bin w1 ["show"]
+                    shown <- succeeded =<< state bin repo ["show"]
+                    ( mentions (q1 <> " Design: A or B? - A") child
+                        , filter ("task t" `Text.isInfixOf`) shown
+                        )
+                        `shouldBe` ( True
+                                   ,
+                                       [ "task t1: child " <> c1 <> " waits to resume, tries 1"
+                                       , "task t2: child " <> c3 <> " running, tries 2"
+                                       ]
+                                   )
+
+            it
+                "refuses a relayed hand-back at the breakdown as the child's, takes it back at the engineers, then breaks down anew"
+                $ \repo -> do
+                    parent <- tenXAtFanOut bin repo
+                    _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
+                    w1 <- worktree repo "w1"
+                    c1 <- childRun bin w1 parent "n1" "t1"
+                    _ <- succeeded =<< state bin repo ["override", "breakdown", "re-plan"]
+                    let failed = Text.unpack (Text.unlines ["FAILED it died", "Run: " <> c1])
+                    refused <- stateIn bin repo failed ["handback", "engineer"]
+                    refused.err
+                        `shouldBe` [ "state handback: breakdown.handed_back - the run is at breakdown: a child's spawn and hand-back are taken at engineers or off the fan-out"
+                                   , "fix: state override engineers <why>, then the child's command again"
+                                   ]
+                    followed
+                        bin
+                        (Text.unwords (drop 1 (concatMap Text.words (drop 1 refused.err))))
+                        repo
+                        ["override", "engineers", "back", "to", "the", "fan-out"]
+                    _ <- succeeded =<< stateIn bin repo failed ["handback", "engineer"]
+                    for_
+                        [ ["override", "breakdown", "re-plan"]
+                        , ["record", "breakdown.done", "--tasks", repo.root </> "tasks.json"]
+                        ]
+                        (succeeded <=< state bin repo)
+                    workers <- eventsOf ["worker_handed_back"] repo parent
+                    length workers `shouldBe` 0
+
         describe "a tree of runs: a 10x under a 10x, an engineer under that" $ do
             it "climbs a question to the top and writes its one answer down to every run" $ \repo -> do
                 Tree {mid, midRun, grand, grandRun} <- treeOfRuns bin repo

@@ -117,7 +117,7 @@ samples =
         , FanRefused (Fan.TaskExists task)
         , FanRefused (Fan.TaskMerged task (Url "https://github.com/o/r/pull/7"))
         , NotAtFan
-        , NotOneHolder task [TaskNo 1, TaskNo 2]
+        , NotOneHolder task
         , NotVoidable 4
         , VoidBreaks 4 NotStarted
         , NoFocus

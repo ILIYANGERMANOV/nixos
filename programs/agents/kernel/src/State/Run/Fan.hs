@@ -8,11 +8,14 @@ its child hands back or the task is parked, so the 10x sends one agent per
 task, once. A child's stop is the 10x's to triage before another child takes
 the task. Which tasks to spawn next is derived here too: every task free of
 an agent, once its dependencies merged. A new breakdown starts a fresh
-fan-out, refused while an agent is at work on the old one.
+fan-out, refused while an agent is at work on the old one: the old one's
+tasks stay, read only, as finished history ('Replaced').
 -}
 module State.Run.Fan (
     Fan (..),
     Breakdown (..),
+    Replaced (..),
+    asFan,
     tasksOf,
     taskRef,
     childRef,
@@ -106,8 +109,31 @@ data Fan = Fan
     -- ^ The rounds asked of each task on its PR: a task never asked one is absent.
     , heads :: Map TaskId Sha
     -- ^ The commit each task's branch was last seen at: a task never seen is absent.
+    , replaced :: [Replaced]
+    -- ^ The breakdowns a later one replaced, oldest first.
     }
     deriving stock (Eq, Show)
+
+{- | A breakdown a later one replaced, as it ended: its tasks' facts, read
+only. Nothing works on it, so it holds no agent at work, and no history of
+its own: the fan-out holds the list. A task of it is never spawned again: a
+task of the same id in the new breakdown is another task (decision 27). Its
+fields are 'Fan''s, so it names none: 'asFan' reads it.
+-}
+data Replaced
+    = Replaced
+        Breakdown
+        [ChildRun]
+        (Map TaskId TaskState)
+        [(TaskId, Url)]
+        (Map TaskId Int)
+        (Map TaskId Sha)
+    deriving stock (Eq, Show)
+
+-- | A replaced breakdown as a fan-out with no agent at work, so the fan-out's views read it.
+asFan :: Replaced -> Fan
+asFan (Replaced listed children moves wakes rounds heads) =
+    emptyFan {breakdown = Just listed, children, moves, held = wakes, rounds, heads}
 
 {- | The fan-out's tasks, in the breakdown's order, and the seq of the
 @breakdown.done@ that listed them, or of the @task_added@ that started them
@@ -188,15 +214,25 @@ emptyFan =
         , atWork = Set.empty
         , rounds = Map.empty
         , heads = Map.empty
+        , replaced = []
         }
 
 {- | A breakdown, logged at this seq, starts a fresh fan-out: refused while
-an agent works on a task of the old one.
+an agent works on a task of the old one. The old breakdown, if any, joins
+the replaced ones with every fact of its tasks.
 -}
 broken :: Natural -> Tasks -> Fan -> Either Refusal Fan
 broken n tasks fan = case NonEmpty.nonEmpty (map (.id) (busy fan)) of
     Just working -> Left (Busy working)
-    Nothing -> Right emptyFan {breakdown = Just (Breakdown n (tasksInOrder tasks))}
+    Nothing ->
+        Right
+            emptyFan
+                { breakdown = Just (Breakdown n (tasksInOrder tasks))
+                , replaced = fan.replaced <> foldMap (pure . replacedBy) fan.breakdown
+                }
+  where
+    replacedBy listed =
+        Replaced listed fan.children fan.moves fan.held fan.rounds fan.heads
 
 {- | A task joins after the breakdown, last: its dependencies and its base's
 task are tasks the fan-out has, so they stay acyclic. It is spawnable as any

@@ -69,7 +69,13 @@ import State.Artifact (
     uriText,
     urlKindText,
  )
-import State.Category.Flow (ScopePath, qualifyText, unqualify)
+import State.Category.Flow (
+    ScopePath,
+    namedState,
+    qualify,
+    qualifyText,
+    unqualify,
+ )
 import State.Category.Fuel (Fuel, choices, parseByName)
 import State.Category.Graph (
     Cap (..),
@@ -86,6 +92,7 @@ import State.Category.Step (
     EventName (..),
     eventText,
     handedBackOutcome,
+    spawnedOutcome,
     stateNameText,
  )
 import State.Cli.Query (
@@ -1207,6 +1214,19 @@ explain g fuel at = \case
             "the event"
             ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why)
             "state init --notes <a new dir>"
+    -- A child's event where the run stands at its fan-out's breakdown or merge: its own state takes it.
+    NoEdge _ event
+        | event.outcome `elem` [spawnedOutcome, handedBackOutcome]
+        , Just scoped <- Fold.fanAt at ->
+            refused
+                (eventText event)
+                ( "the run is at "
+                    <> atText at
+                    <> ": a child's spawn and hand-back are taken at "
+                    <> fanState scoped
+                    <> " or off the fan-out"
+                )
+                ("state override " <> fanState scoped <> " <why>, then the child's command again")
     NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText at) records
     NotSkippable _ -> refused "the skip" "this Fuel never skips the block" "state next"
     OutOfBudget cap allowed ->
@@ -1384,20 +1404,11 @@ explain g fuel at = \case
             "the child's or task's event"
             ("the run is at " <> atText at <> ", no fan-out's state")
             "state show"
-    NotOneHolder task requests -> case requests of
-        [] ->
-            refused
-                ("task " <> Codec.taskIdText task)
-                "no request's breakdown has such a task"
-                "state show"
-        holding ->
-            refused
-                ("task " <> Codec.taskIdText task)
-                ( "requests "
-                    <> Text.unwords (map taskNoText holding)
-                    <> " each have such a task in their breakdown"
-                )
-                "state tasks"
+    NotOneHolder task ->
+        refused
+            ("task " <> Codec.taskIdText task)
+            "no fan-out's breakdown has such a task"
+            "state show"
     NotVoidable n ->
         refused
             ("seq " <> tshow n)
@@ -1506,6 +1517,7 @@ explain g fuel at = \case
         Out -> "state show"
         Exit -> "state show"
     stateNames = map (stateNameText . placeName) (Set.toList (places g))
+    fanState scoped = stateNameText (qualify scoped.scope (namedState scoped.fan))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid
 
@@ -1691,7 +1703,7 @@ retryOf state task = case ( Fan.lookupTask fan task
                 )
     (Just found, Just (child, stop)) -> Right (found, child, stop)
   where
-    fan = Fold.currentFan state
+    fan = Fold.taskFan state task
     refused = Failure BadInput ("task " <> Codec.taskIdText task)
 
 {- | A question its asker has not open already, and the run has no answer

@@ -2160,7 +2160,7 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
                                 ( "ruled "
                                     <> qidText question.qid
                                     <> " retry\n\n"
-                                    <> taskBrief after (Fold.currentFan after) found
+                                    <> taskBrief after (Fold.taskFan after found.id) found
                                 )
                     )
     Forward raw raise ->
@@ -2856,19 +2856,20 @@ sentEvent down = case down.sent of
         Ask.Other _ -> " --other "
 
 {- | The answer the run holds to the question, or why it parked it, for the
-child that asked it: the fan-out's live child that asked it, in any of its
-hand-backs, else the direct child it came up from. A fan-out's child that
-stopped, its stop asked here, is neither.
+child that asked it: a fan-out's live child that asked it, in any of its
+hand-backs, wherever the run's step is, else the direct child it came up
+from. A fan-out's child that stopped, its stop asked here, is neither.
 -}
 downOf :: RunState -> RunState -> QId -> Maybe Down
 downOf before after qid = do
     asker <-
-        ((.child.run) <$> Fan.askerOf fan qid)
+        listToMaybe
+            [(.child.run) found | fan <- fans, Just found <- [Fan.askerOf fan qid]]
             <|> listToMaybe
                 [ run
                 | open <- maybeToList (Fold.pendingAt before qid)
                 , ChildRun run <- [open.asking.from]
-                , run `notElem` map (.child.run) fan.children
+                , run `notElem` [childRun.child.run | fan <- fans, childRun <- fan.children]
                 ]
     sent <-
         listToMaybe
@@ -2876,7 +2877,7 @@ downOf before after qid = do
             <|> (ParkedFor <$> Fold.parkedFor after qid)
     Just (Down after.run asker qid sent)
   where
-    fan = Fold.currentFan before
+    fans = Map.elems before.fans
 
 {- | The answer, appended to the asking child's log under its lock by ids
 hashed from both runs and the question, so a retry appends it once; then on
@@ -3454,13 +3455,13 @@ childStart parent named g state = case parent.link of
 or waiting, must have it in its breakdown.
 -}
 childTask :: OpenGraph -> TaskId -> RunState -> Either Failure Task
-childTask g taskId state = Bifunctor.bimap notOne (.held) (Fold.taskHolder state taskId)
+childTask g taskId state = maybe (Left notOne) (Right . (.held)) (Fold.taskHolder state taskId)
   where
-    notOne requests =
+    notOne =
         Failure
             BadInput
             ("--task " <> taskIdText taskId)
-            (explain g (Fold.fuelOf state) state.at (Fold.NotOneHolder taskId requests)).why
+            (explain g (Fold.fuelOf state) state.at (Fold.NotOneHolder taskId)).why
             initLineFix
 
 -- | The task's flow; a @--flow@ named must be that one.
@@ -3630,7 +3631,7 @@ counts as running; the run's own failure is its command's to tell.
 endedChildren :: (Shell es) => Eff es [RunId]
 endedChildren =
     onRun
-        (\_ run -> ([], Right (map (.child) (Fan.running (Fold.currentFan run.state)))))
+        (\_ run -> ([], Right (map (.child) (foldMap Fan.running run.state.fans))))
         >>= \case
             NoRun -> pure []
             Ran (Left _) -> pure []

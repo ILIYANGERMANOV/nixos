@@ -26,6 +26,7 @@ module State.Protocol.Advice (
     deliverPrompt,
     ownAsk,
     factLines,
+    taskLine,
     childBudget,
 ) where
 
