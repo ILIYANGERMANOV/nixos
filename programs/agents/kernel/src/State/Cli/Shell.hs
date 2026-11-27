@@ -549,7 +549,11 @@ callerBinding ::
     Call -> Eff es (Maybe Slot, Maybe Binding)
 callerBinding call = do
     slot <- slotFor call.session (keyOf call.agent)
-    (slot,) <$> maybe (pure Nothing) (readBinding . bindingFile) slot
+    (slot,) <$> slotBinding slot
+
+-- | The binding a slot holds, if any.
+slotBinding :: (RoFileSystem :> es) => Maybe Slot -> Eff es (Maybe Binding)
+slotBinding = maybe (pure Nothing) (readBinding . bindingFile)
 
 -- | A binding, and whether its worktree stands: git finds none there once it is removed.
 standing ::
@@ -1585,7 +1589,7 @@ resumedRun :: (Shell es) => Eff es (Either Failure (Maybe RunId))
 resumedRun =
     stateSession
         >>= (`slotFor` Main)
-        >>= maybe (pure Nothing) (readBinding . bindingFile)
+        >>= slotBinding
         >>= \case
             Just binding -> pure (Right (Just binding.run))
             Nothing -> gitDir >>= traverse readPointer

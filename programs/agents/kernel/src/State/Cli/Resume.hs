@@ -10,8 +10,6 @@ them: a section a later slice adds is one more entry in 'sections'.
 module State.Cli.Resume (
     Input (..),
     packet,
-    sections,
-    contextMap,
     artifactsOf,
     placeOf,
 ) where
@@ -44,7 +42,7 @@ import State.Category.Fuel (fuelName)
 import State.Category.Graph (Node (..))
 import State.Category.Step (stateNameText)
 import State.Cli.View (answerLine, pendingLines, section)
-import State.Protocol.Advice (Facts (..), prUrl)
+import State.Protocol.Advice (recordedPr)
 import State.Protocol.Handback (TokenWord (..), tokenWordText)
 import State.Run.Ask (Principal (..), Question (..), qidText, rulingLine)
 import State.Run.Codec (
@@ -73,7 +71,6 @@ import State.Run.Event (
     Stop (..),
     Task (..),
     TaskState (Parked),
-    Url,
     runIdText,
  )
 import State.Run.Fan (ChildRun (..), Fan (..), latest, pullRequest)
@@ -179,7 +176,7 @@ place input =
 pr :: Input -> [Text]
 pr input =
     [ "pr: "
-        <> maybe "none yet" urlText (runPr input)
+        <> maybe "none yet" urlText (recordedPr input.state)
         <> "   notes dir: "
         <> Text.pack input.state.start.notes
     ]
@@ -418,7 +415,7 @@ rawLog input = ["  raw log: state dump " <> runIdText input.state.run]
 
 -- | CI and mergeable state are live GitHub reads: the run's own PR's commands.
 liveState :: Input -> [Text]
-liveState input = case runPr input of
+liveState input = case recordedPr input.state of
     Nothing -> []
     Just url ->
         [ ""
@@ -436,10 +433,6 @@ kept input = fst (unvoided (toList input.logged))
 -- | A line of this run, as @<run>:<seq>@.
 here :: Input -> Natural -> Text
 here input = numberedText input.state.run
-
--- | The PR the run recorded last.
-runPr :: Input -> Maybe Url
-runPr input = prUrl (Facts Nothing Nothing []) input.state
 
 fans :: Input -> [Fan]
 fans input = Map.elems input.state.fans

@@ -21,6 +21,7 @@ import State.Cli.Shell.World (
     World (..),
     addWorktree,
     appendUnread,
+    askedQId,
     atWorktree,
     childRun,
     drive,
@@ -104,7 +105,7 @@ spec = describe "state resume over the doubles" . before newWorld $ do
                 "/home/.local/state/state/bindings/s9/main"
                 ("run " <> parent <> " /notes /work\n")
             worktree <- succeeded =<< state world ["resume"]
-            modifyIORef' world (\w -> w {env = Map.insert "STATE_SESSION" "s9" w.env})
+            inSession world "s9"
             bound <- succeeded =<< state world ["resume"]
             (runOfHeader worktree, runOfHeader bound)
                 `shouldBe` ( ["resume run " <> child <> " (engineer)"]
@@ -213,7 +214,7 @@ genOps =
 loggedRun :: [Op] -> IO (IORef World, [EventRow])
 loggedRun ops = do
     world <- newWorld
-    modifyIORef' world (\w -> w {env = Map.insert "STATE_SESSION" "s1" w.env})
+    inSession world "s1"
     _ <- startedRun world
     -- Each question is asked once: its text is its place among the writes.
     for_ (zip [1 :: Int ..] ops) $ \(i, op) ->
@@ -250,14 +251,8 @@ handover. The run's id.
 -}
 packedRun :: IORef World -> IO Text
 packedRun world = do
-    modifyIORef'
-        world
-        ( \w ->
-            w
-                { env = Map.insert "STATE_SESSION" "s1" w.env
-                , origin = Just "git@github.com:o/r.git"
-                }
-        )
+    inSession world "s1"
+    modifyIORef' world (\w -> w {origin = Just "git@github.com:o/r.git"})
     tenX <-
         tenXAtFanOutBy
             world
@@ -286,14 +281,13 @@ packedRun world = do
     later
     _ <- succeeded =<< state world ["note", "--topic", "live", "CI", "is", "slow"]
     _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
-    picked <- askedQid =<< state world ["ask", "--kind", "Pick", "which", "lib?"]
+    picked <- askedQId world ["--kind", "Pick", "which", "lib?"]
     _ <-
         succeeded
             =<< state
                 world
                 ["rule", picked, "--answer", "zod", "--why", "already used", "--cost", "none"]
-    forwarded <-
-        askedQid =<< state world ["ask", "--kind", "Scope", "ship", "t2", "too?"]
+    forwarded <- askedQId world ["--kind", "Scope", "ship", "t2", "too?"]
     _ <- succeeded =<< state world ["forward", forwarded]
     addWorktree world "/work2"
     _ <- succeeded =<< state world ["move", "/work2"]
@@ -317,7 +311,8 @@ packedRun world = do
     pure tenX
   where
     later = modifyIORef' world (\w -> w {clock = addUTCTime 90 w.clock})
-    askedQid ran =
-        succeeded ran >>= \case
-            asked : _ | Just qid <- Text.stripPrefix "asked " asked -> pure qid
-            out -> fail ("no asked line: " <> show out)
+
+-- | Every later call runs in the session @STATE_SESSION@ names.
+inSession :: IORef World -> String -> IO ()
+inSession world session =
+    modifyIORef' world (\w -> w {env = Map.insert "STATE_SESSION" session w.env})
