@@ -29,7 +29,7 @@ import State.Run.EventGen (absolutePath, epicNamed, oneLine, runId)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..))
 import State.Run.Gap qualified as Gap
-import State.Run.Id (EventRef (..))
+import State.Run.Id (Digest (..), EventId (..), EventRef (..))
 import State.Run.RunGen (g)
 import State.Step.Artifact (EpicName, Url (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
@@ -101,6 +101,7 @@ samples =
         , NotAllowed (Ask.NeverAskedOf User Stuck)
         , NotAllowed (Ask.NoBasis qid)
         , NotAbove TheUser
+        , UnknownBasis qid (Hashed (Digest "00000000deadbeef"))
         , FanRefused (Fan.UnknownTask task)
         , FanRefused (Fan.StillRunning task run)
         , FanRefused (Fan.SpawnedTwice run)

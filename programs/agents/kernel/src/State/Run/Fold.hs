@@ -150,6 +150,7 @@ import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (
     Above,
+    Basis (..),
     Cond (OneRetry),
     Kind (Security),
     OneLine,
@@ -182,7 +183,7 @@ import State.Run.Event (
     Envelope (..),
     EpicName,
     Event (..),
-    EventId,
+    EventId (..),
     Instruction,
     Judgement (..),
     Label,
@@ -446,6 +447,8 @@ data Refusal
       NotAllowed Ask.Refusal
     | -- | A forward or answer naming another than whoever started the run.
       NotAbove Above
+    | -- | A ruling whose basis names a line this run never logged.
+      UnknownBasis QId EventId
     | FanRefused Fan.Refusal
     | -- | A child's event no fan-out holds, or a task added, where the run is at no fan-out's state and has none.
       NotAtFan
@@ -1633,12 +1636,30 @@ retagged state qid = do
 ruledOn :: RunState -> QId -> Proposal -> Either Refusal RunState
 ruledOn state qid proposal = do
     asking <- forTriage qid state.pending
+    knownBasis state.run state.seen qid proposal.basis
     let rung = Role.rungAt state.start.flow asking.step
     ruling <- Bifunctor.first NotAllowed $ case triaging state asking of
         RulesOrForwards -> Ask.rule rung asking.question.kind asking.question proposal
         ForwardsOnly -> Left (Ask.MayNotRule rung asking.question.kind)
     Right
         state {pending = close qid state.pending, rulings = state.rulings <> [ruling]}
+
+{- | A basis naming a line names one the run logged: a hook's line by its
+digest, the run's own by its seq. Another run's line is not checked: its
+log is not read here.
+-}
+knownBasis :: RunId -> Set EventId -> QId -> Maybe Basis -> Either Refusal ()
+knownBasis run seen qid = \case
+    Just (AnsweredBy event@(Hashed _)) -> logged event
+    Just (AnsweredBy event@(Numbered on _))
+        | on == run -> logged event
+        | otherwise -> Right ()
+    Just (Obvious _) -> Right ()
+    Nothing -> Right ()
+  where
+    logged event
+        | Set.member event seen = Right ()
+        | otherwise = Left (UnknownBasis qid event)
 
 -- | What the run may do with a question in triage.
 data Triaging = RulesOrForwards | ForwardsOnly

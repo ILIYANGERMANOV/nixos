@@ -421,7 +421,7 @@ spec = describe "Effects.Store.Projection" $ do
                            ]
 
         it
-            "rests a hashed basis on its hook line, and one no line holds on no line (D6)"
+            "rests a hashed basis on its hook line, and another run's on that run's line (D6)"
             $ [ map
                     (\c -> Map.lookup c =<< listToMaybe r)
                     ["basis_kind", "basis_event_run_id", "basis_event_seq"]
@@ -429,7 +429,7 @@ spec = describe "Effects.Store.Projection" $ do
               , let r = row "rulings" [("question_id", SqlInteger id')]
               ]
                 `shouldBe` [ [Just (SqlText "event"), Just (SqlText (runIdText run)), Just (SqlInteger 6)]
-                           , [Just (SqlText "event"), Just SqlNull, Just SqlNull]
+                           , [Just (SqlText "event"), Just (SqlText "p1"), Just (SqlInteger 4)]
                            ]
 
         it "gives a child that stopped to re-plan no token (D8)" $
@@ -1162,7 +1162,7 @@ tenXRun =
                 , asked 11 Pick Itself
                 , RuledOn (q 11) (ruling (Just (AnsweredBy (Hashed (Digest spawnDigest)))))
                 , asked 13 Pick Itself
-                , RuledOn (q 13) (ruling (Just (AnsweredBy (Hashed (Digest "00000000deadbeef")))))
+                , RuledOn (q 13) (ruling (Just (AnsweredBy (Numbered (runId "p1") 4))))
                 , asked 15 Design (Subagent (AgentRole "researcher"))
                 , Forwarded (q 15) TheUser
                 , Answered (q 15) (Chose "yes") TheUser

@@ -1086,6 +1086,36 @@ spec = describe "state over the doubles" $ do
 
                     map (uncurry (==)) . ownAsked <$> logged world `shouldReturn` [True]
 
+            it "refuses a ruling whose basis names no line, logging no ruling" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+                qid <- askedQId world ["--kind", "Pick", "which", "rows?"]
+
+                ran <-
+                    state
+                        world
+                        [ "rule"
+                        , qid
+                        , "--answer"
+                        , "all"
+                        , "--why"
+                        , "the user said"
+                        , "--cost"
+                        , "none"
+                        , "--basis"
+                        , "h:00000000deadbeef"
+                        ]
+
+                (ran.code, ran.err)
+                    `shouldBe` ( 2
+                               ,
+                                   [ "state rule: unknown_basis - the basis h:00000000deadbeef names no line this run logged"
+                                   , "fix: state dump, then state rule "
+                                        <> qid
+                                        <> " --answer <a> --why <w> --cost <c> --basis <an event id it prints>|obvious:<why>"
+                                   ]
+                               )
+                filter (== "ruled") <$> loggedEvents world `shouldReturn` []
+
             it "numbers a retry's question by the seq of the line that asks it" $ \world -> do
                 parent <- tenXAtFanOut world
                 child <- childRun world parent "/child" "t1"

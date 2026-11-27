@@ -798,10 +798,20 @@ genQId = QId <$> genRunId <*> Gen.integral (Range.linear 0 1000)
 genQuestion :: Gen Question
 genQuestion = Question <$> genQId <*> Gen.enumBounded <*> genOneLine
 
--- | Any reading: a kind and a choice.
+{- | Any reading: a kind and a choice. Its ruling's basis names no line, as
+the generator knows no log's lines: a basis naming one the run never logged
+is refused ('State.Run.Fold' tests that).
+-}
 genReading :: Gen Reading
 genReading =
-    Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> genProposal, pure PassOn]
+    Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> unlined, pure PassOn]
+  where
+    unlined =
+        Proposal
+            <$> genOneLine
+            <*> genOneLine
+            <*> genOneLine
+            <*> Gen.maybe (Obvious <$> genOneLine)
 
 genProposal :: Gen Proposal
 genProposal = Proposal <$> genOneLine <*> genOneLine <*> genOneLine <*> Gen.maybe genBasis

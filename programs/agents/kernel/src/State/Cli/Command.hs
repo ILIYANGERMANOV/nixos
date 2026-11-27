@@ -176,7 +176,13 @@ import State.Run.Fold (Answer (about, given), Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Gap (GapMove)
 import State.Run.Gap qualified as Gap
-import State.Run.Id (EventRef, eventRefText, parseEventId, parseEventRef)
+import State.Run.Id (
+    EventRef,
+    eventIdText,
+    eventRefText,
+    parseEventId,
+    parseEventRef,
+ )
 import State.Show (tshow)
 import State.Step.Artifact (
     Branch (..),
@@ -1318,6 +1324,14 @@ explain g fuel at = \case
             "the answer"
             "only whoever started the run answers it"
             "state answer <qid> <answer>"
+    UnknownBasis qid event ->
+        refused
+            "unknown_basis"
+            ("the basis " <> eventIdText event <> " names no line this run logged")
+            ( "state dump, then "
+                <> rule (qidText qid)
+                <> " --basis <an event id it prints>|obvious:<why>"
+            )
     FanRefused refusal -> case refusal of
         Fan.UnknownTask task ->
             refused
@@ -1577,6 +1591,7 @@ refusalCode =
                 Ask.NeverAskedOf {} -> "never_asked_of"
                 Ask.NoBasis {} -> "no_basis"
             NotAbove {} -> "not_above"
+            UnknownBasis {} -> "unknown_basis"
             FanRefused inner -> case inner of
                 Fan.UnknownTask {} -> "unknown_task"
                 Fan.StillRunning {} -> "still_running"

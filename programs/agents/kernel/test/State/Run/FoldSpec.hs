@@ -2153,6 +2153,32 @@ questions = describe "questions" $ do
             )
             `shouldBe` Left (NotAllowed (NoBasis (q 1)))
 
+    it
+        "refuses a ruling whose basis names no line this run logged, and takes another run's line"
+        $ map
+            ( \basis ->
+                void
+                    ( replay
+                        g
+                        ( NonEmpty.appendList
+                            asked
+                            [line 3 (RuledOn (q 1) (proposal {basis = Just (AnsweredBy basis)}))]
+                        )
+                    )
+            )
+            [ Numbered run 1
+            , Hashed (Digest "d1")
+            , Numbered (runId "p1") 9
+            , Numbered run 9
+            , Hashed (Digest "00000000deadbeef")
+            ]
+            `shouldBe` [ Right ()
+                       , Right ()
+                       , Right ()
+                       , Left (UnknownBasis (q 1) (Numbered run 9))
+                       , Left (UnknownBasis (q 1) (Hashed (Digest "00000000deadbeef")))
+                       ]
+
     it "refuses a forward to another than whoever started the run" $
         replay
             g
@@ -2317,6 +2343,10 @@ questions = describe "questions" $ do
         Asked
             (Asking (Question (q 1) kind (oneLine "a question")) (StateName at) Itself)
     proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
+    -- A question asked on a hook's line, after the run's own lines 0 and 1.
+    asked =
+        line 0 started
+            :| [line 1 (fuelSet Balanced), (line 2 (ask 1 Pick)) {source = Hook (Digest "d1")}]
     parent = ParentRun (runId "p1")
     forwardedTo events = [to | Forwarded _ to <- events]
 
