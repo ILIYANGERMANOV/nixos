@@ -105,7 +105,13 @@ import Data.Aeson (
     (.:?),
     (.=),
  )
-import Data.Aeson.Encoding (Encoding, list, pair, pairs)
+import Data.Aeson.Encoding (
+    Encoding,
+    encodingToLazyByteString,
+    list,
+    pair,
+    pairs,
+ )
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
 import Data.Bool (bool)
@@ -120,6 +126,8 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Lazy qualified as Lazy
+import Data.Text.Lazy.Encoding qualified as Lazy
 import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
 import State.FlowName (FlowName, defaultFlow, flowText, namedFlowText)
 import System.FilePath (isAbsolute)
@@ -239,21 +247,26 @@ parseBase raw = case Text.breakOn ":" raw of
   where
     nonEmpty text = if Text.null text then Nothing else Just text
 
-{- | The three bases a refusal names, as 'baseText' spells them: placeholders
-stand in for the epic and task, so the epic name skips 'parseEpicName'.
--}
+-- | The three bases a refusal names, as 'baseText' spells them.
 baseTextForms :: Text
-baseTextForms =
-    baseText OnDefault
-        <> ", "
-        <> baseText (OnEpic (EpicName "<name>"))
-        <> " or "
-        <> baseText (OnTask (TaskId "<earlier task id>"))
+baseTextForms = baseFormsBy baseText
 
 -- | The three bases a refusal names, as a task file spells them.
 baseForms :: Text
 baseForms =
-    "{\"kind\": \"on_default\"}, {\"kind\": \"on_epic\", \"epic\": \"<name>\"} or {\"kind\": \"on_task\", \"task\": \"<earlier task id>\"}"
+    baseFormsBy
+        (Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . baseEncoding)
+
+{- | The three bases, each spelt by the given function: placeholders stand in
+for the epic and task, so the epic name skips 'parseEpicName'.
+-}
+baseFormsBy :: (Base -> Text) -> Text
+baseFormsBy spell =
+    spell OnDefault
+        <> ", "
+        <> spell (OnEpic (EpicName "<name>"))
+        <> " or "
+        <> spell (OnTask (TaskId "<earlier task id>"))
 
 {- | An epic of the run, by the name its branch @epic/<name>@ takes: of
 'slugChar's, so a shell line prints it unquoted. Built by 'parseEpicName' alone.
@@ -518,7 +531,10 @@ planData plan = "plan" .= planName plan
 
 -- | A union under @base@: @{kind: on_default}@, @{kind: on_epic, epic}@ or @{kind: on_task, task}@.
 baseData :: Base -> Series
-baseData base = pair "base" . pairs $ case base of
+baseData = pair "base" . baseEncoding
+
+baseEncoding :: Base -> Encoding
+baseEncoding base = pairs $ case base of
     OnDefault -> tag "on_default"
     OnEpic epic -> tag "on_epic" <> "epic" .= epicNameText epic
     OnTask task -> tag "on_task" <> "task" .= taskIdText task

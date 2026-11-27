@@ -165,8 +165,8 @@ spec = describe "State.Run.Codec" $ do
                 )
                 `shouldBe` Left
                     ( "Error in $: a base is "
-                        <> "{\"kind\": \"on_default\"}, {\"kind\": \"on_epic\", \"epic\": \"<name>\"} "
-                        <> "or {\"kind\": \"on_task\", \"task\": \"<earlier task id>\"}, not the bare name \"main\""
+                        <> "{\"kind\":\"on_default\"}, {\"kind\":\"on_epic\",\"epic\":\"<name>\"} "
+                        <> "or {\"kind\":\"on_task\",\"task\":\"<earlier task id>\"}, not the bare name \"main\""
                     )
 
         it "refuses a base of no kind it knows, and an epic name that is no slug" $

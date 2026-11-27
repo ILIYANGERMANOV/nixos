@@ -435,6 +435,9 @@ eventOf kind obj = case kind of
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= partyOf)
     "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= partyOf)
     "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "reason" obj
+    {- The required @breakdown@ beside a task, through @task_added@, changes v1
+    in place, as @refused@'s @code@ does: no store with the older shape shipped.
+    -}
     "spawned" -> Spawned <$> spawnedOf obj
     "spawning" -> Spawning <$> taskRefOf obj
     "resumed" -> Resumed <$> childOf obj <*> childTaskRefOf obj
