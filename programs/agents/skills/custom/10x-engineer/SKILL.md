@@ -219,7 +219,8 @@ base fix included (Failures).
 
 Write `tasks.json` in the notes directory, a JSON array in the plan's order of
 `{"id", "title", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
-"security": [topics], "repo", "worktree"}`, `title` one line naming the task,
+"security": [topics], "shape", "plan", "repo", "worktree"}`, the object the
+log holds for a task. `title` is one line naming the task,
 `fuel` one of `low`, `balanced`, `max`, `repo` the task's `<owner>/<repo>`,
 `worktree` the absolute path of its worktree (`~` expanded). `base` is what
 the task's branch starts from, one of:
@@ -233,10 +234,11 @@ the task's branch starts from, one of:
   A task with a dep takes the base its dep merges into.
 
 A bare branch name is refused, and so are the ids `add` and `head`. Then `state record breakdown.done --tasks tasks.json`: the
-`--tasks` file registers itself. A round task adds
-`"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
-settles it `kept`. A task whose plan is already settled adds
-`"planDecided": true`: its child skips the refine passes and present, and confirms without
+`--tasks` file registers itself. `shape` is `{"kind": "own_pr"}`, or for a
+round task `{"kind": "round_on", "pr_url": "<url>"}`, the PR it works on: its
+child skips `ready`, and its READY settles it `kept`. `plan` is
+`"child_confirms"`, or `"parent_decided"` for a task whose plan is already
+settled: its child skips the refine passes and present, and confirms without
 asking you. A task outside it, a base fix or an epic's final PR, joins
 mid-run: one such object in a file, then `state record task add <file>`.
 The final PR's task has base `{"kind": "on_default"}` and branch `epic/<name>`.

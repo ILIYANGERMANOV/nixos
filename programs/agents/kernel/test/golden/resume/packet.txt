@@ -32,7 +32,7 @@ stopgaps (2, never read by the kernel):
 
 context map (load on demand, or in a subagent):
   files
-    task_list 00010203:4 /notes/tasks.json sha256:8516220329e0346f6fc1f869d664380c78d536bca780614b2753d54294c79ec9 285 bytes stored
+    task_list 00010203:4 /notes/tasks.json sha256:67d7de1c752e65ac6f4c8b7cc3ca37fe8a6f8a8abc7d467445f29ba1baf356b3 385 bytes stored
       load: state artifact show 00010203:4
     plan 00010203:15 /work/plan.md sha256:81db67b6a5702b9b68f0016f061c409bf3fb16d062fc854d1b424bb4e9c28c56 3 bytes stored
       load: state artifact show 00010203:15

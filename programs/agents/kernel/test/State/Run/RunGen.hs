@@ -38,8 +38,7 @@ module State.Run.RunGen (
     outcomeOf,
 ) where
 
-import Data.Aeson (object, (.=))
-import Data.Aeson qualified as Aeson
+import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, list)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -60,7 +59,7 @@ import State.Category.Flow (
     scopePath,
     unqualify,
  )
-import State.Category.Fuel (Fuel (..), fuelName)
+import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (
     Edge (..),
     LoopAt (..),
@@ -85,7 +84,6 @@ import State.Flow.Role.Engineer (engineer)
 import State.Flow.Role.TenX (tenX)
 import State.Role (drawnOutcomes)
 import State.Run.Ask (Above (..), Kind (Confirm), QId (..), Question (..))
-import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (
@@ -108,7 +106,7 @@ import State.Run.Fold (
     append,
     replay,
  )
-import State.Step.Artifact (epicNameText, nonBlankText, shellPathText)
+import State.Step.Artifact (taskEncoding)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Catalog qualified as Catalog
@@ -217,45 +215,14 @@ roundTask name pr = (plainTask name []) {shape = RoundOn (Url pr)}
 
 -- | The breakdown file the 10x writes for these tasks, in this order.
 breakdownJson :: [Task] -> Text
-breakdownJson = decodeUtf8 . LBS.toStrict . Aeson.encode . map taskJson
+breakdownJson = encoded . list taskEncoding
 
--- | The file the 10x writes for @task add@.
+-- | The file the 10x writes for @task add@: a task as the log spells it.
 taskFileJson :: Task -> Text
-taskFileJson = decodeUtf8 . LBS.toStrict . Aeson.encode . taskJson
+taskFileJson = encoded . taskEncoding
 
-taskJson :: Task -> Aeson.Value
-taskJson task =
-    object $
-        [ "id" .= taskIdText task.id
-        , "title" .= nonBlankText task.title
-        , "deps" .= map taskIdText task.deps
-        , "base" .= baseJson task.base
-        , "branch" .= branchText task.branch
-        , "fuel" .= fuelName task.fuel
-        , "qa" .= task.qa
-        , "heavy" .= task.heavy
-        , "security" .= map topicText (Set.toList task.security)
-        ]
-            <> case task.shape of
-                OwnPr -> []
-                RoundOn url -> ["pr" .= urlText url]
-            <> case task.plan of
-                ChildConfirms -> []
-                ParentDecided -> ["planDecided" .= True]
-            <> maybe [] (\repo -> ["repo" .= repoText repo]) task.repo
-            <> maybe [] (\path -> ["worktree" .= shellPathText path]) task.worktree
-            <> case task.flow of
-                EngineerFlow -> []
-                TenXFlow -> ["flow" .= ("10x" :: Text)]
-                ArchitectFlow -> ["flow" .= ("architect" :: Text)]
-                ChiefFlow -> ["flow" .= ("chief" :: Text)]
-
--- | A task base as a task file spells it.
-baseJson :: Base -> Aeson.Value
-baseJson = \case
-    OnDefault -> object ["kind" .= ("on_default" :: Text)]
-    OnEpic epic -> object ["kind" .= ("on_epic" :: Text), "epic" .= epicNameText epic]
-    OnTask task -> object ["kind" .= ("on_task" :: Text), "task" .= taskIdText task]
+encoded :: Encoding -> Text
+encoded = decodeUtf8 . LBS.toStrict . encodingToLazyByteString
 
 {- | The task of this id, as an event names it. The fold reads a task event
 by its id alone, so a test of the fold names any breakdown: the seq here.

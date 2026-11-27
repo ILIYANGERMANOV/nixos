@@ -16,6 +16,7 @@ import State.Run.Codec (
 import State.Run.Event (
     Base (..),
     FlowName (..),
+    PlanCall (..),
     Repo (..),
     Task (..),
     TaskId (..),
@@ -68,9 +69,11 @@ spec = describe "State.Run.Codec" $ do
         decodeTask (taskFileJson (plainTask "fix" ["t1"]))
             `shouldBe` Right (plainTask "fix" ["t1"])
 
-    it "reads a round task's existing PR from its pr key" $
-        decodeTask (taskFileJson (roundTask "t1" "https://pr/1"))
-            `shouldBe` Right (roundTask "t1" "https://pr/1")
+    it "reads a task's shape and plan as the log tags them" $
+        map
+            (\task -> decodeTask (taskFileJson task) == Right task)
+            [roundTask "t1" "https://pr/1", (plainTask "t1" []) {plan = ParentDecided}]
+            `shouldBe` [True, True]
 
     it "reads a task's repo and worktree, each without the other" $
         map
