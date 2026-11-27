@@ -27,8 +27,10 @@ minutes), about the top 5. `${CLAUDE_SKILL_DIR}/references/metrics.md` says how 
 read them.
 
 Its `state-log` section reads the run store's projection tables read-only.
-The kernel builds them when it opens the store. If the analyzer says the store
-has no current projections, run `state sql 'SELECT 1'` once, then run it again.
+The kernel builds them when it opens the store. When a table or column it
+reads is missing, the analyzer stops with no report and says the store has
+no current projections: run `state sql 'SELECT 1'` once, then rerun the
+analyzer.
 
 Before you brief researchers, read the run store:
 

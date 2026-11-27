@@ -77,7 +77,10 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   A side request while a branch waits on an Ask is the same step: the ask
   is parked, still in `state pending`, answer it any time. `state tasks`
   prints a card per request (node, decisions, open questions) and a line
-  per child run; `state focus rK` prints `rK`'s card.
+  per child run. A child whose agent stopped with no hand-back gets a
+  second line, `RESUME <child> stopped, no hand-back: a fresh <role> from
+  its notes <dir>`: on it, spawn a fresh agent of that role, briefed from
+  those notes. `state focus rK` prints `rK`'s card.
 - **Discussion.** The repo stays read-only: no repo edits, commits, pushes
   or PRs; the hooks deny them. Edit and Write work only on files directly in the notes dir.
   Issue writes only when the user asks: `gh issue create`, or `gh issue
