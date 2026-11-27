@@ -9,6 +9,7 @@ module State.Protocol.Record (
     Arity (..),
     recordables,
     usageOf,
+    baseChangeUsage,
     recordCommand,
     Option (..),
     commandOption,
@@ -280,6 +281,10 @@ usageOf r =
         Switch -> "[--" <> flag.name <> "]"
     given flag = "--" <> flag.name <> " " <> flag.value
 
+-- | A task's base change, as @state record task@ takes it.
+baseChangeUsage :: Text
+baseChangeUsage = "<id> base <base> --reason <r> [--deps <task>,...|none]"
+
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
 recordables =
@@ -415,7 +420,9 @@ recordables =
                     "task"
                     ( "<id> <"
                         <> prStateNames
-                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> [--deps <task>,...|none] | <id> parked <why>"
+                        <> "> <pr> | add <task.json> | head <id> <sha> | "
+                        <> baseChangeUsage
+                        <> " | <id> parked <why>"
                     )
                     [ Flag "pr" "<url>" Optional
                     , Flag "reason" "<r>" Optional

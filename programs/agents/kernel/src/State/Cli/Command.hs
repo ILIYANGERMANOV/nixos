@@ -110,6 +110,7 @@ import State.Protocol.Record (
     Option (..),
     Recordable (..),
     Recording (..),
+    baseChangeUsage,
     capRecords,
     extend,
     extendOption,
@@ -1366,7 +1367,8 @@ explain g fuel at = \case
                     Just scoped ->
                         "state override "
                             <> fanState scoped
-                            <> " <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r> [--deps <task>,...|none]"
+                            <> " <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task "
+                            <> baseChangeUsage
                     -- Never met: a breakdown is recorded at its fan-out's breakdown state.
                     Nothing -> "state next"
                 )
@@ -1413,7 +1415,10 @@ explain g fuel at = \case
                     <> Text.unwords (map Codec.taskIdText (toList ring))
                     <> " would build on each other in a cycle, by their bases and dependencies"
                 )
-                "state show, then state record task <id> base <base> --reason <r> [--deps <task>,...|none] that builds on no task of the cycle"
+                ( "state show, then state record task "
+                    <> baseChangeUsage
+                    <> " that builds on no task of the cycle"
+                )
     NotAtFan ->
         refused
             "the child's or task's event"

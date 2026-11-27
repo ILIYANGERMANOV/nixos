@@ -18,10 +18,12 @@ import State.Run.Event
 import State.Run.EventGen (
     genDepsEdit,
     genSaid,
+    genSha,
     genTaskAt,
     genTaskId,
     genTaskState,
     genTasks,
+    genText,
     oneLine,
     runId,
     tasksOf,
@@ -505,6 +507,8 @@ spec = describe "State.Run.Fan" $ do
                 ids = map (.id) (Fan.tasksOf fan)
                 mergedOf now = Map.filterWithKey (\task _ -> merged now task) now.moves
             cover 10 "an edit taken" (after /= fan)
+            cover 10 "a merge head" (not (Map.null fan.heads))
+            cover 10 "a held wake" (not (null fan.held))
             (mergedOf after, after.heads, map (tries after) ids, after.held)
                 === (mergedOf fan, fan.heads, map (tries fan) ids, fan.held)
 
@@ -700,7 +704,7 @@ depsOr kept = \case
     DepsKept -> kept
     DepsSet deps -> Set.toList deps
 
--- | A breakdown, then spawns, hand-backs and moves, each kept only where the fan accepts it.
+-- | A breakdown, then spawns, hand-backs, moves, merge heads and held wakes, each kept only where the fan accepts it.
 genFan :: Gen Fan
 genFan = do
     tasks <- genTasks
@@ -728,6 +732,8 @@ genFan = do
             , (\i _ fan -> resumed (pickChild i fan) fan) <$> Gen.int (Range.linear 0 10)
             , (\task _ -> added 1 task) <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
             , pure (\_ fan -> Right (restarted fan))
+            , (\taskId sha _ -> headed taskId sha) <$> genTaskId <*> genSha
+            , (\taskId url _ -> held taskId (Url url)) <$> genTaskId <*> genText
             ]
     pickChild i fan = case fan.children of
         [] -> runId "none"
