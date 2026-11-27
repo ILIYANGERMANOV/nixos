@@ -348,7 +348,7 @@ as GitHub) count only once they are logged as events.
   `AtCap = Refuse | Stop | Extend`, a branch is a label of a `Sum`. No
   boolean that encodes a state.
 - **Pure core, effect shell.** `fold` decides over plain values.
-  `Effects.Store` and the CLI do the reads and writes.
+  `Effects.Store.*` and the CLI do the reads and writes.
 - **Every law has a test.** Or this file says it is assumed.
 
 ## Laws and tests
@@ -426,9 +426,9 @@ otherwise. Names are the current test names.
 | Idempotent append | a line whose id is already logged changes nothing | `FoldSpec` `append_is_idempotent_by_id`, "logs a hook record fired twice once" |
 | Void | a voided line replays as if never logged | `FoldSpec` `a_void_replays_as_the_line_never_logged` |
 | Total fold | an event with no edge where the run is gets a `Refusal`, never a throw | `FoldSpec` "refuses an event with no edge where the run is"; `-Wall -Werror` refuses a missed case |
-| Dense seq | a run's seqs run densely from 1 | the store throws on a gap or duplicate ([Store.hs][store]) |
+| Dense seq | a run's seqs run densely from 1 | the store throws on a gap or duplicate ([Events.hs][store]) |
 | Round trip | a log line decodes to what was encoded | `Run/CodecSpec.hs` `codec_round_trips` |
-| One writer | only the kernel appends to a run's log | Assumed: only `Effects.Store` inserts events ([Store.hs][store]) |
+| One writer | only the kernel appends to a run's log | Assumed: only `Effects.Store.*` inserts events ([Events.hs][store]) |
 
 ### Prof
 
@@ -463,8 +463,8 @@ These are Nix assertions over the real step table, run as the
   `parallel g (f :> h) = parallel g f :> parallel g' h` holds of child
   runs only, and is not tested.
 - **Effect grading.** It describes the types. It is not a tested law.
-- **One writer.** Nothing stops another process writing the database,
-  such as `sqlite3`.
+- **One writer.** Nothing stops another process, such as `sqlite3`,
+  inserting into the database. Its triggers stop an UPDATE or a DELETE.
 - **profile prose.** It is not monotone for split roles, by design.
 
 ## Design records
@@ -518,5 +518,5 @@ the fold).
 [glue]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Category/Graph.hs#L337
 [whole]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Category/Graph.hs#L193
 [graphspec]: ../../programs/agents/kernel/test/State/Category/GraphSpec.hs
-[store]: ../../programs/agents/kernel/src/Effects/Store.hs
+[store]: ../../programs/agents/kernel/src/Effects/Store/Events.hs
 [configcheck]: ../../programs/claude-code/config-check.nix
