@@ -101,6 +101,7 @@ import State.Run.Event (
     Op (..),
     Parent (..),
     Principal (..),
+    RefusalCode (..),
     Reply (..),
     Repo,
     RunId,
@@ -293,7 +294,8 @@ eventData = \case
     Took _ outcome -> outcomeData outcome
     Stopped stop -> stopData stop
     Overridden (StateName to) why -> "to" .= to <> "reason" .= why
-    Refused note -> "message" .= note.message <> "fix" .= note.fix
+    Refused note ->
+        "code" .= note.code.codeText <> "message" .= note.message <> "fix" .= note.fix
     Asked Asking {question, step = StateName step, from} ->
         qidData question.qid
             <> "question_kind" .= questionKindName question.kind
@@ -350,7 +352,13 @@ eventOf kind obj = case kind of
     "gap" -> Gapped <$> obj .: "text"
     "stop" -> Stopped <$> stopOf obj
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "reason"
-    "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
+    {- The required @code@ changes v1 in place, against the rule that a new
+    required key bumps the version: no store with the older shape shipped
+    (kernel-v2.db is the epic's only), so no reader meets a row without it.
+    -}
+    "refused" ->
+        Refused
+            <$> (Note . RefusalCode <$> obj .: "code" <*> obj .: "message" <*> obj .: "fix")
     "asked" -> Asked <$> askingOf obj
     "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "question_kind" >>= security)
     "ruled" ->

@@ -119,7 +119,7 @@ genEvent =
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
-        , Refused <$> (Note <$> genText <*> genText)
+        , Refused <$> (Note . RefusalCode <$> genText <*> genText <*> genText)
         , Asked <$> (Asking <$> genQuestion <*> (StateName <$> genText) <*> genAsker)
         , RetaggedSecurity <$> genQId
         , RuledOn <$> genQId <*> genProposal

@@ -44,6 +44,7 @@ module State.Run.Event (
     Stop (..),
     StopReason (..),
     Note (..),
+    RefusalCode (..),
     AnyOutcome,
     stepTook,
     tookIn,
@@ -362,9 +363,15 @@ data Stop = Stop {reason :: StopReason, why :: Text}
 data StopReason = Blocked | Failed | Replan | OutOfRounds
     deriving stock (Eq, Show, Enum, Bounded)
 
--- | A refusal as the reader saw it: what was wrong, and the fix.
-data Note = Note {message :: Text, fix :: Text}
+-- | A refusal as the reader saw it: its code, what was wrong, and the fix.
+data Note = Note {code :: RefusalCode, message :: Text, fix :: Text}
     deriving stock (Eq, Show)
+
+{- | A refusal's stable snake_case name, low-cardinality like OpenTelemetry's
+@error.type@: one per refusal constructor, never @other@.
+-}
+newtype RefusalCode = RefusalCode {codeText :: Text}
+    deriving stock (Eq, Ord, Show)
 
 -- | A child run of the fan-out: its run id, what it was spawned for and its worktree.
 data Child = Child {run :: RunId, task :: ChildTask, worktree :: FilePath}

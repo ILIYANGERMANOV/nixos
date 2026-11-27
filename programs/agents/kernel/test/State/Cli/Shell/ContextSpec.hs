@@ -40,7 +40,14 @@ import State.Cli.Shell.World (
     untaskedChild,
  )
 import State.Protocol.Advice (Readiness (..))
-import State.Run.Event (Envelope (..), Event (..), Repo (..), Start (..))
+import State.Run.Event (
+    Envelope (..),
+    Event (..),
+    Note (..),
+    RefusalCode (..),
+    Repo (..),
+    Start (..),
+ )
 import Test.Hspec (Spec, before, describe, it, shouldBe, shouldReturn)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -82,7 +89,7 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                                , ["hi"]
                                )
 
-        it "refuses a missing path as file_unreadable and logs nothing" $ \world -> do
+        it "refuses a missing path and logs the refusal as file_unreadable" $ \world -> do
             _ <- startedRun world
             ran <- state world ["artifact", "gone.md", "--kind", "notes"]
             (ran.code, take 1 ran.err)
@@ -91,7 +98,7 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                                [ "state artifact: file_unreadable /work/gone.md - it does not exist, or may not be read"
                                ]
                            )
-            loggedEvents world `shouldReturn` ["started"]
+            refusedCodes world `shouldReturn` [RefusalCode "file_unreadable"]
 
         it "registers a URL as given and shows it" $ \world -> do
             run <- startedRun world
@@ -188,20 +195,23 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                                , []
                                )
 
-        it "refuses a breakdown whose --tasks file is missing, and logs nothing" $ \world -> do
-            _ <- startedIn world ["--flow", "10x"]
-            _ <-
-                succeeded
-                    =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
-            before' <- loggedEvents world
-            ran <- state world ["record", "breakdown.done", "--tasks", "/work/gone.json"]
-            (ran.code, take 1 ran.err)
-                `shouldBe` ( 2
-                           ,
-                               [ "state record: file_unreadable /work/gone.json - it does not exist, or may not be read"
-                               ]
-                           )
-            loggedEvents world `shouldReturn` before'
+        it
+            "refuses a breakdown whose --tasks file is missing, and logs only the refusal"
+            $ \world -> do
+                _ <- startedIn world ["--flow", "10x"]
+                _ <-
+                    succeeded
+                        =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
+                before' <- loggedEvents world
+                ran <- state world ["record", "breakdown.done", "--tasks", "/work/gone.json"]
+                (ran.code, take 1 ran.err)
+                    `shouldBe` ( 2
+                               ,
+                                   [ "state record: file_unreadable /work/gone.json - it does not exist, or may not be read"
+                                   ]
+                               )
+                loggedEvents world `shouldReturn` (before' <> ["refused"])
+                refusedCodes world `shouldReturn` [RefusalCode "file_unreadable"]
 
     describe "note" $
         it "logs the note and prints its row and the next command" $ \world -> do
@@ -336,6 +346,12 @@ artifactsLogged world =
         [ absPathText file.ref.path | ArtifactLogged (File file) _ <- map (.event) lines'
         ]
     )
+        <$> logged world
+
+-- | The code of each refusal logged.
+refusedCodes :: IORef World -> IO [RefusalCode]
+refusedCodes world =
+    (\lines' -> [note.code | Refused note <- map (.event) lines'])
         <$> logged world
 
 -- | What each artifact logged derives from.

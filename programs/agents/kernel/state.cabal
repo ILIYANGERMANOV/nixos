@@ -171,6 +171,7 @@ test-suite state-test
     State.Category.GraphSpec
     State.Category.LawsSpec
     State.Category.PathSpec
+    State.Cli.CodeSpec
     State.Cli.CommandSpec
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec

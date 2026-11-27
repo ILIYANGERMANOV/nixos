@@ -60,6 +60,7 @@ import State.Run.Event (
     Event (..),
     FlowName (..),
     Note (..),
+    RefusalCode (..),
     RunId,
     Shape (..),
     Source (..),
@@ -507,7 +508,8 @@ childOf parent run =
 
 -- | An event past the start, at this seq.
 followed :: RunId -> Integer -> Envelope
-followed run n = envelope run (fromIntegral n) (Refused (Note "n" "f"))
+followed run n =
+    envelope run (fromIntegral n) (Refused (Note (RefusalCode "no_edge") "n" "f"))
 
 -- | One more event after those logged.
 appendOne :: Either a Logged -> ([Envelope], ())

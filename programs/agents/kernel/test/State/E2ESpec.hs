@@ -220,6 +220,13 @@ spec = describe "the state binary" $ do
                                , "fix: state record gather.enough | state record gather.interview | state record gather.research"
                                ]
                            )
+            rows <- dumpOf bin repo =<< runOf bin repo
+            [ snd (Text.breakOn "\"data\":" row)
+              | row <- rows
+              , "\"type\":\"refused\"" `Text.isInfixOf` row
+              ]
+                `shouldBe` [ "\"data\":{\"code\":\"no_edge\",\"message\":\"ready.done - no such arrow out of gather\",\"fix\":\"state record gather.enough | state record gather.interview | state record gather.research\"}}"
+                           ]
             warned <- succeeded =<< state bin repo ["next"]
             take 3 warned
                 `shouldBe` [ "RUN one option below"

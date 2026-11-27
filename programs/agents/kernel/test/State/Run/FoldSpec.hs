@@ -988,7 +988,7 @@ spec = describe "State.Run.Fold" $ do
 
     questions
   where
-    note = Note "no edge" "state next"
+    note = Note (RefusalCode "no_edge") "no edge" "state next"
     stop = Stop Blocked "why"
 
 -- | The engineer's gather, past its Fuel step.

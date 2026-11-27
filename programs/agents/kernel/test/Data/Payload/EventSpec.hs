@@ -113,6 +113,7 @@ import State.Run.Event (
     Op (..),
     Picks (..),
     PlanCall (..),
+    RefusalCode (..),
     Reply (..),
     Repo (..),
     Requirement (..),
@@ -276,7 +277,7 @@ spec = describe "Data.Payload.Event" $ do
                 , sessionId = Nothing
                 , headSha = Nothing
                 , hookDigest = Nothing
-                , payload = "{\"message\":\"n\",\"fix\":\"f\"}"
+                , payload = "{\"code\":\"no_edge\",\"message\":\"n\",\"fix\":\"f\"}"
                 }
 
     it "makes a child's runs row from its first event alone" $
@@ -472,7 +473,7 @@ spec = describe "Data.Payload.Event" $ do
             , run = runId "00010203"
             , head = Nothing
             , session = Nothing
-            , event = Refused (Note "n" "f")
+            , event = Refused (Note (RefusalCode "no_edge") "n" "f")
             }
     begun =
         refused
@@ -703,7 +704,7 @@ eventGoldens =
     , Gapped "no test drives the CLI's --help" :| []
     , Stopped (Stop Blocked "no access to the repo") :| []
     , Overridden (StateName "review") "the user said so" :| []
-    , Refused (Note "no such step" "run state next") :| []
+    , Refused (Note (RefusalCode "no_edge") "no such step" "run state next") :| []
     , Asked
         (Asking (Question qid Design (oneLine "v1 or v2?")) (StateName "plan") Itself)
         :| [ Asked
