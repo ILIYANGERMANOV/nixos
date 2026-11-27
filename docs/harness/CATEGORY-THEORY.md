@@ -427,7 +427,10 @@ otherwise. Names are the current test names.
 | Void | a voided line replays as if never logged | `FoldSpec` `a_void_replays_as_the_line_never_logged` |
 | Total fold | an event with no edge where the run is gets a `Refusal`, never a throw | `FoldSpec` "refuses an event with no edge where the run is"; `-Wall -Werror` refuses a missed case |
 | Dense seq | a run's seqs run densely from 1 | the store throws on a gap or duplicate ([Events.hs][store]) |
-| Round trip | a log line decodes to what was encoded | `Run/CodecSpec.hs` `codec_round_trips` |
+| Round trip | an event's row decodes to what was encoded | `Data/Payload/EventSpec.hs` `envelope_row_round_trips`; `Run/CodecSpec.hs` `codec_round_trips` (through `state dump`'s line) |
+| Total decode | any row decodes to `Known`, `Retired` or `Unknown`, never a throw; an `Unknown` refuses the append, naming its seq and type | `EventSpec` "decode_is_total: any row decodes, its type and data kept when not known"; `Effects/LogSpec.hs` "refuses an append to a run holding a row it cannot read, naming its seq and type" |
+| Append-only | no stored row is changed or deleted | `Effects/Store/MigrationSpec.hs` "aborts every change to a row with its table's trigger" (UPDATE, DELETE, `INSERT OR REPLACE` and an upsert on each table) |
+| The log only grows | each read of a run's log holds the one before it as a prefix | `LogSpec` "only grows: each decision's log holds the one before it, its seqs dense from 1", over the store and the double |
 | One writer | only the kernel appends to a run's log | Assumed: only `Effects.Store.*` inserts events ([Events.hs][store]) |
 
 ### Prof

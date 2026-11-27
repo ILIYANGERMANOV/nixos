@@ -144,6 +144,7 @@ test-suite state-test
     Concurrently
     Data.FieldSpec
     Data.Payload.EventSpec
+    Data.Payload.Fixtures
     Doubles.Clock
     Doubles.Console
     Doubles.Environment

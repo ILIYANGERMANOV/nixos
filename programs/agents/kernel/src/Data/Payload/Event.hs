@@ -2,23 +2,43 @@
 event makes. The payload's JSON is "State.Run.Codec"'s; the columns are
 "Data.Field"'s.
 -}
-module Data.Payload.Event (eventRow, runRow, decodeRow) where
+module Data.Payload.Event (
+    eventRow,
+    runRow,
+    Decoded (..),
+    RetiredEvent (..),
+    UnknownEvent (..),
+    decodeRow,
+    dumpLine,
+) where
 
+import Data.Aeson ((.=))
+import Data.Aeson.Encoding (
+    encodingToLazyByteString,
+    pair,
+    pairs,
+    unsafeToEncoding,
+ )
 import Data.Entity.Event (EventRow (..))
 import Data.Entity.Run (RunRow (..))
 import Data.Field qualified as Field
-import Data.Payload.Upcast (Upcasts, typeOf)
+import Data.Int (Int64)
+import Data.Payload.Upcast (Upcasts (..), typeOf)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
+import Data.Text.Lazy qualified as Lazy
+import Data.Text.Lazy.Encoding qualified as Lazy
 import State.Role (flowText)
 import State.Run.Codec (
-    LineError (..),
     decodePayload,
     eventType,
     payloadText,
     schemaVersion,
  )
 import State.Run.Event (
+    Digest,
     Envelope (..),
     Event (..),
     Parent (..),
@@ -64,14 +84,44 @@ runRow e = case e of
         ByUser _ -> Nothing
         ByCaller _ -> Nothing
 
-{- | The envelope a row holds, or why it is not read: another payload
-version than this kernel's, or a column or payload that does not parse.
+{- | What a row reads as. Total: every row is one of these, so dump, reports
+and SQL read any row, while an append refuses a run holding an 'Unknown'.
 -}
-decodeRow :: Upcasts -> EventRow -> Either LineError Envelope
+data Decoded
+    = Known Envelope
+    | -- | A type that left the domain: the fold skips it.
+      Retired RetiredEvent
+    | {- | A row this kernel cannot read: an unknown type, another payload
+      version, or a column or payload that does not fit.
+      -}
+      Unknown UnknownEvent
+    deriving stock (Eq, Show)
+
+data RetiredEvent = RetiredEvent
+    { eventType :: Text
+    , payload :: Text
+    , digest :: Maybe Digest
+    {- ^ The hook's record it was, if a hook wrote it: still seen, so the
+    hook fired again appends nothing.
+    -}
+    }
+    deriving stock (Eq, Show)
+
+data UnknownEvent = UnknownEvent
+    {eventType :: Text, schemaVersion :: Int64, payload :: Text}
+    deriving stock (Eq, Show)
+
+{- | The row read through these upcasts: its type renamed by the alias table
+first, then retired, read, or not readable.
+-}
+decodeRow :: Upcasts -> EventRow -> Decoded
 decodeRow upcasts row
-    | row.schemaVersion /= fromIntegral schemaVersion =
-        Left (Unsupported (fromIntegral row.schemaVersion))
-    | otherwise = either (Left . Malformed) Right $ do
+    | Set.member kind upcasts.retired =
+        either (const unknown) Retired $ do
+            digest <- traverse (column "hook_digest" Field.digest) row.hookDigest
+            pure RetiredEvent {eventType = kind, payload = row.payload, digest}
+    | row.schemaVersion /= fromIntegral schemaVersion = unknown
+    | otherwise = either (const unknown) Known $ do
         run <- column "run_id" Field.runId row.runId
         n <- maybe (Left "seq is negative") Right (Field.natural row.seq)
         ts <- column "time" Field.time row.time
@@ -79,12 +129,39 @@ decodeRow upcasts row
         sha <- traverse (column "head_sha" Field.sha) row.headSha
         source <-
             maybe Cli Hook <$> traverse (column "hook_digest" Field.digest) row.hookDigest
-        event <- decodePayload (typeOf upcasts row.eventType) row.payload
+        event <- decodePayload kind row.payload
         pure Envelope {source, seq = n, ts, run, head = sha, session, event}
   where
+    kind = typeOf upcasts row.eventType
+    unknown =
+        Unknown
+            UnknownEvent
+                { eventType = row.eventType
+                , schemaVersion = row.schemaVersion
+                , payload = row.payload
+                }
     column :: Text -> Field.Codec a -> Text -> Either Text a
     column name codec raw =
         maybe
             (Left (name <> " " <> Text.pack (show raw) <> " does not parse"))
             Right
             (Field.decode codec raw)
+
+{- | The row as one JSON Lines line (jsonlines.org), without its newline:
+every column a key in the table's order, @null@ for NULL, and @data@ spliced
+verbatim from its text, a JSON object by the table's CHECK, so a duplicate
+key or the key order survives. @position@, the store's own order across
+runs, is left out: a run's order is its seq.
+-}
+dumpLine :: EventRow -> Text
+dumpLine row =
+    Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . pairs $
+        "run_id" .= row.runId
+            <> "seq" .= row.seq
+            <> "schema_version" .= row.schemaVersion
+            <> "type" .= row.eventType
+            <> "time" .= row.time
+            <> "session_id" .= row.sessionId
+            <> "head_sha" .= row.headSha
+            <> "hook_digest" .= row.hookDigest
+            <> pair "data" (unsafeToEncoding (Text.encodeUtf8Builder row.payload))

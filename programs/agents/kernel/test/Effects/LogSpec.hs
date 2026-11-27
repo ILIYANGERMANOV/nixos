@@ -7,26 +7,32 @@ module Effects.LogSpec (spec) where
 
 import Concurrently (bothAtOnce)
 import Control.Exception (IOException)
-import Control.Monad (replicateM_)
+import Control.Monad (replicateM_, unless)
 import Data.Either (fromRight, isLeft)
+import Data.Entity.Event (EventRow)
+import Data.Entity.Event qualified as Row
 import Data.Entity.Run (RunRow (..))
 import Data.Foldable (for_)
 import Data.List (isPrefixOf)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Payload.Event (runRow)
+import Data.Payload.Event (eventRow, runRow)
+import Data.Payload.Fixtures (retiring)
+import Data.Payload.Upcast (Upcasts)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
 import Database.SQLite.Simple qualified as SQLite
 import Doubles.Environment (runEnvironmentGiven)
-import Doubles.Log (Runs (..), runLogInMemory)
+import Doubles.Log (Runs (..), editRows, runLogInMemory)
 import Effectful (Eff, runEff, runPureEff, (:>))
 import Effectful.Error.Static (runErrorNoCallStack)
 import Effectful.Exception (try)
-import Effectful.State.Static.Local (evalState)
+import Effectful.State.Static.Local (evalState, modify)
 import Effects.Log (
     Log,
+    Logged,
+    Unread (Unread),
     children,
     exists,
     firstEvent,
@@ -35,6 +41,7 @@ import Effects.Log (
     runLogIO,
     shipped,
  )
+import Effects.Log qualified as Log
 import Effects.Store.Connection (Durability (Full), OpenRefusal)
 import Hedgehog (PropertyT, annotateShow, assert, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
@@ -55,6 +62,7 @@ import State.Run.Event (
  )
 import State.Run.EventGen (genEnvelope, genStart, genTime, runId)
 import State.Run.Fold (Append (..), append, replay)
+import State.Run.Fold qualified as Fold
 import State.Run.RunGen (g)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -75,7 +83,7 @@ spec = describe "Effects.Log" $ do
 
                 bothAtOnce writer writer
 
-                atStore dir (locked top (\logged -> ([], map (.seq) <$> logged)))
+                atStore dir (locked top (\logged -> ([], map (.seq) . (.events) <$> logged)))
                     `shouldReturn` Right [1 .. 1 + 2 * fromIntegral perWriter]
 
         it "lists the runs started as a run's children" $
@@ -145,24 +153,53 @@ spec = describe "Effects.Log" $ do
                             | Just row <- [runRow begun]
                             ]
 
-{- | Runs a program on a log with these runs, each its rows; the program
-gets nothing else.
+{- | Runs a program, read through these upcasts, on a log with these runs,
+each its events, then these rows as a writer left them, appended by hand;
+the program gets nothing else.
 -}
 type Backend =
-    forall a. [Envelope] -> (forall es. (Log :> es) => Eff es a) -> IO a
+    forall a.
+    Upcasts ->
+    [Envelope] ->
+    [EventRow] ->
+    (forall es. (Log :> es) => Eff es a) ->
+    IO a
 
 -- | A temp run store, found as the shell finds it: from @XDG_STATE_HOME@.
 inStore :: Backend
-inStore seeded program = withSystemTempDirectory "state-log" $ \dir ->
-    atStore dir (mapM_ (\e -> locked e.run (const ([e], ()))) seeded >> program)
+inStore upcasts seeded byHand program = withSystemTempDirectory "state-log" $ \dir -> do
+    atStore dir (mapM_ (\e -> locked e.run (const ([e], ()))) seeded)
+    unless (null byHand)
+        . SQLite.withConnection (dir </> "state" </> "kernel-v2.db")
+        $ \c ->
+            SQLite.executeMany
+                c
+                "INSERT INTO events (run_id, seq, schema_version, type, time, session_id, head_sha, hook_digest, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                [ ( row.runId
+                  , row.seq
+                  , row.schemaVersion
+                  , row.eventType
+                  , row.time
+                  , row.sessionId
+                  , row.headSha
+                  , row.hookDigest
+                  , row.payload
+                  )
+                | row <- byHand
+                ]
+    atStoreWith upcasts dir program
 
 -- | A program on the run store under this @XDG_STATE_HOME@, which it must open.
 atStore :: FilePath -> (forall es. (Log :> es) => Eff es a) -> IO a
-atStore dir program =
+atStore = atStoreWith shipped
+
+atStoreWith ::
+    Upcasts -> FilePath -> (forall es. (Log :> es) => Eff es a) -> IO a
+atStoreWith upcasts dir program =
     runEff
         ( runErrorNoCallStack @OpenRefusal
             . runEnvironmentGiven (Map.fromList [("XDG_STATE_HOME", dir)])
-            . runLogIO shipped Full
+            . runLogIO upcasts Full
             $ program
         )
         >>= either (fail . show) pure
@@ -176,19 +213,22 @@ storeRows dir sql params =
         (\c -> SQLite.query c sql params)
 
 inMemory :: Backend
-inMemory seeded program =
-    pure . runPureEff . evalState (Runs []) . runLogInMemory shipped $ do
+inMemory upcasts seeded byHand program =
+    pure . runPureEff . evalState (Runs []) . runLogInMemory upcasts $ do
         mapM_ (\e -> locked e.run (const ([e], ()))) seeded
+        for_ byHand $ \row -> modify (editRows (runId row.runId) (<> [row]))
         program
 
 contract :: Backend -> Spec
-contract backend = do
+contract on = do
+    let backend :: [Envelope] -> (forall es. (Log :> es) => Eff es a) -> IO a
+        backend seeded = on shipped seeded []
     it "starts a run, appends each decision's events and reads them back" $ do
         seen <- backend [] $ do
             before <- exists top
-            first <- locked top ([started top],)
-            second <- locked top ([followed top 2],)
-            after <- locked top ([],)
+            first <- locked top (([started top],) . eventsOf)
+            second <- locked top (([followed top 2],) . eventsOf)
+            after <- locked top (([],) . eventsOf)
             line <- firstEvent top
             pure (before, first, second, after, line)
 
@@ -201,7 +241,7 @@ contract backend = do
                        )
 
     it "keeps no run that a decision appends nothing to" $ do
-        kept <- backend [] (locked top ([],) >> exists top)
+        kept <- backend [] (locked top (const ([], ())) >> exists top)
 
         kept `shouldBe` False
 
@@ -214,19 +254,23 @@ contract backend = do
         seen <-
             backend
                 [started top, started other]
-                (locked other (\logged -> ([], map (.run) <$> logged)))
+                (locked other (\logged -> ([], map (.run) <$> eventsOf logged)))
 
         seen `shouldBe` Right [other]
 
     it "throws on an event whose seq the log holds already" $ do
         failed <-
-            backend [started top] (try @IOException (locked top ([followed top 1],)))
+            backend
+                [started top]
+                (try @IOException (locked top (const ([followed top 1], ()))))
 
         failed `shouldSatisfy` isLeft
 
     it "throws on an event that leaves a gap in the seqs" $ do
         failed <-
-            backend [started top] (try @IOException (locked top ([followed top 3],)))
+            backend
+                [started top]
+                (try @IOException (locked top (const ([followed top 3], ()))))
 
         failed `shouldSatisfy` isLeft
 
@@ -239,7 +283,8 @@ contract backend = do
         found `shouldBe` [[top, other], [child], []]
 
     it "throws on events for a run never started that do not start it" $ do
-        failed <- backend [] (try @IOException (locked top ([followed top 1],)))
+        failed <-
+            backend [] (try @IOException (locked top (const ([followed top 1], ()))))
 
         failed `shouldSatisfy` isLeft
 
@@ -252,13 +297,13 @@ contract backend = do
                 reads' <- evalIO $ backend [started top] $ do
                     let decide size = \case
                             Right logged ->
-                                ( [ followed top (fromIntegral (length logged) + k) | k <- [1 .. fromIntegral size]
+                                ( [ followed top (fromIntegral logged.rows + k) | k <- [1 .. fromIntegral size]
                                   ]
-                                , logged
+                                , logged.events
                                 )
                             Left _ -> ([], [])
                     before <- traverse (locked top . decide) batches
-                    final <- locked top (\logged -> ([], fromRight [] logged))
+                    final <- locked top (\logged -> ([], fromRight [] (eventsOf logged)))
                     pure (before <> [final])
                 annotateShow reads'
                 assertGrows reads'
@@ -268,8 +313,50 @@ contract backend = do
             fired <- forAll (Gen.int (Range.linear 1 4))
             logged <- evalIO $ backend [started top] $ do
                 replicateM_ fired (locked top hookOnce)
-                locked top (\logged -> ([], fromRight [] logged))
+                locked top (\logged -> ([], fromRight [] (eventsOf logged)))
             map (.source) logged === [Cli, hooked.source]
+
+    it
+        "refuses an append to a run holding a row it cannot read, naming its seq and type"
+        $ do
+            refused <-
+                on shipped [started top] [unknownRow] $
+                    locked top $ \case
+                        Left unread -> ([], Left unread)
+                        Right logged -> ([followed top (fromIntegral logged.rows + 1)], Right ())
+
+            refused
+                `shouldBe` Left (Unread 2 "no_such_event" 1)
+
+    it "appends after a retired row at the next seq, the row skipped" $ do
+        logged <- on retiring [started top] [retiredRow Nothing] $ do
+            locked top appendOne
+            locked top (\logged -> ([], (.seq) <$> fromRight [] (eventsOf logged)))
+
+        logged `shouldBe` [1, 3]
+
+    it "skips a hook fired again on a retired row of that hook" $ do
+        logged <- on retiring [started top] [retiredRow (Just "0123456789abcdef")] $ do
+            locked top hookOnce
+            locked top (\logged -> ([], (\l -> (map (.seq) l.events, l.rows)) <$> logged))
+
+        logged `shouldBe` Right ([1], 2)
+
+-- | The log's events, or the row it cannot read.
+eventsOf :: Either Unread Logged -> Either Unread [Envelope]
+eventsOf = fmap (.events)
+
+-- | Seq 2 of 'top', of a type no kernel knows.
+unknownRow :: EventRow
+unknownRow = (eventRow (followed top 2)) {Row.eventType = "no_such_event"}
+
+-- | Seq 2 of 'top', of the type 'retiring' retired, written by this hook if any.
+retiredRow :: Maybe Text.Text -> EventRow
+retiredRow digest =
+    (eventRow (followed top 2))
+        { Row.eventType = "legacy.note"
+        , Row.hookDigest = digest
+        }
 
 -- | Each read holds the one before it as its prefix.
 assertGrows :: [[Envelope]] -> PropertyT IO ()
@@ -279,12 +366,14 @@ assertGrows reads' =
 {- | A hook's event appended as the shell appends one: unless the replayed
 log has its id already ('append'), whose unique key the store holds too.
 -}
-hookOnce :: Either a [Envelope] -> ([Envelope], ())
+hookOnce :: Either a Logged -> ([Envelope], ())
 hookOnce = \case
-    Right (first : rest)
-        | Right state <- replay g (first :| rest)
-        , let next = hooked {seq = fromIntegral (length rest) + 2}
-        , Right (Appended _) <- append g state next ->
+    Right logged
+        | first : rest <- logged.events
+        , Right state <- replay g (first :| rest)
+        , let next = hooked {seq = logged.rows + 1}
+        , Right (Appended _) <-
+            append g state {Fold.seen = state.seen <> logged.seen} next ->
             ([next], ())
     _ -> ([], ())
 
@@ -327,9 +416,9 @@ followed :: RunId -> Integer -> Envelope
 followed run n = envelope run (fromIntegral n) (Refused (Note "n" "f"))
 
 -- | One more event after those logged.
-appendOne :: Either a [Envelope] -> ([Envelope], ())
+appendOne :: Either a Logged -> ([Envelope], ())
 appendOne = \case
-    Right logged -> ([followed top (fromIntegral (length logged) + 1)], ())
+    Right logged -> ([followed top (fromIntegral logged.rows + 1)], ())
     Left _ -> ([], ())
 
 envelope :: RunId -> Integer -> Event -> Envelope

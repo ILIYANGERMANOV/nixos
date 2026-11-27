@@ -71,7 +71,7 @@ spec = describe "state-hook over the doubles" $ do
 
                 said.code `shouldBe` 0
                 contextOf said
-                    `shouldSatisfy` maybe False ("event 2 is not read" `Text.isInfixOf`)
+                    `shouldSatisfy` maybe False ("seq 2, type no_such_event (schema_version 1)" `Text.isInfixOf`)
 
             it
                 "tells a disk failure before any run is found as context naming none, and still exits 0"

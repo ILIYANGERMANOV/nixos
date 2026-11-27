@@ -1,5 +1,5 @@
-{- | A run's log, by its id: its first event read without the write lock, and
-every write one read-decide-append under it, so two writers never number an
+{- | A run's log, by its id: its first event and its raw rows read without
+the write lock, and every write one read-decide-append under it, so two writers never number an
 event alike. The real one is the kernel's run store ("Effects.Store.Events"),
 which keeps rows: this module maps them to the domain and back through
 "Data.Payload.Event", for the store and the test double alike.
@@ -8,7 +8,10 @@ module Effects.Log (
     Log (..),
     exists,
     firstEvent,
+    rows,
     locked,
+    Logged (..),
+    Unread (..),
     children,
     inNotes,
     runLogIO,
@@ -16,14 +19,27 @@ module Effects.Log (
     shipped,
     firstOf,
     decision,
+    dumped,
 ) where
 
 import Control.Exception (throwIO)
 import Data.Bifunctor (first)
-import Data.Entity.Event (EventRow)
+import Data.Entity.Event (EventRow (..))
+import Data.Int (Int64)
+import Data.List (genericLength)
 import Data.List.NonEmpty (NonEmpty (..), nonEmpty)
-import Data.Payload.Event (decodeRow, eventRow, runRow)
+import Data.Payload.Event (
+    Decoded (..),
+    RetiredEvent (..),
+    UnknownEvent (..),
+    decodeRow,
+    dumpLine,
+    eventRow,
+    runRow,
+ )
 import Data.Payload.Upcast (Upcasts, shipped)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Effectful (
@@ -41,36 +57,55 @@ import Effects.Environment (Environment, lookupEnv)
 import Effects.Store.Connection (Durability, OpenRefusal, Store, withStore)
 import Effects.Store.Events (Write (..))
 import Effects.Store.Events qualified as Store
+import Numeric.Natural (Natural)
 import State.Protocol.Binding (runStore)
-import State.Run.Codec (LineError, LogError (..))
-import State.Run.Event (Envelope, RunId, parseRunId, runIdText)
+import State.Run.Event (Envelope, EventId (..), RunId, parseRunId, runIdText)
 
 data Log :: Effect where
     Exists :: RunId -> Log m Bool
-    -- | The run's first row, decoded, read without the write lock.
-    FirstEvent :: RunId -> Log m (Maybe (Either LineError Envelope))
-    Locked :: RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Log m a
+    -- | The run's first row the fold reads, decoded, without the write lock.
+    FirstEvent :: RunId -> Log m (Maybe (Either Unread Envelope))
+    -- | The run's rows raw, one JSON Lines line each, without the write lock.
+    Rows :: RunId -> Log m [Text]
+    Locked :: RunId -> (Either Unread Logged -> ([Envelope], a)) -> Log m a
     Children :: RunId -> Log m [RunId]
     InNotes :: FilePath -> Log m [RunId]
 
 type instance DispatchOf Log = Dynamic
 
+{- | A run's log as the fold reads it: its events, without the rows of a
+retired type, whose hook ids stay seen, and the count of every row, so the
+next event takes seq @rows + 1@ after a retired row too.
+-}
+data Logged = Logged {events :: [Envelope], seen :: Set EventId, rows :: Natural}
+    deriving stock (Eq, Show)
+
+-- | A row this state cannot read, which refuses every append to its run.
+data Unread = Unread {seq :: Int64, eventType :: Text, schemaVersion :: Int64}
+    deriving stock (Eq, Show)
+
 -- | Whether the run was started.
 exists :: (Log :> es) => RunId -> Eff es Bool
 exists = send . Exists
 
--- | The run's first event, or why it does not read, if it was started.
-firstEvent :: (Log :> es) => RunId -> Eff es (Maybe (Either LineError Envelope))
+-- | The run's first event, or the row it cannot read, if it was started.
+firstEvent :: (Log :> es) => RunId -> Eff es (Maybe (Either Unread Envelope))
 firstEvent = send . FirstEvent
 
-{- | The run's log, locked for one decision: @decide@ gets every event so far,
-or the first it cannot read, and returns the events to append. The lock lasts
+{- | The run's rows as they are stored, one line each in seq order, a row of
+any type or version included: none for a run never started.
+-}
+rows :: (Log :> es) => RunId -> Eff es [Text]
+rows = send . Rows
+
+{- | The run's log, locked for one decision: @decide@ gets the log so far,
+or the first row it cannot read, and returns the events to append. The lock lasts
 until they are written. Events for a run never started that do not start it
 throw.
 -}
 locked ::
     (Log :> es) =>
-    RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Eff es a
+    RunId -> (Either Unread Logged -> ([Envelope], a)) -> Eff es a
 locked run = send . Locked run
 
 -- | The runs started as children of this one, oldest first.
@@ -106,28 +141,59 @@ onStore :: Upcasts -> Log m a -> Store -> IO a
 onStore upcasts op store = case op of
     Exists run -> Store.exists store (runIdText run)
     FirstEvent run -> firstOf upcasts <$> Store.rows store (runIdText run)
+    Rows run -> dumped <$> Store.rows store (runIdText run)
     Locked run decide -> Store.locked store (runIdText run) (decision upcasts decide)
     Children run -> Store.children store (runIdText run) >>= runIds
     InNotes notes -> Store.inNotes store (Text.pack notes) >>= runIds
 
--- | The first of a run's rows, decoded.
-firstOf :: Upcasts -> [EventRow] -> Maybe (Either LineError Envelope)
-firstOf upcasts = \case
-    [] -> Nothing
-    row : _ -> Just (decodeRow upcasts row)
+{- | The first of a run's rows the fold reads, decoded: a retired row is
+skipped, as the fold skips it.
+-}
+firstOf :: Upcasts -> [EventRow] -> Maybe (Either Unread Envelope)
+firstOf upcasts logged =
+    case [found | row <- logged, Just found <- [readable row (decodeRow upcasts row)]] of
+        [] -> Nothing
+        found : _ -> Just found
+  where
+    readable row = \case
+        Known e -> Just (Right e)
+        Retired _ -> Nothing
+        Unknown u -> Just (Left (unread row u))
 
-{- | A domain decision over a run's rows: it gets every row decoded, or the
-first that does not read, counted from 1, and its events become the write.
+-- | The row this state cannot read, named by its seq and type.
+unread :: EventRow -> UnknownEvent -> Unread
+unread row u =
+    Unread {seq = row.seq, eventType = u.eventType, schemaVersion = u.schemaVersion}
+
+-- | The rows raw, one JSON Lines line each.
+dumped :: [EventRow] -> [Text]
+dumped = map dumpLine
+
+{- | A domain decision over a run's rows: it gets the log, or the first row
+that does not read, and its events become the write.
 -}
 decision ::
     Upcasts ->
-    (Either LogError [Envelope] -> ([Envelope], a)) ->
+    (Either Unread Logged -> ([Envelope], a)) ->
     [EventRow] ->
     (Maybe Write, a)
 decision upcasts decide logged =
-    first (fmap writeOf . nonEmpty) (decide (traverse decoded (zip [1 ..] logged)))
+    first (fmap writeOf . nonEmpty) (decide (loggedOf upcasts logged))
+
+loggedOf :: Upcasts -> [EventRow] -> Either Unread Logged
+loggedOf upcasts logged = case [unread row u | (row, Unknown u) <- decoded] of
+    bad : _ -> Left bad
+    [] ->
+        Right
+            Logged
+                { events = [e | (_, Known e) <- decoded]
+                , seen =
+                    Set.fromList
+                        [Hashed d | (_, Retired RetiredEvent {digest = Just d}) <- decoded]
+                , rows = genericLength logged
+                }
   where
-    decoded (n, row) = first (LogError n) (decodeRow upcasts row)
+    decoded = [(row, decodeRow upcasts row) | row <- logged]
 
 -- | The rows of these events: with the run's @runs@ row when they start it.
 writeOf :: NonEmpty Envelope -> Write

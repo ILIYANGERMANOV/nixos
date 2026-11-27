@@ -377,14 +377,14 @@ spec = describe "state over the doubles" $ do
                     (bad.code, map (fst . Text.breakOn " - ") bad.err)
                         `shouldBe` ( 2
                                    ,
-                                       [ "state " <> sub <> ": run " <> run <> " event 2 is not read"
-                                       , "fix: state init --notes <a new dir> starts afresh"
+                                       [ "state " <> sub <> ": run " <> run <> " has an event this state cannot read"
+                                       , "fix: upgrade state"
                                        ]
                                    )
                 after <- logRows world
                 after `shouldBe` before'
 
-            it "names the recovery for an older state's log: start fresh" $ \world -> do
+            it "names the recovery for a newer state's log: upgrade state" $ \world -> do
                 _ <- drive world []
                 run <- runOf world
                 editLog
@@ -398,8 +398,8 @@ spec = describe "state over the doubles" $ do
                                ,
                                    [ "state next: run "
                                         <> run
-                                        <> " event 1 is not read - payload version 2, this state reads 1"
-                                   , "fix: state init --notes <a new dir> starts afresh"
+                                        <> " has an event this state cannot read - seq 1, type started (schema_version 2)"
+                                   , "fix: upgrade state"
                                    ]
                                )
 

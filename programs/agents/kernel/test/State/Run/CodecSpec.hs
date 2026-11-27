@@ -1,30 +1,27 @@
 module State.Run.CodecSpec (spec) where
 
+import Data.Aeson (Value, encode, withObject, (.:))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Types (parseEither)
+import Data.Entity.Event (EventRow (..))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Payload.Event (Decoded (..), decodeRow, dumpLine, eventRow)
+import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Lazy qualified as Lazy
+import Data.Text.Lazy.Encoding qualified as Lazy
 import Data.Time (UTCTime (..))
 import Data.Time.Calendar (fromGregorian)
-import Hedgehog (Gen, forAll, tripping)
-import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
+import Hedgehog (forAll, tripping)
 import State.Category.Flow (scopePath)
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
-import State.Run.Codec (
-    LineError (..),
-    LogError (..),
-    decodeBreakdown,
-    decodeLine,
-    decodeLog,
-    decodeTask,
-    encodeLine,
- )
+import State.Run.Codec (decodeBreakdown, decodeTask)
 import State.Run.Event (
     Branch (..),
     ChildTask (..),
-    Digest (..),
     Envelope (..),
     Event (..),
     EventId (..),
@@ -50,7 +47,6 @@ import State.Run.Event (
     TaskId (..),
     Url (..),
     Waiting (..),
-    parseRunId,
     stepTook,
     taskList,
     tookIn,
@@ -80,34 +76,13 @@ spec = describe "State.Run.Codec" $ do
         envelope <- forAll genEnvelope
         tripping envelope encodeLine decodeLine
 
-    it "writes the line #360 documents, keys in its order" $
+    it "dumps the row #360 documents, its columns in the table's order" $
         encodeLine reviewRows
-            `shouldBe` "{\"v\":4,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"review.rows\",\"data\":{\"head\":\"abc123\"}}"
+            `shouldBe` "{\"run_id\":\"r7f2\",\"seq\":12,\"schema_version\":1,\"type\":\"review.rows\",\"time\":\"2026-11-12T10:00:00.000Z\",\"session_id\":null,\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"hook_digest\":null,\"data\":{\"head\":\"abc123\"}}"
 
-    it "refuses a version 1 log, the Python state's with no version" $
-        decodeLine pythonV1 `shouldBe` Left (Unsupported 1)
-
-    it "refuses a version 2 log, the Python state's" $
-        decodeLine pythonV2 `shouldBe` Left (Unsupported 2)
-
-    it "refuses a version 3 log, an earlier kernel's" $
-        decodeLine (encodeLine reviewRows `replacing` ("\"v\":4", "\"v\":3"))
-            `shouldBe` Left (Unsupported 3)
-
-    it "names the first line of a log it does not read" $
-        decodeLog (encodeLine reviewRows <> "\n" <> pythonV2 <> "\n")
-            `shouldBe` Left (LogError 2 (Unsupported 2))
-
-    it "reads a log line by line, its last newline ending the last line" $
-        decodeLog (encodeLine reviewRows <> "\n" <> encodeLine reviewRows <> "\n")
-            `shouldBe` Right [reviewRows, reviewRows]
-
-    it "hook_and_cli_ids_never_collide" . hedgehog $ do
-        hook <- forAll genCollidingHookLine
-        tripping hook encodeLine decodeLine
-
-    it "refuses a line of run h, whose CLI ids read as hook ids" $
-        decodeLine (encodeLine reviewRows `replacing` ("r7f2", "h"))
+    it "reads a row of run h, whose CLI ids read as hook ids, as unknown" $
+        decodeLine
+            (encodeLine reviewRows `replacing` ("\"run_id\":\"r7f2\"", "\"run_id\":\"h\""))
             `shouldSatisfy` malformed
 
     it "refuses a parent run h" $
@@ -115,10 +90,6 @@ spec = describe "State.Run.Codec" $ do
             ( encodeLine parentRun
                 `replacing` ("\"run\":\"r7f2\",\"task\"", "\"run\":\"h\",\"task\"")
             )
-            `shouldSatisfy` malformed
-
-    it "refuses a CLI id that names another seq" $
-        decodeLine (encodeLine reviewRows `replacing` ("r7f2:12", "r7f2:11"))
             `shouldSatisfy` malformed
 
     it "refuses an unknown event type" $
@@ -180,7 +151,7 @@ spec = describe "State.Run.Codec" $ do
         and
             ( zipWith
                 Text.isInfixOf
-                [ "\"type\":\"target\",\"data\":{\"pr\":\"https://github.com/o/r/pull/7\"}"
+                [ "\"data\":{\"pr\":\"https://github.com/o/r/pull/7\"}"
                 , "\"data\":{\"branch\":\"feature\"}"
                 , "\"data\":{\"ticket\":\"https://github.com/o/r/issues/3\"}"
                 ]
@@ -223,12 +194,12 @@ spec = describe "State.Run.Codec" $ do
                             (Just (AnsweredBy (Numbered (runId "r7f2") 4)))
                         )
                 }
-            `shouldBe` "{\"v\":4,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"ruled\",\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
+            `shouldBe` "{\"run_id\":\"r7f2\",\"seq\":12,\"schema_version\":1,\"type\":\"ruled\",\"time\":\"2026-11-12T10:00:00.000Z\",\"session_id\":null,\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"hook_digest\":null,\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
 
     it "writes a void as the seq of the line it voids, and why" $
         encodeLine reviewRows {event = Voided 7 "logged in the wrong run"}
             `shouldSatisfy` Text.isInfixOf
-                "\"type\":\"voided\",\"data\":{\"seq\":7,\"why\":\"logged in the wrong run\"}"
+                "\"data\":{\"seq\":7,\"why\":\"logged in the wrong run\"}"
 
     it "refuses a ruling whose answer breaks the line" $
         decodeLine
@@ -247,7 +218,7 @@ spec = describe "State.Run.Codec" $ do
         encodeLine
             reviewRows {event = HandedBack (runId "c1") (Ended (Stop Blocked "no access"))}
             `shouldSatisfy` Text.isInfixOf
-                "\"type\":\"handed_back\",\"data\":{\"child\":\"c1\",\"token\":\"BLOCKED\",\"ref\":\"no access\",\"qid\":null}"
+                "\"data\":{\"child\":\"c1\",\"token\":\"BLOCKED\",\"ref\":\"no access\",\"qid\":null}"
 
     it "writes a child's AWAIT ci as before merges climbed, and names a merge" $
         [ encodeLine
@@ -450,22 +421,10 @@ reviewRows =
         , seq = 12
         , ts = UTCTime (fromGregorian 2026 11 12) 36000
         , run = runId "r7f2"
-        , head = Just (Sha "abc123")
+        , head = Just (Sha "0123456789abcdef0123456789abcdef01234567")
         , session = Nothing
         , event = stepTook (ReviewRows (Sha "abc123"))
         }
-
-{- | A hook line of an accepted run id, drawn with its seq and digest from so
-small a set that a hook id spelling a CLI id is likely, were "h" or a colon
-allowed in a run id.
--}
-genCollidingHookLine :: Gen Envelope
-genCollidingHookLine = do
-    run <-
-        Gen.mapMaybe parseRunId (Gen.element ["h", "a", "h:a", "ha", "a:h", "h:"])
-    n <- Gen.integral (Range.linear 0 2)
-    digest <- Gen.element ["0", "1", "2", "a:0", "a:1", ":0"]
-    pure reviewRows {source = Hook (Digest digest), seq = n, run}
 
 -- | Picks of row A, with R1 met.
 picked :: Envelope
@@ -499,13 +458,6 @@ parentRun =
                 )
         }
 
--- | Lines in the shape the Python @state@ wrote, its other keys left out.
-pythonV1, pythonV2 :: Text
-pythonV1 =
-    "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\"}}"
-pythonV2 =
-    "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
-
 {- | Errors when @old@ is absent, so a stale pattern fails its test instead of
 quietly checking the unchanged line.
 -}
@@ -514,10 +466,38 @@ replacing whole (old, new)
     | old `Text.isInfixOf` whole = Text.replace old new whole
     | otherwise = error ("replacing: " <> show old <> " is not in " <> show whole)
 
-malformed :: Either LineError a -> Bool
+-- | An envelope's row as @state dump@ prints it.
+encodeLine :: Envelope -> Text
+encodeLine = dumpLine . eventRow
+
+-- | A dumped row read back: its envelope, or the row this kernel does not read.
+decodeLine :: Text -> Either Decoded Envelope
+decodeLine raw =
+    either (error . ("not a dumped row: " <>)) known $
+        Aeson.eitherDecodeStrictText raw >>= parseEither (withObject "row" rowOf)
+  where
+    rowOf o =
+        EventRow
+            <$> o .: "run_id"
+            <*> o .: "seq"
+            <*> o .: "schema_version"
+            <*> o .: "type"
+            <*> o .: "time"
+            <*> o .: "session_id"
+            <*> o .: "head_sha"
+            <*> o .: "hook_digest"
+            <*> (payloadOf <$> o .: "data")
+    payloadOf :: Value -> Text
+    payloadOf = Lazy.toStrict . Lazy.decodeUtf8 . encode
+    known row = case decodeRow shipped row of
+        Known e -> Right e
+        other -> Left other
+
+malformed :: Either Decoded a -> Bool
 malformed = \case
-    Left (Malformed _) -> True
-    Left (Unsupported _) -> False
+    Left (Unknown _) -> True
+    Left (Retired _) -> False
+    Left (Known _) -> False
     Right _ -> False
 
 -- | A task whose child runs the 10x flow.

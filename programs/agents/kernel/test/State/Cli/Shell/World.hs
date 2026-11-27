@@ -77,7 +77,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
-import Data.Payload.Event (decodeRow)
+import Data.Payload.Event (Decoded (..), decodeRow)
 import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -333,7 +333,10 @@ loggedIn world dir =
         )
         pure
         . traverse
-            (\(n, row) -> either (Left . (n :: Int,)) Right (decodeRow shipped row))
+            ( \(n, row) -> case decodeRow shipped row of
+                Known e -> Right e
+                other -> Left (n :: Int, other)
+            )
         . zip [1 ..]
         =<< logRowsIn world dir
 
@@ -415,7 +418,7 @@ runIn w dir =
     listToMaybe
         [ found
         | (found, first : _) <- rowsOf w.runs
-        , Right Envelope {event = Started start} <- [decodeRow shipped first]
+        , Known Envelope {event = Started start} <- [decodeRow shipped first]
         , start.notes == dir
         ]
 

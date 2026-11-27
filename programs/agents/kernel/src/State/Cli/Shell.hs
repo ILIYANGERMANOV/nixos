@@ -214,9 +214,6 @@ import State.Run.Ask (
 import State.Run.Ask qualified as Ask
 import State.Run.Card qualified as Card
 import State.Run.Codec (
-    LineError (..),
-    LogError (..),
-    encodeLine,
     eventType,
     reasonText,
     taskIdText,
@@ -820,7 +817,7 @@ workedRun =
 -- | The first event of the run the worktree's pointer names, decoded; none without a pointer or a run.
 pointedRun ::
     (Git :> es, Log :> es, RoFileSystem :> es) =>
-    Eff es (Maybe (Either LineError Envelope))
+    Eff es (Maybe (Either Log.Unread Envelope))
 pointedRun =
     gitDir >>= \case
         Left _ -> pure Nothing
@@ -830,25 +827,23 @@ pointedRun =
                 Just run -> Log.firstEvent run
 
 {- | What the worktree's run says to a hook's want, naming it, a disk or git
-error too. A log of another log version, as an older one, the hook records
-nothing in: a spawn or hand-back hook names the fallbacks (#475), as that
-record is lost, and the others stay silent (#360). One whose first line does
-not read names no run but the bound one.
+error too. A log holding a row this state cannot read, as a newer one wrote
+it, the hook records nothing in: a spawn or hand-back hook names the
+fallbacks (#475), as that record is lost, and the others stay silent (#360).
 -}
 hookAnswer ::
     (Shell es) => Steps -> HookName -> Call -> Maybe Binding -> Want -> Eff es Text
 hookAnswer steps name call bound want =
     pointedRun >>= \case
         Nothing -> pure ""
-        Just (Left (Unsupported v)) -> pure (unreadByHook name v)
-        Just (Left (Malformed _)) -> at ((.run) <$> bound)
+        Just (Left unread) -> pure (unreadByHook name unread)
         Just (Right started) -> at (Just started.run)
   where
     at found = telling name found (runAnswer steps call bound found want)
 
--- | A log of another version: the hook records nothing, so a spawn or hand-back is recorded by hand.
-unreadByHook :: HookName -> Int -> Text
-unreadByHook name v = case name of
+-- | A log this state cannot read: the hook records nothing, so a spawn or hand-back is recorded by hand.
+unreadByHook :: HookName -> Log.Unread -> Text
+unreadByHook name unread = case name of
     SpawnHook -> byHand
     HandbackHook -> byHand
     ResumeHook -> ""
@@ -860,8 +855,8 @@ unreadByHook name v = case name of
     byHand =
         "state hook "
             <> hookName name
-            <> ": the run's "
-            <> versionText v
+            <> ": the run has an event this state cannot read, "
+            <> unreadText unread
             <> ", so the hook records nothing\nfix: with the state that wrote the log, state record <step>.spawned, or pipe the hand-back into state handback <role>\n"
 
 -- | What the run found says to a hook's want, recording what it must; empty when silent, a failure as its text.
@@ -1204,25 +1199,22 @@ cardsOf run =
         (explain run.g (Fold.fuelOf run.state) run.state.at)
         (Card.cards <$> Fold.trace run.g run.logged)
 
-{- | @state dump <run>@: the run's events, one envelope per line in seq
-order, read under its lock. A run whose events do not read is named, as
-every command names it.
+{- | @state dump <run>@: the run's rows as stored, one JSON Lines line each in
+seq order, read in one statement without the lock. A row of any type or
+version prints, so dump never fails on a row.
 -}
 dump :: (Log :> es) => RunId -> Eff es (Either Failure Text)
 dump run =
-    Log.locked run $ \case
-        Left bad -> ([], Left (unreadLine run bad))
-        Right [] ->
-            ( []
-            , Left
+    Log.rows run <&> \case
+        [] ->
+            Left
                 ( Failure
                     BadInput
                     ("run " <> runIdText run)
                     "no such run in the run store"
                     "state show names the worktree's run"
                 )
-            )
-        Right events -> ([], Right (foldMap ((<> "\n") . encodeLine) events))
+        lines' -> Right (foldMap (<> "\n") lines')
 
 -- | What a command appends, and what it prints from the state reached and the lines written.
 data Plan = Plan {events :: [Event], say :: RunState -> [Written] -> Output}
@@ -1659,8 +1651,16 @@ data Written = Written {envelope :: Envelope, reached :: StateName}
 -- | The time, commit and session every line written now carries.
 data Stamp = Stamp {ts :: UTCTime, head :: Maybe Sha, session :: Maybe SessionId}
 
--- | The run as replayed under the lock, and its log's lines, those this command wrote included.
-data Loaded = Loaded {g :: OpenGraph, state :: RunState, logged :: NonEmpty Envelope}
+{- | The run as replayed under the lock, its log's lines, and its count of
+rows, those this command wrote included: a retired row is counted, never
+replayed.
+-}
+data Loaded = Loaded
+    { g :: OpenGraph
+    , state :: RunState
+    , logged :: NonEmpty Envelope
+    , rows :: Natural
+    }
 
 {- | The lines for these events, each written by its source, in order, and the
 run they reach, or the first refusal. An id already logged appends nothing.
@@ -1677,7 +1677,7 @@ commit stamp = go []
                 Appended next ->
                     go
                         (Written envelope (askedAt next) : written)
-                        run {state = next, logged = run.logged <> pure envelope}
+                        run {state = next, logged = run.logged <> pure envelope, rows = run.rows + 1}
                         rest
                 AlreadyLogged -> go written run rest
 
@@ -1698,9 +1698,9 @@ record stamp run sources = \case
                 , Left failure
                 )
 
--- | Lines are numbered from 1 in the order written, @started@ first.
+-- | Rows are numbered from 1 in the order written, @started@ first.
 nextSeq :: Loaded -> Natural
-nextSeq run = fromIntegral (length run.logged) + 1
+nextSeq run = run.rows + 1
 
 stamped :: Stamp -> Source -> RunId -> Natural -> Event -> Envelope
 stamped stamp source run n event =
@@ -1938,11 +1938,16 @@ onRunLog ::
 onRunLog act run = do
     stamp <- now
     Log.locked run $ \case
-        Left bad -> ([], Ran (Left (unreadLine run bad)))
-        Right [] -> ([], NoRun)
-        Right (first : rest) -> case replayed run (first :| rest) of
-            Left failure -> ([], Ran (Left failure))
-            Right (g, state) -> Ran <$> act stamp (Loaded g state (first :| rest))
+        Left unread -> ([], Ran (Left (unreadRefusal run unread)))
+        Right logged -> case logged.events of
+            [] -> ([], NoRun)
+            first : rest -> case replayed run (first :| rest) of
+                Left failure -> ([], Ran (Left failure))
+                Right (g, state) ->
+                    Ran
+                        <$> act
+                            stamp
+                            (Loaded g state {seen = state.seen <> logged.seen} (first :| rest) logged.rows)
 
 -- | A run command's outcome: no run to command, or the command's own.
 data Ran a = NoRun | Ran (Either Failure a)
@@ -2004,7 +2009,7 @@ initRun gd args = do
                         begun =
                             Started start : [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
                     Log.locked fresh $ \case
-                        Right [] -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
+                        Right Log.Logged {rows = 0} -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
                         -- Eight random hex digits may meet a run of the same id.
                         _ ->
                             ( []
@@ -2422,29 +2427,26 @@ newRunId = do
                 )
     maybe (throwIO (userError "a hex run id did not parse")) pure (parseRunId hex)
 
-{- | A run whose events do not read, as another kernel's version wrote them:
-it is not migrated, and a fresh run in another notes dir holds the worktree
-in its place.
+{- | A run holding a row this state cannot read, as a newer state wrote it:
+every append to it is refused until state is upgraded.
 -}
-unreadLine :: RunId -> LogError -> Failure
-unreadLine run bad =
+unreadRefusal :: RunId -> Log.Unread -> Failure
+unreadRefusal run unread =
     Failure
         BadInput
-        ("run " <> runIdText run <> " event " <> tshow bad.line <> " is not read")
-        why
-        fix
-  where
-    why = case bad.why of
-        Unsupported v -> versionText v
-        Malformed what -> what
-    fix = "state init --notes <a new dir> starts afresh"
+        ("run " <> runIdText run <> " has an event this state cannot read")
+        (unreadText unread)
+        "upgrade state"
 
-versionText :: Int -> Text
-versionText v =
-    "payload version "
-        <> tshow v
-        <> ", this state reads "
-        <> tshow Codec.schemaVersion
+unreadText :: Log.Unread -> Text
+unreadText unread =
+    "seq "
+        <> tshow unread.seq
+        <> ", type "
+        <> unread.eventType
+        <> " (schema_version "
+        <> tshow unread.schemaVersion
+        <> ")"
 
 -- | A log whose events read but the flow refuses: written by another kernel, or edited by hand.
 unreplayed :: RunId -> Failure -> Failure
