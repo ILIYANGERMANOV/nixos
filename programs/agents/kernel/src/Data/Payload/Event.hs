@@ -99,9 +99,12 @@ import State.Run.Event (
     AnyOutcome,
     Asker (..),
     Asking (..),
+    Branch (..),
     Child (..),
     ChildTask (..),
     Digest,
+    EpicMove (..),
+    EpicName,
     Envelope (..),
     Event (..),
     Handover (..),
@@ -389,6 +392,14 @@ eventData = \case
             <> foldMap (("parent_span" .=) . (.spanSeq)) start.parent
             <> foldMap ("request_model" .=) start.model
     SpanEnded ended ending usage -> "span" .= ended.spanSeq <> endingData ending <> usageData usage
+    EpicMoved epic move ->
+        "epic" .= Artifact.epicNameText epic <> case move of
+            Opens repo branch -> "repo" .= repoText repo <> "branch" .= Artifact.branchText branch
+            Readies pr -> "pr_url" .= urlText pr
+            Merges -> mempty
+    TaskHead ref sha -> taskRefData ref <> "head_sha" .= Field.encode Field.sha sha
+    TaskBaseChanged ref base reason ->
+        taskRefData ref <> Artifact.baseData base <> "reason" .= Artifact.nonBlankText reason
   where
     qidData qid = "qid" .= qidText qid
 
@@ -475,6 +486,24 @@ eventOf kind obj = case kind of
                     <*> obj .:? "request_model"
                 )
     "span_ended" -> SpanEnded <$> (obj .: "span" >>= spanIdOf) <*> endingOf obj <*> usageOf obj
+    "epic_opened" ->
+        EpicMoved
+            <$> epicOf obj
+            <*> ( Opens
+                    <$> (obj .: "repo" >>= named "repo" parseRepo)
+                    <*> (Branch <$> obj .: "branch")
+                )
+    "epic_ready" -> EpicMoved <$> epicOf obj <*> (Readies . Url <$> obj .: "pr_url")
+    "epic_merged" -> EpicMoved <$> epicOf obj <*> pure Merges
+    "task_head" ->
+        TaskHead
+            <$> taskRefOf obj
+            <*> (obj .: "head_sha" >>= named "head sha" (Field.decode Field.sha))
+    "task_base_changed" ->
+        TaskBaseChanged
+            <$> taskRefOf obj
+            <*> (obj .: "base" >>= Artifact.baseOf)
+            <*> (obj .: "reason" >>= named "reason" Artifact.parseNonBlank)
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
@@ -510,6 +539,7 @@ taskStateKind = \case
     Kept _ -> "kept"
     Round _ -> "round"
     Parked _ _ -> "parked"
+    Delivered _ -> "delivered"
 
 spanIdOf :: Natural -> Parser SpanId
 spanIdOf n = SpanId <$> ijsonNatural n
@@ -567,6 +597,9 @@ childOf obj = obj .: "child" >>= runIdOf
 requestOf :: Object -> Parser TaskNo
 requestOf obj =
     obj .: "request" >>= \raw -> maybe (fail (show raw <> " is no request, r<n>")) pure (parseTaskNo raw)
+
+epicOf :: Object -> Parser EpicName
+epicOf obj = obj .: "epic" >>= named "epic name" Artifact.parseEpicName
 
 taskOf :: Object -> Parser TaskId
 taskOf obj = TaskId <$> obj .: "task"
@@ -638,6 +671,7 @@ taskStateEncoding moved =
         Kept url -> prUrl url
         Round url -> prUrl url
         Parked why pr -> "reason" .= why <> foldMap prUrl pr
+        Delivered url -> prUrl url
   where
     prUrl url = "pr_url" .= urlText url
 
@@ -649,6 +683,7 @@ taskStateOf = tagged "task state" $ \obj -> \case
     "kept" -> Kept <$> prUrlOf obj
     "round" -> Round <$> prUrlOf obj
     "parked" -> Parked <$> obj .: "reason" <*> (fmap Url <$> obj .:? "pr_url")
+    "delivered" -> Delivered <$> prUrlOf obj
     other -> unknownCase "task state" other
   where
     prUrlOf obj = Url <$> obj .: "pr_url"

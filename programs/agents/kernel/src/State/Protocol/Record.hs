@@ -81,7 +81,7 @@ import State.Run.Gap (
  )
 import State.Run.Gap qualified as Gap
 import State.Run.Id (parseEventRef)
-import State.Step.Artifact (parsePrUrl, prUrlRule)
+import State.Step.Artifact (parseBase, parseNonBlank, parsePrUrl, parseSha, prUrlRule, shaRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
@@ -114,6 +114,8 @@ data Recording
       OnChild RunId (Maybe TaskRef -> Event)
     | -- | A task read from this file joins the breakdown logged at a seq.
       AddsTask FilePath (Text -> Either Text (Natural -> Event))
+    | -- | The task's branch is at this commit: the shell prints it as @task <id> head <sha>@.
+      HeadOf TaskId Sha
 
 {- | The @state record@ line for an event, its arguments' usage after it. An
 event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
@@ -341,9 +343,30 @@ recordables =
         <> [ atRoot
                 $ Recordable
                     "task"
-                    "<id> <ci|review|merged|kept|round> <pr> | add <task.json> | <id> parked <why>"
-                    [Flag "pr" "<url>" Optional]
+                    ( "<id> <"
+                        <> Text.intercalate "|" (map fst Codec.prStates)
+                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> | <id> parked <why>"
+                    )
+                    [Flag "pr" "<url>" Optional, Flag "reason" "<r>" Optional]
                 $ \a -> case a.positional of
+                    -- Before a move: no task state is named head.
+                    ["head", task, raw] ->
+                        maybe
+                            (Left (raw <> " is not " <> shaRule))
+                            (Right . HeadOf (TaskId task))
+                            (parseSha raw)
+                    [task, "base", raw] -> do
+                        base <-
+                            maybe
+                                (Left (raw <> " is no base: on_default, on_epic:<name> or on_task:<earlier task id>"))
+                                Right
+                                (parseBase raw)
+                        reason <-
+                            maybe
+                                (Left "a base change says why, as --reason <r>: one line")
+                                Right
+                                (parseNonBlank =<< option "reason" a)
+                        Right (OnTask (TaskId task) (\ref -> TaskBaseChanged ref base reason))
                     [task, "round", pr] ->
                         maybe
                             (Left (pr <> " is not " <> prUrlRule))
@@ -359,7 +382,7 @@ recordables =
                         Right (AddsTask (Text.unpack path) (fmap (flip TaskAdded) . Codec.decodeTask))
                     _ ->
                         Left
-                            "the task, then ci, review, merged, kept or round and its PR, or parked and why; or add and a task file"
+                            "the task, then ci, review, merged, kept, round or delivered and its PR, base and its base, or parked and why; or add and a task file, or head, the task and its sha"
            , named "held" "<task> <url>" $ \case
                 [task, link] -> Right (OnTask (TaskId task) (`Held` Url link))
                 _ -> Left "the task and the url"

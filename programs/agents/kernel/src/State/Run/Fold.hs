@@ -83,7 +83,7 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
-import Data.Foldable (for_, toList)
+import Data.Foldable (for_, toList, traverse_)
 import Data.Functor ((<&>))
 import Data.List (find, genericLength, isSuffixOf, partition)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -160,8 +160,11 @@ import State.Run.Ask (
     principalShape,
  )
 import State.Run.Ask qualified as Ask
+import State.Run.Epic (Epic)
+import State.Run.Epic qualified as Epic
 import State.Run.Event (
     AgentId (..),
+    Base,
     AgentRole,
     Asker (..),
     Asking (..),
@@ -169,6 +172,7 @@ import State.Run.Event (
     Child (..),
     ChildTask (..),
     DraftPr,
+    EpicName,
     Envelope (..),
     Event (..),
     EventId,
@@ -192,7 +196,7 @@ import State.Run.Event (
     TaskId,
     TaskNo (..),
     TaskRef (..),
-    TaskState (InCi, InReview, Kept, Merged, Parked),
+    TaskState (Delivered, InCi, InReview, Kept, Merged, Parked),
     Url,
     Usage,
     eventId,
@@ -282,6 +286,8 @@ data RunState = RunState
     -- ^ The chief's request in focus, the one the fields above place: a run of another flow has one.
     , suspended :: Map TaskNo Suspension
     -- ^ The chief's requests waiting, each where it stood.
+    , epics :: Map EpicName Epic
+    -- ^ The epics the run opened, by name, each at its stage: none before its @epic_opened@.
     }
     deriving stock (Eq, Show)
 
@@ -448,6 +454,7 @@ data Refusal
       GapClosed Natural Closure
     | -- | The end of a span that is not open: never started, ended already, or lost to a restart.
       SpanNotOpen SpanId
+    | EpicRefused Epic.Refusal
     deriving stock (Eq, Show)
 
 {- | An id already in the log, or an answer the run holds already, is not
@@ -570,6 +577,7 @@ begin g envelope = case runStart envelope.event of
                 , onTarget = Nothing
                 , focus = TaskNo 1
                 , suspended = Map.empty
+                , epics = Map.empty
                 }
 
 -- | The run an event starts: a log's first line must start one.
@@ -613,6 +621,9 @@ runStart = \case
     GapMoved _ _ -> Nothing
     SpanStarted _ -> Nothing
     SpanEnded {} -> Nothing
+    EpicMoved _ _ -> Nothing
+    TaskHead _ _ -> Nothing
+    TaskBaseChanged {} -> Nothing
 
 {- | The logged event that answers an effect ('Eff'), its handler's input. A
 run's live command and its replay append the same event, so one handler
@@ -730,7 +741,8 @@ applyEvent g state n = \case
     Held ref url -> going (inTaskFan ref.task (Fan.held ref.task url))
     ActedOn ref url -> going (inTaskFan ref.task (Fan.actedOn ref.task url))
     -- A new task joins the fan-out the run is at: no request holds it yet.
-    TaskAdded _ task -> going (inFanOf (fanAt state.at) (Fan.added n task) >>= reopened g)
+    TaskAdded _ task ->
+        going (epicsOf [task.base] state >> inFanOf (fanAt state.at) (Fan.added n task) >>= reopened g)
     -- The lead's session started afresh: every agent it had at work is gone.
     Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
@@ -754,6 +766,11 @@ applyEvent g state n = \case
     SpanEnded ended _ _ -> going $ case break (isSpan ended) state.workers of
         (before, _ : after) -> Right state {workers = before <> after}
         (_, []) -> Left (SpanNotOpen ended)
+    EpicMoved epic move ->
+        going ((\epics -> state {epics}) <$> Bifunctor.first EpicRefused (Epic.moved epic move state.epics))
+    TaskHead ref sha -> going (inTaskFan ref.task (Fan.headed ref.task sha))
+    TaskBaseChanged ref base _ ->
+        going (epicsOf [base] state >> inTaskFan ref.task (Fan.rebased ref.task base))
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
@@ -769,6 +786,7 @@ applyEvent g state n = \case
         InReview _ -> Right
         Merged _ -> Right
         Kept _ -> Right
+        Delivered _ -> Right
         Parked _ _ -> Right . unaskedBy fan task
     -- A task's event goes to the one request's fan-out that holds the task, whichever has focus.
     heldTask task = Bifunctor.first (NotOneHolder task) (taskHolder state task)
@@ -1065,6 +1083,7 @@ walked g state n scope outcome@(AnyOutcome _ some) = do
         maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     let effect = effects n scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
+    epicsOf effect.bases state
     case (edge.to == At from, awaitedOpen g state from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
@@ -1141,6 +1160,8 @@ data Effect = Effect
     -- ^ The run's Fuel from here on, as a 'Fuel' step sets it.
     , skip :: Maybe Skipping
     -- ^ The outcome skips a block, which the run's Fuel or its shape must allow.
+    , bases :: [Base]
+    -- ^ The bases of the tasks a breakdown lists: each epic they name, the run opened.
     }
 
 -- | Why a block may be skipped: a level that skips it, or a round on an existing PR, which keeps it.
@@ -1163,7 +1184,7 @@ effects n scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
          in none {problems = found, pr = url, skip = keeps o}
     TicketLayer -> none {written = ticketOf o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
-    FanLayer -> none {fanned = fanOutcome n scope o}
+    FanLayer -> none {fanned = fanOutcome n scope o, bases = basesOf o}
     PickLayer -> none
     FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where
@@ -1177,6 +1198,7 @@ effects n scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
             , anew = False
             , level = Nothing
             , skip = Nothing
+            , bases = []
             }
 
 -- | The level a 'Fuel' step sets; a skip sets none.
@@ -1254,6 +1276,19 @@ fanOutcome n scope outcome fans = case outcome of
     MergeNextRound fan -> fans <$ Fan.closed (fanIn fans (here fan))
   where
     here = ScopedFan scope
+
+-- | The bases a breakdown's tasks name.
+basesOf :: Outcome (s :: FanStep) l -> [Base]
+basesOf = \case
+    BreakdownDone _ tasks -> map (.base) (Event.taskList tasks)
+    MergeDone _ _ -> []
+    MergeNextRound _ -> []
+
+{- | Every epic these bases name is one the run opened, at any stage
+('Epic.opened'): a task never builds on an epic before its @epic_opened@.
+-}
+epicsOf :: [Base] -> RunState -> Either Refusal ()
+epicsOf bases state = Bifunctor.first EpicRefused (traverse_ (Epic.opened state.epics) bases)
 
 {- | A skip the run may take: one its Fuel allows, @skip_refine@'s for a
 plan settled without the user, and @ready@'s on a round on an existing PR

@@ -420,6 +420,7 @@ merged fan task = case Map.lookup task fan.moves of
     Just (InCi _) -> False
     Just (Kept _) -> False
     Just (Round _) -> False
+    Just (Delivered _) -> False
     Nothing -> False
 
 -- | The task's PR is in CI after its latest child finished: CI is awaited, nothing built again.

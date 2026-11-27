@@ -72,6 +72,7 @@ module State.Run.Event (
     Task (..),
     Base (..),
     EpicName,
+    EpicMove (..),
     NonBlank,
     Shape (..),
     Target (..),
@@ -107,6 +108,7 @@ import State.Category.Effect (Waiting (..))
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
+import State.Run.Epic (EpicMove (..))
 import State.Run.Ask (
     Above,
     ChildTask (..),
@@ -316,6 +318,14 @@ data Event
       SpanStarted SpanStart
     | -- | The subagent of this span ended, how, and the tokens its own requests used.
       SpanEnded SpanId SpanEnding Usage
+    | -- | An epic of the run opened, made ready or merged ("State.Run.Epic").
+      EpicMoved EpicName EpicMove
+    | -- | The commit a task's branch is at, as the 10x saw it: its status stays.
+      TaskHead TaskRef Sha
+    | {- | The task builds on another base from here on, and why: its
+      dependency merged, or the stack was reordered.
+      -}
+      TaskBaseChanged TaskRef Base NonBlank
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.
@@ -477,6 +487,10 @@ data TaskState
       Round Url
     | -- | Set aside, and why: a parked task counts as settled.
       Parked Text (Maybe Url)
+    | {- | Done as the run's rules define it, its PR left open: settled, not
+      merged, and no merge awaited.
+      -}
+      Delivered Url
     deriving stock (Eq, Show)
 
 -- | The artifacts these lines log, each with its seq.

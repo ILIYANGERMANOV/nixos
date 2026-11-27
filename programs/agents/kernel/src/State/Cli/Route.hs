@@ -130,6 +130,7 @@ reachOf = \case
         StopRun _ -> OwnRun
         Pending -> OwnRun
         NoteOn _ _ -> OwnRun
+        MoveEpic _ _ -> OwnRun
     Init _ -> OwnRun
     HandbackOf _ _ -> OwnRun
     Next -> OwnRun

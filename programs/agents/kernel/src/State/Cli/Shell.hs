@@ -136,6 +136,7 @@ import State.Cli.Route qualified as Route
 import State.Cli.View (
     beginText,
     brief,
+    epicRow,
     briefSection,
     pendingLines,
     showRun,
@@ -268,8 +269,11 @@ import State.Run.Event (
     AgentRole (..),
     Asker (..),
     Asking (..),
+    Base (OnEpic),
     Child (..),
     DraftPr (..),
+    EpicMove (..),
+    EpicName,
     Envelope (..),
     Event (..),
     FlowName (..),
@@ -1361,6 +1365,7 @@ execute steps = \case
             Filing _ -> Nothing
             OnTask _ _ -> Nothing
             OnChild _ _ -> Nothing
+            HeadOf _ _ -> Nothing
         RecordUnknown _ -> Nothing
         Brief _ _ -> Nothing
         ShowRun -> Nothing
@@ -1376,6 +1381,7 @@ execute steps = \case
         StopRun _ -> Nothing
         Pending -> Nothing
         NoteOn _ _ -> Nothing
+        MoveEpic _ _ -> Nothing
 
 -- | The lines a gap's evidence names: each must be stored, in any run.
 evidenceOf :: RunCommand -> [EventRef]
@@ -1935,6 +1941,41 @@ writtenDown before after qid = Output "" Nothing (downOf before after qid)
 recorded :: [Written] -> Output
 recorded written = printed (recordedLines written <> nextLine)
 
+{- | An epic's row once it moved, then what comes next: an epic opened
+comes before the breakdown that builds on it; one made ready lists its
+tasks, as its PR holds their work.
+-}
+epicMoved :: RunState -> EpicName -> EpicMove -> Text
+epicMoved after epic move =
+    foldMap (\found -> "epic " <> epicRow epic found <> "\n") (Map.lookup epic after.epics)
+        <> case move of
+            Opens _ _ -> "next: state record breakdown.done --tasks <file.json>\n"
+            Readies _ -> "tasks on it: " <> onIt <> "\n" <> nextLine
+            Merges -> nextLine
+  where
+    onIt = case [ taskIdText task.id
+                | fan <- Map.elems after.fans
+                , task <- Fan.tasksOf fan
+                , task.base == OnEpic epic
+                ] of
+        [] -> "none"
+        ids -> Text.unwords ids
+
+{- | What a recording prints: a task's head as its row, @task t4 head
+<sha>@; any other, a line per event it wrote. Then the command to run next.
+-}
+recordedAs :: Recording -> [Written] -> Output
+recordedAs recording written = case recording of
+    HeadOf task sha ->
+        printed ("task " <> taskIdText task <> " head " <> Codec.shaText sha <> "\n" <> nextLine)
+    Plain _ -> recorded written
+    AtHead _ -> recorded written
+    FromFile {} -> recorded written
+    NamesFile {} -> recorded written
+    OnTask _ _ -> recorded written
+    OnChild _ _ -> recorded written
+    AddsTask _ _ -> recorded written
+
 -- | What every write that prints no advice of its own says to run next.
 nextLine :: Text
 nextLine = "next: state next\n"
@@ -1965,7 +2006,7 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
                 (recordedEvent g state worktreeHead text (first + genericLength registered) recording)
         -- The file registered first, then the outcome that names it.
         Right
-            (Plan (registered <> [event]) (\_ written -> printed unread <> recorded written))
+            (Plan (registered <> [event]) (\_ written -> printed unread <> recordedAs recording written))
     NoteOn topic text ->
         Right
             ( Plan
@@ -1979,6 +2020,7 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
                         )
                 )
             )
+    MoveEpic epic move -> Right (Plan [EpicMoved epic move] (\after _ -> printed (epicMoved after epic move)))
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
     AskOwn kind how text -> do
@@ -2156,6 +2198,7 @@ fileRead recording file = case recording of
     Filing _ -> Right ([], "", Nothing)
     OnTask _ _ -> Right ([], "", Nothing)
     OnChild _ _ -> Right ([], "", Nothing)
+    HeadOf _ _ -> Right ([], "", Nothing)
   where
     parsedFrom kind = do
         found <- traverse readable file
@@ -2259,14 +2302,16 @@ namedEvent g state worktreeHead file n = \case
                 )
     FromFile _ path parse -> parsed path parse
     NamesFile _ _ event -> Right event
-    OnTask task event ->
+    OnTask task event -> onTask task event
+    OnChild child event -> Right (event (Fold.childRefIn state child))
+    AddsTask path parse -> (\event -> event (Fold.addedTo state n)) <$> parsed path parse
+    HeadOf task sha -> onTask task (`TaskHead` sha)
+  where
+    onTask task event =
         Bifunctor.bimap
             (explain g (Fold.fuelOf state) state.at)
             event
             (Fold.taskRefIn state task)
-    OnChild child event -> Right (event (Fold.childRefIn state child))
-    AddsTask path parse -> (\event -> event (Fold.addedTo state n)) <$> parsed path parse
-  where
     parsed :: FilePath -> (Text -> Either Text a) -> Either Failure a
     parsed path parse = case parse <$> file of
         Just (Right event) -> Right event

@@ -147,6 +147,8 @@ import State.Run.Event (
     runIdText,
     taskNoText,
  )
+import State.Run.Epic (EpicMove (..))
+import State.Run.Epic qualified as Epic
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Answer (about, given), Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
@@ -155,9 +157,14 @@ import State.Run.Gap qualified as Gap
 import State.Run.Id (EventRef, eventRefText, parseEventId, parseEventRef)
 import State.Show (tshow)
 import State.Step.Artifact (
+    Branch (..),
+    EpicName,
     Shape (..),
     ShellPath,
+    epicNameText,
+    parseEpicName,
     parsePrUrl,
+    parseRepo,
     prUrlRule,
     shellPath,
     shellPathRule,
@@ -235,6 +242,8 @@ data RunCommand
     | Pending
     | -- | A note under its topic, then its text.
       NoteOn Text Text
+    | -- | An epic of the run opened, made ready for review or merged.
+      MoveEpic EpicName EpicMove
 
 {- | Where an artifact is, with a kind that fits it: a URL, or a file at a
 path, as typed until the shell reads it.
@@ -576,6 +585,12 @@ commandInfo steps scope =
                 (\topic text -> Right (OnRun (NoteOn topic text)))
                     <$> textOption "topic" "<t>" "what the note is about"
                     <*> sentence "<text>"
+            , Optparse.command
+                "epic"
+                ( Optparse.info
+                    (Optparse.hsubparser (epicOpen <> epicReady <> epicMerged))
+                    (Optparse.progDesc "Open an epic, mark it ready for review, or merged")
+                )
             , sub "handover" "Hand the run over to a fresh agent" $
                 ( \reason summary first' rest ->
                     (\r -> HandOver (Handover r summary (first' :| rest)))
@@ -676,6 +691,43 @@ commandInfo steps scope =
                     "<seq>"
                     "the seq of the span_started of the agent that made it"
                 )
+    epicOpen =
+        sub "open" "Open an epic: the branch its tasks build on" $
+            ( \name repo branch ->
+                (\epic r -> OnRun (MoveEpic epic (Opens r (Branch branch))))
+                    <$> epicOf name
+                    <*> repoOf repo
+            )
+                <$> textArgument "<name>"
+                <*> textOption "repo" "<owner/name>" "the GitHub repo of the epic's branch"
+                <*> textOption "branch" "<b>" "the epic's branch"
+    epicReady =
+        sub "ready" "An epic's final PR is open for review" $
+            ( \name pr ->
+                (\epic url -> OnRun (MoveEpic epic (Readies url)))
+                    <$> epicOf name
+                    <*> epicPr pr
+            )
+                <$> textArgument "<name>"
+                <*> textOption "pr" "<url>" "the epic's final PR"
+    epicMerged =
+        sub "merged" "An epic's final PR merged" $
+            fmap (OnRun . (`MoveEpic` Merges)) . epicOf <$> textArgument "<name>"
+    epicOf raw =
+        maybe
+            (Left (usage ("epic " <> raw) "an epic's name is ASCII letters, digits and ._-"))
+            Right
+            (parseEpicName raw)
+    repoOf raw =
+        maybe
+            (Left (usage ("--repo " <> raw) "a repo is <owner>/<name>, as gh names it"))
+            Right
+            (parseRepo raw)
+    epicPr raw =
+        maybe
+            (Left (usage ("--pr " <> raw) ("the PR is " <> prUrlRule)))
+            Right
+            (parsePrUrl raw)
     nextStep hiding =
         Optparse.strOption
             ( Optparse.long "next"
@@ -1181,7 +1233,7 @@ explain g fuel at = \case
         Fan.Unmerged tasks ->
             refused
                 "the round's end"
-                ( "tasks neither merged, kept nor parked: "
+                ( "tasks neither merged, kept, delivered nor parked: "
                     <> Text.unwords (map Codec.taskIdText (toList tasks))
                 )
                 "state next"
@@ -1203,6 +1255,17 @@ explain g fuel at = \case
             refused
                 ("task " <> Codec.taskIdText task)
                 "the fan-out has a task of that id already"
+                "state show"
+        -- Its own message, under the code a dependency on a later task has: unknown_task.
+        Fan.BaseNotEarlier task base ->
+            refused
+                "unknown_task"
+                ( "task "
+                    <> Codec.taskIdText task
+                    <> " cannot have base "
+                    <> Codec.taskIdText base
+                    <> ": a base names an earlier task of the breakdown"
+                )
                 "state show"
     NotAtFan ->
         refused
@@ -1273,6 +1336,27 @@ explain g fuel at = \case
             ("the end of span " <> tshow n)
             "the span is not open: it never started, ended already, or a restart lost it"
             "state show"
+    EpicRefused refusal -> case refusal of
+        Epic.EpicExists epic ->
+            refused
+                "epic_exists"
+                ("the run opened epic " <> epicNameText epic <> " already")
+                "state resume"
+        Epic.EpicNotOpen epic ->
+            refused
+                "epic_not_open"
+                ("epic " <> epicNameText epic <> " is ready or merged already: only an open epic is made ready")
+                "state resume"
+        Epic.EpicNotReady epic ->
+            refused
+                "epic_not_ready"
+                ("epic " <> epicNameText epic <> " is not ready for review: it is open still, or merged already")
+                ("state epic ready " <> epicNameText epic <> " --pr <url>, once its final PR is open")
+        Epic.UnknownEpic epic ->
+            refused
+                "unknown_epic"
+                ("the run never opened epic " <> epicNameText epic)
+                ("state epic open " <> epicNameText epic <> " --repo <owner/name> --branch <branch>")
   where
     refused = Failure BadInput
     records = atPlace $ \place -> case [ recordCommand event

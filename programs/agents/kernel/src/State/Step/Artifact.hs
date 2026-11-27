@@ -9,6 +9,8 @@ module State.Step.Artifact (
     Judgement (..),
     Sha (..),
     lowerHex,
+    parseSha,
+    shaRule,
     Url (..),
     Branch (..),
     Label (..),
@@ -148,6 +150,17 @@ lowerHex lengths raw
         && Text.all (`elem` ("0123456789abcdef" :: String)) raw =
         Just raw
     | otherwise = Nothing
+
+{- | A full git object name: 40 (SHA-1) or 64 (SHA-256) lowercase hex, as
+git's hash-function transition names them. A short one is refused: it may
+name another object once the repo grows.
+-}
+parseSha :: Text -> Maybe Sha
+parseSha = fmap Sha . lowerHex [40, 64]
+
+-- | What 'parseSha' accepts, as a refusal names it.
+shaRule :: Text
+shaRule = "a full commit sha, 40 or 64 lowercase hex characters"
 
 newtype Url = Url Text
     deriving stock (Eq, Show)

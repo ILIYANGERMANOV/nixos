@@ -82,6 +82,7 @@ library
     State.Run.Ask
     State.Run.Card
     State.Run.Codec
+    State.Run.Epic
     State.Run.Event
     State.Run.Fan
     State.Run.Fold

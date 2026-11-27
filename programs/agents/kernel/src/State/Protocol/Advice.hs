@@ -1154,6 +1154,7 @@ taskLine fan open task =
             Kept url -> " " <> urlText url
             Round url -> " " <> urlText url
             Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
+            Delivered url -> " " <> urlText url
 
 {- | The advice held while a worker of the run is still at work and its line
 would hand the run back: a lead hands back only after its workers, as a

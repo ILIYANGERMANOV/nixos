@@ -43,6 +43,7 @@ import Numeric.Natural (Natural)
 import State.Category.Step (eventText)
 import State.Role (flowText)
 import State.Run.Event (
+    EpicMove (..),
     Event (..),
     HandoverReason (..),
     Stop (..),
@@ -111,6 +112,12 @@ eventType = \case
         Close (WontFix _) -> "gap_wont_fix"
     SpanStarted _ -> "span_started"
     SpanEnded {} -> "span_ended"
+    EpicMoved _ move -> case move of
+        Opens _ _ -> "epic_opened"
+        Readies _ -> "epic_ready"
+        Merges -> "epic_merged"
+    TaskHead _ _ -> "task_head"
+    TaskBaseChanged {} -> "task_base_changed"
 
 -- | A hand-back token as line 1 opens with it, on the wire (#360).
 tokenWordText :: TokenWord -> Text
@@ -176,6 +183,7 @@ prStates =
     , ("merged", Merged)
     , ("kept", Kept)
     , ("round", Round)
+    , ("delivered", Delivered)
     ]
 
 -- | As @state record task@ names it.
@@ -187,6 +195,7 @@ taskStateName = \case
     Kept _ -> "kept"
     Round _ -> "round"
     Parked _ _ -> "parked"
+    Delivered _ -> "delivered"
 
 -- | The arguments @state record task@ takes after the task's id for this state.
 taskStateArgs :: TaskState -> Text
@@ -199,6 +208,7 @@ taskStateArgs moved =
             Kept pr -> [urlText pr]
             Round pr -> [urlText pr]
             Parked why pr -> why : maybe [] (\url -> ["--pr", urlText url]) pr
+            Delivered pr -> [urlText pr]
 
 -- | #360's @AWAIT <what> <refs>@: what a run hands up to be waited on.
 waitingText :: Waiting -> Text
