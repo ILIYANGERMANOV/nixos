@@ -696,17 +696,11 @@ commandInfo steps scope =
             <$> textArgument "<run:seq>"
             <*> textOption "pr" "<url>" "the PR"
     gapAt raw =
-        maybe
-            ( Left
-                (usage ("gap " <> raw) "a gap is named <run:seq>, as state resume prints it")
-            )
-            Right
+        parsedOr
+            ("gap " <> raw)
+            "a gap is named <run:seq>, as state resume prints it"
             (parseEventRef raw)
-    prUri raw =
-        maybe
-            (Left (Failure BadInput ("--pr " <> raw) uriRule "state help"))
-            Right
-            (parseUri raw)
+    prUri raw = parsedOr ("--pr " <> raw) uriRule (parseUri raw)
     artifactShow =
         Optparse.hsubparser
             ( Optparse.command
@@ -719,15 +713,11 @@ commandInfo steps scope =
                 )
             )
     artifactAt raw =
-        maybe
-            ( Left
-                ( usage
-                    ("artifact " <> raw)
-                    "an artifact is named <run:seq>, as state artifact printed it"
-                )
-            )
-            (Right . ShowArtifact)
-            (parseEventRef raw)
+        ShowArtifact
+            <$> parsedOr
+                ("artifact " <> raw)
+                "an artifact is named <run:seq>, as state artifact printed it"
+                (parseEventRef raw)
     artifactRegister =
         ( \raw kind from by ->
             Register
@@ -777,20 +767,16 @@ commandInfo steps scope =
         sub "merged" "An epic's final PR merged" $
             fmap (OnRun . (`MoveEpic` Merges)) . epicOf <$> textArgument "<name>"
     epicOf raw =
-        maybe
-            (Left (usage ("epic " <> raw) "an epic's name is ASCII letters, digits and ._-"))
-            Right
+        parsedOr
+            ("epic " <> raw)
+            "an epic's name is ASCII letters, digits and ._-"
             (parseEpicName raw)
     repoOf raw =
-        maybe
-            (Left (usage ("--repo " <> raw) "a repo is <owner>/<name>, as gh names it"))
-            Right
+        parsedOr
+            ("--repo " <> raw)
+            "a repo is <owner>/<name>, as gh names it"
             (parseRepo raw)
-    epicPr raw =
-        maybe
-            (Left (usage ("--pr " <> raw) ("the PR is " <> prUrlRule)))
-            Right
-            (parsePrUrl raw)
+    epicPr raw = parsedOr ("--pr " <> raw) ("the PR is " <> prUrlRule) (parsePrUrl raw)
     nextStep hiding =
         Optparse.strOption
             ( Optparse.long "next"
@@ -837,10 +823,11 @@ commandInfo steps scope =
     basisOf raw = case Text.stripPrefix "obvious:" raw of
         Just why -> Obvious <$> oneLine (Text.strip why)
         Nothing ->
-            maybe
-                (Left (usage ("--basis " <> raw) "an event id such as r7f2:12, or obvious:<why>"))
-                (Right . AnsweredBy)
-                (parseEventId raw)
+            AnsweredBy
+                <$> parsedOr
+                    ("--basis " <> raw)
+                    "an event id such as r7f2:12, or obvious:<why>"
+                    (parseEventId raw)
     above = \case
         "user" -> Right TheUser
         raw -> ParentRun <$> runId raw
@@ -1033,20 +1020,22 @@ sentence value = Text.unwords <$> some (textArgument value)
 usage :: Text -> Text -> Failure
 usage what why = Failure BadInput what why "state help"
 
+-- | A parse's value, else the usage failure: what is wrong, and why.
+parsedOr :: Text -> Text -> Maybe a -> Either Failure a
+parsedOr what why = maybe (Left (usage what why)) Right
+
 oneLine :: Text -> Either Failure OneLine
 oneLine raw =
-    maybe
-        (Left (usage "a line break" "answers, reasons and questions are one line each"))
-        Right
+    parsedOr
+        "a line break"
+        "answers, reasons and questions are one line each"
         (parseOneLine raw)
 
 named :: Text -> (Text -> Maybe a) -> Text -> Either Failure a
 named what parse raw =
-    maybe
-        ( Left
-            (usage ("no " <> what <> " " <> raw) ("see the " <> what <> "s state help lists"))
-        )
-        Right
+    parsedOr
+        ("no " <> what <> " " <> raw)
+        ("see the " <> what <> "s state help lists")
         (parse raw)
 
 runId :: Text -> Either Failure RunId
@@ -1055,9 +1044,9 @@ runId = named "run id" parseRunId
 -- | A line's seq, as @recorded <seq>@ and the log print it.
 seqOf :: Text -> Either Failure Natural
 seqOf raw =
-    maybe
-        (Left (usage ("seq " <> raw) "a seq is a line's number in the log, from 1"))
-        Right
+    parsedOr
+        ("seq " <> raw)
+        "a seq is a line's number in the log, from 1"
         (readMaybe (Text.unpack raw))
 
 -- | An @--until@ seq: a line's, so from 1.
@@ -1071,9 +1060,9 @@ untilOf raw =
 -- | A kind in any case: the hand-back's @NEEDS_DECISION <Kind>@ alone is spelled exactly.
 kindOf :: Text -> Either Failure Kind
 kindOf raw =
-    maybe
-        (Left (usage ("no kind " <> raw) ("one of " <> choices kindName)))
-        Right
+    parsedOr
+        ("no kind " <> raw)
+        ("one of " <> choices kindName)
         (parseByName (Text.toLower . kindName) (Text.toLower raw))
 
 knownRole :: [AgentRole] -> Text -> Either Failure AgentRole
@@ -1098,11 +1087,9 @@ another directory than init did.
 -}
 notesDir :: Text -> Either Failure ShellPath
 notesDir raw =
-    maybe
-        ( Left
-            (usage ("--notes " <> raw) ("the notes dir is " <> Text.pack shellPathRule))
-        )
-        Right
+    parsedOr
+        ("--notes " <> raw)
+        ("the notes dir is " <> Text.pack shellPathRule)
         (shellPath (dropTrailingPathSeparator (normalise (Text.unpack raw))))
 
 blockName :: Block -> Text
