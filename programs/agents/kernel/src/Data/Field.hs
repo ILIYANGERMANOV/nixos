@@ -1,5 +1,5 @@
-{- | The store's column codecs: each column type's text, as the DDL's CHECKs
-hold it, and its strict parser, so @decode c (encode c x) == Just x@. Pure:
+{- | The store's column codecs: each column type's text, as the DDL's CHECK
+constraints hold it, and its strict parser, so @decode c (encode c x) == Just x@. Pure:
 the store ("Effects.Store.Events") binds the text, "Data.Payload.Event" maps
 an envelope through these. The domain types stay in @State/@.
 -}
