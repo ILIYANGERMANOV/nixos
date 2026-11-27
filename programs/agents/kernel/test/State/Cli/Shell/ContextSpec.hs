@@ -343,7 +343,8 @@ startsOf world =
 artifactsLogged :: IORef World -> IO [FilePath]
 artifactsLogged world =
     ( \lines' ->
-        [ absPathText file.ref.path | ArtifactLogged (File file) _ <- map (.event) lines'
+        [ absPathText file.ref.path
+        | ArtifactLogged (File file) _ _ <- map (.event) lines'
         ]
     )
         <$> logged world
@@ -357,5 +358,5 @@ refusedCodes world =
 -- | What each artifact logged derives from.
 artifactParents :: IORef World -> IO [Maybe Natural]
 artifactParents world =
-    (\lines' -> [from | ArtifactLogged _ from <- map (.event) lines'])
+    (\lines' -> [from | ArtifactLogged _ from _ <- map (.event) lines'])
         <$> logged world

@@ -185,6 +185,7 @@ import State.Protocol.Handback (
     Refusal (..),
     Typed (..),
     areaNames,
+    handbackEnding,
     parseHandback,
     refusalText,
     typeDirectHandback,
@@ -267,6 +268,7 @@ import State.Run.Event (
     SessionId (..),
     Sha,
     Source (..),
+    SpanId (..),
     Start (..),
     Task (..),
     TaskId,
@@ -278,6 +280,7 @@ import State.Run.Event (
     placeOf,
     roleText,
     runIdText,
+    spansOf,
     stepTook,
     taskNoText,
  )
@@ -917,7 +920,7 @@ runAnswer steps call bound found want = case want of
             stamp
             run
             ( (Cli, SessionStarted (sessionOf opened))
-                : [(Cli, event) | event <- maybeToList (restartOf opened.source run.state)]
+                : [(Cli, event) | event <- maybeToList (restartOf steps opened.source run.state)]
             ) of
             Left refusal ->
                 ( []
@@ -969,7 +972,12 @@ runAnswer steps call bound found want = case want of
                         . fmap (\plan -> plan {say = childrenTold run.g plan.say})
              in case ( loggedAlready run.logged sources
                      , followedAt steps run.g run.state role
-                     , Fold.returnOf run.state role agent.agentId
+                     , -- A worker beside the advice returns whatever its report says: one with no token reads as ready.
+                       Fold.returnOf
+                        run.state
+                        role
+                        agent.agentId
+                        (handbackEnding (either (const Nothing) (.token) (parseHandback message)) message)
                      ) of
                     (True, _, _) -> ([], "")
                     (False, True, _) ->
@@ -1101,7 +1109,7 @@ execute steps = \case
     HandOver handover -> handOver handover
     ShowArtifact ref -> showArtifact ref
     MoveGap ref move -> moveGap ref move
-    Register location from -> registerArtifact location from
+    Register location from by -> registerArtifact location from by
     Dump run -> dump run
     Resume run k -> resumePacket run k
     Next -> do
@@ -1260,14 +1268,18 @@ readable (path, contents) = case contents of
 pathText :: AbsPath -> Text
 pathText = Text.pack . absPathText
 
-{- | @state artifact <path|url> --kind <k> [--from <seq>]@: the worktree's
-run registers a file or a URL. A file is read once, before the lock, and its
-digest and blob come from those bytes, in the append that logs it; a file
-that may not be read logs a refusal.
+{- | @state artifact <path|url> --kind <k> [--from <seq>] [--span <seq>]@:
+the worktree's run registers a file or a URL. A file is read once, before
+the lock, and its digest and blob come from those bytes, in the append that
+logs it; a file that may not be read logs a refusal.
 -}
 registerArtifact ::
-    (Shell es) => Location FilePath -> Maybe Natural -> Eff es (Either Failure Text)
-registerArtifact location from = do
+    (Shell es) =>
+    Location FilePath ->
+    Maybe Natural ->
+    Maybe SpanId ->
+    Eff es (Either Failure Text)
+registerArtifact location from by = do
     named <- traverse readAt location
     fmap (.text) . orNoRun
         <$> appendingOn
@@ -1278,18 +1290,26 @@ registerArtifact location from = do
                         stamp
                         run
                         (repeat Cli)
-                        (traverse readable named >>= \found -> unlogged (registerPlan run found from))
+                        (traverse readable named >>= \found -> unlogged (registerPlan run found from by))
                     )
             )
 
--- | The artifact a location read gives, derived from the run's artifact of this seq, if any.
+{- | The artifact a location read gives, derived from the run's artifact of
+this seq and made by the agent of this span, if any. A span is any the run
+started, open or ended: a lead often registers a report after its hand-back.
+-}
 registerPlan ::
-    Loaded -> Location (AbsPath, ByteString) -> Maybe Natural -> Either Failure Plan
-registerPlan run found from = do
+    Loaded ->
+    Location (AbsPath, ByteString) ->
+    Maybe Natural ->
+    Maybe SpanId ->
+    Either Failure Plan
+registerPlan run found from by = do
     for_ from derivable
+    for_ by spanned
     Right
         ( Plan
-            [ArtifactLogged artifact from]
+            [ArtifactLogged artifact from by]
             ( \_ written ->
                 printed
                     ( foldMap
@@ -1316,6 +1336,21 @@ registerPlan run found from = do
                     ("--from " <> tshow n)
                     ("line " <> tshow n <> " of run " <> runIdText run.state.run <> " is no artifact")
                     "state artifact <path|url> --kind <k> --from <the seq state artifact printed>"
+                )
+    spanned span'
+        | span' `elem` map fst (spansOf run.logged) = Right ()
+        | otherwise =
+            Left
+                ( Failure
+                    BadInput
+                    ("--span " <> tshow span'.spanSeq)
+                    ( "line "
+                        <> tshow span'.spanSeq
+                        <> " of run "
+                        <> runIdText run.state.run
+                        <> " starts no span"
+                    )
+                    "state artifact <path|url> --kind <k> --span <the seq of the agent's span_started>"
                 )
 
 {- | @artifact 7f3a:14 plan sha256:3b9c... 14212 bytes, content stored@, or
@@ -1375,7 +1410,10 @@ waits for the next handover or end (#552 ruling 5).
 -}
 resnapshotOf :: Loaded -> [(FileArtifact, Contents)] -> ([Event], [AbsPath])
 resnapshotOf run again =
-    ( [ ArtifactLogged (File fresh.file) (fst <$> Map.lookup fresh.file.ref.path latest)
+    ( [ ArtifactLogged
+            (File fresh.file)
+            (fst <$> Map.lookup fresh.file.ref.path latest)
+            Nothing
       | fresh <- snapshots
       ]
     , skipped
@@ -1473,7 +1511,7 @@ showArtifact ref =
             Left unread -> pure (Left (unreadRefusal ref.run unread))
             Right NoSuchRun -> pure (Left (noArtifact "no such run in the run store"))
             Right NoSuchLine -> pure (Left (noArtifact "the run has no such line"))
-            Right (StoredLine line) -> case [artifact | ArtifactLogged artifact _ <- [line.event]] of
+            Right (StoredLine line) -> case [artifact | ArtifactLogged artifact _ _ <- [line.event]] of
                 [] -> pure (Left (noArtifact ("it is a " <> eventType line.event <> " line")))
                 artifact : _ -> case artifact of
                     Url _ uri -> pure (Right (uriText uri <> "\n"))
@@ -1907,7 +1945,7 @@ fileRead recording file = case recording of
             )
             (decodeUtf8' bytes)
     registering kind found =
-        [ ArtifactLogged (File (register kind path bytes).file) Nothing
+        [ ArtifactLogged (File (register kind path bytes).file) Nothing Nothing
         | (path, bytes) <- toList found
         ]
 
@@ -2020,6 +2058,7 @@ handbackPlan steps worktreeHead g state next role agent child message = do
                 next
                 role
                 agent
+                message
                 parsed {Handback.run = run}
             )
     let from = maybe (roleText role) runIdText run
@@ -2135,7 +2174,7 @@ settledAdvice steps facts stamp run =
     , unsynced
     , Advice.heldBy
         settled.state.start
-        settled.state.workers
+        (Hook.atWork steps settled.state)
         (advise steps settled.g facts settled.state)
     )
   where

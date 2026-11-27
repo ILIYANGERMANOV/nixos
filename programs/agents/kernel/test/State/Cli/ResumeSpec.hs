@@ -20,6 +20,7 @@ import State.Cli.Shell.World (
     Ran (..),
     World (..),
     addWorktree,
+    appendSpan,
     appendUnread,
     askedQId,
     atWorktree,
@@ -50,7 +51,7 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = describe "state resume over the doubles" . before newWorld $ do
     it
-        "prints the packet: goal, moved worktree, newest snapshot per path, URL, notes, handover, questions, decisions, a child run, a session"
+        "prints the packet: goal, moved worktree, newest snapshot per path, URL, notes, handover, questions, decisions, a child run, a session, spans"
         $ \world -> do
             _ <- packedRun world
             ran <- state world ["resume"]
@@ -374,6 +375,7 @@ packedRun world = do
                 , "--next"
                 , "spawn t2"
                 ]
+    editLog world (appendSpan "Explore" . appendSpan "engineer")
     pure tenX
   where
     later = modifyIORef' world (\w -> w {clock = addUTCTime 90 w.clock})

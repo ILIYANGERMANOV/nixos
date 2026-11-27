@@ -14,6 +14,8 @@ module State.Run.Codec (
     judgementText,
     flowText,
     waitingText,
+    tokenWordText,
+    tokenWordName,
     shaText,
     urlText,
     taskIdText,
@@ -39,6 +41,7 @@ import State.Run.Event (
     Stop (..),
     StopReason (..),
     TaskState (..),
+    TokenWord (..),
     Url,
     Waiting (..),
     tookEvent,
@@ -90,7 +93,7 @@ eventType = \case
     Focused _ -> "focused"
     Voided _ _ -> "voided"
     WorktreeMoved _ _ -> "worktree_moved"
-    ArtifactLogged _ _ -> "artifact"
+    ArtifactLogged {} -> "artifact"
     Noted _ _ -> "note"
     HandedOver _ -> "handover"
     SessionStarted _ -> "session_started"
@@ -98,6 +101,21 @@ eventType = \case
         Propose _ -> "gap_fix_proposed"
         Close (Fixed _) -> "gap_fixed"
         Close (WontFix _) -> "gap_wont_fix"
+    SpanStarted _ -> "span_started"
+    SpanEnded {} -> "span_ended"
+
+-- | A hand-back token as line 1 opens with it, on the wire (#360).
+tokenWordText :: TokenWord -> Text
+tokenWordText = \case
+    ReadyWord -> "READY"
+    NeedsDecisionWord -> "NEEDS_DECISION"
+    AwaitWord -> "AWAIT"
+    BlockedWord -> "BLOCKED"
+    FailedWord -> "FAILED"
+
+-- | A hand-back token as the log and @state resume@ spell it: its wire word in lowercase.
+tokenWordName :: TokenWord -> Text
+tokenWordName = Text.toLower . tokenWordText
 
 -- | A hand-over's reason, as the log and the CLI spell it.
 handoverReasonText :: HandoverReason -> Text

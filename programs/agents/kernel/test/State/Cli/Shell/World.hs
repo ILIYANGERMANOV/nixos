@@ -39,6 +39,7 @@ module State.Cli.Shell.World (
     editLog,
     editLogIn,
     appendUnread,
+    appendSpan,
     lessUnread,
     unknownType,
     newerStart,
@@ -85,7 +86,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
-import Data.Payload.Event (Decoded (..), decodeRow)
+import Data.Payload.Event (Decoded (..), decodeRow, eventRow)
 import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -117,12 +118,16 @@ import State.Cli.Shell qualified as Shell
 import State.Protocol.Advice (PrView (..), PullRequest (..), Readiness (..))
 import State.Run.Codec (eventType)
 import State.Run.Event (
+    AgentRole (..),
     Branch (..),
     DraftPr (..),
     Envelope (..),
     Event (..),
+    Harness (..),
     RunId,
     Sha (..),
+    Source (..),
+    SpanStart (..),
     Start (..),
     Task (..),
     Url (..),
@@ -445,6 +450,30 @@ appendUnread rows =
     rows
         <> [ lastRow {Row.seq = lastRow.seq + 1, Row.eventType = unknownType, payload = "{}"}
            | lastRow <- take 1 (reverse rows)
+           ]
+
+{- | The rows and a @span_started@ of this role after them, as the spawn hook
+logs one: no command writes it.
+-}
+appendSpan :: Text -> [EventRow] -> [EventRow]
+appendSpan role rows =
+    rows
+        <> [ eventRow
+                e
+                    { source = Cli
+                    , seq = e.seq + 1
+                    , event =
+                        SpanStarted
+                            ( SpanStart
+                                (AgentRole role)
+                                (Harness "claude-code")
+                                ("brief of " <> role)
+                                Nothing
+                                Nothing
+                            )
+                    }
+           | lastRow <- take 1 (reverse rows)
+           , Known e <- [decodeRow shipped lastRow]
            ]
 
 -- | The rows less those 'appendUnread' added.

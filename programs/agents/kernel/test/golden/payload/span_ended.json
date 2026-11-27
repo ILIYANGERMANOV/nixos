@@ -1,0 +1,5 @@
+[
+{"span":5,"status_code":"ok","handback_token":"ready","handback":"READY built\nTouches: none","input_tokens":1200,"output_tokens":300,"cache_read_input_tokens":800,"cache_write_input_tokens":100},
+{"span":5,"status_code":"ok","handback_token":"blocked","handback":"BLOCKED no access","input_tokens":10},
+{"span":6,"status_code":"error","error_type":"no_handback"}
+]

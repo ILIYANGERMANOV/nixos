@@ -266,7 +266,7 @@ spec = describe "State.Run.Fold" $ do
     describe "a lead's workers" $ do
         let fixer = AgentRole "fixer"
             atWork events =
-                map (\worker -> (worker.agent, worker.spawnedAt)) . (.workers)
+                map (\worker -> (worker.origin, worker.spawnedAt)) . (.workers)
                     <$> replay g (logOf (Started start0 :| events))
             start0 = startOf EngineerFlow (ByUser OwnPr)
             spawn role agent = WorkerSpawned role (AgentId agent)
@@ -274,7 +274,7 @@ spec = describe "State.Run.Fold" $ do
             "holds each worker spawned, by the seq of its spawn, until the one of its id returns"
             $ atWork
                 [spawn fixer "a1", spawn fixer "a2", WorkerReturned fixer (Just (AgentId "a2"))]
-                `shouldBe` Right [(AgentId "a1", 1)]
+                `shouldBe` Right [(WorkerLine (AgentId "a1"), 1)]
         it "closes the oldest of the role when the return names no id" $
             atWork
                 [ spawn fixer "a1"
@@ -282,19 +282,19 @@ spec = describe "State.Run.Fold" $ do
                 , spawn fixer "a2"
                 , WorkerReturned fixer Nothing
                 ]
-                `shouldBe` Right [(AgentId "b1", 2), (AgentId "a2", 3)]
+                `shouldBe` Right [(WorkerLine (AgentId "b1"), 2), (WorkerLine (AgentId "a2"), 3)]
         it "changes nothing at the return of a worker not at work" $
             atWork
                 [ spawn fixer "a1"
                 , WorkerReturned fixer (Just (AgentId "a9"))
                 , WorkerReturned (AgentRole "implementer") Nothing
                 ]
-                `shouldBe` Right [(AgentId "a1", 1)]
+                `shouldBe` Right [(WorkerLine (AgentId "a1"), 1)]
         it "forgets every worker at a restart" $
             atWork [spawn fixer "a1", Restarted] `shouldBe` Right []
         it "forgets a worker whose spawn is voided, so its lead may hand back" $
             atWork [spawn fixer "a1", spawn fixer "a2", Voided 1 "lost at a crash"]
-                `shouldBe` Right [(AgentId "a2", 2)]
+                `shouldBe` Right [(WorkerLine (AgentId "a2"), 2)]
         it "a_worker_returned_by_its_id_is_at_work_no_more" . hedgehog $ do
             -- A hook logs each worker's spawn once: ids are distinct.
             ids <- forAll (Gen.shuffle =<< Gen.subsequence ["a1", "a2", "a3", "a4", "a5"])
@@ -305,7 +305,56 @@ spec = describe "State.Run.Fold" $ do
                             ( map (spawn fixer) ids
                                 <> [WorkerReturned fixer (Just (AgentId agent)) | agent <- back]
                             )
-            fmap (filter (`elem` map AgentId back)) left === Right []
+            fmap (filter (`elem` map (WorkerLine . AgentId) back)) left === Right []
+
+    describe "a lead's spans" $ do
+        let fixer = AgentRole "fixer"
+            explorer = AgentRole "Explore"
+            started' role = SpanStarted (SpanStart role (Harness "claude-code") "fix it" Nothing Nothing)
+            ended n = SpanEnded (SpanId n) (WithHandback ReadyWord "READY fixed") unreported
+            afterLog events = replay g (logOf (Started (startOf EngineerFlow (ByUser OwnPr)) :| events))
+            open events =
+                map (\worker -> (worker.role, worker.spawnedAt)) . (.workers)
+                    <$> afterLog events
+        it "opens a span of every role at its start, by the seq of its span_started" $
+            open [started' fixer, started' explorer]
+                `shouldBe` Right [(fixer, 1), (explorer, 2)]
+        it "closes the span its end names, and no other" $
+            open [started' fixer, started' fixer, ended 2] `shouldBe` Right [(fixer, 1)]
+        it "refuses the end of a span ended already" $
+            open [started' fixer, ended 1, ended 1] `shouldBe` Left (SpanNotOpen (SpanId 1))
+        it "refuses the end of a line that starts no span" $
+            open [fuelSet Balanced, ended 1] `shouldBe` Left (SpanNotOpen (SpanId 1))
+        it "forgets every span at a restart, so its end is refused" $
+            open [started' fixer, Restarted, ended 1]
+                `shouldBe` Left (SpanNotOpen (SpanId 1))
+        it "ends by role the oldest span open since the restart, never one before it" $
+            (\state -> returnOf state fixer Nothing NoHandback)
+                <$> afterLog [started' fixer, Restarted, started' fixer]
+                `shouldBe` Right (Just (SpanEnded (SpanId 3) NoHandback unreported))
+        it "ends an open span when asked, and none it does not hold" $
+            ( \state ->
+                ( endSpan state (SpanId 1) NoHandback unreported
+                , endSpan state (SpanId 2) NoHandback unreported
+                )
+            )
+                <$> afterLog [started' fixer, started' fixer, ended 2]
+                `shouldBe` Right (Just (SpanEnded (SpanId 1) NoHandback unreported), Nothing)
+        it "a_span_is_running_or_ended_never_ended_twice" . hedgehog $ do
+            starts <- forAll (Gen.int (Range.linear 1 5))
+            ends <-
+                forAll
+                    ( Gen.list
+                        (Range.linear 0 8)
+                        (Gen.integral (Range.linear 1 (fromIntegral starts)))
+                    )
+            let result = open (replicate starts (started' fixer) <> map ended ends)
+                twice = [n | (i, n) <- zip [0 :: Int ..] ends, n `elem` take i ends]
+            case twice of
+                n : _ -> result === Left (SpanNotOpen (SpanId n))
+                [] ->
+                    result
+                        === Right [(fixer, n) | n <- [1 .. fromIntegral starts], n `notElem` ends]
 
     describe "a child run's agent" $ do
         let endedAfter events =

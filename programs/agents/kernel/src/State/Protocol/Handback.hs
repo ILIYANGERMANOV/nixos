@@ -21,6 +21,7 @@ module State.Protocol.Handback (
     stopLine,
     Typed (..),
     typeHandback,
+    handbackEnding,
     typeDirectHandback,
 ) where
 
@@ -76,6 +77,7 @@ import State.Run.Codec (
     shaText,
     stopToken,
     stopWire,
+    tokenWordText,
     waitingText,
  )
 import State.Run.Event (
@@ -89,10 +91,12 @@ import State.Run.Event (
     Said (..),
     Sha (..),
     Shape (..),
+    SpanEnding (..),
     Stop,
     StopReason (Replan),
     Task (..),
     TaskState (..),
+    TokenWord (..),
     Url (..),
     Waiting (..),
     parseRunId,
@@ -160,18 +164,6 @@ refusalText = \case
     NoToken -> "line 1 is no token: one of " <> Text.intercalate ", " tokenWords
     NoArea name -> "Touches: names " <> name <> ", not one of " <> areaNames
     Why why -> why
-
--- | The word line 1 opens with, one per 'Token' case.
-data TokenWord = ReadyWord | NeedsDecisionWord | AwaitWord | BlockedWord | FailedWord
-    deriving stock (Bounded, Enum)
-
-tokenWordText :: TokenWord -> Text
-tokenWordText = \case
-    ReadyWord -> "READY"
-    NeedsDecisionWord -> "NEEDS_DECISION"
-    AwaitWord -> "AWAIT"
-    BlockedWord -> "BLOCKED"
-    FailedWord -> "FAILED"
 
 -- | Every area a @Touches:@ line may name, and none.
 areaNames :: Text
@@ -321,6 +313,20 @@ spaced word payload
     | Text.null payload = word
     | otherwise = word <> " " <> payload
 
+{- | How a hand-back, this text in full, ends its agent's span: by its token,
+and a report with none (a review-lead's table) as @READY@, the agent's
+finished result.
+-}
+handbackEnding :: Maybe Token -> Text -> SpanEnding
+handbackEnding token = WithHandback (maybe ReadyWord wordOf token)
+  where
+    wordOf = \case
+        Ready _ -> ReadyWord
+        NeedsDecision _ -> NeedsDecisionWord
+        Await _ _ -> AwaitWord
+        Blocked _ -> BlockedWord
+        Failed _ -> FailedWord
+
 -- | What a hand-back records, and a question for the run itself to triage.
 data Typed = Typed {events :: [Event], untriaged :: Maybe OneLine}
     deriving stock (Eq, Show)
@@ -330,8 +336,9 @@ step's done outcome, from the step's own runner only; a question is asked;
 @BLOCKED@, @FAILED@, a plan found wrong and a question with no kind are the
 run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. A worker's hand-back also says it returned, when it was logged at
-work ('returnOf'). The sha is the worktree's HEAD; the qid is the id of the
-next line, which a question the run mints counts on from.
+work ('returnOf'), its span ended by this hand-back, in full. The sha is
+the worktree's HEAD; the qid is the id of the next line, which a question
+the run mints counts on from.
 -}
 typeHandback ::
     Steps ->
@@ -341,9 +348,10 @@ typeHandback ::
     QId ->
     AgentRole ->
     Maybe AgentId ->
+    Text ->
     Handback ->
     Either Refusal Typed
-typeHandback steps g state worktreeHead next agent agentId handback =
+typeHandback steps g state worktreeHead next agent agentId message handback =
     (\typed -> typed {events = typed.events <> gaps}) <$> case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]]
         <> [ ScopedFan place.scope fan
            | Just _ <- [leads agent]
@@ -352,7 +360,13 @@ typeHandback steps g state worktreeHead next agent agentId handback =
            ] of
         here : _ -> fromChild state (fanIn state.fans here) handback
         [] ->
-            ( \typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}
+            ( \typed ->
+                typed
+                    { events =
+                        typed.events
+                            <> maybeToList
+                                (returnOf state agent agentId (handbackEnding handback.token message))
+                    }
             )
                 <$> fromWorker steps g state worktreeHead next agent handback
   where

@@ -40,7 +40,6 @@ import State.Category.Graph (Node (..))
 import State.Category.Step (stateNameText)
 import State.Cli.View (answerLine, gapHeadline, pendingLines, section)
 import State.Protocol.Advice (recordedPr)
-import State.Protocol.Handback (TokenWord (..), tokenWordText)
 import State.Run.Ask (Principal (..), Question (..), qidText, rulingLine)
 import State.Run.Codec (
     flowText,
@@ -49,6 +48,7 @@ import State.Run.Codec (
     stopToken,
     taskIdText,
     taskStateName,
+    tokenWordName,
     urlText,
  )
 import State.Run.Event (
@@ -67,9 +67,11 @@ import State.Run.Event (
     Stop (..),
     Task (..),
     TaskState (Parked),
+    TokenWord (..),
     artifactsOf,
     placeOf,
     runIdText,
+    spansOf,
  )
 import State.Run.Fan (ChildRun (..), Fan (..), latest, pullRequest)
 import State.Run.Fold (
@@ -130,7 +132,7 @@ sections =
 
 -- | The context map's parts, in Appendix E's order: each lists every item, uncapped.
 contextMap :: [Input -> [Text]]
-contextMap = [files, urls, childRuns, sessions, rawLog]
+contextMap = [files, urls, childRuns, sessions, spans, rawLog]
 
 header :: Input -> [Text]
 header input =
@@ -420,7 +422,7 @@ childRuns input =
         Just (AsksUp _) -> ("active", word NeedsDecisionWord)
         Just (Awaits _ _) -> ("active", word AwaitWord)
         Just (Ended stop) -> ("stopped", Text.toLower (fst (stopToken stop.reason)))
-    word = Text.toLower . tokenWordText
+    word = tokenWordName
 
 -- | Each harness session, as @v_sessions@ has it: from its first line in the run to its last.
 sessions :: Input -> [Text]
@@ -438,6 +440,20 @@ sessions input =
             ]
         | (SessionId sid, lines') <- sessionsOf input
         , let started = lastMaybe [s | line <- toList lines', SessionStarted s <- [line.event]]
+        ]
+
+-- | How many spans the run started, and the SQL that loads their briefs and hand-backs: too long to print.
+spans :: Input -> [Text]
+spans input = case spansOf (kept input) of
+    [] -> []
+    started ->
+        [ "  spans: " <> tshow (length started) <> " (briefs and hand-backs)"
+        , "    load: "
+            <> sqlLoad
+                ( "select id, agent_role, handback_token, brief, handback from spans where run_id = '"
+                    <> runIdText input.state.run
+                    <> "'"
+                )
         ]
 
 rawLog :: Input -> [Text]

@@ -5,6 +5,7 @@ module State.Run.Id (
     RunId,
     TaskId (..),
     AgentId (..),
+    SpanId (..),
     TaskNo (..),
     taskNoText,
     parseTaskNo,
@@ -43,6 +44,10 @@ newtype RunId = RunId Text
 -- | A subagent's id, as its agent gives it: Claude Code's are hex.
 newtype AgentId = AgentId {agentIdText :: Text}
     deriving stock (Eq, Show)
+
+-- | A span, a subagent of the run's lead: the seq of its @span_started@ line.
+newtype SpanId = SpanId {spanSeq :: Natural}
+    deriving stock (Eq, Ord, Show)
 
 {- | A chief's request, by the order the run opened it: @r1@, @r2@, ...
 Not a 'TaskId', which names a task of a fan-out's breakdown.

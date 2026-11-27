@@ -120,7 +120,17 @@ typing = describe "typeHandback" $ do
     steps <- runIO loadSteps
     -- The id of the line the hand-back's first event takes.
     let next = QId run 7
-        typed at role = typeHandback steps g at (Just sha) next (AgentRole role) Nothing . parsed
+        typed at role message =
+            typeHandback
+                steps
+                g
+                at
+                (Just sha)
+                next
+                (AgentRole role)
+                Nothing
+                message
+                (parsed message)
 
     it "types an implementer's READY as implement.done at the head, with its areas" $
         typed atImplement "implementer" "READY built\nTouches: auth"
@@ -162,12 +172,54 @@ typing = describe "typeHandback" $ do
                             next
                             (AgentRole "fixer")
                             agent
+                            "READY fixed"
                             (parsed "READY fixed")
             map returns [Just (AgentId "a1"), Nothing, Just (AgentId "a2")]
                 `shouldBe` [ Right [Event.WorkerReturned (AgentRole "fixer") (Just (AgentId "a1"))]
                            , Right [Event.WorkerReturned (AgentRole "fixer") Nothing]
                            , Right []
                            ]
+
+    it
+        "ends the oldest open span of the role by the hand-back's token, with the hand-back in full"
+        $ do
+            let fixing =
+                    runAt
+                        ( fuelSet Balanced
+                            : take 16 happyPath
+                                <> map
+                                    (Took mempty)
+                                    [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
+                                <> [ Event.SpanStarted
+                                        ( Event.SpanStart
+                                            (AgentRole "fixer")
+                                            (Event.Harness "claude-code")
+                                            "fix"
+                                            Nothing
+                                            Nothing
+                                        )
+                                   ]
+                        )
+                ending message =
+                    (\result -> [end | Event.SpanEnded _ end _ <- result.events])
+                        <$> typeHandback
+                            steps
+                            g
+                            fixing
+                            (Just sha)
+                            next
+                            (AgentRole "fixer")
+                            Nothing
+                            message
+                            (parsed message)
+            map ending ["READY fixed", "BLOCKED no access\nmore"]
+                `shouldBe` [ Right [Event.WithHandback Event.ReadyWord "READY fixed"]
+                           , Right [Event.WithHandback Event.BlockedWord "BLOCKED no access\nmore"]
+                           ]
+
+    it "ends a span by a tokenless report, a review-lead's table, as ready" $
+        handbackEnding Nothing "| # | Severity |"
+            `shouldBe` Event.WithHandback Event.ReadyWord "| # | Severity |"
 
     it "refuses a READY from a role that does not run the step" $
         typed atImplement "fixer" "READY fixed" `shouldSatisfy` isLeft

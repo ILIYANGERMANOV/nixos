@@ -62,6 +62,7 @@ module State.Protocol.Hook (
     followedAt,
     beside,
     tracked,
+    atWork,
     spawnedAt,
     opensChild,
     hookSources,
@@ -125,7 +126,15 @@ import State.Run.Event (
     tookIn,
  )
 import State.Run.Fan (Fan (..))
-import State.Run.Fold (Open (..), RunState (..), forks, ledger, over, unvoided)
+import State.Run.Fold (
+    Open (..),
+    RunState (..),
+    Worker (..),
+    forks,
+    ledger,
+    over,
+    unvoided,
+ )
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
@@ -587,6 +596,13 @@ spawned beside reports to its spawner alone.
 tracked :: Steps -> AgentRole -> Bool
 tracked steps role = role `elem` agentRoles steps
 
+{- | The run's workers of a tracked role, oldest first: those the lead hands
+back and restarts after. A span of another role, an Explore agent's, holds
+neither.
+-}
+atWork :: Steps -> RunState -> [Worker]
+atWork steps state = filter (tracked steps . (.role)) state.workers
+
 {- | Whether the run records this step runner's hand-back: one also spawned
 beside the advice while the run is at a step the role runs, or while the flow
 forks its step and the run's 'ledger' has a child of its role open, wherever
@@ -714,14 +730,14 @@ offAdvice steps at advised spawned
 agent the lead had at work, its workers too, so the advice sends them again;
 a compacted one lost none. A run with no agent at work records nothing.
 -}
-restartOf :: StartSource -> RunState -> Maybe Event
-restartOf source state = case source of
+restartOf :: Steps -> StartSource -> RunState -> Maybe Event
+restartOf steps source state = case source of
     Startup -> lost
     Resumed -> lost
     Compact -> Nothing
   where
     lost =
-        if all (Set.null . (.atWork)) state.fans && null state.workers
+        if all (Set.null . (.atWork)) state.fans && null (atWork steps state)
             then Nothing
             else Just Restarted
 

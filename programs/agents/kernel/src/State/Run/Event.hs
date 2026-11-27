@@ -4,8 +4,9 @@ step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A qu
 'Asking' and the events on its id that close it. The 10x's fan-out logs its
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
 'Resumed', 'Restarted') and its tasks ('TaskAdded', 'TaskMoved', 'Held',
-'ActedOn') as stay events. A lead logs the workers it has at work
-('WorkerSpawned', 'WorkerReturned'), which it hands back after; a child
+'ActedOn') as stay events. A lead logs each subagent it spawns as a span
+('SpanStarted', 'SpanEnded'; 'WorkerSpawned' and 'WorkerReturned' before
+spans), and hands back after those at work; a child
 run, the agent leading it that ended with no hand-back ('AgentEnded'). A line
 logged in error is 'Voided', never edited out: replay drops both lines.
 -}
@@ -31,6 +32,12 @@ module State.Run.Event (
     Session (..),
     Harness (..),
     parseHarness,
+    SpanId (..),
+    SpanStart (..),
+    SpanEnding (..),
+    TokenWord (..),
+    Usage (..),
+    unreported,
     FlowName (..),
     Principal (..),
     Parent (..),
@@ -77,6 +84,7 @@ module State.Run.Event (
     Waiting (..),
     TaskState (..),
     artifactsOf,
+    spansOf,
     placeOf,
 ) where
 
@@ -112,6 +120,7 @@ import State.Run.Id (
     Digest (..),
     EventId (..),
     RunId,
+    SpanId (..),
     TaskId (..),
     TaskNo (..),
     parseRunId,
@@ -270,9 +279,10 @@ data Event
       -}
       WorktreeMoved AbsPath (Maybe Repo)
     | {- | A file or URL the run registered, derived from the artifact of
-      this seq in the same run, if any (@prov:wasDerivedFrom@).
+      this seq in the same run, if any (@prov:wasDerivedFrom@), and made by
+      the agent of this span, if any (@prov:wasGeneratedBy@).
       -}
-      ArtifactLogged Artifact (Maybe Natural)
+      ArtifactLogged Artifact (Maybe Natural) (Maybe SpanId)
     | -- | A note under its topic, then its text: context a fresh agent reads.
       Noted Text Text
     | -- | The agent hands the run over to a fresh one, and why.
@@ -283,6 +293,12 @@ data Event
       closed. Taken whatever state the run is in, a finished one too.
       -}
       GapMoved Natural GapMove
+    | {- | The run's lead spawned a subagent: a span, named by this line's
+      seq, open until a 'SpanEnded' names it (written by the spawn hook).
+      -}
+      SpanStarted SpanStart
+    | -- | The subagent of this span ended, how, and the tokens its own requests used.
+      SpanEnded SpanId SpanEnding Usage
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.
@@ -353,6 +369,47 @@ newtype Harness = Harness Text
 parseHarness :: Text -> Maybe Harness
 parseHarness raw = if Text.null raw then Nothing else Just (Harness raw)
 
+{- | A subagent as its spawn saw it: its role, its harness, its brief in
+full, the span of the agent that spawned it, and the model the spawn asked for.
+-}
+data SpanStart = SpanStart
+    { role :: AgentRole
+    , harness :: Harness
+    , brief :: Text
+    , parent :: Maybe SpanId
+    -- ^ None when the run's lead spawned it, which has no span.
+    , model :: Maybe Text
+    -- ^ The model the spawn named, when it named one.
+    }
+    deriving stock (Eq, Show)
+
+{- | How a span ended: its agent handed back, with the token line 1 opened
+with and the hand-back in full, or it ended with none. A blocked or failed
+hand-back is still one: the token says how it went, not whether it ran.
+-}
+data SpanEnding = WithHandback TokenWord Text | NoHandback
+    deriving stock (Eq, Show)
+
+-- | The word a hand-back's line 1 opens with, one per hand-back token.
+data TokenWord = ReadyWord | NeedsDecisionWord | AwaitWord | BlockedWord | FailedWord
+    deriving stock (Eq, Show, Bounded, Enum)
+
+{- | The tokens a span's own requests used, its children's aside. A count the
+harness did not report is 'Nothing', never 0. @inputTokens@ includes the
+two cache counts.
+-}
+data Usage = Usage
+    { inputTokens :: Maybe Natural
+    , outputTokens :: Maybe Natural
+    , cacheReadTokens :: Maybe Natural
+    , cacheWriteTokens :: Maybe Natural
+    }
+    deriving stock (Eq, Show)
+
+-- | No count reported: what a hand-back piped in by hand knows.
+unreported :: Usage
+unreported = Usage Nothing Nothing Nothing Nothing
+
 -- | A question as it reached this run, and the step the run was at.
 data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
     deriving stock (Eq, Show)
@@ -408,7 +465,8 @@ data TaskState
 -- | The artifacts these lines log, each with its seq.
 artifactsOf :: (Foldable t) => t Envelope -> [(Natural, Artifact)]
 artifactsOf logged =
-    [(e.seq, artifact) | e <- toList logged, ArtifactLogged artifact _ <- [e.event]]
+    [ (e.seq, artifact) | e <- toList logged, ArtifactLogged artifact _ _ <- [e.event]
+    ]
 
 -- | Where these lines leave the run: the worktree and repo it last moved to, else its start's.
 placeOf :: (Foldable t) => Start -> t Envelope -> (AbsPath, Maybe Repo)
@@ -420,3 +478,8 @@ placeOf start logged =
                 [(top, repo) | line <- toList logged, WorktreeMoved top repo <- [line.event]]
             )
         )
+
+-- | The spans these lines start, each with its id.
+spansOf :: (Foldable t) => t Envelope -> [(SpanId, SpanStart)]
+spansOf logged =
+    [(SpanId e.seq, start) | e <- toList logged, SpanStarted start <- [e.event]]

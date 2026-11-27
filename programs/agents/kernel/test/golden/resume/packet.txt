@@ -1,4 +1,4 @@
-resume run 00010203 (10x), active at engineers: 1 sessions, 21 events, last handover 00010203:21 (context)
+resume run 00010203 (10x), active at engineers: 1 sessions, 23 events, last handover 00010203:21 (context)
 goal: Ship the resume packet
 worktree: /work2   repo: o/r   fuel: balanced
 pr: none yet   notes dir: /notes
@@ -34,4 +34,6 @@ context map (load on demand, or in a subagent):
       load: state resume 04050607
   sessions
     s1 claude-code 2026-11-13T00:00:00.000Z to 2026-11-13T00:04:30.000Z transcript /home/u/.claude/projects/p/s1.jsonl
+  spans: 2 (briefs and hand-backs)
+    load: state sql "select id, agent_role, handback_token, brief, handback from spans where run_id = '00010203'"
   raw log: state dump 00010203

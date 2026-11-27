@@ -31,10 +31,11 @@ import State.Run.Event (
     Branch (..),
     DraftPr (..),
     Envelope (..),
-    Event (Restarted, Spawned, Stopped, Voided, WorkerSpawned),
+    Event (Restarted, SpanStarted, Spawned, Stopped, Voided, WorkerSpawned),
     Harness (..),
     Session (..),
     SessionId (..),
+    SpanStart (..),
     Stop (..),
     StopReason (..),
     Url (..),
@@ -550,20 +551,40 @@ spec = describe "the hooks" $ do
             map (`logWith` sources) [[], [hooked 1]] `shouldBe` [False, False]
 
     describe "a session start" $ do
-        let atWork = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
+        let childAtWork = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
         it "records a restart when a fresh or resumed session lost an agent at work" $
-            map (`restartOf` atWork) [Startup, Resumed]
+            map (\source -> restartOf steps source childAtWork) [Startup, Resumed]
                 `shouldBe` [Just Restarted, Just Restarted]
 
         it "records nothing after a compaction, which keeps the agents" $
-            restartOf Compact atWork `shouldBe` Nothing
+            restartOf steps Compact childAtWork `shouldBe` Nothing
 
         it "records a restart when the lead lost a worker at work" $
-            restartOf Startup (runAt [WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
+            restartOf
+                steps
+                Startup
+                (runAt [WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
                 `shouldBe` Just Restarted
 
+        it
+            "records a restart when the lead lost a span of a step runner, and none for another role's"
+            $ map
+                ( \role ->
+                    restartOf
+                        steps
+                        Startup
+                        ( runAt
+                            [ SpanStarted
+                                (SpanStart (AgentRole role) (Harness "claude-code") "b" Nothing Nothing)
+                            ]
+                        )
+                )
+                ["fixer", "Explore"]
+                `shouldBe` [Just Restarted, Nothing]
+
         it "records nothing on a run with no agent at work" $
-            map (`restartOf` runAt []) [Startup, Resumed] `shouldBe` [Nothing, Nothing]
+            map (\source -> restartOf steps source (runAt [])) [Startup, Resumed]
+                `shouldBe` [Nothing, Nothing]
 
     describe "the reply" $ do
         it "names the run a hook's text is about, and says nothing for nothing" $

@@ -134,6 +134,7 @@ import State.Run.Event (
     Note (..),
     RefusalCode (..),
     RunId,
+    SpanId (..),
     StateName (..),
     Stop (..),
     Task,
@@ -187,8 +188,10 @@ data Command
       HandOver Handover
     | -- | The artifact a run logged at this seq: its bytes, its URL, or why neither.
       ShowArtifact EventRef
-    | -- | A file or URL the worktree's run registers, derived from its artifact of this seq, if any.
-      Register (Location FilePath) (Maybe Natural)
+    | {- | A file or URL the worktree's run registers, derived from its
+      artifact of this seq, and made by the agent of this span, if any.
+      -}
+      Register (Location FilePath) (Maybe Natural) (Maybe SpanId)
     | {- | The packet a fresh agent resumes from: of the run named, else the
       session's or the worktree's, as it was after this line, if one is given.
       -}
@@ -648,10 +651,11 @@ commandInfo steps scope =
             (Right . ShowArtifact)
             (parseEventRef raw)
     artifactRegister =
-        ( \raw kind from ->
+        ( \raw kind from by ->
             Register
                 <$> locationOf raw kind
                 <*> traverse seqOf from
+                <*> traverse (fmap SpanId . seqOf) by
         )
             <$> textArgument "<path|url>"
             <*> textOption
@@ -666,6 +670,12 @@ commandInfo steps scope =
                 )
             <*> optional
                 (textOption "from" "<seq>" "the seq of the artifact of this run it derives from")
+            <*> optional
+                ( textOption
+                    "span"
+                    "<seq>"
+                    "the seq of the span_started of the agent that made it"
+                )
     nextStep hiding =
         Optparse.strOption
             ( Optparse.long "next"
@@ -1258,6 +1268,11 @@ explain g fuel at = \case
                 ("the void of " <> tshow n)
                 ("the log without it does not replay: " <> broken.what <> " - " <> broken.why)
                 "state void <the later line that needs it> <why>, then this one"
+    SpanNotOpen (SpanId n) ->
+        refused
+            ("the end of span " <> tshow n)
+            "the span is not open: it never started, ended already, or a restart lost it"
+            "state show"
   where
     refused = Failure BadInput
     records = atPlace $ \place -> case [ recordCommand event

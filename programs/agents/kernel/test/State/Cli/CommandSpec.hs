@@ -61,6 +61,7 @@ import State.Run.Event (
     Label (..),
     Picks (..),
     RunId,
+    SpanId (..),
     StateName (..),
     Stop (..),
     StopReason (..),
@@ -329,6 +330,17 @@ spec = describe "State.Cli.Command" $ do
             , registered (parse ["artifact", "a.md", "--kind", "plan", "--from", "three"])
             )
                 `shouldBe` (Right (Just 3), Left "seq three")
+
+        it
+            "takes the seq of the span that made an artifact, and refuses one that is no number"
+            $ map
+                ( \argv -> case parse (["artifact", "a.md", "--kind", "report"] <> argv) of
+                    Right (Register _ _ by) -> Right by
+                    Right _ -> Left "not a register"
+                    Left why -> Left why
+                )
+                [["--span", "5"], [], ["--span", "five"]]
+                `shouldBe` [Right (Just (SpanId 5)), Right Nothing, Left "seq five"]
 
         it "names the artifact to show by its run and seq" $
             ( case parse ["artifact", "show", "r1:4"] of
@@ -801,7 +813,7 @@ spec = describe "State.Cli.Command" $ do
     registered ::
         Either Text Command -> Either Text (Location FilePath, Maybe Natural)
     registered = \case
-        Right (Register location from) -> Right (location, from)
+        Right (Register location from _) -> Right (location, from)
         Right _ -> Left "not a register"
         Left why -> Left why
     handedOver :: Either Text Command -> Either Text Handover
