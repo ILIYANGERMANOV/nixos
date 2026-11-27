@@ -389,7 +389,7 @@ spec = describe "state over the doubles" $ do
                 run <- runOf world
                 editLog
                     world
-                    olderStart
+                    newerStart
 
                 old <- state world ["next"]
 

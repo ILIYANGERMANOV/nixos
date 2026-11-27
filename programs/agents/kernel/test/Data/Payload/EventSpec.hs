@@ -18,7 +18,7 @@ import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), fromGregorian)
-import Hedgehog (Gen, forAll, tripping, (===))
+import Hedgehog (Gen, cover, forAll, tripping, (===))
 import Hedgehog.Gen qualified as Gen
 import State.Run.Ask (ChildTask (..), Link (..), Parent (..), Principal (..))
 import State.Run.Event (
@@ -33,7 +33,7 @@ import State.Run.Event (
     TaskId (..),
  )
 import State.Run.EventGen (genEnvelope, runId)
-import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
+import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
@@ -46,10 +46,14 @@ spec = describe "Data.Payload.Event" $ do
         . hedgehog
         $ do
             row <- forAll genAnyRow
+            -- A known row is rare here: the round trip above covers it.
             case decodeRow retiring row of
                 Known e -> e.seq === fromIntegral row.seq
-                Retired r -> (r.eventType, r.payload) === (row.eventType, row.payload)
-                Unknown u ->
+                Retired r -> do
+                    cover 5 "retired" True
+                    (r.eventType, r.payload) === (row.eventType, row.payload)
+                Unknown u -> do
+                    cover 50 "unknown" True
                     (u.eventType, u.schemaVersion, u.payload)
                         === (row.eventType, row.schemaVersion, row.payload)
 
@@ -114,10 +118,7 @@ spec = describe "Data.Payload.Event" $ do
 
     it "reads a retired type as unknown to a kernel that never retired it" $
         decodeRow shipped (eventRow refused) {Row.eventType = "legacy.note"}
-            `shouldSatisfy` \case
-                Unknown _ -> True
-                Known _ -> False
-                Retired _ -> False
+            `shouldBe` Unknown (unknownOf (eventRow refused) {Row.eventType = "legacy.note"})
 
     it "dumps a row as one JSON object, null for NULL, data verbatim" $
         dumpLine (eventRow refused) {Row.payload = "{\"b\":1,\"a\":2,\"a\":3}"}

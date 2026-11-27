@@ -19,7 +19,6 @@ module Effects.Log (
     shipped,
     firstOf,
     decision,
-    dumped,
 ) where
 
 import Control.Exception (throwIO)
@@ -28,6 +27,7 @@ import Data.Entity.Event (EventRow (..))
 import Data.Int (Int64)
 import Data.List (genericLength)
 import Data.List.NonEmpty (NonEmpty (..), nonEmpty)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Payload.Event (
     Decoded (..),
     RetiredEvent (..),
@@ -141,7 +141,7 @@ onStore :: Upcasts -> Log m a -> Store -> IO a
 onStore upcasts op store = case op of
     Exists run -> Store.exists store (runIdText run)
     FirstEvent run -> firstOf upcasts <$> Store.rows store (runIdText run)
-    Rows run -> dumped <$> Store.rows store (runIdText run)
+    Rows run -> map dumpLine <$> Store.rows store (runIdText run)
     Locked run decide -> Store.locked store (runIdText run) (decision upcasts decide)
     Children run -> Store.children store (runIdText run) >>= runIds
     InNotes notes -> Store.inNotes store (Text.pack notes) >>= runIds
@@ -150,10 +150,8 @@ onStore upcasts op store = case op of
 skipped, as the fold skips it.
 -}
 firstOf :: Upcasts -> [EventRow] -> Maybe (Either Unread Envelope)
-firstOf upcasts logged =
-    case [found | row <- logged, Just found <- [readable row (decodeRow upcasts row)]] of
-        [] -> Nothing
-        found : _ -> Just found
+firstOf upcasts =
+    listToMaybe . mapMaybe (\row -> readable row (decodeRow upcasts row))
   where
     readable row = \case
         Known e -> Just (Right e)
@@ -164,10 +162,6 @@ firstOf upcasts logged =
 unread :: EventRow -> UnknownEvent -> Unread
 unread row u =
     Unread {seq = row.seq, eventType = u.eventType, schemaVersion = u.schemaVersion}
-
--- | The rows raw, one JSON Lines line each.
-dumped :: [EventRow] -> [Text]
-dumped = map dumpLine
 
 {- | A domain decision over a run's rows: it gets the log, or the first row
 that does not read, and its events become the write.

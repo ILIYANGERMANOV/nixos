@@ -35,7 +35,7 @@ module State.Cli.Shell.World (
     editLogIn,
     appendUnread,
     lessUnread,
-    olderStart,
+    newerStart,
     logRows,
     fileBytes,
     prUrl,
@@ -397,9 +397,9 @@ lessUnread = filter ((/= unknownType) . (.eventType))
 unknownType :: Text
 unknownType = "no_such_event"
 
--- | The run's first row alone, of payload version 2, as an older kernel could write it.
-olderStart :: [EventRow] -> [EventRow]
-olderStart rows = [row {Row.schemaVersion = 2} | row <- take 1 rows]
+-- | The run's first row alone, of payload version 2, as a newer kernel could write it.
+newerStart :: [EventRow] -> [EventRow]
+newerStart rows = [row {Row.schemaVersion = 2} | row <- take 1 rows]
 
 -- | The log of the worktree's notes' run as the rows the store holds.
 logRows :: IORef World -> IO [EventRow]

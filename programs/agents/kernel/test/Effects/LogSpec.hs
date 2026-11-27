@@ -7,7 +7,7 @@ module Effects.LogSpec (spec) where
 
 import Concurrently (bothAtOnce)
 import Control.Exception (IOException)
-import Control.Monad (replicateM_, unless)
+import Control.Monad (replicateM_)
 import Data.Either (fromRight, isLeft)
 import Data.Entity.Event (EventRow)
 import Data.Entity.Event qualified as Row
@@ -42,7 +42,9 @@ import Effects.Log (
     shipped,
  )
 import Effects.Log qualified as Log
-import Effects.Store.Connection (Durability (Full), OpenRefusal)
+import Effects.Store.Connection (Durability (Full), OpenRefusal, withStore)
+import Effects.Store.Events (Write (Append))
+import Effects.Store.Events qualified as Store
 import Hedgehog (PropertyT, annotateShow, assert, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
@@ -116,8 +118,8 @@ spec = describe "Effects.Log" $ do
                         atStore dir (locked top (const (logged, ())))
                         storeRows
                             dir
-                            "SELECT time, schema_version, hook_digest FROM events WHERE ? ORDER BY seq"
-                            (SQLite.Only True)
+                            "SELECT time, schema_version, hook_digest FROM events WHERE run_id = ? ORDER BY seq"
+                            (SQLite.Only (runIdText top))
                     annotateShow stored
                     for_ (zip logged stored) $ \(e, (time, version, digest)) -> do
                         Text.length time === 24
@@ -169,25 +171,16 @@ type Backend =
 inStore :: Backend
 inStore upcasts seeded byHand program = withSystemTempDirectory "state-log" $ \dir -> do
     atStore dir (mapM_ (\e -> locked e.run (const ([e], ()))) seeded)
-    unless (null byHand)
-        . SQLite.withConnection (dir </> "state" </> "kernel-v2.db")
-        $ \c ->
-            SQLite.executeMany
-                c
-                "INSERT INTO events (run_id, seq, schema_version, type, time, session_id, head_sha, hook_digest, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                [ ( row.runId
-                  , row.seq
-                  , row.schemaVersion
-                  , row.eventType
-                  , row.time
-                  , row.sessionId
-                  , row.headSha
-                  , row.hookDigest
-                  , row.payload
-                  )
-                | row <- byHand
-                ]
+    -- Raw rows through the store's own append, past the domain's mapping.
+    withStore
+        Full
+        (dir </> "state" </> "kernel-v2.db")
+        (for_ byHand . appendRaw)
+        >>= either (fail . show) pure
     atStoreWith upcasts dir program
+  where
+    appendRaw store row =
+        Store.locked store row.runId (const (Just (Append (row :| [])), ()))
 
 -- | A program on the run store under this @XDG_STATE_HOME@, which it must open.
 atStore :: FilePath -> (forall es. (Log :> es) => Eff es a) -> IO a

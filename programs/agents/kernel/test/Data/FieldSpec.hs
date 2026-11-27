@@ -85,4 +85,4 @@ spec = describe "Data.Field" $ do
         it "reads a count, and no negative one" $
             map Field.natural [0, 7, -1] `shouldBe` [Just 0, Just 7, Nothing]
   where
-    hex n = mconcat (replicate n "a")
+    hex n = Text.replicate n "a"

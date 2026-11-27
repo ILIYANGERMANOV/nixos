@@ -57,7 +57,7 @@ spec = describe "state-hook over the doubles" $ do
                     _ <- startedRun world
                     editLog
                         world
-                        olderStart
+                        newerStart
 
                     said <- succeeded =<< hook world "resume" sessionStart
 
@@ -196,7 +196,7 @@ spec = describe "state-hook over the doubles" $ do
                     _ <- startedRun world
                     editLog
                         world
-                        olderStart
+                        newerStart
 
                     said <- hook world "spawn" (spawned "researcher")
 

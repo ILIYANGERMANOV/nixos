@@ -12,14 +12,14 @@ import Data.Entity.Run (RunRow (..))
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromMaybe)
-import Data.Payload.Event (Decoded (..), decodeRow, runRow)
+import Data.Payload.Event (Decoded (..), decodeRow, dumpLine, runRow)
 import Data.Payload.Upcast (Upcasts)
 import Data.Text qualified as Text
 import Effectful (Eff, (:>))
 import Effectful.Dispatch.Dynamic (interpret)
 import Effectful.Exception (throwIO)
 import Effectful.State.Static.Local (State, get, put)
-import Effects.Log (Log (..), decision, dumped, firstOf)
+import Effects.Log (Log (..), decision, firstOf)
 import Effects.Store.Events (Write (..), misnumbered)
 import State.Run.Event (RunId, runIdText)
 
@@ -33,7 +33,7 @@ runLogInMemory :: (State Runs :> es) => Upcasts -> Eff (Log : es) a -> Eff es a
 runLogInMemory upcasts = interpret $ \_ -> \case
     Exists run -> any ((== run) . fst) . rowsOf <$> get
     FirstEvent run -> firstOf upcasts . fromMaybe [] . lookup run . rowsOf <$> get
-    Rows run -> dumped . fromMaybe [] . lookup run . rowsOf <$> get
+    Rows run -> maybe [] (map dumpLine) . lookup run . rowsOf <$> get
     Locked run decide -> do
         store <- get
         let runs = rowsOf store

@@ -117,22 +117,23 @@ first, then retired, read, or not readable.
 decodeRow :: Upcasts -> EventRow -> Decoded
 decodeRow upcasts row
     | Set.member kind upcasts.retired =
-        either (const unknown) Retired $ do
-            digest <- traverse (column "hook_digest" Field.digest) row.hookDigest
+        maybe unknown Retired $ do
+            digest <- hookDigest
             pure RetiredEvent {eventType = kind, payload = row.payload, digest}
     | row.schemaVersion /= fromIntegral schemaVersion = unknown
-    | otherwise = either (const unknown) Known $ do
-        run <- column "run_id" Field.runId row.runId
-        n <- maybe (Left "seq is negative") Right (Field.natural row.seq)
-        ts <- column "time" Field.time row.time
-        session <- traverse (column "session_id" Field.session) row.sessionId
-        sha <- traverse (column "head_sha" Field.sha) row.headSha
-        source <-
-            maybe Cli Hook <$> traverse (column "hook_digest" Field.digest) row.hookDigest
-        event <- decodePayload kind row.payload
+    | otherwise = maybe unknown Known $ do
+        run <- Field.decode Field.runId row.runId
+        n <- Field.natural row.seq
+        ts <- Field.decode Field.time row.time
+        session <- traverse (Field.decode Field.session) row.sessionId
+        sha <- traverse (Field.decode Field.sha) row.headSha
+        source <- maybe Cli Hook <$> hookDigest
+        event <- either (const Nothing) Just (decodePayload kind row.payload)
         pure Envelope {source, seq = n, ts, run, head = sha, session, event}
   where
     kind = typeOf upcasts row.eventType
+    -- Nothing when the column holds text that is no digest.
+    hookDigest = traverse (Field.decode Field.digest) row.hookDigest
     unknown =
         Unknown
             UnknownEvent
@@ -140,12 +141,6 @@ decodeRow upcasts row
                 , schemaVersion = row.schemaVersion
                 , payload = row.payload
                 }
-    column :: Text -> Field.Codec a -> Text -> Either Text a
-    column name codec raw =
-        maybe
-            (Left (name <> " " <> Text.pack (show raw) <> " does not parse"))
-            Right
-            (Field.decode codec raw)
 
 {- | The row as one JSON Lines line (jsonlines.org), without its newline:
 every column a key in the table's order, @null@ for NULL, and @data@ spliced
