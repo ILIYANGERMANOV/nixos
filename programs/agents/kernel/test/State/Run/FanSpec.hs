@@ -300,7 +300,8 @@ spec = describe "State.Run.Fan" $ do
     describe "a delivered task" $ do
         let delivered = moved t1 (Delivered (Url "pr")) twoTasks
         it "is settled, so the fan-out may leave and its round end" $
-            (delivered >>= moved t2 (Delivered (Url "pr2")) >>= \fan -> (,) <$> leave fan <*> closed fan)
+            ( delivered >>= moved t2 (Delivered (Url "pr2")) >>= \fan -> (,) <$> leave fan <*> closed fan
+            )
                 `shouldBe` Right ((), ())
         it "is not merged: its dependents are not spawned" $
             map (.id) . spawnable [] <$> delivered `shouldBe` Right []
@@ -314,7 +315,8 @@ spec = describe "State.Run.Fan" $ do
             map (.base) . Fan.tasksOf <$> rebased t2 (OnTask t1) twoTasks
                 `shouldBe` Right [OnDefault, OnTask t1]
         it "is refused on a task the breakdown lacks" $
-            rebased (TaskId "t9") OnDefault twoTasks `shouldBe` Left (UnknownTask (TaskId "t9"))
+            rebased (TaskId "t9") OnDefault twoTasks
+                `shouldBe` Left (UnknownTask (TaskId "t9"))
         it "is refused naming the task itself or a later one" $
             map (\on -> rebased t1 (OnTask on) twoTasks) [t1, t2]
                 `shouldBe` [Left (BaseNotEarlier t1 t1), Left (BaseNotEarlier t1 t2)]
@@ -330,7 +332,8 @@ spec = describe "State.Run.Fan" $ do
                             <*> Gen.choice [pure OnDefault, OnTask <$> Gen.element ids]
                         )
                     )
-            let after = foldl' (\now (task, base) -> fromRight now (rebased task base now)) fan changes
+            let after =
+                    foldl' (\now (task, base) -> fromRight now (rebased task base now)) fan changes
                 placed = zip (inits (map (.id) (Fan.tasksOf after))) (Fan.tasksOf after)
             cover 5 "a base change taken" (after /= fan)
             assert

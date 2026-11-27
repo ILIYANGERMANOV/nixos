@@ -81,7 +81,14 @@ import State.Run.Gap (
  )
 import State.Run.Gap qualified as Gap
 import State.Run.Id (parseEventRef)
-import State.Step.Artifact (parseBase, parseNonBlank, parsePrUrl, parseSha, prUrlRule, shaRule)
+import State.Step.Artifact (
+    parseBase,
+    parseNonBlank,
+    parsePrUrl,
+    parseSha,
+    prUrlRule,
+    shaRule,
+ )
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
@@ -345,7 +352,7 @@ recordables =
                     "task"
                     ( "<id> <"
                         <> Text.intercalate "|" (map fst Codec.prStates)
-                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> | <id> parked <why>"
+                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> | <id> parked <why>"
                     )
                     [Flag "pr" "<url>" Optional, Flag "reason" "<r>" Optional]
                 $ \a -> case a.positional of
@@ -358,7 +365,9 @@ recordables =
                     [task, "base", raw] -> do
                         base <-
                             maybe
-                                (Left (raw <> " is no base: on_default, on_epic:<name> or on_task:<earlier task id>"))
+                                ( Left
+                                    (raw <> " is no base: on_default, on_epic:<name> or on_task:<earlier task id>")
+                                )
                                 Right
                                 (parseBase raw)
                         reason <-

@@ -3,7 +3,13 @@ module State.Run.CodecSpec (spec) where
 
 import Data.Text qualified as Text
 import Hedgehog (forAll, (===))
-import State.Run.Codec (decodeBreakdown, decodeTask, prStates, taskStateArgs, taskStateName)
+import State.Run.Codec (
+    decodeBreakdown,
+    decodeTask,
+    prStates,
+    taskStateArgs,
+    taskStateName,
+ )
 import State.Run.Event (
     Base (..),
     FlowName (..),

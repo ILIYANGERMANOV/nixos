@@ -99,11 +99,11 @@ import State.Run.Event (
     Branch (..),
     Check (..),
     Child (..),
-    EpicMove (..),
     Commit (..),
     Digest (..),
     DraftPr (..),
     Envelope (..),
+    EpicMove (..),
     Event (..),
     EventId (..),
     FlowName (..),
@@ -149,7 +149,6 @@ import State.Run.EventGen (
     absolutePath,
     epicNamed,
     gapText,
-    titled,
     genEnvelope,
     genTaskState,
     genText,
@@ -159,6 +158,7 @@ import State.Run.EventGen (
     replacing,
     runId,
     tasksOf,
+    titled,
     uri,
  )
 import State.Run.Gap (

@@ -122,7 +122,14 @@ import State.Run.Gap (
  )
 import State.Run.Id (eventRefText)
 import State.Show (tshow)
-import State.Step.Artifact (EpicName, baseText, epicNameText, nonBlankText, shellPathText, slugChar)
+import State.Step.Artifact (
+    EpicName,
+    baseText,
+    epicNameText,
+    nonBlankText,
+    shellPathText,
+    slugChar,
+ )
 import State.Step.Catalog (AnyStep (..))
 import State.Table (Row (..), Steps, agentRoles, row, stepsRunBy)
 

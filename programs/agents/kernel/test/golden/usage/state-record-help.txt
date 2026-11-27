@@ -53,8 +53,9 @@ Available commands:
   next.request             no arguments
   next.done                no arguments
   breakdown.done           --tasks <file.json>
-  task                     <id> <ci|review|merged|kept|round> <pr> | add
-                           <task.json> | <id> parked <why> [--pr <url>]
+  task                     <id> <ci|review|merged|kept|round|delivered> <pr> |
+                           add <task.json> | head <id> <sha> | <id> base <base>
+                           | <id> parked <why> [--pr <url>] [--reason <r>]
   held                     <task> <url>
   acted                    <task> <url>
   spawning                 <task>

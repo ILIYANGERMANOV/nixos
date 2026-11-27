@@ -200,7 +200,10 @@ genEvent =
         , SpanEnded . SpanId <$> genIJsonNatural <*> genSpanEnding <*> genUsage
         , EpicMoved <$> genEpicName <*> genEpicMove
         , TaskHead <$> genTaskRef <*> genSha
-        , TaskBaseChanged <$> genTaskRef <*> (Gen.int (Range.linear 1 6) >>= genBaseAt) <*> genNonBlank
+        , TaskBaseChanged
+            <$> genTaskRef
+            <*> (Gen.int (Range.linear 1 6) >>= genBaseAt)
+            <*> genNonBlank
         ]
 
 -- | Any gap: its evidence of both kinds, none to a few.

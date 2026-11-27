@@ -220,7 +220,11 @@ rebased task base fan = do
             | on `notElem` earlier -> Left (BaseNotEarlier task on)
         Just _ -> Right ()
         Nothing -> Right ()
-    Right fan {breakdown = (\listed -> listed {tasks = based <$> listed.tasks}) <$> fan.breakdown}
+    Right
+        fan
+            { breakdown =
+                (\listed -> listed {tasks = based <$> listed.tasks}) <$> fan.breakdown
+            }
   where
     earlier = map (.id) (takeWhile ((/= task) . (.id)) (tasksOf fan))
     based found

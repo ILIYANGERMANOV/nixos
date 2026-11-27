@@ -136,8 +136,8 @@ import State.Cli.Route qualified as Route
 import State.Cli.View (
     beginText,
     brief,
-    epicRow,
     briefSection,
+    epicRow,
     pendingLines,
     showRun,
     taskBrief,
@@ -272,9 +272,9 @@ import State.Run.Event (
     Base (OnEpic),
     Child (..),
     DraftPr (..),
+    Envelope (..),
     EpicMove (..),
     EpicName,
-    Envelope (..),
     Event (..),
     FlowName (..),
     Handover,
@@ -1947,7 +1947,9 @@ tasks, as its PR holds their work.
 -}
 epicMoved :: RunState -> EpicName -> EpicMove -> Text
 epicMoved after epic move =
-    foldMap (\found -> "epic " <> epicRow epic found <> "\n") (Map.lookup epic after.epics)
+    foldMap
+        (\found -> "epic " <> epicRow epic found <> "\n")
+        (Map.lookup epic after.epics)
         <> case move of
             Opens _ _ -> "next: state record breakdown.done --tasks <file.json>\n"
             Readies _ -> "tasks on it: " <> onIt <> "\n" <> nextLine
@@ -1967,7 +1969,8 @@ epicMoved after epic move =
 recordedAs :: Recording -> [Written] -> Output
 recordedAs recording written = case recording of
     HeadOf task sha ->
-        printed ("task " <> taskIdText task <> " head " <> Codec.shaText sha <> "\n" <> nextLine)
+        printed
+            ("task " <> taskIdText task <> " head " <> Codec.shaText sha <> "\n" <> nextLine)
     Plain _ -> recorded written
     AtHead _ -> recorded written
     FromFile {} -> recorded written
@@ -2006,7 +2009,10 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
                 (recordedEvent g state worktreeHead text (first + genericLength registered) recording)
         -- The file registered first, then the outcome that names it.
         Right
-            (Plan (registered <> [event]) (\_ written -> printed unread <> recordedAs recording written))
+            ( Plan
+                (registered <> [event])
+                (\_ written -> printed unread <> recordedAs recording written)
+            )
     NoteOn topic text ->
         Right
             ( Plan
@@ -2020,7 +2026,9 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
                         )
                 )
             )
-    MoveEpic epic move -> Right (Plan [EpicMoved epic move] (\after _ -> printed (epicMoved after epic move)))
+    MoveEpic epic move ->
+        Right
+            (Plan [EpicMoved epic move] (\after _ -> printed (epicMoved after epic move)))
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
     AskOwn kind how text -> do

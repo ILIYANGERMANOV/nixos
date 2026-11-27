@@ -164,16 +164,16 @@ import State.Run.Epic (Epic)
 import State.Run.Epic qualified as Epic
 import State.Run.Event (
     AgentId (..),
-    Base,
     AgentRole,
     Asker (..),
     Asking (..),
+    Base,
     Check,
     Child (..),
     ChildTask (..),
     DraftPr,
-    EpicName,
     Envelope (..),
+    EpicName,
     Event (..),
     EventId,
     Judgement (..),
@@ -742,7 +742,11 @@ applyEvent g state n = \case
     ActedOn ref url -> going (inTaskFan ref.task (Fan.actedOn ref.task url))
     -- A new task joins the fan-out the run is at: no request holds it yet.
     TaskAdded _ task ->
-        going (epicsOf [task.base] state >> inFanOf (fanAt state.at) (Fan.added n task) >>= reopened g)
+        going
+            ( epicsOf [task.base] state
+                >> inFanOf (fanAt state.at) (Fan.added n task)
+                >>= reopened g
+            )
     -- The lead's session started afresh: every agent it had at work is gone.
     Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
@@ -767,7 +771,10 @@ applyEvent g state n = \case
         (before, _ : after) -> Right state {workers = before <> after}
         (_, []) -> Left (SpanNotOpen ended)
     EpicMoved epic move ->
-        going ((\epics -> state {epics}) <$> Bifunctor.first EpicRefused (Epic.moved epic move state.epics))
+        going
+            ( (\epics -> state {epics})
+                <$> Bifunctor.first EpicRefused (Epic.moved epic move state.epics)
+            )
     TaskHead ref sha -> going (inTaskFan ref.task (Fan.headed ref.task sha))
     TaskBaseChanged ref base _ ->
         going (epicsOf [base] state >> inTaskFan ref.task (Fan.rebased ref.task base))

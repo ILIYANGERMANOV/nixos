@@ -10,7 +10,14 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Run.Epic
 import State.Run.EventGen (epicNamed, genEpicMove)
-import State.Step.Artifact (Base (..), Branch (..), EpicName, Repo (..), TaskId (..), Url (..))
+import State.Step.Artifact (
+    Base (..),
+    Branch (..),
+    EpicName,
+    Repo (..),
+    TaskId (..),
+    Url (..),
+ )
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -50,7 +57,8 @@ spec = describe "State.Run.Epic" $ do
         it "refuses an epic never opened" $
             opened Map.empty (OnEpic limits) `shouldBe` Left (UnknownEpic limits)
         it "takes the default branch and a task's" $
-            traverse (opened Map.empty) [OnDefault, OnTask (TaskId "t1")] `shouldBe` Right [(), ()]
+            traverse (opened Map.empty) [OnDefault, OnTask (TaskId "t1")]
+                `shouldBe` Right [(), ()]
   where
     found = maybe (Left (UnknownEpic limits)) Right . Map.lookup limits
 

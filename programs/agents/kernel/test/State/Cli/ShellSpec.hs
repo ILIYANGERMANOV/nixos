@@ -1,7 +1,9 @@
 module State.Cli.ShellSpec (spec) where
 
+import Data.List (nub)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Effects.Store.Connection (Durability (..))
 import Hedgehog (Gen, annotateShow, cover, forAll, forAllWith, (===))
 import Hedgehog.Gen qualified as Gen
@@ -13,7 +15,15 @@ import State.Cli.Shell (recordedEvent, storeDurability)
 import State.Run.Codec (taskIdText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
-import State.Run.EventGen (fuelSet, genTasks, logOf, runId, start, tasksOf)
+import State.Run.EventGen (
+    fuelSet,
+    genTasks,
+    logOf,
+    runId,
+    start,
+    tasksOf,
+    titled,
+ )
 import State.Run.Fold (RunState, replay)
 import State.Run.RunGen (childOf, loadSteps, plainTask, taskFileJson, tenXGraph)
 import State.Step.Fan (Outcome (BreakdownDone), engineers)
@@ -41,13 +51,19 @@ spec = describe "State.Cli.Shell" $ do
             gaps <- forAll (Gen.int (Range.linear 0 4))
             again <- forAll Gen.bool
             let broken = stepTook (BreakdownDone engineers tasks)
-                -- The first breakdown's seq: the start is seq 0, then the Fuel, the gaps and the override.
-                first = fromIntegral (gaps + 3)
+                -- Each epic a base names is opened before the breakdown.
+                opens =
+                    [ EpicMoved epic (Opens (Repo "o" "r") (Branch "epic"))
+                    | epic <- nub [epic | OnEpic epic <- map (.base) (taskList tasks)]
+                    ]
+                -- The first breakdown's seq: the start is seq 0, then the Fuel, the epics, the gaps and the override.
+                first = fromIntegral (gaps + length opens + 3)
                 -- A second breakdown, with no agent at work, starts a fresh fan-out.
                 newest = if again then first + 2 else first
                 state =
                     replayed
                         ( [fuelSet Balanced]
+                            <> opens
                             <> replicate gaps (Gapped "a gap")
                             <> [Overridden (StateName "breakdown") "agreed", broken]
                             <> concat [[Overridden (StateName "breakdown") "re-plan", broken] | again]
@@ -111,8 +127,20 @@ genRecording task =
             , \n -> TaskMoved (ref n) (Parked "not needed" Nothing)
             )
         , (["task", "add", "fix.json"], Just (taskFileJson fix), (`TaskAdded` fix))
+        , (["task", "head", name, sha], Nothing, \n -> TaskHead (ref n) (Sha sha))
+        ,
+            ( ["task", name, "delivered", url]
+            , Nothing
+            , \n -> TaskMoved (ref n) (Delivered (Url url))
+            )
+        ,
+            ( ["task", name, "base", "on_default", "--reason", "restack"]
+            , Nothing
+            , \n -> TaskBaseChanged (ref n) OnDefault (titled "restack")
+            )
         ]
   where
+    sha = Text.replicate 4 "0123456789"
     name = taskIdText task
     ref = TaskRef task
     url = "https://github.com/o/r/pull/1"

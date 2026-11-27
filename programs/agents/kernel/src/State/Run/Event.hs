@@ -108,7 +108,6 @@ import State.Category.Effect (Waiting (..))
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
-import State.Run.Epic (EpicMove (..))
 import State.Run.Ask (
     Above,
     ChildTask (..),
@@ -122,6 +121,7 @@ import State.Run.Ask (
     Question,
     Reply (..),
  )
+import State.Run.Epic (EpicMove (..))
 import State.Run.Gap (Gap, GapMove)
 import State.Run.Id (
     AgentId (..),

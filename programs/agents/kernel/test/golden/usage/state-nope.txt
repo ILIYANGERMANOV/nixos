@@ -35,6 +35,7 @@ Available commands:
   tasks                    Print each request's card and resume advice
   artifact                 Register a file or URL; 'artifact show' prints one
   note                     Note context for a fresh agent, under a topic
+  epic                     Open an epic, mark it ready for review, or merged
   handover                 Hand the run over to a fresh agent
   resume                   Print the packet a fresh agent resumes the run from
   gap                      Move a gap on: a fix proposed, fixed, or won't fix

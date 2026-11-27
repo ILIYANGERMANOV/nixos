@@ -103,9 +103,9 @@ import State.Run.Event (
     Child (..),
     ChildTask (..),
     Digest,
+    Envelope (..),
     EpicMove (..),
     EpicName,
-    Envelope (..),
     Event (..),
     Handover (..),
     Harness (..),
@@ -399,7 +399,9 @@ eventData = \case
             Merges -> mempty
     TaskHead ref sha -> taskRefData ref <> "head_sha" .= Field.encode Field.sha sha
     TaskBaseChanged ref base reason ->
-        taskRefData ref <> Artifact.baseData base <> "reason" .= Artifact.nonBlankText reason
+        taskRefData ref
+            <> Artifact.baseData base
+            <> "reason" .= Artifact.nonBlankText reason
   where
     qidData qid = "qid" .= qidText qid
 

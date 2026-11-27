@@ -66,7 +66,8 @@ data Refusal
     deriving stock (Eq, Show)
 
 -- | The run's epics after the move, by name, or why the table refuses it.
-moved :: EpicName -> EpicMove -> Map EpicName Epic -> Either Refusal (Map EpicName Epic)
+moved ::
+    EpicName -> EpicMove -> Map EpicName Epic -> Either Refusal (Map EpicName Epic)
 moved name move epics = (\epic -> Map.insert name epic epics) <$> next
   where
     next = case (Map.lookup name epics, move) of

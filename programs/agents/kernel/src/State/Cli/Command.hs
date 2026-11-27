@@ -124,6 +124,8 @@ import State.Run.Ask (
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, handoverReasonText, reasonText)
 import State.Run.Codec qualified as Codec
+import State.Run.Epic (EpicMove (..))
+import State.Run.Epic qualified as Epic
 import State.Run.Event (
     AgentRole (..),
     Asker (..),
@@ -147,8 +149,6 @@ import State.Run.Event (
     runIdText,
     taskNoText,
  )
-import State.Run.Epic (EpicMove (..))
-import State.Run.Epic qualified as Epic
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Answer (about, given), Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
@@ -1345,18 +1345,30 @@ explain g fuel at = \case
         Epic.EpicNotOpen epic ->
             refused
                 "epic_not_open"
-                ("epic " <> epicNameText epic <> " is ready or merged already: only an open epic is made ready")
+                ( "epic "
+                    <> epicNameText epic
+                    <> " is ready or merged already: only an open epic is made ready"
+                )
                 "state resume"
         Epic.EpicNotReady epic ->
             refused
                 "epic_not_ready"
-                ("epic " <> epicNameText epic <> " is not ready for review: it is open still, or merged already")
-                ("state epic ready " <> epicNameText epic <> " --pr <url>, once its final PR is open")
+                ( "epic "
+                    <> epicNameText epic
+                    <> " is not ready for review: it is open still, or merged already"
+                )
+                ( "state epic ready "
+                    <> epicNameText epic
+                    <> " --pr <url>, once its final PR is open"
+                )
         Epic.UnknownEpic epic ->
             refused
                 "unknown_epic"
                 ("the run never opened epic " <> epicNameText epic)
-                ("state epic open " <> epicNameText epic <> " --repo <owner/name> --branch <branch>")
+                ( "state epic open "
+                    <> epicNameText epic
+                    <> " --repo <owner/name> --branch <branch>"
+                )
   where
     refused = Failure BadInput
     records = atPlace $ \place -> case [ recordCommand event
