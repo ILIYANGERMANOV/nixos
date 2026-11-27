@@ -376,14 +376,21 @@ spec = describe "State.Run.Fan" $ do
             $ do
                 tasks <- forAll genLoose
                 let ids = map (.id) (toList tasks)
+                    placed = zip (inits ids) (toList tasks)
                     earlierOnly =
                         and
                             [ task.id `notElem` before
                                 && all (`elem` before) (task.deps <> toList (builtOn task.base))
-                            | (before, task) <- zip (inits ids) (toList tasks)
+                            | (before, task) <- placed
+                            ]
+                    baseLater =
+                        or
+                            [ any (`notElem` before) (builtOn task.base)
+                            | (before, task) <- placed
                             ]
                 cover 10 "accepted" earlierOnly
                 cover 10 "refused" (not earlierOnly)
+                cover 5 "a base on a task not before it" baseLater
                 isRight (breakdown tasks) === earlierOnly
   where
     settledAfter changes = (`settled` t1) <$> applied changes
@@ -436,7 +443,7 @@ genLoose =
   where
     genAny = do
         task <- Gen.int (Range.linear 1 5) >>= genTaskAt
-        deps <- Gen.subsequence ids
+        deps <- Gen.choice [pure [], Gen.subsequence ids]
         base <- Gen.choice [pure OnDefault, OnTask <$> Gen.element ids, pure task.base]
         name <- Gen.element ids
         pure task {Artifact.id = name, Artifact.deps = deps, Artifact.base = base}
