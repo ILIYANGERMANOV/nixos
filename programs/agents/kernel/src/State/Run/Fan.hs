@@ -537,7 +537,9 @@ it, so a child is never resumed with an answer it asked before its latest.
 -}
 askerOf :: Fan -> QId -> Maybe ChildRun
 askerOf fan qid =
-    find (\childRun -> live childRun && Heard (AsksUp qid) `elem` childRun.said) fan.children
+    find
+        (\childRun -> live childRun && Heard (AsksUp qid) `elem` childRun.said)
+        fan.children
 
 -- | The task's PR as last recorded, if one was.
 pullRequest :: Fan -> TaskId -> Maybe Url

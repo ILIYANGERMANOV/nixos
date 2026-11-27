@@ -1323,6 +1323,31 @@ spec = describe "the state binary" $ do
                     third <- succeeded =<< state bin repo ["next"]
                     take 1 third `shouldBe` ["AWAIT children t2"]
 
+            it
+                "runs a parked task again once its child is resumed, and takes that child's hand-back"
+                $ \repo -> do
+                    parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+                    -- The only task: parked, it would settle the fan-out.
+                    let tasks = repo.root </> "tasks.json"
+                    Text.writeFile tasks (breakdownJson [plainTask "t1" []])
+                    for_
+                        [ ["override", "breakdown", "the", "plan", "is", "agreed"]
+                        , ["record", "breakdown.done", "--tasks", tasks]
+                        , ["record", "spawning", "t1"]
+                        ]
+                        (succeeded <=< state bin repo)
+                    w1 <- worktree repo "w1"
+                    c1 <- childRun bin w1 parent "n1" "t1"
+                    for_
+                        [ ["record", "task", "t1", "parked", "its", "agent", "is", "lost"]
+                        , ["record", "resumed", Text.unpack c1]
+                        ]
+                        (succeeded <=< state bin repo)
+                    -- Parking settled the fan-out; the resume reopened it, to await its child.
+                    awaited <- succeeded =<< state bin repo ["next"]
+                    take 1 awaited `shouldBe` ["AWAIT children t1"]
+                    relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
+
             it "writes every ruling down to a child that asked two questions" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
                 w1 <- worktree repo "w1"
@@ -1339,10 +1364,13 @@ spec = describe "the state binary" $ do
                 resumed <- succeeded =<< state bin repo ["next"]
                 map
                     (`mentions` shown)
-                    [q1 <> " Design: which store? - postgres", q2 <> " Design: which queue? - kafka"]
+                    [ q1 <> " Design: which store? - postgres"
+                    , q2 <> " Design: which queue? - kafka"
+                    ]
                     `shouldBe` [True, True]
                 -- Resumed once, with its latest question's answer: the earlier one is in its log.
-                take 1 resumed `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> q2 <> ": kafka"]
+                take 1 resumed
+                    `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> q2 <> ": kafka"]
 
             it "asks the user its own breakdown Confirm, and refuses to rule on it" $ \repo -> do
                 _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
@@ -1871,7 +1899,11 @@ spec = describe "the state binary" $ do
                 for_
                     [["record", "spawning", "t1"], ["override", "breakdown", "re-plan"]]
                     (succeeded <=< state bin repo)
-                fix <- fixOf bin repo ["record", "breakdown.done", "--tasks", repo.root </> "tasks.json"]
+                fix <-
+                    fixOf
+                        bin
+                        repo
+                        ["record", "breakdown.done", "--tasks", repo.root </> "tasks.json"]
                 fix
                     `shouldBe` "state override engineers <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r>"
                 followed bin fix repo ["override", "engineers", "back", "to", "the", "fan-out"]
@@ -1894,9 +1926,16 @@ spec = describe "the state binary" $ do
                         <> " <question>, then state rule <qid> --answer <a> --why <w> --cost <c>, then state record spawning t1 | state record task t1 parked <why>"
                 asked : _ <-
                     succeeded
-                        =<< state bin repo ["ask", "--kind", "Stuck", "--from", Text.unpack c2, "once", "more?"]
+                        =<< state
+                            bin
+                            repo
+                            ["ask", "--kind", "Stuck", "--from", Text.unpack c2, "once", "more?"]
                 let qid = Text.unpack (Text.drop (Text.length "asked ") asked)
-                followed bin fix repo ["rule", qid, "--answer", "yes", "--why", "a lead", "--cost", "none"]
+                followed
+                    bin
+                    fix
+                    repo
+                    ["rule", qid, "--answer", "yes", "--why", "a lead", "--cost", "none"]
                 followed bin fix repo ["record", "spawning", "t1"]
 
             it "stop_untriaged: a question from the stopped child" $ \repo -> do
@@ -1907,15 +1946,22 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin w1 ["stop", "failed", "one"]
                 fix <- fixOf bin repo ["record", "spawning", "t1"]
                 fix `shouldBe` "state ask --kind <kind> --from " <> c1 <> " <question>"
-                followed bin fix repo ["ask", "--kind", "Stuck", "--from", Text.unpack c1, "retry?"]
+                followed
+                    bin
+                    fix
+                    repo
+                    ["ask", "--kind", "Stuck", "--from", Text.unpack c1, "retry?"]
 
             it "task_merged: the wrong merge voided, then the move" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
                 mergedLine : _ <-
                     succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
-                let seq' = Text.unpack (Text.takeWhile (/= ' ') (Text.drop (Text.length "recorded ") mergedLine))
+                let seq' =
+                        Text.unpack
+                            (Text.takeWhile (/= ' ') (Text.drop (Text.length "recorded ") mergedLine))
                 -- The same merge again: its goal holds.
-                _ <- succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
+                _ <-
+                    succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
                 fix <- fixOf bin repo ["record", "task", "t1", "review", prUrlString]
                 fix
                     `shouldBe` "state void <the seq of its merged line> <why>, if that merge was recorded on the wrong task"
@@ -1923,17 +1969,23 @@ spec = describe "the state binary" $ do
                 other <- fixOf bin repo ["record", "task", "t1", "merged", prUrlString <> "9"]
                 other `shouldBe` fix
 
-            it "no_edge and an unknown event at engineers: no await's done, a hand-back piped in" $ \repo -> do
-                parent <- tenXAtFanOut bin repo
-                _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
-                w1 <- worktree repo "w1"
-                c1 <- childRun bin w1 parent "n1" "t1"
-                fix <- fixOf bin repo ["record", "breakdown.done", "--tasks", repo.root </> "tasks.json"]
-                fix `shouldBe` "state show"
-                followed bin fix repo ["show"]
-                unknown <- fixOf bin repo ["record", "engineers.done"]
-                unknown `shouldBe` "state handback <role>"
-                relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
+            it
+                "no_edge and an unknown event at engineers: no await's done, a hand-back piped in"
+                $ \repo -> do
+                    parent <- tenXAtFanOut bin repo
+                    _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
+                    w1 <- worktree repo "w1"
+                    c1 <- childRun bin w1 parent "n1" "t1"
+                    fix <-
+                        fixOf
+                            bin
+                            repo
+                            ["record", "breakdown.done", "--tasks", repo.root </> "tasks.json"]
+                    fix `shouldBe` "state show"
+                    followed bin fix repo ["show"]
+                    unknown <- fixOf bin repo ["record", "engineers.done"]
+                    unknown `shouldBe` "state handback <role>"
+                    relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
 
             it "the epic's refusals: each fixed by the move its stage takes" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
@@ -1946,11 +1998,16 @@ spec = describe "the state binary" $ do
                 followed bin notReady repo ["epic", "ready", "limits", "--pr", prUrlString]
                 _ <- succeeded =<< state bin repo ["epic", "merged", "limits"]
                 notOpen <- fixOf bin repo ["epic", "ready", "limits", "--pr", prUrlString]
-                followed bin notOpen repo ["epic", "open", "quotas", "--repo", "o/r", "--branch", "epic/quotas"]
+                followed
+                    bin
+                    notOpen
+                    repo
+                    ["epic", "open", "quotas", "--repo", "o/r", "--branch", "epic/quotas"]
 
             it "unknown_task: a base on a task the breakdown lacks" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
-                fix <- fixOf bin repo ["record", "task", "t9", "base", "on_default", "--reason", "r"]
+                fix <-
+                    fixOf bin repo ["record", "task", "t9", "base", "on_default", "--reason", "r"]
                 followed bin fix repo ["show"]
 
         describe "a tree of runs: a 10x under a 10x, an engineer under that" $ do
@@ -2177,7 +2234,9 @@ spec = describe "the state binary" $ do
                         `shouldBe` ( []
                                    , []
                                    , 1
-                                   , ["RESUME " <> c1 <> " lost at a restart: a fresh engineer with its spawn prompt"]
+                                   ,
+                                       [ "RESUME " <> c1 <> " lost at a restart: a fresh engineer with its spawn prompt"
+                                       ]
                                    )
 
             it "records no second restart at a startup, once no child is at work" $ \repo -> do
@@ -3214,12 +3273,15 @@ fixOf :: FilePath -> Repo -> [String] -> IO Text
 fixOf bin repo argv =
     state bin repo argv >>= \case
         Ran 2 [] [_, line] | Just fix <- Text.stripPrefix "fix: " line -> pure fix
-        other -> fail ("not refused with a fix: " <> show (argv, other.code, other.out, other.err))
+        other ->
+            fail
+                ("not refused with a fix: " <> show (argv, other.code, other.out, other.err))
 
 -- | A command the fix names by its verb, run in this worktree: it succeeds.
 followed :: FilePath -> Text -> Repo -> [String] -> IO ()
 followed bin fix repo argv = do
-    take 1 argv `shouldSatisfy` all (\verb -> ("state " <> Text.pack verb) `Text.isInfixOf` fix)
+    take 1 argv
+        `shouldSatisfy` all (\verb -> ("state " <> Text.pack verb) `Text.isInfixOf` fix)
     void (succeeded =<< state bin repo argv)
 
 -- | @state ask --kind <kind> <question>@; the id it prints.

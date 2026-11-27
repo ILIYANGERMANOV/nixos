@@ -756,7 +756,8 @@ applyEvent g state n = \case
                 atAwait g holder.at
                     >> inFanAt holder.fan (Fan.spawned (askingChildren state) child) state
         Untasked -> forked g n state child
-    Resumed child _ -> going (inFanOf (snd (childAt child)) (Fan.resumed child))
+    -- A resumed child runs again: at the fan-out's merge, it reopens the fan-out for its hand-back.
+    Resumed child _ -> going (inFanOf (snd (childAt child)) (Fan.resumed child) >>= reopened g n)
     -- An untasked child hands back wherever the run is, as an agent child does.
     HandedBack child _ said -> going $ case untaskedFan state child of
         Just fan -> inFanAt fan (Fan.handedBack child said) state
@@ -1095,7 +1096,10 @@ refused by 'taskRefIn' first.
 -}
 movable :: RunState -> TaskId -> TaskState -> Either Refusal ()
 movable state task moved = case taskHolder state task of
-    Right holder -> Bifunctor.first FanRefused (Fan.movable task moved (fanIn state.fans holder.fan))
+    Right holder ->
+        Bifunctor.first
+            FanRefused
+            (Fan.movable task moved (fanIn state.fans holder.fan))
     Left _ -> Right ()
 
 -- | The task the child of this run id took, as its @spawned@ names it: none for an untasked or unknown child.
@@ -1406,8 +1410,9 @@ planSettled state =
 settledSkips :: RunState -> Name -> Bool
 settledSkips state block = block == refineName && planSettled state
 
-{- | A task added, or a round asked, at a fan-out's merge reopens the fan-out, where it is
-spawned as any task is; the fan-out is left again once every task is settled.
+{- | A task added, a round asked, or a child resumed at a fan-out's merge
+reopens the fan-out, where it is spawned, or hands back, as any task does;
+the fan-out is left again once every task is settled.
 -}
 reopened :: OpenGraph -> Natural -> RunState -> Either Refusal RunState
 reopened g n state = case state.at of

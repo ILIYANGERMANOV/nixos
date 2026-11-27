@@ -1757,8 +1757,13 @@ spec = describe "state over the doubles" $ do
                                        , []
                                        )
                                    , -- A replacement final PR, after the first one closed.
+
                                        ( 0
-                                       , [row <> "ready_for_review " <> replacement, "tasks on it: none", "next: state next"]
+                                       ,
+                                           [ row <> "ready_for_review " <> replacement
+                                           , "tasks on it: none"
+                                           , "next: state next"
+                                           ]
                                        , []
                                        )
                                    , (0, [row <> "merged " <> replacement, "next: state next"], [])

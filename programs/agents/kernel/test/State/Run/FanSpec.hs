@@ -184,17 +184,19 @@ spec = describe "State.Run.Fan" $ do
             [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
             `shouldBe` [Right (Just (runId "c1")), Right Nothing]
 
-    it "finds the live child that asked a question in any hand-back, as its answer goes down to it" $ do
-        let first = QId (runId "c1") 1
-            asked =
-                [ spawned [] (childFor "c1" t1)
-                , handedBack (runId "c1") (AsksUp first)
-                , handedBack (runId "c1") (AsksUp (QId (runId "c1") 3))
-                ]
-        map
-            (fmap (fmap (.child.run) . (`askerOf` first)) . applied)
-            [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
-            `shouldBe` [Right (Just (runId "c1")), Right Nothing]
+    it
+        "finds the live child that asked a question in any hand-back, as its answer goes down to it"
+        $ do
+            let first = QId (runId "c1") 1
+                asked =
+                    [ spawned [] (childFor "c1" t1)
+                    , handedBack (runId "c1") (AsksUp first)
+                    , handedBack (runId "c1") (AsksUp (QId (runId "c1") 3))
+                    ]
+            map
+                (fmap (fmap (.child.run) . (`askerOf` first)) . applied)
+                [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
+                `shouldBe` [Right (Just (runId "c1")), Right Nothing]
 
     it "settles a parked task, so the fan-out may leave" $
         (applied [moved t1 (Parked "out of scope" Nothing)] >>= leave)
@@ -288,9 +290,13 @@ spec = describe "State.Run.Fan" $ do
     it "refuses a merged task's later move at record time, but the same merge again" $
         map
             (\later -> applied [moved t1 (Merged (Url "pr"))] >>= movable t1 later)
-            [Merged (Url "pr"), Merged (Url "other"), InReview (Url "pr"), Parked "wrong task" Nothing]
+            [ Merged (Url "pr")
+            , Merged (Url "other")
+            , InReview (Url "pr")
+            , Parked "wrong task" Nothing
+            ]
             `shouldBe` Right ()
-            : replicate 3 (Left (TaskMerged t1 (Url "pr")))
+                : replicate 3 (Left (TaskMerged t1 (Url "pr")))
 
     it "takes_any_move_of_a_task_not_merged_at_record_time" . hedgehog $ do
         -- A move taken that leaves the task unmerged.
