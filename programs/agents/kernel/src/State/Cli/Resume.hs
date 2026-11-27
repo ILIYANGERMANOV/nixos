@@ -407,8 +407,9 @@ openGaps input =
             (\(n, gap) -> (gap.severity, n))
             [(n, tracked.gap) | (n, tracked) <- input.state.gaps, isOpen tracked.status]
 
-{- | Each stopgap in force, its scope, key and value inline: what an agent
-recorded when no typed command fit. Nothing the kernel decides reads them.
+{- | Each stopgap in force, its line, scope, key, value and reason inline:
+what an agent recorded when no typed command fit, and when and why, so a
+stale one shows. Nothing the kernel decides reads them.
 -}
 stopgaps :: Input -> [Text]
 stopgaps input =
@@ -418,9 +419,12 @@ stopgaps input =
             <> ", never read by the kernel):"
         )
         [ Text.unwords
-            [ maybe "run" (taskIdText . (.task)) at.scope
+            [ here input stopgap.seq
+            , maybe "run" (taskIdText . (.task)) at.scope
             , stopgapKeyText at.key
             , jsonText (ijsonValue stopgap.value)
+            , "-"
+            , nonBlankText stopgap.reason
             ]
         | (at, stopgap) <- Map.toList input.state.stopgaps
         ]

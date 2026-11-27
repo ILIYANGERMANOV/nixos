@@ -27,8 +27,8 @@ notes by topic: live 1 (last 00010203:18), traps 1 (last 00010203:17)
   load: state sql "select text from notes where run_id = '00010203' and topic = 'live'"
   load: state sql "select text from notes where run_id = '00010203' and topic = 'traps'"
 stopgaps (2, never read by the kernel):
-  run deploy.region "eu"
-  t2 cache.ttl 30
+  00010203:30 run deploy.region "eu" - no typed row
+  00010203:31 t2 cache.ttl 30 - no typed row
 
 context map (load on demand, or in a subagent):
   files
