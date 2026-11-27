@@ -2041,12 +2041,14 @@ shipped = \case
 fuelOf :: RunState -> Fuel
 fuelOf state = fromMaybe Balanced state.fuel
 
--- | The run's goal: the newest instructed goal in force, word for word, if any.
-goalOf :: RunState -> Maybe Verbatim
+{- | The run's goal: the newest instructed goal in force, word for word, by
+its seq, if any.
+-}
+goalOf :: RunState -> Maybe (Natural, Verbatim)
 goalOf state =
     listToMaybe
-        [ text
-        | (_, Instruction GoalInstruction text) <- Map.toDescList state.instructions
+        [ (n, text)
+        | (n, Instruction GoalInstruction text) <- Map.toDescList state.instructions
         ]
 
 -- | A loop making no progress: these problems were in both of its last two rounds.

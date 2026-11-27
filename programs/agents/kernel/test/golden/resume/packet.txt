@@ -1,7 +1,8 @@
 resume run 00010203 (10x), active at engineers: 1 sessions, 36 events, last handover 00010203:34 (context)
 goal: ship the packet today
-instructions (1, newest first):
+instructions (2, newest first):
   27 rule "never push \"main\"\nask first"
+  2 goal "Ship the resume packet"
 worktree: /work2   repo: o/r   fuel: balanced
 pr: none yet   notes dir: /notes
 next (handover 00010203:34):

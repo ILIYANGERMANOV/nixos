@@ -35,6 +35,7 @@ import State.Cli.Shell.World (
     removeFile,
     runOf,
     sessionStart,
+    startedIn,
     startedRun,
     state,
     stateIn,
@@ -69,6 +70,13 @@ spec = describe "state resume over the doubles" . before newWorld $ do
         _ <- startedRun world
         ran <- state world ["resume"]
         pure (golden "resume/fresh.txt" (decodeUtf8Lenient ran.stdout))
+
+    it "lists an older goal in force by its seq, but not the goal line's" $ \world -> do
+        _ <- startedIn world ["--goal", "first"]
+        _ <- succeeded =<< state world ["record", "instructed", "goal", "second"]
+        out <- succeeded =<< state world ["resume"]
+        take 3 (dropWhile (not . Text.isPrefixOf "goal: ") out)
+            `shouldBe` ["goal: second", "instructions (1, newest first):", "  2 goal \"first\""]
 
     it "prints a task an agent took as running, and a parked one taken again too" $ \world -> do
         _ <- tenXAtFanOutBy world [] [plainTask "t1" [], plainTask "t2" []]

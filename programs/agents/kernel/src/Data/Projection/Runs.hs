@@ -168,7 +168,7 @@ runStateRow trace =
         , status
         , step = stateNameText (nodeName state.at)
         , fuel = fuelOf state
-        , goal = verbatimText <$> goalOf state
+        , goal = verbatimText . snd <$> goalOf state
         , worktree = Text.pack (absPathText worktree)
         , repo = repoText <$> repo
         , prUrl = urlText <$> recordedPr state
