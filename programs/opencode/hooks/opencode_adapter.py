@@ -231,6 +231,7 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 tuple(as_str(command) for command in history)
                 if tool == Tool.SHELL
                 else (),
+                harness=HARNESS,
             )
         case {
             "hook": "after",
@@ -249,6 +250,7 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 neutral_input(tool, args),
                 output,
                 context_size(tokens),
+                harness=HARNESS,
             )
             return tool_ran(ran, output.get("output"), running_ids(running))
         case {
@@ -268,7 +270,11 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 )
             )
         case {"hook": "command", "command": str(command)}:
-            return (PromptExpansion(session, cwd, agent, SkillName(command)),)
+            return (
+                PromptExpansion(
+                    session, cwd, agent, SkillName(command), harness=HARNESS
+                ),
+            )
         case {"hook": "idle", "running": list() as running}:
             return idled(session, cwd, agent, running_ids(running))
         case _:
@@ -387,7 +393,7 @@ def started(
             source = Source.STARTUP if created else Source.RESUME
             return (SessionStart(session, cwd, None, source, HARNESS, None, None),)
         case True, Agent():
-            return (AgentStart(session, cwd, agent),)
+            return (AgentStart(session, cwd, agent, harness=HARNESS),)
 
 
 def idled(
@@ -397,7 +403,7 @@ def idled(
     reaches its parent (task_ended)."""
     match agent:
         case None:
-            return (AgentStop(session, cwd, None, running),)
+            return (AgentStop(session, cwd, None, running, harness=HARNESS),)
         case Agent():
             return ()
 
@@ -502,11 +508,18 @@ def task_ended(
         case Completed(child=child, text=text):
             agent = Agent(child, role)
             return (
-                BeforeTool(session, cwd, agent, Tool.HANDBACK, {"message": text}),
-                AgentStop(session, cwd, agent, still),
+                BeforeTool(
+                    session,
+                    cwd,
+                    agent,
+                    Tool.HANDBACK,
+                    {"message": text},
+                    harness=HARNESS,
+                ),
+                AgentStop(session, cwd, agent, still, harness=HARNESS),
             )
         case Failed(child=child):
-            return (AgentStop(session, cwd, Agent(child, role), still),)
+            return (AgentStop(session, cwd, Agent(child, role), still, harness=HARNESS),)
 
 
 # ---- The plugin's output ------------------------------------------------------------

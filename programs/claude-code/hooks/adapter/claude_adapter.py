@@ -152,6 +152,7 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
                 )
                 if tool == Tool.SHELL
                 else (),
+                harness=HARNESS,
             )
         case {
             "hook_event_name": "PostToolUse",
@@ -170,6 +171,7 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
                 tool_input,
                 output,
                 context_size(transcript(payload.get("transcript_path"), agent, read)),
+                harness=HARNESS,
             )
         case {
             "hook_event_name": "SubagentStart",
@@ -178,7 +180,9 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
         }:
             match parse_agent(payload):
                 case Agent() as agent:
-                    return AgentStart(SessionId(session), Path(cwd), agent)
+                    return AgentStart(
+                        SessionId(session), Path(cwd), agent, harness=HARNESS
+                    )
                 case None:
                     raise ValueError("a SubagentStart names no agent_id")
         case {
@@ -188,7 +192,11 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
             "command_name": str(skill),
         }:
             return PromptExpansion(
-                SessionId(session), Path(cwd), parse_agent(payload), SkillName(skill)
+                SessionId(session),
+                Path(cwd),
+                parse_agent(payload),
+                SkillName(skill),
+                harness=HARNESS,
             )
         case {
             "hook_event_name": "SubagentStop" | "Stop",
@@ -200,6 +208,7 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
                 Path(cwd),
                 parse_agent(payload),
                 running_agents(payload.get("background_tasks")),
+                harness=HARNESS,
             )
         case _:
             raise ValueError(

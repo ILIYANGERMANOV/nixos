@@ -4,18 +4,18 @@ remembering to (#360's hooks contract): the neutral hook event in
 
 @
 resume    sessionStart          records session_started, and restarted for a fresh or resumed session; context: show and next
-spawn     beforeTool delegate   context: next, and a warning off the advice
-handback  beforeTool handback   records a worker's hand-back; context: what it recorded
-bind      afterTool shell       binds the agent to the run its @state init@ started or resumed
-          afterTool delegate    binds a worker spawned to its spawner's run; records a hand-back it made first
+spawn     beforeTool delegate   records span_started; to the lead, context: next, and a warning off the advice
+handback  beforeTool handback   records span_ended and a worker's hand-back; context: what it recorded
+bind      afterTool shell       binds the agent to the run its @state init@ started or resumed; records session_started once
+          afterTool delegate    links a subagent to its span, binds a worker to its spawner's run; records a hand-back or stop it made first
 route     beforeTool shell      denies a @state@ command aimed at another run than the agent's
           beforeTool edit,      denies an unbound lead's write: an edit, a commit, a push, a PR
           write, delegate       opened or merged, a spawn
 begin     agentStart            context: how a spawned lead begins, or a worker's brief
           promptExpansion       context: how a typed lead skill begins; marks the agent a lead
           beforeTool skill      context: how a called lead skill begins; marks the agent a lead
-stop      agentStop             records a child run's agent ended with no hand-back, its children absent from those running too
-          afterTool stopAgent   records the stopped agent's child run ended so
+stop      agentStop             records span_ended with no hand-back, and a child run's agent ended so, its children absent from those running too
+          afterTool stopAgent   records the stopped agent's span and child run ended so
 @
 
 Each finds the caller's run through its binding ("State.Protocol.Binding"),
@@ -36,11 +36,14 @@ module State.Protocol.Hook (
     HookEvent (..),
     Call (..),
     callOf,
+    ToolCallId (..),
+    Spawn (..),
     Agent (..),
     Tool (..),
     StartSource (..),
     Opened (..),
     sessionOf,
+    initSession,
     parseHookEvent,
     Job (..),
     Want (..),
@@ -66,6 +69,11 @@ module State.Protocol.Hook (
     spawnedAt,
     opensChild,
     hookSources,
+    spanStartedSource,
+    spanEndedSource,
+    spanOfCall,
+    spanStartOf,
+    trackedRole,
     restartOf,
     loggedAlready,
     Reply (..),
@@ -83,6 +91,7 @@ import Data.Aeson (
     object,
     withObject,
     (.:),
+    (.:?),
     (.=),
  )
 import Data.Aeson.Key qualified as Key
@@ -105,6 +114,7 @@ import State.Protocol.Binding (
     Binding (..),
     Key (..),
     Slot,
+    SpanLink,
     bindingIn,
  )
 import State.Role (leads)
@@ -113,12 +123,16 @@ import State.Run.Event (
     Branch,
     DraftPr (..),
     Envelope (..),
-    Event (Restarted, Took),
+    Event (Restarted, SessionStarted, Took),
     Harness,
     RunId,
     Session (..),
     SessionId,
     Source (..),
+    SpanId (..),
+    SpanStart (..),
+    Usage (..),
+    unreported,
     parseHarness,
     parseSessionId,
     roleText,
@@ -175,34 +189,53 @@ hookPurpose = \case
     BeginHook -> "At a spawn or a lead skill: how its work begins"
     StopHook -> "At an agent's stop: records a child run's agent ended"
 
--- | One event of the neutral contract. @history@ and @context@ are required, never read.
+{- | One event of the neutral contract. @history@ and @context@ are required,
+never read. A tool's call carries the harness's id of it, when it gives one; a
+hand-back and a stop the tokens the agent's own requests used.
+-}
 data HookEvent
     = SessionStart Call Opened
-    | BeforeTool Call Tool Object
-    | -- | The tool's input, and its output as the client gave it.
-      AfterTool Call Tool Object Value
+    | -- | The tool's call, its input, and the tokens of a hand-back ('unreported' for any other tool).
+      BeforeTool Call Tool (Maybe ToolCallId) Object Usage
+    | -- | The tool's call, its input, and its output as the client gave it.
+      AfterTool Call Tool (Maybe ToolCallId) Object Value
     | -- | A subagent starts, before its first turn.
       AgentStart Call
     | -- | A typed @/name@ expanded to its skill or command, by that name.
       PromptExpansion Call Text
     | {- | The caller stops, and the agents still running in its session: its
       own id is among them when it is a subagent, so it is never read for it.
+      The tokens its own requests used last.
       -}
-      AgentStop Call [AgentId]
+      AgentStop Call [AgentId] Usage
     deriving stock (Eq, Show)
 
--- | A hook's caller; a hook naming an empty session names none.
-data Call = Call {session :: Maybe SessionId, cwd :: FilePath, agent :: Maybe Agent}
+{- | A hook's caller; a hook naming an empty session names none. The harness
+running the session, and the session's transcript when it names one.
+-}
+data Call = Call
+    { session :: Maybe SessionId
+    , cwd :: FilePath
+    , agent :: Maybe Agent
+    , harness :: Harness
+    , transcript :: Maybe AbsPath
+    }
     deriving stock (Eq, Show)
 
 callOf :: HookEvent -> Call
 callOf = \case
     SessionStart call _ -> call
-    BeforeTool call _ _ -> call
-    AfterTool call _ _ _ -> call
+    BeforeTool call _ _ _ _ -> call
+    AfterTool call _ _ _ _ -> call
     AgentStart call -> call
     PromptExpansion call _ -> call
-    AgentStop call _ -> call
+    AgentStop call _ _ -> call
+
+{- | The harness's id of one tool call (OpenTelemetry's
+@gen_ai.tool.call.id@): a spawn's before and after events share it.
+-}
+newtype ToolCallId = ToolCallId Text
+    deriving stock (Eq, Show)
 
 -- | The subagent making the call; the lead is none. Either field is absent when its agent gives none.
 data Agent = Agent {agentId :: Maybe AgentId, role :: Maybe AgentRole}
@@ -226,24 +259,40 @@ data Tool
 data StartSource = Startup | Resumed | Compact
     deriving stock (Eq, Show, Enum, Bounded)
 
--- | What a session start tells: why it started, and the harness's own facts of the session.
-data Opened = Opened
-    { source :: StartSource
-    , harness :: Harness
-    , transcript :: Maybe AbsPath
-    , model :: Maybe Text
-    }
+-- | What a session start tells beside its caller: why it started, and the model it asked for.
+data Opened = Opened {source :: StartSource, model :: Maybe Text}
     deriving stock (Eq, Show)
 
 -- | The session as its run keeps it ('SessionStarted').
-sessionOf :: Opened -> Session
-sessionOf opened =
+sessionOf :: Call -> Opened -> Session
+sessionOf call opened =
     Session
-        { harness = opened.harness
-        , transcript = opened.transcript
+        { harness = call.harness
+        , transcript = call.transcript
         , trigger = startSourceName opened.source
         , model = opened.model
         }
+
+{- | The session a bind by @state init@ starts on its run: the caller's, by
+its own facts, unless the caller names no session or the run logs its start
+already. A run made mid-session, which no session start found, so has one.
+-}
+initSession :: (Foldable t) => Call -> t Envelope -> Maybe Session
+initSession call logged = case call.session of
+    Just session
+        | not (any (startOf session) logged) ->
+            Just
+                Session
+                    { harness = call.harness
+                    , transcript = call.transcript
+                    , trigger = "init"
+                    , model = Nothing
+                    }
+    _ -> Nothing
+  where
+    startOf session envelope = case envelope.event of
+        SessionStarted _ -> envelope.session == Just session
+        _ -> False
 
 -- | The event on stdin; an unknown event, tool or source is an error, as in @agent_hook.py@.
 parseHookEvent :: LBS.ByteString -> Either Text HookEvent
@@ -255,24 +304,31 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
                 <$> o .: "session"
                 <*> o .: "cwd"
                 <*> (o .: "agent" >>= agentOf)
+                <*> (o .: "harness" >>= harnessOf)
+                <*> (o .: "transcript_path" >>= traverse transcriptPath)
         (o .: "event" :: Parser Text) >>= \case
             "sessionStart" ->
                 SessionStart call
                     <$> ( Opened
                             <$> (o .: "source" >>= named "source" startSourceName)
-                            <*> (o .: "harness" >>= harnessOf)
-                            <*> (o .: "transcript_path" >>= traverse transcriptPath)
                             <*> o .: "request_model"
                         )
             "beforeTool" -> do
                 _ <- o .: "history" :: Parser [Text]
-                BeforeTool call <$> tool o <*> o .: "input"
+                BeforeTool call
+                    <$> tool o
+                    <*> toolCall o
+                    <*> o .: "input"
+                    <*> (o .: "usage" >>= maybe (pure unreported) usageOf)
             "afterTool" -> do
                 _ <- o .: "context" :: Parser Value
-                AfterTool call <$> tool o <*> o .: "input" <*> o .: "output"
+                AfterTool call <$> tool o <*> toolCall o <*> o .: "input" <*> o .: "output"
             "agentStart" -> pure (AgentStart call)
             "promptExpansion" -> PromptExpansion call <$> o .: "skill"
-            "agentStop" -> AgentStop call . map AgentId <$> o .: "running"
+            "agentStop" ->
+                AgentStop call . map AgentId
+                    <$> o .: "running"
+                    <*> (o .: "usage" >>= maybe (pure unreported) usageOf)
             other ->
                 fail
                     ( "no event "
@@ -281,6 +337,18 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
                     )
   where
     tool o = o .: "tool" >>= named "tool" toolName
+    toolCall o = fmap ToolCallId <$> o .: "call"
+    -- A count left out is not reported, never 0; one not a count is refused.
+    usageOf =
+        withObject
+            "usage"
+            ( \u ->
+                Usage
+                    <$> u .:? "input_tokens"
+                    <*> u .:? "output_tokens"
+                    <*> u .:? "cache_read_input_tokens"
+                    <*> u .:? "cache_write_input_tokens"
+            )
     agentOf = \case
         Null -> pure Nothing
         value ->
@@ -345,17 +413,37 @@ data Gate
 data Want
     = -- | Why the session started.
       ResumeRun Opened
-    | -- | The role the lead spawns, when its input names one.
-      SpawnRole (Maybe AgentRole)
-    | -- | A flow role's hand-back: its message, and who sent it.
-      HandedBack Text Agent AgentRole
+    | -- | The role the lead spawns, when its input names one, and the span it starts, when its call makes one.
+      SpawnRole (Maybe AgentRole) (Maybe Spawn)
+    | -- | A subagent's spawn: only the span it starts.
+      StartsSpan Spawn
+    | {- | A step runner's hand-back ('trackedRole'): its message, who sent it,
+      its role, and the tokens its own requests used.
+      -}
+      HandedBack Text Agent AgentRole Usage
+    | -- | Any other subagent's hand-back, its message and tokens: only its span ends.
+      SpanHandback Text Usage
+    deriving stock (Eq, Show)
+
+{- | A subagent spawned, as its spawn call names it: the call, its role, its
+brief in full, and the model it asks for, if any.
+-}
+data Spawn = Spawn
+    { toolCall :: ToolCallId
+    , role :: AgentRole
+    , brief :: Text
+    , model :: Maybe Text
+    }
     deriving stock (Eq, Show)
 
 data Bind
     = -- | The caller to the run its @state init@ printed.
       BindSelf Binding
-    | -- | A worker the caller spawned, by its agent id and role, to the caller's run.
-      BindChild AgentId AgentRole
+    | {- | A subagent the caller spawned, by its agent id: linked to the span
+      its spawn call started, and, a flow role's worker, by its role, bound to
+      the caller's run.
+      -}
+      BindSpawned AgentId (Maybe ToolCallId) (Maybe AgentRole)
     deriving stock (Eq, Show)
 
 -- | Whose work begins, and where its text goes.
@@ -370,14 +458,15 @@ data Begin
       CalledSkill LeadSkill
     deriving stock (Eq, Show)
 
-{- | What ends with an agent: the child run it leads, if it handed nothing
-back ("State.Cli.Shell"'s @agentEnded@).
+{- | What ends with an agent: its span, and the child run it leads, if it
+handed nothing back ("State.Cli.Shell"'s @agentEnded@).
 -}
 data End
     = {- | The caller stopped, by its key (the lead's is 'Main'), and the agents
-      still running: its children absent from them ended too.
+      still running: its children absent from them ended too. The tokens its
+      own requests used.
       -}
-      Stops Key [AgentId]
+      Stops Key [AgentId] Usage
     | -- | The caller stopped this agent.
       StopsAgent AgentId
     deriving stock (Eq, Show)
@@ -395,32 +484,46 @@ wants steps hook event = case hook of
         AfterTool {} -> undeclared
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
-        AgentStop _ _ -> undeclared
+        AgentStop {} -> undeclared
+    -- Every spawn in a run starts a span; only the lead's is a step of its flow.
     SpawnHook -> case event of
-        BeforeTool call _ input -> Right (lead call (SpawnRole (AgentRole <$> textAt "subagent_type" input)))
+        BeforeTool call _ toolCall input _ ->
+            Right $ case lead call (SpawnRole (AgentRole <$> textAt "subagent_type" input) spawn) of
+                Just job -> Just job
+                Nothing -> Asks . StartsSpan <$> spawn
+          where
+            spawn =
+                Spawn
+                    <$> toolCall
+                    <*> (AgentRole <$> textAt "subagent_type" input)
+                    <*> textAt "prompt" input
+                    <*> pure (textAt "model" input)
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
-        AgentStop _ _ -> undeclared
+        AgentStop {} -> undeclared
+    -- Every subagent's hand-back ends its span; a step runner's is also its run's ('trackedRole').
     HandbackHook -> case event of
-        BeforeTool call _ input -> Right $ case (call.agent, textAt "message" input) of
-            (Just agent@Agent {role = Just role}, Just message) | tracked steps role -> Just (Asks (HandedBack message agent role))
+        BeforeTool call _ _ input usage -> Right $ case (call.agent, textAt "message" input) of
+            (Just agent, Just message) -> Just . Asks $ case trackedRole steps agent of
+                Just role -> HandedBack message agent role usage
+                Nothing -> SpanHandback message usage
             _ -> Nothing
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
-        AgentStop _ _ -> undeclared
+        AgentStop {} -> undeclared
     BindHook -> case event of
-        AfterTool _ tool input output -> Right (Binds <$> bindOf steps tool input output)
+        AfterTool _ tool toolCall input output -> Right (Binds <$> bindOf steps tool toolCall input output)
         SessionStart {} -> undeclared
         BeforeTool {} -> undeclared
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
-        AgentStop _ _ -> undeclared
+        AgentStop {} -> undeclared
     RouteHook -> case event of
-        BeforeTool call tool input ->
+        BeforeTool call tool _ input _ ->
             Right $
                 Routes <$> case tool of
                     Shell -> RunsShell <$> textAt "command" input
@@ -437,22 +540,22 @@ wants steps hook event = case hook of
         AfterTool {} -> undeclared
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
-        AgentStop _ _ -> undeclared
+        AgentStop {} -> undeclared
     BeginHook -> case event of
         AgentStart call -> Right (Begins <$> (spawnedBegin steps =<< (.role) =<< call.agent))
         PromptExpansion _ skill -> Right (Begins . TypedSkill <$> leadSkill skill)
-        BeforeTool _ tool input ->
+        BeforeTool _ tool _ input _ ->
             Right
                 ( Begins . CalledSkill
                     <$> (guard (tool == Skill) *> textAt "skill" input >>= leadSkill)
                 )
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
-        AgentStop _ _ -> undeclared
+        AgentStop {} -> undeclared
     StopHook -> case event of
-        AgentStop call running -> Right (Just (Ends (Stops (keyOf call.agent) running)))
+        AgentStop call running usage -> Right (Just (Ends (Stops (keyOf call.agent) running usage)))
         -- The id of the agent a call stopped is in its input, as @agent_hook.py@ passes it.
-        AfterTool _ tool input _ ->
+        AfterTool _ tool _ input _ ->
             Right
                 ( Ends . StopsAgent . AgentId
                     <$> (guard (tool == StopAgent) *> textAt "task_id" input)
@@ -470,7 +573,7 @@ wants steps hook event = case hook of
         AfterTool {} -> "afterTool"
         AgentStart _ -> "agentStart"
         PromptExpansion _ _ -> "promptExpansion"
-        AgentStop _ _ -> "agentStop"
+        AgentStop {} -> "agentStop"
 
 {- | How a spawned agent begins: a role that leads a flow runs its own
 run, a step runner its steps; any other agent is no business of the flows.
@@ -505,20 +608,25 @@ leadSkillName = \case
     ChiefSkill -> "chief"
 
 {- | What a tool's result binds: a shell command that ran @state init@ binds
-its caller to the run init printed, a rerun (a resume) again; a spawn of a
-flow role binds the worker, which never inits. A lead spawned (an engineer)
-binds itself by its own init, in its own worktree.
+its caller to the run init printed, a rerun (a resume) again; a spawn links
+its subagent to its span, and binds a flow role's worker, which never inits.
+A lead spawned (an engineer) binds itself by its own init, in its own
+worktree; any other role is no worker of the run, never under its gates.
 -}
-bindOf :: Steps -> Tool -> Object -> Value -> Maybe Bind
-bindOf steps tool input output = case tool of
+bindOf :: Steps -> Tool -> Maybe ToolCallId -> Object -> Value -> Maybe Bind
+bindOf steps tool toolCall input output = case tool of
     Shell
         | Just command <- textAt "command" input
         , "state init" `Text.isInfixOf` command ->
             BindSelf <$> (bindingIn =<< textAt "stdout" =<< outputObject)
         | otherwise -> Nothing
-    Delegate -> case (textAt "agentId" =<< outputObject, AgentRole <$> textAt "subagent_type" input) of
-        (Just child, Just role) | role `elem` flowRoles steps -> Just (BindChild (AgentId child) role)
-        _ -> Nothing
+    Delegate ->
+        (\child -> BindSpawned (AgentId child) toolCall worker)
+            <$> (textAt "agentId" =<< outputObject)
+      where
+        worker = case AgentRole <$> textAt "subagent_type" input of
+            Just role | role `elem` flowRoles steps -> Just role
+            _ -> Nothing
     Read -> Nothing
     Edit -> Nothing
     Write -> Nothing
@@ -544,18 +652,24 @@ keyOf = \case
 data Delivery = ToRun | Stash Slot
     deriving stock (Eq, Show)
 
-{- | A worker's hand-back seen before its spawner's hook bound it waits in the
-worker's stash, which that hook replays; every other want goes to the caller's
-run. A subagent with no slot (no store) has nowhere to wait: its run is none.
+{- | A subagent's hand-back seen before its spawner's hook bound it (a step
+runner's) or linked its span (any other's) waits in its stash, which that hook
+replays; every other want goes to the caller's run. A subagent with no slot
+(no store) has nowhere to wait: its run is none.
 -}
-delivery :: Want -> Key -> Maybe Slot -> Maybe Binding -> Delivery
-delivery want key slot bound = case want of
-    HandedBack {} -> case (key, bound) of
+delivery :: Want -> Key -> Maybe Slot -> Maybe Binding -> Maybe SpanLink -> Delivery
+delivery want key slot bound linked = case want of
+    HandedBack {} -> waits bound
+    SpanHandback {} -> waits linked
+    ResumeRun _ -> ToRun
+    SpawnRole _ _ -> ToRun
+    StartsSpan _ -> ToRun
+  where
+    waits :: Maybe a -> Delivery
+    waits found = case (key, found) of
         (AgentKey _, Nothing) -> maybe ToRun Stash slot
         (AgentKey _, Just _) -> ToRun
         (Main, _) -> ToRun
-    ResumeRun _ -> ToRun
-    SpawnRole _ -> ToRun
 
 -- | A hook's text, naming the run it acted on; nothing said is nothing.
 aboutRun :: RunId -> Text -> Text
@@ -595,6 +709,12 @@ spawned beside reports to its spawner alone.
 -}
 tracked :: Steps -> AgentRole -> Bool
 tracked steps role = role `elem` agentRoles steps
+
+-- | The agent's role, when it is a step's runner, whose hand-back the run reads ('tracked').
+trackedRole :: Steps -> Agent -> Maybe AgentRole
+trackedRole steps agent = case agent.role of
+    Just role | tracked steps role -> Just role
+    _ -> Nothing
 
 {- | The run's workers of a tracked role, oldest first: those the lead hands
 back and restarts after. A span of another role, an Explore agent's, holds
@@ -759,6 +879,35 @@ hookSources run agent (AgentRole role) message =
     | n <- [0 :: Int ..]
     ]
 
+{- | The id of a span's start: a hash of the run and the call that spawned
+it, so a spawn hook fired twice logs once and calls spawned in one message
+log one each.
+-}
+spanStartedSource :: RunId -> ToolCallId -> Source
+spanStartedSource run (ToolCallId toolCall) =
+    Hook (digestOf [runIdText run, toolCall, "span_started"])
+
+-- | The id of a span's end, however it ended: a span ends once, whichever hook fired first.
+spanEndedSource :: RunId -> SpanId -> Source
+spanEndedSource run ended =
+    Hook (digestOf [runIdText run, Text.pack (show ended.spanSeq), "span_ended"])
+
+-- | The span this call started in these lines, if it did ('spanStartedSource').
+spanOfCall :: (Foldable t) => RunId -> ToolCallId -> t Envelope -> Maybe SpanId
+spanOfCall run toolCall logged =
+    SpanId . (.seq) <$> find ((== spanStartedSource run toolCall) . (.source)) logged
+
+-- | A span's start: the spawn, by the harness the session runs on, under the span of its spawner, if any.
+spanStartOf :: Harness -> Maybe SpanId -> Spawn -> SpanStart
+spanStartOf harness parent spawn =
+    SpanStart
+        { role = spawn.role
+        , harness
+        , brief = spawn.brief
+        , parent
+        , model = spawn.model
+        }
+
 {- | A hand-back the log holds already: its first record's id is logged. The
 hook then records nothing, not even a refusal of the step it moved past.
 -}
@@ -788,8 +937,10 @@ replyOf job said
 toldOf :: Job -> Text -> Reply
 toldOf job said = case job of
     Asks (ResumeRun _) -> Note said
-    Asks (SpawnRole _) -> Allow said
+    Asks (SpawnRole _ _) -> Allow said
+    Asks (StartsSpan _) -> Allow said
     Asks (HandedBack {}) -> Allow said
+    Asks (SpanHandback {}) -> Allow said
     Binds _ -> Note said
     Routes _ -> Allow said
     Begins SpawnedLead -> Note said
@@ -797,7 +948,7 @@ toldOf job said = case job of
     Begins (TypedSkill _) -> Note said
     Begins (CalledSkill _) -> Allow said
     -- Any context at an agent's stop keeps it going: a failure there is told nowhere.
-    Ends (Stops _ _) -> Quiet
+    Ends (Stops {}) -> Quiet
     Ends (StopsAgent _) -> Note said
 
 -- | @agent_hook.py@'s @emit_result@: nothing when there is nothing to say.

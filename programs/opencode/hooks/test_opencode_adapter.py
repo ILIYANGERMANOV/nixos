@@ -38,7 +38,12 @@ from agent_hook import (
 from hypothesis import given
 from hypothesis import strategies as st
 from json_strategies import json_objects, json_values
-from opencode_adapter import parse_opencode, parse_tools, verdict_to_opencode
+from opencode_adapter import (
+    HARNESS,
+    parse_opencode,
+    parse_tools,
+    verdict_to_opencode,
+)
 from plugin_envelopes import (
     CHILD,
     CWD,
@@ -170,7 +175,7 @@ def test_a_tool_call_takes_its_vendor_free_name_and_claude_shaped_input(
     tool: str, args: JsonObject, neutral: Tool, named: JsonObject
 ) -> None:
     assert parse_opencode(before(tool, args), TOOLS) == BeforeTool(
-        SESSION, CWD, None, neutral, named
+        SESSION, CWD, None, neutral, named, harness=HARNESS
     )
 
 
@@ -183,7 +188,7 @@ def test_a_shell_call_carries_the_sessions_earlier_commands() -> None:
         None,
         Tool.SHELL,
         {"command": "gh run view 7"},
-        ("ls", "gh run view 7"),
+        ("ls", "gh run view 7"), harness=HARNESS
     )
 
 
@@ -238,7 +243,7 @@ def test_a_shell_result_is_its_stdout_with_the_context_size() -> None:
             Tool.SHELL,
             {"command": "state init --task t1"},
             {"stdout": "run 0a1b2c3d /n /w\n"},
-            ContextSize(300_500, 298_000),
+            ContextSize(300_500, 298_000), harness=HARNESS
         ),
     )
 
@@ -253,7 +258,7 @@ def test_another_tools_result_is_opencodes_own() -> None:
             None,
             Tool.OTHER,
             {"pattern": "*"},
-            {"title": "t", "output": "a.py", "metadata": {}},
+            {"title": "t", "output": "a.py", "metadata": {}}, harness=HARNESS
         ),
     )
 
@@ -268,9 +273,9 @@ def test_a_finished_task_hands_its_last_reply_back_then_stops_then_binds() -> No
     )
 
     assert parse_opencode(payload, TOOLS) == (
-        BeforeTool(SESSION, CWD, WORKER, Tool.HANDBACK, {"message": reply}),
-        AgentStop(SESSION, CWD, WORKER, (AgentId("ses_other"),)),
-        AfterTool(SESSION, CWD, None, Tool.DELEGATE, SPAWN_ARGS, {"agentId": CHILD}),
+        BeforeTool(SESSION, CWD, WORKER, Tool.HANDBACK, {"message": reply}, harness=HARNESS),
+        AgentStop(SESSION, CWD, WORKER, (AgentId("ses_other"),), harness=HARNESS),
+        AfterTool(SESSION, CWD, None, Tool.DELEGATE, SPAWN_ARGS, {"agentId": CHILD}, harness=HARNESS),
     )
 
 
@@ -324,7 +329,7 @@ def test_a_child_sessions_first_message_starts_the_agent(
 ) -> None:
     payload = in_child(message(first=True, created=created))
 
-    assert parse_opencode(payload, TOOLS) == (AgentStart(SESSION, CWD, WORKER),)
+    assert parse_opencode(payload, TOOLS) == (AgentStart(SESSION, CWD, WORKER, harness=HARNESS),)
 
 
 def test_a_later_message_starts_nothing() -> None:
@@ -336,8 +341,8 @@ def test_a_background_tasks_end_in_the_parents_message_hands_back_and_stops() ->
     parts: list[Json] = [{"type": "text", "synthetic": True, "text": text}]
 
     assert parse_opencode(message(parts=parts, running=[CHILD]), TOOLS) == (
-        BeforeTool(SESSION, CWD, WORKER, Tool.HANDBACK, {"message": "READY abc"}),
-        AgentStop(SESSION, CWD, WORKER, ()),
+        BeforeTool(SESSION, CWD, WORKER, Tool.HANDBACK, {"message": "READY abc"}, harness=HARNESS),
+        AgentStop(SESSION, CWD, WORKER, (), harness=HARNESS),
     )
 
 
@@ -355,13 +360,13 @@ def test_any_other_part_of_a_later_message_tells_nothing(part: JsonObject) -> No
 
 def test_a_command_expands_a_skill() -> None:
     assert parse_opencode(envelope("command", command="engineer"), TOOLS) == (
-        PromptExpansion(SESSION, CWD, None, SkillName("engineer")),
+        PromptExpansion(SESSION, CWD, None, SkillName("engineer"), harness=HARNESS),
     )
 
 
 def test_the_root_going_idle_stops_the_lead_with_its_running_children() -> None:
     assert parse_opencode(envelope("idle", running=[CHILD]), TOOLS) == (
-        AgentStop(SESSION, CWD, None, (AgentId(CHILD),)),
+        AgentStop(SESSION, CWD, None, (AgentId(CHILD),), harness=HARNESS),
     )
 
 
@@ -435,7 +440,7 @@ def test_a_patch_of_one_file_is_an_edit_of_it(lines: list[str]) -> None:
     args = patch(*lines)
 
     assert parse_opencode(before("apply_patch", args), TOOLS) == BeforeTool(
-        SESSION, CWD, None, Tool.EDIT, args | {"file_path": "notes.md"}
+        SESSION, CWD, None, Tool.EDIT, args | {"file_path": "notes.md"}, harness=HARNESS
     )
 
 
@@ -453,7 +458,7 @@ def test_a_patch_of_several_files_or_none_is_an_edit_of_no_one_file(
     args = patch(*lines)
 
     assert parse_opencode(before("apply_patch", args), TOOLS) == BeforeTool(
-        SESSION, CWD, None, Tool.EDIT, args
+        SESSION, CWD, None, Tool.EDIT, args, harness=HARNESS
     )
 
 
@@ -707,7 +712,8 @@ def declared(name: str, tools: list[Json] | None, code: str) -> JsonObject:
 
 TELL_TOOL = "import json, sys; e = json.load(sys.stdin); print(json.dumps({'context': e['tool']}))"
 TELL_EVENT = "import json, sys; e = json.load(sys.stdin); print(json.dumps({'context': e['event']}))"
-DENY_WITH_EVENT = "import json, sys; print(json.dumps({'decision': 'deny', 'reason': sys.stdin.read()}))"
+# Denies with the event it read, its harness aside: the one key that tells the backends apart.
+DENY_WITH_EVENT = "import json, sys; e = json.load(sys.stdin); del e['harness']; print(json.dumps({'decision': 'deny', 'reason': json.dumps(e)}))"
 LIMIT = """
 import json, sys
 event = json.load(sys.stdin)

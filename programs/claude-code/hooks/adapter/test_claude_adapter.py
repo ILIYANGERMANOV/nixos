@@ -37,6 +37,7 @@ from agent_hook import (
     parse_event,
 )
 from claude_adapter import (
+    HARNESS,
     TAIL_BYTES,
     ReadLines,
     note_to_claude,
@@ -352,7 +353,7 @@ def test_a_recorded_subagent_start_is_that_subagent_starting(
         Agent(
             AgentId(cast("str", payload["agent_id"])),
             Role(cast("str", payload["agent_type"])),
-        ),
+        ), harness=HARNESS
     )
 
 
@@ -362,7 +363,7 @@ def test_a_recorded_typed_skill_is_its_command_name(payload: JsonObject) -> None
         SessionId(cast("str", payload["session_id"])),
         Path(cast("str", payload["cwd"])),
         None,
-        SkillName(cast("str", payload["command_name"])),
+        SkillName(cast("str", payload["command_name"])), harness=HARNESS
     )
 
 
@@ -407,7 +408,7 @@ def test_a_recorded_stop_is_the_lead_stopping(payload: JsonObject) -> None:
 
 def test_the_leads_stop_has_no_agent_and_its_running_background_agents() -> None:
     assert parse_claude(LEAD_STOP, TOOLS, NO_TRANSCRIPT) == AgentStop(
-        SessionId("abc123"), Path("/work/repo"), None, (AgentId("b1"),)
+        SessionId("abc123"), Path("/work/repo"), None, (AgentId("b1"),), harness=HARNESS
     )
 
 
@@ -415,7 +416,7 @@ def test_a_stop_with_no_background_tasks_has_none_running() -> None:
     payload = {k: v for k, v in LEAD_STOP.items() if k != "background_tasks"}
 
     assert parse_claude(payload, TOOLS, NO_TRANSCRIPT) == AgentStop(
-        SessionId("abc123"), Path("/work/repo"), None, ()
+        SessionId("abc123"), Path("/work/repo"), None, (), harness=HARNESS
     )
 
 
@@ -450,7 +451,7 @@ def test_a_lead_tool_call_has_no_agent() -> None:
             "description": "Implement slice 1",
             "prompt": "Fuel: Max",
             "subagent_type": "implementer",
-        },
+        }, harness=HARNESS
     )
 
 
@@ -462,7 +463,7 @@ def test_a_subagent_is_its_id_and_its_type_as_role() -> None:
         Path("/work/repo"),
         Agent(AgentId("a1b2"), Role("implementer")),
         Tool.HANDBACK,
-        {"message": "READY commit abc"},
+        {"message": "READY commit abc"}, harness=HARNESS
     )
 
 
@@ -916,7 +917,10 @@ def test_the_built_adapter_runs_an_agent_stops_hook_and_lets_the_agent_stop(
         "session": "abc123",
         "cwd": "/work/repo",
         "agent": None,
+        "harness": "claude-code",
+        "transcript_path": None,
         "running": ["b1"],
+        "usage": None,
     }
 
 
