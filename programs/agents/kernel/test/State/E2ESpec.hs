@@ -766,7 +766,7 @@ spec = describe "the state binary" $ do
                                ,
                                    [ "  2 rule \"ask before you push\""
                                    , "  - do " <> run <> ":3 \"add the deploy key\" at " <> Text.pack keysUrl
-                                   , "  run deploy.region \"eu\""
+                                   , "  " <> run <> ":4 run deploy.region \"eu\" - no typed row"
                                    ]
                                )
 
@@ -852,7 +852,11 @@ spec = describe "the state binary" $ do
                 , drop 1 types
                 , length (filter ("\"value\":\"x\"" `Text.isInfixOf`) dumped')
                 )
-                `shouldBe` (["  run a.b \"x\""], [], ["stopgap_set", "stopgap_unset"], 1)
+                `shouldBe` ( ["  " <> run <> ":2 run a.b \"x\" - r"]
+                           , []
+                           , ["stopgap_set", "stopgap_unset"]
+                           , 1
+                           )
 
         it "writes nothing for a stopgap with no reason or one a guardrail refuses" $ \repo -> do
             _ <- drive bin repo []
