@@ -4,13 +4,13 @@ chief's request switch, its cards and the resume advice (5-minute cache, 15s buf
 module State.Cli.Shell.FocusSpec (spec) where
 
 import Control.Monad ((<=<))
+import Data.Entity.Event (EventRow (..))
 import Data.IORef (IORef, modifyIORef')
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Data.Time (NominalDiffTime, addUTCTime)
 import State.Cli.Shell.World
-import Data.Entity.Event (EventRow (..))
 import State.Run.RunGen (breakdownJson, plainTask)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, shouldBe)

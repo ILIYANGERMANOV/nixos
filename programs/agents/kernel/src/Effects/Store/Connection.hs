@@ -39,7 +39,8 @@ data Durability = Full | Unsynced
 one action; or why the file there is not opened. An SQLite error, such as a
 lock still held after the wait, throws an 'IOError'.
 -}
-withStore :: Durability -> FilePath -> (Store -> IO a) -> IO (Either OpenRefusal a)
+withStore ::
+    Durability -> FilePath -> (Store -> IO a) -> IO (Either OpenRefusal a)
 withStore durability path act = do
     createDirectoryIfMissing True (takeDirectory path)
     asIOError . withConnection path $ \conn -> do

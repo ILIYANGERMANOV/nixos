@@ -64,7 +64,8 @@ check path conn = catch (verdict <$> header) notADatabase
         (0, 0, 0) -> Right 0
         (app, applied, _)
             | app /= applicationId -> Left (NotAStateStore path (ApplicationId app))
-            | fromIntegral applied > latest -> Left (NewerSchema path (fromIntegral applied) latest)
+            | fromIntegral applied > latest ->
+                Left (NewerSchema path (fromIntegral applied) latest)
             | otherwise -> Right (fromIntegral applied)
     notADatabase = \case
         SQLError {sqlError = ErrorNotADatabase} -> pure (Left (NotAStateStore path NotSQLite))
@@ -82,12 +83,15 @@ migrate :: FilePath -> Connection -> Int -> IO (Either OpenRefusal ())
 migrate path conn = \case
     applied | applied == latest -> pure (Right ())
     _ -> withImmediateTransaction conn $ do
-        check path conn >>= traverse (\applied -> for_ (drop applied (zip [1 :: Int ..] migrations)) apply)
+        check path conn
+            >>= traverse (\applied -> for_ (drop applied (zip [1 :: Int ..] migrations)) apply)
   where
     apply (n, script) = do
         exec (Simple.connectionHandle conn) script
         -- A pragma takes no bound parameter; n is a number this module made.
-        exec (Simple.connectionHandle conn) ("PRAGMA user_version = " <> Text.pack (show n))
+        exec
+            (Simple.connectionHandle conn)
+            ("PRAGMA user_version = " <> Text.pack (show n))
 
 {- | The migrations, oldest first, each one script; never edit one that
 shipped.
@@ -97,7 +101,10 @@ shipped.
 -}
 migrations :: [Text]
 migrations =
-    [ Text.unlines ddl <> "PRAGMA application_id = " <> Text.pack (show applicationId) <> ";\n"
+    [ Text.unlines ddl
+        <> "PRAGMA application_id = "
+        <> Text.pack (show applicationId)
+        <> ";\n"
     ]
 
 -- | Appendix A's DDL, verbatim: the one source of the schema.

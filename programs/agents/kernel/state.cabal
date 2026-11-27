@@ -142,6 +142,8 @@ test-suite state-test
   ghc-options:        -threaded
   other-modules:
     Concurrently
+    Data.FieldSpec
+    Data.Payload.EventSpec
     Doubles.Clock
     Doubles.Console
     Doubles.Environment
@@ -153,6 +155,7 @@ test-suite state-test
     Effects.FileSystemSpec
     Effects.LogSpec
     Effects.RandomSpec
+    Effects.Store.MigrationSpec
     SpecHook
     State.ArchitectureSpec
     State.Category.FlowGen

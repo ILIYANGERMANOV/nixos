@@ -567,7 +567,7 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
-                        (\store -> Store.children store parent)
+                        (`Store.children` parent)
                 listed `shouldBe` Right [child]
 
         it
@@ -622,7 +622,7 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
-                        (\store -> Store.children store parent)
+                        (`Store.children` parent)
 
                 listed `shouldBe` Right [asking, sibling]
                 take 1 waiting
@@ -1964,7 +1964,10 @@ replaceByHand repo run n version = SQLite.withConnection (storeOf repo) $ \c -> 
         (version, run, n)
 
 -- | The run's rows as stored, every column but SQLite's position.
-storedRows :: Repo -> Text -> IO [(Int, Int, Text, Text, Maybe Text, Maybe Text, Maybe Text, Text)]
+storedRows ::
+    Repo ->
+    Text ->
+    IO [(Int, Int, Text, Text, Maybe Text, Maybe Text, Maybe Text, Text)]
 storedRows repo run = SQLite.withConnection (storeOf repo) $ \c ->
     SQLite.query
         c

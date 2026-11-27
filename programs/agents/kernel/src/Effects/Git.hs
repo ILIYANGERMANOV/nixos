@@ -11,6 +11,7 @@ module Effects.Git (
     runGitIO,
 ) where
 
+import Data.Field qualified as Field
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Effectful (
@@ -22,7 +23,6 @@ import Effectful (
     liftIO,
     (:>),
  )
-import Data.Field qualified as Field
 import Effectful.Dispatch.Dynamic (interpret, send)
 import State.Run.Event (Branch (..), Sha (..))
 import State.Show (firstLine)

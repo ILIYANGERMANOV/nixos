@@ -175,7 +175,9 @@ payloadText =
 -- | The event of this type whose payload this is, or why it does not read.
 decodePayload :: Text -> Text -> Either Text Event
 decodePayload kind raw =
-    first Text.pack (eitherDecodeStrictText raw >>= parseEither (withObject "data" (eventOf kind)))
+    first
+        Text.pack
+        (eitherDecodeStrictText raw >>= parseEither (withObject "data" (eventOf kind)))
 
 -- | Why a line was not read.
 data LineError

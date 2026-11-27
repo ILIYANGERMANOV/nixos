@@ -48,7 +48,8 @@ the text: the Clock interpreter hands over whole milliseconds. The parser
 refuses any other spelling, an offset, lowercase and the leap second @:60@.
 -}
 time :: Codec UTCTime
-time = Codec (Text.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S.%3qZ") parse
+time =
+    Codec (Text.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S.%3qZ") parse
   where
     -- %Q reads any fraction; the text it was must be the one written.
     parse raw
@@ -87,6 +88,7 @@ natural n = if n < 0 then Nothing else Just (fromIntegral n)
 -- | The text, when it is lowercase hex of one of these lengths.
 hex :: [Int] -> Text -> Maybe Text
 hex lengths raw
-    | Text.length raw `elem` lengths && Text.all (`elem` ("0123456789abcdef" :: String)) raw =
+    | Text.length raw `elem` lengths
+        && Text.all (`elem` ("0123456789abcdef" :: String)) raw =
         Just raw
     | otherwise = Nothing

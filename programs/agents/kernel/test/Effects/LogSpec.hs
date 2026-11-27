@@ -8,16 +8,16 @@ module Effects.LogSpec (spec) where
 import Concurrently (bothAtOnce)
 import Control.Exception (IOException)
 import Control.Monad (replicateM_)
-import Data.Either (isLeft)
+import Data.Either (fromRight, isLeft)
+import Data.Entity.Run (RunRow (..))
 import Data.Foldable (for_)
 import Data.List (isPrefixOf)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Payload.Event (runRow)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
-import Data.Entity.Run (RunRow (..))
-import Data.Payload.Event (runRow)
 import Database.SQLite.Simple qualified as SQLite
 import Doubles.Environment (runEnvironmentGiven)
 import Doubles.Log (Runs (..), runLogInMemory)
@@ -25,7 +25,16 @@ import Effectful (Eff, runEff, runPureEff, (:>))
 import Effectful.Error.Static (runErrorNoCallStack)
 import Effectful.Exception (try)
 import Effectful.State.Static.Local (evalState)
-import Effects.Log (Log, children, exists, firstEvent, inNotes, locked, runLogIO, shipped)
+import Effects.Log (
+    Log,
+    children,
+    exists,
+    firstEvent,
+    inNotes,
+    locked,
+    runLogIO,
+    shipped,
+ )
 import Effects.Store.Connection (Durability (Full), OpenRefusal)
 import Hedgehog (PropertyT, annotateShow, assert, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
@@ -76,7 +85,8 @@ spec = describe "Effects.Log" $ do
                         (\e -> locked e.run (const ([e], ())))
                         [started top, childOf top child, started other]
 
-                atStore dir (traverse children [top, child, other]) `shouldReturn` [[child], [], []]
+                atStore dir (traverse children [top, child, other])
+                    `shouldReturn` [[child], [], []]
 
         it "lists two children started in one millisecond in the order they started" $
             withSystemTempDirectory "state-store" $ \dir -> do
@@ -88,39 +98,52 @@ spec = describe "Effects.Log" $ do
                 atStore dir (children top) `shouldReturn` [child, other]
 
         modifyMaxSuccess (const 30) $ do
-            it "writes each event's row in the DDL's shape: 24-character time, schema_version 1, 16-hex hook_digest" . hedgehog $ do
-                events <- forAll (Gen.list (Range.linear 1 8) genEnvelope)
-                let logged = started top : zipWith (\n e -> e {run = top, seq = n}) [2 ..] events
-                stored <- evalIO . withSystemTempDirectory "state-store" $ \dir -> do
-                    atStore dir (locked top (const (logged, ())))
-                    storeRows dir "SELECT time, schema_version, hook_digest FROM events WHERE ? ORDER BY seq" (SQLite.Only True)
-                annotateShow stored
-                for_ (zip logged stored) $ \(e, (time, version, digest)) -> do
-                    Text.length time === 24
-                    version === (1 :: Int)
-                    case e.source of
-                        Cli -> digest === Nothing
-                        Hook (Digest hook) -> digest === Just hook
-                    assert (all (\d -> Text.length d == 16 && Text.all (`elem` ['0' .. '9'] <> ['a' .. 'f']) d) digest)
+            it
+                "writes each event's row in the DDL's shape: 24-character time, schema_version 1, 16-hex hook_digest"
+                . hedgehog
+                $ do
+                    events <- forAll (Gen.list (Range.linear 1 8) genEnvelope)
+                    let logged = started top : zipWith (\n e -> e {run = top, seq = n}) [2 ..] events
+                    stored <- evalIO . withSystemTempDirectory "state-store" $ \dir -> do
+                        atStore dir (locked top (const (logged, ())))
+                        storeRows
+                            dir
+                            "SELECT time, schema_version, hook_digest FROM events WHERE ? ORDER BY seq"
+                            (SQLite.Only True)
+                    annotateShow stored
+                    for_ (zip logged stored) $ \(e, (time, version, digest)) -> do
+                        Text.length time === 24
+                        version === (1 :: Int)
+                        case e.source of
+                            Cli -> digest === Nothing
+                            Hook (Digest hook) -> digest === Just hook
+                        assert
+                            ( all
+                                (\d -> Text.length d == 16 && Text.all (`elem` ['0' .. '9'] <> ['a' .. 'f']) d)
+                                digest
+                            )
 
-            it "writes a run's runs row in its first event's transaction, a function of that event alone" . hedgehog $ do
-                start <- forAll genStart
-                ts <- forAll genTime
-                let begun = (started top) {ts, event = Started start}
-                    parents = [p.run | ByRole p _ _ <- [start.principal]]
-                -- A run is never its own parent: the shell starts a child under another run.
-                assert (top `notElem` parents)
-                indexed <- evalIO . withSystemTempDirectory "state-store" $ \dir -> do
-                    atStore dir (mapM_ (\p -> locked p (const ([started p], ()))) parents)
-                    atStore dir (locked top (const ([begun], ())))
-                    storeRows
-                        dir
-                        "SELECT id, parent_run_id, flow, notes_dir, created_at FROM runs WHERE id = ?"
-                        (SQLite.Only (runIdText top))
-                indexed
-                    === [ (row.id, row.parentRunId, row.flow, row.notesDir, row.createdAt)
-                        | Just row <- [runRow begun]
-                        ]
+            it
+                "writes a run's runs row in its first event's transaction, a function of that event alone"
+                . hedgehog
+                $ do
+                    start <- forAll genStart
+                    ts <- forAll genTime
+                    let begun = (started top) {ts, event = Started start}
+                        parents = [p.run | ByRole p _ _ <- [start.principal]]
+                    -- A run is never its own parent: the shell starts a child under another run.
+                    assert (top `notElem` parents)
+                    indexed <- evalIO . withSystemTempDirectory "state-store" $ \dir -> do
+                        atStore dir (mapM_ (\p -> locked p (const ([started p], ()))) parents)
+                        atStore dir (locked top (const ([begun], ())))
+                        storeRows
+                            dir
+                            "SELECT id, parent_run_id, flow, notes_dir, created_at FROM runs WHERE id = ?"
+                            (SQLite.Only (runIdText top))
+                    indexed
+                        === [ (row.id, row.parentRunId, row.flow, row.notesDir, row.createdAt)
+                            | Just row <- [runRow begun]
+                            ]
 
 {- | Runs a program on a log with these runs, each its rows; the program
 gets nothing else.
@@ -145,9 +168,12 @@ atStore dir program =
         >>= either (fail . show) pure
 
 -- | The rows a query reads from the store under this @XDG_STATE_HOME@.
-storeRows :: (SQLite.ToRow q, SQLite.FromRow r) => FilePath -> SQLite.Query -> q -> IO [r]
+storeRows ::
+    (SQLite.ToRow q, SQLite.FromRow r) => FilePath -> SQLite.Query -> q -> IO [r]
 storeRows dir sql params =
-    SQLite.withConnection (dir </> "state" </> "kernel-v2.db") (\c -> SQLite.query c sql params)
+    SQLite.withConnection
+        (dir </> "state" </> "kernel-v2.db")
+        (\c -> SQLite.query c sql params)
 
 inMemory :: Backend
 inMemory seeded program =
@@ -218,27 +244,31 @@ contract backend = do
         failed `shouldSatisfy` isLeft
 
     modifyMaxSuccess (const 30) $ do
-        it "only grows: each decision's log holds the one before it, its seqs dense from 1" . hedgehog $ do
-            batches <- forAll (Gen.list (Range.linear 1 5) (Gen.int (Range.linear 1 3)))
-            reads' <- evalIO $ backend [started top] $ do
-                let decide size = \case
-                        Right logged ->
-                            ( [followed top (fromIntegral (length logged) + k) | k <- [1 .. fromIntegral size]]
-                            , logged
-                            )
-                        Left _ -> ([], [])
-                before <- traverse (locked top . decide) batches
-                final <- locked top (\logged -> ([], either (const []) id logged))
-                pure (before <> [final])
-            annotateShow reads'
-            assertGrows reads'
-            map (.seq) (last reads') === [1 .. fromIntegral (1 + sum batches)]
+        it
+            "only grows: each decision's log holds the one before it, its seqs dense from 1"
+            . hedgehog
+            $ do
+                batches <- forAll (Gen.list (Range.linear 1 5) (Gen.int (Range.linear 1 3)))
+                reads' <- evalIO $ backend [started top] $ do
+                    let decide size = \case
+                            Right logged ->
+                                ( [ followed top (fromIntegral (length logged) + k) | k <- [1 .. fromIntegral size]
+                                  ]
+                                , logged
+                                )
+                            Left _ -> ([], [])
+                    before <- traverse (locked top . decide) batches
+                    final <- locked top (\logged -> ([], fromRight [] logged))
+                    pure (before <> [final])
+                annotateShow reads'
+                assertGrows reads'
+                map (.seq) (last reads') === [1 .. fromIntegral (1 + sum batches)]
 
         it "appends a hook's event fired again once" . hedgehog $ do
             fired <- forAll (Gen.int (Range.linear 1 4))
             logged <- evalIO $ backend [started top] $ do
                 replicateM_ fired (locked top hookOnce)
-                locked top (\logged -> ([], either (const []) id logged))
+                locked top (\logged -> ([], fromRight [] logged))
             map (.source) logged === [Cli, hooked.source]
 
 -- | Each read holds the one before it as its prefix.

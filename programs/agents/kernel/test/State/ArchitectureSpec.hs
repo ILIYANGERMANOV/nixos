@@ -1,9 +1,9 @@
 -- | Checks on how the kernel's modules import each other, and the words its files use.
 module State.ArchitectureSpec (spec) where
 
+import Control.Applicative ((<|>))
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Char (toLower)
-import Control.Applicative ((<|>))
 import Data.List (isPrefixOf, isSuffixOf, stripPrefix)
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
@@ -68,12 +68,15 @@ spec = describe "kernel architecture" $ do
     -- it reaches no domain module and no Domain<->row mapping, declares no
     -- row type, and only it names SQLite.
     it "lists every Data module the kernel has, so the rules below see each" $ do
-        found <- filter ("Data." `isPrefixOf`) . mapMaybe moduleOf <$> packageFiles "src"
+        found <-
+            filter ("Data." `isPrefixOf`) . mapMaybe moduleOf <$> packageFiles "src"
         Set.fromList found `shouldBe` Set.fromList kernelData
 
     it "keeps every Data module out of the domain's imports" $ do
-        domain <- filter ("State." `isPrefixOf`) . mapMaybe moduleOf <$> packageFiles "src"
-        found <- traverse (\name -> (name,) . filter (`elem` kernelData) <$> imports name) domain
+        domain <-
+            filter ("State." `isPrefixOf`) . mapMaybe moduleOf <$> packageFiles "src"
+        found <-
+            traverse (\name -> (name,) . filter (`elem` kernelData) <$> imports name) domain
         [bad | bad@(_, _ : _) <- found] `shouldBe` []
 
     it "keeps the domain and the payload mapping out of the store's reach" $ do
@@ -81,25 +84,31 @@ spec = describe "kernel architecture" $ do
         reached <- traverse (\name -> (name,) . Set.toList <$> closure name) store
         [ (name, bad)
           | (name, modules) <- reached
-          , let bad = filter (\m -> "State." `isPrefixOf` m || "Data.Payload." `isPrefixOf` m) modules
+          , let bad =
+                    filter (\m -> "State." `isPrefixOf` m || "Data.Payload." `isPrefixOf` m) modules
           , not (null bad)
           ]
             `shouldBe` []
 
     it "declares no row type in the store" $ do
         store <- filter isStore . mapMaybe moduleOf <$> packageFiles "src"
-        sources <- traverse (\name -> (name,) . lines <$> readFile (sourceOf name)) store
+        sources <-
+            traverse (\name -> (name,) . lines <$> readFile (sourceOf name)) store
         [ (name, declared)
           | (name, source) <- sources
           , declared <- source
-          , Just (row : _) <- [words <$> (stripPrefix "data " declared <|> stripPrefix "newtype " declared)]
+          , Just (row : _) <-
+                [words <$> (stripPrefix "data " declared <|> stripPrefix "newtype " declared)]
           , "Row" `isSuffixOf` row
           ]
             `shouldBe` []
 
     it "names SQLite in the store's modules only" $ do
         others <- filter (not . isStore) . mapMaybe moduleOf <$> packageFiles "src"
-        found <- traverse (\name -> (name,) . filter ("Database." `isPrefixOf`) <$> imports name) others
+        found <-
+            traverse
+                (\name -> (name,) . filter ("Database." `isPrefixOf`) <$> imports name)
+                others
         [bad | bad@(_, _ : _) <- found] `shouldBe` []
 
 -- | Every file under a directory of the package.

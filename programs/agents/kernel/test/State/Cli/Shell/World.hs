@@ -71,10 +71,14 @@ import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Entity.Event (EventRow (..))
+import Data.Entity.Event qualified as Row
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Payload.Event (decodeRow)
+import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -87,10 +91,6 @@ import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
 import Doubles.Gh (printedPr, runGhScripted)
 import Doubles.Git (Worktree (..), runGitMissing, runGitScripted)
-import Data.Entity.Event (EventRow (..))
-import Data.Entity.Event qualified as Row
-import Data.Payload.Event (decodeRow)
-import Data.Payload.Upcast (shipped)
 import Doubles.Log (Runs (..), editRows, rowsOf, runLogInMemory)
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
@@ -326,9 +326,14 @@ logged world = loggedIn world notes
 loggedIn :: IORef World -> FilePath -> IO [Envelope]
 loggedIn world dir =
     either
-        (\(n, why) -> [] <$ expectationFailure ("the log's row " <> show n <> " does not read: " <> show why))
+        ( \(n, why) ->
+            []
+                <$ expectationFailure
+                    ("the log's row " <> show n <> " does not read: " <> show why)
+        )
         pure
-        . traverse (\(n, row) -> either (Left . (n :: Int,)) Right (decodeRow shipped row))
+        . traverse
+            (\(n, row) -> either (Left . (n :: Int,)) Right (decodeRow shipped row))
         . zip [1 ..]
         =<< logRowsIn world dir
 
@@ -377,7 +382,10 @@ another kernel could write it: an event type it does not know.
 -}
 appendUnread :: [EventRow] -> [EventRow]
 appendUnread rows =
-    rows <> [lastRow {Row.seq = lastRow.seq + 1, Row.eventType = unknownType, payload = "{}"} | lastRow <- take 1 (reverse rows)]
+    rows
+        <> [ lastRow {Row.seq = lastRow.seq + 1, Row.eventType = unknownType, payload = "{}"}
+           | lastRow <- take 1 (reverse rows)
+           ]
 
 -- | The rows less those 'appendUnread' added.
 lessUnread :: [EventRow] -> [EventRow]

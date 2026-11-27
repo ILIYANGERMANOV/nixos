@@ -47,7 +47,11 @@ import Effects.Git qualified as Git
 import Effects.Log (Log, runLogIO, shipped)
 import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
-import Effects.Store.Connection (Durability (..), Foreign (..), OpenRefusal (..))
+import Effects.Store.Connection (
+    Durability (..),
+    Foreign (..),
+    OpenRefusal (..),
+ )
 import Effects.Store.Migration (applicationId)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
@@ -232,13 +236,13 @@ import State.Run.Event (
     SessionId (..),
     Sha,
     Source (..),
-    parseSessionId,
     Start (..),
     Task (..),
     TaskId,
     TaskNo,
     Waiting (Ci),
     parseRunId,
+    parseSessionId,
     roleText,
     runIdText,
     stepTook,
@@ -948,7 +952,9 @@ runAnswer steps call bound found want = case want of
     runPr = fromRight Nothing . pullRequestOf <$> (Gh.prView =<< runShape)
 
 -- | A store that is not this kernel's, or a newer kernel's, is bad input: the user moves or upgrades.
-refusalAware :: (Error OpenRefusal :> es) => Eff es (Either Failure a) -> Eff es (Either Failure a)
+refusalAware ::
+    (Error OpenRefusal :> es) =>
+    Eff es (Either Failure a) -> Eff es (Either Failure a)
 refusalAware act = catchError act (\_ refusal -> pure (Left (refused refusal)))
   where
     refused = \case
@@ -970,7 +976,12 @@ refusalAware act = catchError act (\_ refusal -> pure (Left (refused refusal)))
             Failure
                 BadInput
                 (Text.pack path)
-                ("schema version " <> tshow found <> ", newer than this state (" <> tshow known <> ")")
+                ( "schema version "
+                    <> tshow found
+                    <> ", newer than this state ("
+                    <> tshow known
+                    <> ")"
+                )
                 "upgrade state"
 
 -- | A disk or process error is the outage exit, never a crash.
@@ -2429,7 +2440,11 @@ unreadLine run bad =
     fix = "state init --notes <a new dir> starts afresh"
 
 versionText :: Int -> Text
-versionText v = "payload version " <> tshow v <> ", this state reads " <> tshow Codec.schemaVersion
+versionText v =
+    "payload version "
+        <> tshow v
+        <> ", this state reads "
+        <> tshow Codec.schemaVersion
 
 -- | A log whose events read but the flow refuses: written by another kernel, or edited by hand.
 unreplayed :: RunId -> Failure -> Failure

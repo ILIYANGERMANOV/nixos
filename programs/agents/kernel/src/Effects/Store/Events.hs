@@ -92,8 +92,28 @@ selectRows conn run =
             "SELECT run_id, seq, schema_version, type, time, session_id, head_sha, hook_digest, data FROM events WHERE run_id = ? ORDER BY seq"
             (Only run)
   where
-    eventRow (runId, n, schemaVersion, eventType, time, sessionId, headSha, hookDigest, payload) =
-        EventRow {runId, seq = n, schemaVersion, eventType, time, sessionId, headSha, hookDigest, payload}
+    eventRow
+        ( runId
+            , n
+            , schemaVersion
+            , eventType
+            , time
+            , sessionId
+            , headSha
+            , hookDigest
+            , payload
+            ) =
+            EventRow
+                { runId
+                , seq = n
+                , schemaVersion
+                , eventType
+                , time
+                , sessionId
+                , headSha
+                , hookDigest
+                , payload
+                }
 
 {- | Why these rows cannot follow a log of this many: seqs run densely from
 1, so a duplicate or a gap is a writer's bug. The unique key alone refuses
@@ -119,8 +139,8 @@ their starts were written, the rowid's, as two in one millisecond tie on
 @created_at@.
 -}
 children :: Store -> Text -> IO [Text]
-children (Store conn) parent =
-    ids conn "SELECT id FROM runs WHERE parent_run_id = ? ORDER BY rowid" parent
+children (Store conn) =
+    ids conn "SELECT id FROM runs WHERE parent_run_id = ? ORDER BY rowid"
 
 -- | The runs started in this notes dir, oldest first, as 'children' orders them.
 inNotes :: Store -> Text -> IO [Text]

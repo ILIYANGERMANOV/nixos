@@ -77,10 +77,14 @@ decodeRow upcasts row
         ts <- column "time" Field.time row.time
         session <- traverse (column "session_id" Field.session) row.sessionId
         sha <- traverse (column "head_sha" Field.sha) row.headSha
-        source <- maybe Cli Hook <$> traverse (column "hook_digest" Field.digest) row.hookDigest
+        source <-
+            maybe Cli Hook <$> traverse (column "hook_digest" Field.digest) row.hookDigest
         event <- decodePayload (typeOf upcasts row.eventType) row.payload
         pure Envelope {source, seq = n, ts, run, head = sha, session, event}
   where
     column :: Text -> Field.Codec a -> Text -> Either Text a
     column name codec raw =
-        maybe (Left (name <> " " <> Text.pack (show raw) <> " does not parse")) Right (Field.decode codec raw)
+        maybe
+            (Left (name <> " " <> Text.pack (show raw) <> " does not parse"))
+            Right
+            (Field.decode codec raw)

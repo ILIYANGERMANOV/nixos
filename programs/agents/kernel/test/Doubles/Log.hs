@@ -43,7 +43,8 @@ runLogInMemory upcasts = interpret $ \_ -> \case
             (ReadOnly _, _, _) -> throwIO (userError "the run store is read-only")
             (Runs _, _, Nothing) -> pure ()
             (Runs _, _, Just new)
-                | Just why <- misnumbered (maybe 0 length rows) (written new) -> throwIO (userError why)
+                | Just why <- misnumbered (maybe 0 length rows) (written new) ->
+                    throwIO (userError why)
             (Runs _, Just _, Just (Append new)) -> put (editRows run (<> toList new) store)
             (Runs _, Nothing, Just (Start _ new)) -> put (Runs (runs <> [(run, toList new)]))
             (Runs _, Nothing, Just (Append _)) -> throwIO (userError "events for a run never started")
@@ -51,11 +52,23 @@ runLogInMemory upcasts = interpret $ \_ -> \case
         pure result
     -- Oldest first, in the order they started, as the store's rowid orders them.
     Children run ->
-        (\runs -> [child | (child, rows) <- runs, index <- indexOf rows, index.parentRunId == Just (runIdText run)])
+        ( \runs ->
+            [ child
+            | (child, rows) <- runs
+            , index <- indexOf rows
+            , index.parentRunId == Just (runIdText run)
+            ]
+        )
             . rowsOf
             <$> get
     InNotes notes ->
-        (\runs -> [found | (found, rows) <- runs, index <- indexOf rows, index.notesDir == Text.pack notes])
+        ( \runs ->
+            [ found
+            | (found, rows) <- runs
+            , index <- indexOf rows
+            , index.notesDir == Text.pack notes
+            ]
+        )
             . rowsOf
             <$> get
   where
@@ -63,7 +76,12 @@ runLogInMemory upcasts = interpret $ \_ -> \case
         Append new -> new
         Start _ new -> new :: NonEmpty EventRow
     -- The run's @runs@ row, as the store wrote it from the first row.
-    indexOf rows = [index | first <- take 1 rows, Right e <- [decodeRow upcasts first], index <- toList (runRow e)]
+    indexOf rows =
+        [ index
+        | first <- take 1 rows
+        , Right e <- [decodeRow upcasts first]
+        , index <- toList (runRow e)
+        ]
 
 -- | The rows, writable or not.
 rowsOf :: Runs -> [(RunId, [EventRow])]
