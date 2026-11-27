@@ -176,7 +176,7 @@ To read every run at once, and never to decide (`state next`, `show`,
 
 | Command | Does |
 |---|---|
-| `state report <runs\|steps\|signals\|gaps\|waits> [--since <RFC 3339>] [--run <id>]` | prints a fixed report as TSV, header first: one row per run, step visit, signal, gap, or run and step. `--since` keeps rows at or after that time, by each row's own time |
+| `state report <runs\|steps\|signals\|gaps\|waits> [--since <RFC 3339>] [--run <id>]` | prints a fixed report as TSV, header first: one row per run, step visit, signal, gap, or run and step. `--since` keeps rows at or after that time, by each row's own time: a run's is its last event |
 | `state sql "<select>"` | runs one read-only SELECT on a second, read-only connection and prints its rows as TSV (PostgreSQL COPY text: NULL is `\N`). A write, ATTACH, PRAGMA or recursive CTE is refused as `sql_not_read_only`, a second statement as `sql_not_one_statement` |
 
 The `v_` views are the read API: `v_steps` (each step visit, its length and
