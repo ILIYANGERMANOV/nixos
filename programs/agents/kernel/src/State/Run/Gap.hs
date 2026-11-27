@@ -36,7 +36,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Artifact (Uri)
 import State.Category.Flow (AgentRole)
-import State.Category.Fuel (parseByName)
+import State.Category.Fuel (choices, parseByName)
 import State.Run.Ask (OneLine, oneLineText, parseOneLine)
 import State.Run.Id (EventRef)
 
@@ -156,9 +156,6 @@ gapLineRule =
         <> choices gapKindText
         <> ", severity "
         <> choices severityText
-  where
-    choices :: (Bounded a, Enum a) => (a -> Text) -> Text
-    choices name = Text.intercalate "|" (map name [minBound .. maxBound])
 
 -- | The gap a hand-back's line logs, met at the step it closes by the worker that sent it.
 lineGap :: GapArea -> AgentRole -> GapLine -> Gap

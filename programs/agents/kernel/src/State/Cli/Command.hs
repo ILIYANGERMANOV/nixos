@@ -68,7 +68,7 @@ import State.Artifact (
     urlKindText,
  )
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
-import State.Category.Fuel (Fuel, parseByName)
+import State.Category.Fuel (Fuel, choices, parseByName)
 import State.Category.Graph (
     Cap (..),
     Node (..),
@@ -93,7 +93,6 @@ import State.Protocol.Record (
     Recordable (..),
     Recording (..),
     capRecords,
-    choices,
     extend,
     extendOption,
     recordCommand,

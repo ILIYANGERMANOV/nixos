@@ -13,8 +13,6 @@ module State.Run.EventGen (
     genReply,
     genText,
     genOneLine,
-    genGap,
-    genGapMove,
     bareGap,
     genTasks,
     genTaskAt,

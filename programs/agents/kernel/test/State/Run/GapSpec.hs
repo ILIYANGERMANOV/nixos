@@ -90,13 +90,12 @@ spec = describe "State.Run.Gap" $ do
                 === Right (Just expected)
 
         it "refuses a move on a seq that is no gap unknown_gap" . hedgehog $ do
-            n <- forAll (Gen.integral (Range.linear 0 (20 :: Natural)))
+            -- Seq 1 is the gap: every other seq is the started line or no line.
+            n <- forAll (Gen.filter (/= 1) (Gen.integral (Range.linear 0 (20 :: Natural))))
             move <- forAll genMove
             cover 5 "the started line" (n == 0)
             cover 50 "no line at all" (n > 1)
-            if n == 1
-                then pure ()
-                else replayed [GapMoved n move] === Left (UnknownGap n)
+            replayed [GapMoved n move] === Left (UnknownGap n)
 
         it "takes a move on a run that stopped" $
             fmap

@@ -38,16 +38,10 @@ import State.Artifact (
 import State.Category.Fuel (fuelName)
 import State.Category.Graph (Node (..))
 import State.Category.Step (stateNameText)
-import State.Cli.View (answerLine, pendingLines, section)
+import State.Cli.View (answerLine, gapHeadline, pendingLines, section)
 import State.Protocol.Advice (recordedPr)
 import State.Protocol.Handback (TokenWord (..), tokenWordText)
-import State.Run.Ask (
-    Principal (..),
-    Question (..),
-    oneLineText,
-    qidText,
-    rulingLine,
- )
+import State.Run.Ask (Principal (..), Question (..), qidText, rulingLine)
 import State.Run.Codec (
     flowText,
     handoverReasonText,
@@ -91,9 +85,7 @@ import State.Run.Gap (
     Gap (..),
     Severity (Blocker),
     Tracked (..),
-    gapKindText,
     isOpen,
-    severityText,
  )
 import State.Run.Id (numberedText)
 import State.Show (timeText, tshow)
@@ -312,12 +304,7 @@ openGaps input =
         )
         ( capped
             "state show"
-            [ Text.unwords
-                [ here input n
-                , gapKindText gap.kind
-                , severityText gap.severity
-                , "\"" <> oneLineText gap.text <> "\""
-                ]
+            [ here input n <> " " <> gapHeadline gap
             | (n, gap) <- open
             ]
         )

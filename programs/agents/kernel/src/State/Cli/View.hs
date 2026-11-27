@@ -6,6 +6,7 @@ module State.Cli.View (
     section,
     pendingLines,
     answerLine,
+    gapHeadline,
     brief,
     briefSection,
     taskBrief,
@@ -153,12 +154,9 @@ evidence and where its fix stands.
 -}
 gapShown :: Natural -> Tracked -> Text
 gapShown n tracked =
-    Text.unwords
-        [ tshow n
-        , gapKindText gap.kind
-        , severityText gap.severity
-        , "\"" <> oneLineText gap.text <> "\""
-        ]
+    tshow n
+        <> " "
+        <> gapHeadline gap
         <> " (area "
         <> gap.area.areaText
         <> ", by "
@@ -178,6 +176,15 @@ gapShown n tracked =
     evidenceText = \case
         OfEvent ref -> eventRefText ref
         OfUrl uri -> uriText uri
+
+-- | A gap's kind, severity and quoted text: how @show@ and @resume@ list it.
+gapHeadline :: Gap -> Text
+gapHeadline gap =
+    Text.unwords
+        [ gapKindText gap.kind
+        , severityText gap.severity
+        , "\"" <> oneLineText gap.text <> "\""
+        ]
 
 -- | A titled section, its items indented under it; none when it has no items.
 section :: Text -> [Text] -> [Text]

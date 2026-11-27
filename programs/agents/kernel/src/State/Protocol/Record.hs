@@ -21,7 +21,6 @@ module State.Protocol.Record (
     Args (..),
     option,
     options,
-    choices,
 ) where
 
 import Data.Bifunctor qualified as Bifunctor
@@ -34,7 +33,7 @@ import Data.Text qualified as Text
 import State.Artifact (FileKind, parseUri, uriRule)
 import State.Artifact qualified as Artifact
 import State.Category.Flow (ScopePath, nameText, unqualify)
-import State.Category.Fuel (fuelName, parseByName, parseFuel)
+import State.Category.Fuel (choices, fuelName, parseByName, parseFuel)
 import State.Category.Graph (
     Arrow (..),
     Edge (..),
@@ -488,6 +487,3 @@ option name a = case options name a of
 
 options :: Text -> Args -> [Text]
 options name a = [value | (key, value) <- a.options, key == name]
-
-choices :: (Bounded a, Enum a) => (a -> Text) -> Text
-choices name = Text.intercalate "|" (map name [minBound .. maxBound])

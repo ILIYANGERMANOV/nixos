@@ -203,7 +203,7 @@ spec = describe "State.Cli.Command" $ do
                         ]
                     )
 
-        it "refuses an unknown gap kind or severity, naming the allowed words" $
+        it "refuses an unknown gap kind or severity" $
             ( drafted ["gap", "--kind", "nope", "a"]
             , drafted ["gap", "--severity", "nope", "a"]
             )

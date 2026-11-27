@@ -66,7 +66,7 @@ import State.Artifact (
     urlKindText,
  )
 import State.Artifact qualified as Registry (Artifact (Url))
-import State.Category.Flow (unqualify)
+import State.Category.Flow (roleText, unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (eventText)
 import State.Role (drawnDecoders, flowText)
@@ -306,7 +306,7 @@ eventData = \case
             <> "severity" .= severityText gap.severity
             <> "area" .= gap.area.areaText
             <> "text" .= oneLineText gap.text
-            <> "reporter" .= (\(AgentRole role) -> role) gap.reporter
+            <> "reporter" .= roleText gap.reporter
             <> pair "evidence" (list evidenceEncoding gap.evidence)
     Took _ outcome -> outcomeData outcome
     Stopped stop -> stopData stop
