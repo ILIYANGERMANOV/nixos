@@ -309,7 +309,7 @@ tasks input =
         , Just listed <- [fan.breakdown]
         ]
   where
-    currentTitle n = "tasks (breakdown " <> here input n <> ", in dependency order):"
+    currentTitle n = "tasks (breakdown " <> here input n <> ", in breakdown order):"
     replacedTitle n = "tasks (breakdown " <> here input n <> ", replaced by a later one):"
 
 {- | A task's row. Its status is Appendix B section F's: a task an agent

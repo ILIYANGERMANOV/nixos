@@ -35,6 +35,7 @@ not_a_round
 not_its_round
 task_exists
 task_merged
+task_cycle
 not_at_fan
 not_one_holder
 not_voidable

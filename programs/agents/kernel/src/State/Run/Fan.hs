@@ -65,6 +65,7 @@ module State.Run.Fan (
 ) where
 
 import Data.Foldable (toList)
+import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -79,6 +80,7 @@ import State.Run.Event (
     Base,
     Child (..),
     ChildTask (..),
+    DepsEdit (..),
     RunId,
     Said (..),
     Sha,
@@ -174,7 +176,7 @@ data Heard = Heard Said | TriagedStop Stop
     deriving stock (Eq, Show)
 
 data Refusal
-    = -- | The breakdown has no such task, or none before the task whose base names it.
+    = -- | The breakdown has no such task.
       UnknownTask TaskId
     | -- | The task's child is still running: a second one is not spawned.
       StillRunning TaskId RunId
@@ -202,6 +204,10 @@ data Refusal
       TaskExists TaskId
     | -- | The task merged already, by this PR: it moves no more.
       TaskMerged TaskId Url
+    | {- | The base change would make these tasks build on each other in a
+      cycle, by their dependencies and bases: each builds on itself.
+      -}
+      TaskCycle (NonEmpty TaskId)
     deriving stock (Eq, Show)
 
 emptyFan :: Fan
@@ -235,8 +241,9 @@ broken n tasks fan = case NonEmpty.nonEmpty (map (.id) (busy fan)) of
         Replaced listed fan.children fan.moves fan.held fan.rounds fan.heads
 
 {- | A task joins after the breakdown, last: its dependencies and its base's
-task are tasks the fan-out has, so they stay acyclic. It is spawnable as any
-task is. With no breakdown yet, it starts one at its own seq, @n@.
+task are tasks the fan-out has, and none names the new one, so no cycle
+forms. It is spawnable as any task is. With no breakdown yet, it starts one
+at its own seq, @n@.
 -}
 added :: Natural -> Task -> Fan -> Either Refusal Fan
 added n task fan = case ( lookupTask fan task.id
@@ -248,21 +255,42 @@ added n task fan = case ( lookupTask fan task.id
     (Nothing, [], Just listed) -> Right fan {breakdown = Just listed {tasks = listed.tasks <> pure task}}
     (Nothing, [], Nothing) -> Right fan {breakdown = Just (Breakdown n (pure task))}
 
-{- | The task builds on another base from here on. A task base names an
-earlier task of the breakdown, as the breakdown's own bases do, so the
-bases stay acyclic.
+{- | The task builds on another base from here on, and on other
+dependencies when the edit sets them. Its base and dependencies may name
+any task of the breakdown, later ones too, so long as no task comes to
+build on itself: a cycle is refused, so the breakdown stays acyclic.
 -}
-rebased :: TaskId -> Base -> Fan -> Either Refusal Fan
-rebased task base fan = do
-    _ <- known task fan
-    case builtOn base of
-        Just on
-            | on `notElem` earlier -> Left (UnknownTask on)
-        Just _ -> Right ()
-        Nothing -> Right ()
-    Right (withTask task (\found -> found {base}) fan)
-  where
-    earlier = map (.id) (takeWhile ((/= task) . (.id)) (tasksOf fan))
+rebased :: TaskId -> Base -> DepsEdit -> Fan -> Either Refusal Fan
+rebased task base edit fan = do
+    found <- known task fan
+    let edited = found {base, deps = depsAfter edit found.deps}
+        after = withTask task (const edited) fan
+    case ( filter (isNothing . lookupTask fan) (edited.deps <> toList (builtOn base))
+         , cycleIn (tasksOf after)
+         ) of
+        (unknown : _, _) -> Left (UnknownTask unknown)
+        ([], Just ring) -> Left (TaskCycle ring)
+        ([], Nothing) -> Right after
+
+-- | A task's dependencies after the edit.
+depsAfter :: DepsEdit -> [TaskId] -> [TaskId]
+depsAfter = \case
+    DepsKept -> id
+    DepsSet deps -> const (Set.toList deps)
+
+{- | The tasks of a cycle, if any: each builds on itself through the others,
+by dependencies and bases (a strongly connected component, Tarjan's).
+-}
+cycleIn :: [Task] -> Maybe (NonEmpty TaskId)
+cycleIn tasks =
+    listToMaybe
+        [ ring
+        | NECyclicSCC ring <-
+            stronglyConnComp
+                [ (task.id, task.id, task.deps <> toList (builtOn task.base))
+                | task <- tasks
+                ]
+        ]
 
 -- | The breakdown's task of this id changed, every other as it was.
 withTask :: TaskId -> (Task -> Task) -> Fan -> Fan

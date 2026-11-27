@@ -1314,7 +1314,7 @@ explain g fuel at = \case
                 "unknown_task"
                 ( "task "
                     <> Codec.taskIdText task
-                    <> " is not in the breakdown, or not earlier than the task whose base names it"
+                    <> " is not in the breakdown"
                 )
                 "state show"
         Fan.StillRunning task child ->
@@ -1362,7 +1362,7 @@ explain g fuel at = \case
                 ( "an agent is at work on tasks: "
                     <> Text.unwords (map Codec.taskIdText (toList tasks))
                 )
-                "state override engineers <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r>"
+                "state override engineers <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r> [--deps <task>,...|none]"
         Fan.Unmerged tasks ->
             refused
                 "the round's end"
@@ -1399,6 +1399,14 @@ explain g fuel at = \case
                     <> ": a merged task moves no more"
                 )
                 "state void <the seq of its merged line> <why>, if that merge was recorded on the wrong task"
+        Fan.TaskCycle ring ->
+            refused
+                "task_cycle"
+                ( "tasks "
+                    <> Text.unwords (map Codec.taskIdText (toList ring))
+                    <> " would build on each other in a cycle, by their bases and dependencies"
+                )
+                "state show, then state record task <id> base <base> --reason <r> [--deps <task>,...|none] that builds on no task of the cycle"
     NotAtFan ->
         refused
             "the child's or task's event"
@@ -1569,6 +1577,7 @@ refusalCode =
                 Fan.NotItsRound {} -> "not_its_round"
                 Fan.TaskExists {} -> "task_exists"
                 Fan.TaskMerged {} -> "task_merged"
+                Fan.TaskCycle {} -> "task_cycle"
             NotAtFan -> "not_at_fan"
             NotOneHolder {} -> "not_one_holder"
             NotVoidable {} -> "not_voidable"

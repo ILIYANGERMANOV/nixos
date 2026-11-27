@@ -59,8 +59,9 @@ Available commands:
   breakdown.done           --tasks <file.json>
   task                     <id> <ci|review|merged|kept|round|delivered> <pr> |
                            add <task.json> | head <id> <sha> | <id> base <base>
-                           --reason <r> | <id> parked <why> [--pr <url>]
-                           [--reason <r>]
+                           --reason <r> [--deps <task>,...|none] | <id> parked
+                           <why> [--pr <url>] [--reason <r>] [--deps
+                           <task>,...|none]
   held                     <task> <url>
   acted                    <task> <url>
   spawning                 <task>

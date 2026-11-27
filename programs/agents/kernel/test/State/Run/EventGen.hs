@@ -27,6 +27,7 @@ module State.Run.EventGen (
     genTaskAt,
     genTaskId,
     genTaskRef,
+    genDepsEdit,
     genSeq,
     titled,
     verbatim,
@@ -222,6 +223,7 @@ genEvent =
             <$> genTaskRef
             <*> (Gen.int (Range.linear 1 6) >>= genBaseAt)
             <*> genNonBlank
+            <*> genDepsEdit
         , Instructed <$> genInstruction <*> Gen.maybe genSeq
         , UserNeeded
             <$> ( Need
@@ -447,6 +449,14 @@ genTaskId = TaskId <$> Gen.element ["t1", "t2", "t3", "t4", "t5"]
 
 genTaskRef :: Gen TaskRef
 genTaskRef = TaskRef <$> genTaskId <*> genSeq
+
+-- | A base change's dependencies: kept, or set to none to a few, any task of ids t1 to t5.
+genDepsEdit :: Gen DepsEdit
+genDepsEdit =
+    Gen.choice
+        [ pure DepsKept
+        , DepsSet . Set.fromList <$> Gen.list (Range.linear 0 3) genTaskId
+        ]
 
 -- | A seq of the log, an I-JSON integer.
 genSeq :: Gen Natural

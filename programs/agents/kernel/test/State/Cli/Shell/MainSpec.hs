@@ -1820,7 +1820,7 @@ spec = describe "state over the doubles" $ do
                 [ref.task | TaskHead ref _ <- map (.event) envelopes] `shouldBe` [TaskId "t1"]
 
             it
-                "changes a task's base for its brief, and refuses a base on no earlier task or epic"
+                "changes a task's base for its brief, and refuses a base closing a cycle or on no epic"
                 $ \world -> do
                     _ <- tenXAtFanOut world
                     let rebase task base = state world ["record", "task", task, "base", base, "--reason", "restack"]
@@ -1840,7 +1840,7 @@ spec = describe "state over the doubles" $ do
                         `shouldBe` [
                                        ( 2
                                        ,
-                                           [ "state record: unknown_task - task t2 is not in the breakdown, or not earlier than the task whose base names it"
+                                           [ "state record: task_cycle - tasks t1 t2 would build on each other in a cycle, by their bases and dependencies"
                                            ]
                                        )
                                    , (2, ["state record: unknown_epic - the run never opened epic nope"])

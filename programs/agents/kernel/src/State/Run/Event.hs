@@ -90,6 +90,7 @@ module State.Run.Event (
     Said (..),
     Waiting (..),
     TaskState (..),
+    DepsEdit (..),
     Instruction (..),
     InstructionKind (..),
     Verbatim,
@@ -332,9 +333,10 @@ data Event
     | -- | The commit a task's branch is at, as the 10x saw it: its status stays.
       TaskHead TaskRef Sha
     | {- | The task builds on another base from here on, and why: its
-      dependency merged, or the stack was reordered.
+      dependency merged, or the stack was reordered. Its dependencies change
+      too, when the edit names them.
       -}
-      TaskBaseChanged TaskRef Base NonBlank
+      TaskBaseChanged TaskRef Base NonBlank DepsEdit
     | {- | The user's instruction, word for word: it retires the active one
       logged at this seq, if one is named (@dcterms:replaces@).
       -}
@@ -514,6 +516,12 @@ data TaskState
       merged, and no merge awaited.
       -}
       Delivered Url
+    deriving stock (Eq, Show)
+
+{- | What a base change does to the task's dependencies: keeps them, or
+sets them to these, none to many.
+-}
+data DepsEdit = DepsKept | DepsSet (Set TaskId)
     deriving stock (Eq, Show)
 
 -- | What the user told the run to keep to, of this kind, in the user's own words.

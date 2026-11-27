@@ -196,7 +196,9 @@ data Task = Task
     { id :: TaskId
     , title :: NonBlank
     , deps :: [TaskId]
-    -- ^ Tasks whose work this one builds on: earlier ones only.
+    {- ^ Tasks whose work this one builds on: earlier ones in a breakdown's
+    file, any after a base change, never in a cycle.
+    -}
     , base :: Base
     , branch :: Branch
     , fuel :: Fuel
@@ -216,12 +218,13 @@ data Task = Task
     deriving stock (Eq, Show)
 
 {- | What a task's branch starts from: the repo's default branch, an epic's
-branch, or the branch of an earlier task of its breakdown.
+branch, or the branch of another task of its breakdown: an earlier one in
+the breakdown's file, any after a base change, never in a cycle.
 -}
 data Base = OnDefault | OnEpic EpicName | OnTask TaskId
     deriving stock (Eq, Show)
 
--- | The earlier task the base names, if it names one.
+-- | The task the base names, if it names one.
 builtOn :: Base -> Maybe TaskId
 builtOn = \case
     OnDefault -> Nothing
@@ -247,26 +250,27 @@ parseBase raw = case Text.breakOn ":" raw of
   where
     nonEmpty text = if Text.null text then Nothing else Just text
 
--- | The three bases a refusal names, as 'baseText' spells them.
+-- | The three bases a refusal names, as 'baseText' spells them: a base change may name any task.
 baseTextForms :: Text
-baseTextForms = baseFormsBy baseText
+baseTextForms = baseFormsBy "<task id>" baseText
 
 -- | The three bases a refusal names, as a task file spells them.
 baseForms :: Text
 baseForms =
     baseFormsBy
+        "<earlier task id>"
         (Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . baseEncoding)
 
 {- | The three bases, each spelt by the given function: placeholders stand in
-for the epic and task, so the epic name skips 'parseEpicName'.
+for the epic and the task, the given one, so the epic name skips 'parseEpicName'.
 -}
-baseFormsBy :: (Base -> Text) -> Text
-baseFormsBy spell =
+baseFormsBy :: Text -> (Base -> Text) -> Text
+baseFormsBy task spell =
     spell OnDefault
         <> ", "
         <> spell (OnEpic (EpicName "<name>"))
         <> " or "
-        <> spell (OnTask (TaskId "<earlier task id>"))
+        <> spell (OnTask (TaskId task))
 
 {- | An epic of the run, by the name its branch @epic/<name>@ takes: of
 'slugChar's, so a shell line prints it unquoted. Built by 'parseEpicName' alone.

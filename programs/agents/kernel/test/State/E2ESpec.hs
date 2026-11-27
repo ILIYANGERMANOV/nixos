@@ -1868,7 +1868,7 @@ spec = describe "the state binary" $ do
                                    , "  - merge epic limits (ready_for_review, " <> Text.pack epicPr <> ")"
                                    , "epics:"
                                    , "  limits o/r epic/limits ready_for_review " <> Text.pack epicPr
-                                   , "tasks (breakdown " <> parent <> ":6, in dependency order):"
+                                   , "tasks (breakdown " <> parent <> ":6, in breakdown order):"
                                    , "  id  status     at_work  base            pr                             head     child run"
                                    , "  t1  delivered  no       on_epic:limits  "
                                         <> prUrl
@@ -1905,7 +1905,7 @@ spec = describe "the state binary" $ do
                         repo
                         ["record", "breakdown.done", "--tasks", repo.root </> "tasks.json"]
                 fix
-                    `shouldBe` "state override engineers <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r>"
+                    `shouldBe` "state override engineers <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r> [--deps <task>,...|none]"
                 followed bin fix repo ["override", "engineers", "back", "to", "the", "fan-out"]
                 followed bin fix repo ["record", "task", "t2", "parked", "dropped"]
 
@@ -2003,6 +2003,31 @@ spec = describe "the state binary" $ do
                     notOpen
                     repo
                     ["epic", "open", "quotas", "--repo", "o/r", "--branch", "epic/quotas"]
+
+            it "task_cycle: the tasks shown, then a base change on none of the cycle" $ \repo -> do
+                _ <- tenXAtFanOut bin repo
+                fix <-
+                    fixOf
+                        bin
+                        repo
+                        ["record", "task", "t1", "base", "on_task:t2", "--reason", "restack"]
+                fix
+                    `shouldBe` "state show, then state record task <id> base <base> --reason <r> [--deps <task>,...|none] that builds on no task of the cycle"
+                followed bin fix repo ["show"]
+                followed
+                    bin
+                    fix
+                    repo
+                    [ "record"
+                    , "task"
+                    , "t2"
+                    , "base"
+                    , "on_default"
+                    , "--reason"
+                    , "r"
+                    , "--deps"
+                    , "none"
+                    ]
 
             it "unknown_task: a base on a task the breakdown lacks" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
@@ -2134,6 +2159,50 @@ spec = describe "the state binary" $ do
                         (succeeded <=< state bin repo)
                     workers <- eventsOf ["worker_handed_back"] repo parent
                     length workers `shouldBe` 0
+
+            -- The reviewer's probe p6: a stack reordered in place.
+            it
+                "restacks a task onto a later one once its deps change, a cycle refused with no write"
+                $ \repo -> do
+                    parent <- tenXAtFanOut bin repo
+                    let onT2 = ["record", "task", "t1", "base", "on_task:t2", "--reason", "restack"]
+                    -- t2 depends on t1: t1 on t2's branch would build on itself.
+                    _ <- fixOf bin repo onT2
+                    refusedOnce <- eventsOf ["task_base_changed"] repo parent
+                    for_
+                        [
+                            [ "record"
+                            , "task"
+                            , "t2"
+                            , "base"
+                            , "on_default"
+                            , "--reason"
+                            , "t1 waits"
+                            , "--deps"
+                            , "none"
+                            ]
+                        , onT2 <> ["--deps", "t2,t2"]
+                        ]
+                        (succeeded <=< state bin repo)
+                    changed <- eventsOf ["task_base_changed"] repo parent
+                    spawns <- succeeded =<< state bin repo ["next"]
+                    resumed <- succeeded =<< state bin repo ["resume"]
+                    ( length refusedOnce
+                        , length changed
+                        , take 1 spawns
+                        , [ Text.words line
+                          | line <- resumed
+                          , any (`Text.isPrefixOf` Text.strip line) ["t1 ", "t2 "]
+                          ]
+                        )
+                        `shouldBe` ( 0
+                                   , 2
+                                   , ["SPAWN engineer --task t2 background: yes"]
+                                   ,
+                                       [ ["t1", "planned", "no", "on_task:t2", "-", "-", "-", "after", "t2"]
+                                       , ["t2", "planned", "no", "on_default", "-", "-", "-"]
+                                       ]
+                                   )
 
         describe "a tree of runs: a 10x under a 10x, an engineer under that" $ do
             it "climbs a question to the top and writes its one answer down to every run" $ \repo -> do

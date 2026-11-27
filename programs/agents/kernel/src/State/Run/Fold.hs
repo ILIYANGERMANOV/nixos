@@ -825,8 +825,9 @@ applyEvent g state n = \case
                 <$> Bifunctor.first EpicRefused (Epic.moved epic move state.epics)
             )
     TaskHead ref sha -> going (inTaskFan ref.task (Fan.headed ref.task sha))
-    TaskBaseChanged ref base _ ->
-        going (epicsOf [base] state >> inTaskFan ref.task (Fan.rebased ref.task base))
+    TaskBaseChanged ref base _ deps ->
+        going
+            (epicsOf [base] state >> inTaskFan ref.task (Fan.rebased ref.task base deps))
     Instructed instruction replaces -> going $ case replaces of
         Nothing -> Right state {instructions = Map.insert n instruction state.instructions}
         Just old -> case Map.lookup old state.instructions of

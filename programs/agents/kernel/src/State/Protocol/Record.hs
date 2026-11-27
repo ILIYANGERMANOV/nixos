@@ -30,6 +30,7 @@ import Data.Char (ord)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -60,6 +61,7 @@ import State.Run.Event (
     Branch (..),
     Check (..),
     Commit (..),
+    DepsEdit (..),
     DraftPr (..),
     Event (..),
     Instruction (..),
@@ -411,9 +413,12 @@ recordables =
                     "task"
                     ( "<id> <"
                         <> prStateNames
-                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> | <id> parked <why>"
+                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> [--deps <task>,...|none] | <id> parked <why>"
                     )
-                    [Flag "pr" "<url>" Optional, Flag "reason" "<r>" Optional]
+                    [ Flag "pr" "<url>" Optional
+                    , Flag "reason" "<r>" Optional
+                    , Flag "deps" "<task>,...|none" Optional
+                    ]
                 $ \a -> case a.positional of
                     -- Before a move: no task state is named head.
                     ["head", task, raw] ->
@@ -434,7 +439,8 @@ recordables =
                                 (Left "a base change says why, as --reason <r>: one line")
                                 Right
                                 (parseNonBlank =<< option "reason" a)
-                        Right (OnTask (TaskId task) (\ref -> TaskBaseChanged ref base reason))
+                        deps <- maybe (Right DepsKept) (fmap DepsSet . depsOf) (option "deps" a)
+                        Right (OnTask (TaskId task) (\ref -> TaskBaseChanged ref base reason deps))
                     [task, "round", pr] ->
                         maybe
                             (Left (pr <> " is not " <> prUrlRule))
@@ -574,6 +580,18 @@ draftOf words' a = do
         (Just ref, _) -> Right (OfEvent ref)
         (Nothing, Just uri) -> Right (OfUrl uri)
         (Nothing, Nothing) -> Left (raw <> " is no <run>:<seq>, nor " <> uriRule)
+
+{- | @--deps@: the tasks a task builds on, comma-separated as POSIX
+guideline 8 has it, or @none@; a repeat counts once.
+-}
+depsOf :: Text -> Either Text (Set TaskId)
+depsOf raw = case Text.strip raw of
+    "none" -> Right Set.empty
+    names -> Set.fromList <$> traverse (taskOf . Text.strip) (Text.splitOn "," names)
+  where
+    taskOf name
+        | Text.null name = Left "a dependency's task id, as --deps t1,t2 or --deps none"
+        | otherwise = Right (TaskId name)
 
 {- | @user_needed "<text>"@: what the user must do by hand, the tasks it
 holds up, a repeat counted once, and where to do it.

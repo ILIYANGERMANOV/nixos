@@ -104,6 +104,7 @@ import State.Run.Event (
     Branch (..),
     Child (..),
     ChildTask (..),
+    DepsEdit (..),
     Digest,
     Envelope (..),
     EpicMove (..),
@@ -406,10 +407,11 @@ eventData = \case
             Readies pr -> "pr_url" .= urlText pr
             Merges -> mempty
     TaskHead ref sha -> taskRefData ref <> "head_sha" .= Field.encode Field.sha sha
-    TaskBaseChanged ref base reason ->
+    TaskBaseChanged ref base reason deps ->
         taskRefData ref
             <> Artifact.baseData base
             <> "reason" .= Artifact.nonBlankText reason
+            <> depsData deps
     Instructed instruction replaces ->
         "instruction_kind" .= instructionKindText instruction.kind
             <> "text" .= verbatimText instruction.text
@@ -531,6 +533,7 @@ eventOf kind obj = case kind of
             <$> taskRefOf obj
             <*> (obj .: "base" >>= Artifact.baseOf)
             <*> (obj .: "reason" >>= named "reason" Artifact.parseNonBlank)
+            <*> (maybe DepsKept (DepsSet . Set.fromList . map TaskId) <$> obj .:? "deps")
     "instructed" ->
         Instructed
             <$> ( Instruction
@@ -653,6 +656,14 @@ taskRefData ref = "task" .= taskIdText ref.task <> "breakdown" .= ref.breakdown
 
 taskRefOf :: Object -> Parser TaskRef
 taskRefOf obj = TaskRef <$> taskOf obj <*> breakdownSeqOf obj
+
+{- | Kept dependencies write no key, so a row from before the key reads as
+kept; set ones write the list, @[]@ for none, never null (decision 2).
+-}
+depsData :: DepsEdit -> Series
+depsData = \case
+    DepsKept -> mempty
+    DepsSet deps -> "deps" .= map taskIdText (Set.toList deps)
 
 breakdownSeqOf :: Object -> Parser Natural
 breakdownSeqOf obj = obj .: "breakdown" >>= ijsonNatural
