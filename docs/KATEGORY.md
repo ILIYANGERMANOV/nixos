@@ -280,6 +280,10 @@ review pipeline must treat it as code under review. OpenCode can skip it with
   - `opencode debug agent --tool` runs no tool hook.
   - A subagent from an earlier OpenCode run, resumed by its task id, counts
     as a lead.
+  - OpenCode writes no transcript file. A session has no `transcript_path`
+    and no transcript artifact.
+  - A subagent's tokens count only the model calls this OpenCode process
+    saw.
 - **`~/.opencode` is always read.** OpenCode has no switch to turn it off.
 - **A writable `.opencode/` costs an npm install.** OpenCode runs
   `npm install @opencode-ai/plugin` in every config dir it can write: a

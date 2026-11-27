@@ -41,6 +41,16 @@ safe:
 - **Subagent steps are recorded by a hook.** When a worker hands back, the
   `state-handback` hook records its outcome. If no line was recorded, the
   lead pipes the hand-back into `state handback <role>`.
+- **Each subagent is a span.** The spawn hook logs `span_started` with the
+  brief in full; the hand-back, or a stop with none, logs `span_ended` with
+  the hand-back text. They follow OpenTelemetry's GenAI agent spans:
+  - The hook contract's `call` is the harness's tool call id
+    (`gen_ai.tool.call.id`). It links a spawn to the agent it started.
+  - `status_code` `ok` deviates: OpenTelemetry leaves a success Unset, and
+    an export maps `ok` to Unset. A `BLOCKED` hand-back is `ok` too: the
+    agent finished.
+  - A span's tokens are its own requests only, never its subagents'.
+    A count the harness does not report is left out, never 0.
 - **Outside facts enter as events.** Before it advises, `state next`
   records what is already decided: the draft PR or its readiness seen on
   GitHub, a skip the Fuel makes, a plan settled by a parent. [`due`][due]
@@ -150,11 +160,11 @@ To look inside a run, or keep what a fresh agent needs:
 | `state render mermaid --flow <f>` | prints the flow's graph (the flow, not one run's walk through it) |
 | `state init --goal "<goal>"` | logs `started` with the goal word for word, the git top as `worktree` and `origin`'s GitHub `owner/name` as `repo` |
 | `state move <dir>` | logs `worktree_moved`: the run now lives in that worktree |
-| `state artifact <path\|url> --kind <k>` | logs `artifact`. A file's bytes are a snapshot in `blobs` (up to 1 MiB, never a transcript's); a handover and the run's end snapshot each registered file that changed |
+| `state artifact <path\|url> --kind <k> [--span <seq>]` | logs `artifact`, made by that span when `--span` names one. A file's bytes are a snapshot in `blobs` (up to 1 MiB, never a transcript's); a handover and the run's end snapshot each registered file that changed |
 | `state artifact show <run:seq>` | prints an artifact's stored bytes or its URL; exit 3 when its bytes were not stored, 4 when the line is no artifact |
 | `state note --topic <t> "<text>"` | logs `note`, context for a fresh agent |
 | `state handover --reason context\|user\|crash --summary "<s>" --next "<step>"...` | logs `handover`, after a fresh snapshot of each changed file; names each file it could not read |
-| `state resume [<run>] [--until <seq>]` | prints the packet a fresh agent resumes from: goal, worktree, next steps, owed work, tasks, questions, decisions, notes, then a context map of every file, URL, child run and session with the command that loads it. With no run named, the run `STATE_SESSION` is bound to, else the worktree's. `--until <seq>` prints it as it was after that line. A line it cannot read refuses it |
+| `state resume [<run>] [--until <seq>]` | prints the packet a fresh agent resumes from: goal, worktree, next steps, owed work, tasks, questions, decisions, notes, then a context map of every file, URL, child run and session with the command that loads it. With no run named, the run `STATE_SESSION` is bound to, else the worktree's. The harness's adapter sets `STATE_SESSION` for each shell. `--until <seq>` prints it as it was after that line. A line it cannot read refuses it |
 
 ## Replay is a fold
 

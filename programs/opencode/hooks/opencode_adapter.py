@@ -15,19 +15,23 @@ The envelope, one JSON object. Ids are OpenCode's session ids:
     rootID     its root session, the lead's: sessionID itself for the lead
     agent      the calling session's agent name, null when not yet known
     directory  OpenCode's instance directory
-    before:    tool, args              tool.execute.before's
+    before:    tool, args, callID      tool.execute.before's
                history                 the session's earlier bash commands, oldest first
-    after:     tool, args              tool.execute.after's
+    after:     tool, args, callID      tool.execute.after's
                output                  its {title, output, metadata}
                tokens                  the `tokens` of the session's last model
                                        calls, oldest first, as OpenCode reports them
                running                 the background children still running
+               spent                   {sessionID: tokens}, each child session's
+                                       own model calls' `tokens` summed, its
+                                       children's aside
     message:   first                   whether it is the session's first
                                        chat.message this OpenCode process saw
                created                 whether this process saw session.created
                parts                   chat.message's parts
                agents                  {sessionID: agent name}, every session seen
                running
+               spent
     command:   command                 command.execute.before's
     idle:      running                 session.idle: the session went idle
 
@@ -42,7 +46,8 @@ OpenCode has no hand-back tool: a subagent's last reply is its hand-back. A
 task's `<task state="completed">` result, which the parent sees as the tool's
 output or, from a background task, as a synthetic part of a chat.message,
 becomes the child's `handback` call and its `agentStop`, as Claude Code sends
-them. The session is the root's, so a child's bindings sit beside its lead's;
+them, with the tokens the child spent; the hand-back names no call, as no
+tool call made it. The session is the root's, so a child's bindings sit beside its lead's;
 the child is the agent, named by its own session id.
 
 Input it cannot read exits 1 with the error on stderr: the plugin lets the call
@@ -65,6 +70,7 @@ from agent_hook import (
     AgentStop,
     Allow,
     BeforeTool,
+    CallId,
     ContextSize,
     Deny,
     Event,
@@ -80,6 +86,7 @@ from agent_hook import (
     SkillName,
     Source,
     Tool,
+    Usage,
     Verdict,
     as_list,
     as_str,
@@ -219,6 +226,7 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
             "hook": "before",
             "tool": str(name),
             "args": dict() as args,
+            "callID": str(call),
             "history": list() as history,
         }:
             tool = vendor_free(tools, name)
@@ -232,14 +240,17 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 if tool == Tool.SHELL
                 else (),
                 harness=HARNESS,
+                call=CallId(call),
             )
         case {
             "hook": "after",
             "tool": str(name),
             "args": dict() as args,
+            "callID": str(call),
             "output": dict() as output,
             "tokens": list() as tokens,
             "running": list() as running,
+            "spent": dict() as spent,
         }:
             tool = vendor_free(tools, name)
             ran = AfterTool(
@@ -251,8 +262,9 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
                 output,
                 context_size(tokens),
                 harness=HARNESS,
+                call=CallId(call),
             )
-            return tool_ran(ran, output.get("output"), running_ids(running))
+            return tool_ran(ran, output.get("output"), running_ids(running), spent)
         case {
             "hook": "message",
             "first": bool(first),
@@ -260,13 +272,19 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
             "parts": list() as parts,
             "agents": dict() as agents,
             "running": list() as running,
+            "spent": dict() as spent,
         }:
             still = running_ids(running)
             return started(session, cwd, agent, first=first, created=created) + tuple(
                 event
                 for result in background_results(parts)
                 for event in task_ended(
-                    session, cwd, result, optional_role(agents.get(result.child)), still
+                    session,
+                    cwd,
+                    result,
+                    optional_role(agents.get(result.child)),
+                    still,
+                    spent,
                 )
             )
         case {"hook": "command", "command": str(command)}:
@@ -284,7 +302,7 @@ def parse_opencode(payload: Json, tools: ToolNames) -> Asked:
 
 
 def tool_ran(
-    ran: AfterTool, output: Json, running: tuple[AgentId, ...]
+    ran: AfterTool, output: Json, running: tuple[AgentId, ...], spent: JsonObject
 ) -> tuple[Event, ...]:
     """The output as the kernel reads it: a shell's `stdout`, a spawn's
     `agentId`, after the events of the spawned child's end. Any other tool's
@@ -300,6 +318,7 @@ def tool_ran(
                 result,
                 optional_role(ran.input.get("subagent_type")),
                 running,
+                spent,
             )
             return (*ended, replace(ran, output={"agentId": result.child}))
         case _:
@@ -422,12 +441,29 @@ def context_size(tokens: list[Json]) -> ContextSize | None:
 
 def context_tokens(tokens: Json) -> int:
     """The tokens of context a model call sent, as Claude Code's adapter counts
-    them: input and cache, not output."""
+    them: input and cache, not output. OpenCode's `input` leaves the cache out
+    (session.ts getUsage), so this adds it back."""
     match tokens:
         case {"input": int(sent), "cache": {"read": int(read), "write": int(write)}}:
             return sent + read + write
         case _:
             raise ValueError(f"not a model call's tokens: {tokens!r}")
+
+
+def spent_usage(spent: JsonObject, child: AgentId) -> Usage | None:
+    """The tokens a child spent, None when the plugin saw none of its calls.
+    OpenCode's `output` leaves the reasoning out, so `output` adds it back."""
+    match spent.get(child):
+        case None:
+            return None
+        case {
+            "output": int(output),
+            "reasoning": int(reasoning),
+            "cache": {"read": int(read), "write": int(write)},
+        } as tokens:
+            return Usage(context_tokens(tokens), output + reasoning, read, write)
+        case tokens:
+            raise ValueError(f"not a child's spent tokens: {tokens!r}")
 
 
 # ---- A task's result ---------------------------------------------------------------
@@ -492,21 +528,24 @@ def task_result(text: str) -> TaskResult | None:
                     return Failed(AgentId(child))
 
 
-def task_ended(
+def task_ended(  # noqa: PLR0913 - each a fact of the envelope its events carry
     session: SessionId,
     cwd: Path,
     result: TaskResult,
     role: Role | None,
     running: tuple[AgentId, ...],
+    spent: JsonObject,
 ) -> tuple[Event, ...]:
-    """A finished child's hand-back, its last reply, and its stop. The child
-    is running no more, whatever the plugin last saw."""
+    """A finished child's hand-back, its last reply, and its stop, each with
+    the tokens it spent. The child is running no more, whatever the plugin
+    last saw."""
     still = tuple(child for child in running if child != result.child)
     match result:
         case Running():
             return ()
         case Completed(child=child, text=text):
             agent = Agent(child, role)
+            usage = spent_usage(spent, child)
             return (
                 BeforeTool(
                     session,
@@ -515,12 +554,20 @@ def task_ended(
                     Tool.HANDBACK,
                     {"message": text},
                     harness=HARNESS,
+                    usage=usage,
                 ),
-                AgentStop(session, cwd, agent, still, harness=HARNESS),
+                AgentStop(session, cwd, agent, still, harness=HARNESS, usage=usage),
             )
         case Failed(child=child):
             return (
-                AgentStop(session, cwd, Agent(child, role), still, harness=HARNESS),
+                AgentStop(
+                    session,
+                    cwd,
+                    Agent(child, role),
+                    still,
+                    harness=HARNESS,
+                    usage=spent_usage(spent, child),
+                ),
             )
 
 

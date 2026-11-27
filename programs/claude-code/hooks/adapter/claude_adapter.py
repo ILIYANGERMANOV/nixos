@@ -10,8 +10,13 @@ the manifest is the hooks, each event's in order. A tool with no vendor-free
 name is `other`, which only hooks naming no tools see.
 
 A shell call's `history` and a tool result's `context` come from the calling
-agent's own transcript, its last TAIL_BYTES only. A transcript it cannot read
+agent's own transcript, its last TAIL_BYTES only. A subagent's hand-back and
+its stop carry the `usage` of its whole transcript. A transcript it cannot read
 gives none: they are facts a hook may use, never a reason to fail the call.
+
+A session's start appends `export STATE_SESSION=<session id>` to the file
+Claude names in CLAUDE_ENV_FILE, which Claude sources before each shell
+command: so an agent's own `state` calls name their session.
 
 Input it cannot read exits 1 with the error on stderr: Claude shows it and lets
 the call go on. A hook's own failure is the dispatcher's, and becomes context.
@@ -19,6 +24,7 @@ the call go on. A hook's own failure is the dispatcher's, and becomes context.
 
 import json
 import os
+import shlex
 import sys
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -32,6 +38,7 @@ from agent_hook import (
     AgentStop,
     Allow,
     BeforeTool,
+    CallId,
     ContextSize,
     Deny,
     Event,
@@ -48,6 +55,7 @@ from agent_hook import (
     SkillName,
     Source,
     Tool,
+    Usage,
     Verdict,
     as_list,
     as_str,
@@ -67,6 +75,16 @@ type ToolNames = Mapping[str, Tool]
 # A transcript's lines, read on demand: most events need none.
 type ReadLines = Callable[[Path], Sequence[bytes]]
 
+
+@dataclass(frozen=True, slots=True)
+class Reads:
+    """The two ways the adapter reads a transcript: its tail, enough for the
+    recent facts, or the whole file, for the tokens of every request."""
+
+    tail: ReadLines
+    whole: ReadLines
+
+
 # Enough for two model calls unless a single result is larger, which only
 # costs `previous`; and for the shell commands a subagent ran lately.
 TAIL_BYTES = 256 * 1024
@@ -79,10 +97,23 @@ def main() -> None:
         tools_path, manifest_path = sys.argv[1:]
         tools = parse_tools(Path(tools_path).read_text())
         manifest = parse_manifest(Path(manifest_path).read_text())
-        event = parse_claude(parse_json(sys.stdin.read()), tools, tail_lines)
+        event = parse_claude(
+            parse_json(sys.stdin.read()), tools, Reads(tail_lines, whole_lines)
+        )
     except ValueError as error:
         sys.exit(f"agent-hook-claude: {error}")
+    match event, os.environ.get("CLAUDE_ENV_FILE"):
+        case SessionStart(session=session), str(env_file):
+            with Path(env_file).open("a") as file:
+                _ = file.write(session_export(session))
+        case _:
+            pass
     print(json.dumps(answer(manifest, event)))
+
+
+def session_export(session: SessionId) -> str:
+    """The line that names the session to the shells Claude runs after it."""
+    return f"export STATE_SESSION={shlex.quote(session)}\n"
 
 
 def answer(manifest: Manifest, event: Event) -> JsonObject:
@@ -113,7 +144,12 @@ def parse_tools(text: str) -> ToolNames:
             raise ValueError("the tool table is not a JSON object")
 
 
-def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
+def parse_claude(payload: Json, tools: ToolNames, read: Reads) -> Event:
+    match payload:
+        case {"transcript_path": main}:
+            session_transcript = parse_transcript(main)
+        case _:
+            session_transcript = None
     match payload:
         case {
             "hook_event_name": "SessionStart",
@@ -127,7 +163,7 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
                 parse_agent(payload),
                 Source(source),
                 HARNESS,
-                parse_transcript(payload.get("transcript_path")),
+                session_transcript,
                 parse_model(payload.get("model")),
             )
         case {
@@ -146,13 +182,18 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
                 tool,
                 tool_input,
                 shell_history(
-                    transcript(payload.get("transcript_path"), agent, read),
+                    transcript(payload.get("transcript_path"), agent, read.tail),
                     tools,
                     skip=payload.get("tool_use_id"),
                 )
                 if tool == Tool.SHELL
                 else (),
                 harness=HARNESS,
+                transcript=session_transcript,
+                call=parse_call(payload.get("tool_use_id")),
+                usage=subagent_usage(payload.get("transcript_path"), agent, read.whole)
+                if tool == Tool.HANDBACK
+                else None,
             )
         case {
             "hook_event_name": "PostToolUse",
@@ -170,8 +211,12 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
                 vendor_free(tools, name),
                 tool_input,
                 output,
-                context_size(transcript(payload.get("transcript_path"), agent, read)),
+                context_size(
+                    transcript(payload.get("transcript_path"), agent, read.tail)
+                ),
                 harness=HARNESS,
+                transcript=session_transcript,
+                call=parse_call(payload.get("tool_use_id")),
             )
         case {
             "hook_event_name": "SubagentStart",
@@ -181,7 +226,11 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
             match parse_agent(payload):
                 case Agent() as agent:
                     return AgentStart(
-                        SessionId(session), Path(cwd), agent, harness=HARNESS
+                        SessionId(session),
+                        Path(cwd),
+                        agent,
+                        harness=HARNESS,
+                        transcript=session_transcript,
                     )
                 case None:
                     raise ValueError("a SubagentStart names no agent_id")
@@ -197,18 +246,22 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
                 parse_agent(payload),
                 SkillName(skill),
                 harness=HARNESS,
+                transcript=session_transcript,
             )
         case {
             "hook_event_name": "SubagentStop" | "Stop",
             "session_id": str(session),
             "cwd": str(cwd),
         }:
+            agent = parse_agent(payload)
             return AgentStop(
                 SessionId(session),
                 Path(cwd),
-                parse_agent(payload),
+                agent,
                 running_agents(payload.get("background_tasks")),
                 harness=HARNESS,
+                transcript=session_transcript,
+                usage=subagent_usage(payload.get("transcript_path"), agent, read.whole),
             )
         case _:
             raise ValueError(
@@ -223,6 +276,16 @@ def parse_model(model: Json) -> str | None:
             return model
         case _:
             raise ValueError(f"model {model!r} is not a string")
+
+
+def parse_call(tool_use_id: Json) -> CallId | None:
+    match tool_use_id:
+        case None:
+            return None
+        case str(call):
+            return CallId(call)
+        case _:
+            raise ValueError(f"tool_use_id {tool_use_id!r} is not a string")
 
 
 def parse_agent(payload: JsonObject) -> Agent | None:
@@ -283,10 +346,10 @@ class ToolUse:
 @dataclass(frozen=True, slots=True)
 class ModelLine:
     """One content block of a model call: the transcript writes each block as
-    its own line, every one with the call's usage. `tokens` is 0 with none."""
+    its own line, every one with the call's usage: each count it reports."""
 
     message_id: str | None
-    tokens: int
+    usage: Usage
     tool_uses: list[ToolUse]
 
 
@@ -321,6 +384,49 @@ def tail_lines(path: Path) -> list[bytes]:
         return []
 
 
+def whole_lines(path: Path) -> list[bytes]:
+    """The whole file as lines; none when it cannot be read, as tail_lines."""
+    try:
+        return path.read_bytes().splitlines()
+    except OSError:
+        return []
+
+
+def subagent_usage(path: Json, agent: Agent | None, read: ReadLines) -> Usage | None:
+    """The tokens a subagent's own requests used, from its whole transcript:
+    its subagents write their own. The lead runs no span, so it has none."""
+    match agent:
+        case None:
+            return None
+        case Agent():
+            return agent_usage(transcript(path, agent, read))
+
+
+def agent_usage(lines: list[ModelLine]) -> Usage | None:
+    """The sum over the agent's requests, each counted once by its last line.
+    A count is summed only when every request reports it, and there is none
+    with no request. A line with no message id names no request: Claude
+    writes one on every model call's line."""
+    requests = {
+        line.message_id: line.usage for line in lines if line.message_id is not None
+    }
+    match list(requests.values()):
+        case []:
+            return None
+        case usages:
+            return Usage(
+                summed([usage.input for usage in usages]),
+                summed([usage.output for usage in usages]),
+                summed([usage.cache_read for usage in usages]),
+                summed([usage.cache_write for usage in usages]),
+            )
+
+
+def summed(counts: list[int | None]) -> int | None:
+    known = [count for count in counts if count is not None]
+    return sum(known) if len(known) == len(counts) else None
+
+
 def shell_history(
     lines: list[ModelLine], tools: ToolNames, skip: Json
 ) -> tuple[str, ...]:
@@ -352,7 +458,9 @@ def context_size(lines: list[ModelLine]) -> ContextSize | None:
     ran_tool: set[str] = set()
     for line in reversed(lines):
         match line:
-            case ModelLine(str() as message_id, tokens, uses) if tokens > 0:
+            case ModelLine(str() as message_id, Usage(input=int(tokens)), uses) if (
+                tokens > 0
+            ):
                 _ = sizes.setdefault(message_id, tokens)
                 if uses:
                     ran_tool.add(message_id)
@@ -377,7 +485,7 @@ def parse_model_line(line: bytes) -> ModelLine | None:
             message_id = message.get("id")
             return ModelLine(
                 message_id if isinstance(message_id, str) else None,
-                usage_tokens(message.get("usage")),
+                request_usage(message.get("usage")),
                 [
                     use
                     for block in as_blocks(message.get("content"))
@@ -388,21 +496,36 @@ def parse_model_line(line: bytes) -> ModelLine | None:
             return None
 
 
-def usage_tokens(usage: Json) -> int:
-    """All the context a call sent: fresh input plus what the cache read and wrote."""
+def request_usage(usage: Json) -> Usage:
+    """One request's counts in the contract's terms. Claude's `input_tokens`
+    leaves out what the cache read and wrote, so `input`, all the context the
+    request sent, adds both, and is known only when all three are."""
     match usage:
         case dict() as counts:
-            return sum(
-                tokens
+            fresh, read, written = (
+                claude_count(counts, key)
                 for key in (
                     "input_tokens",
                     "cache_read_input_tokens",
                     "cache_creation_input_tokens",
                 )
-                if isinstance(tokens := counts.get(key), int)
             )
+            match fresh, read, written:
+                case int(), int(), int():
+                    sent = fresh + read + written
+                case _:
+                    sent = None
+            return Usage(sent, claude_count(counts, "output_tokens"), read, written)
         case _:
-            return 0
+            return Usage()
+
+
+def claude_count(counts: JsonObject, key: str) -> int | None:
+    match counts.get(key):
+        case int(count) if not isinstance(count, bool) and count >= 0:
+            return count
+        case _:
+            return None
 
 
 def as_blocks(content: Json) -> list[Json]:
