@@ -338,21 +338,13 @@ spec = describe "Data.Payload.Event" $ do
             `shouldBe` Right reviewRows {event = Took (scopePath "x") (pickOf "gather" "enough")}
 
     it
-        "writes and reads the chief's picks by their route's and branch's names, a block's inside the blocks' route"
-        $ do
-            let picks =
-                    [ reviewRows {event = Took mempty (pickOf "route" "engineer")}
-                    , reviewRows {event = Took mempty (pickOf "block" "shipping")}
-                    ]
-            and
-                ( zipWith
-                    Text.isInfixOf
-                    ["\"type\":\"route.engineer\"", "\"type\":\"block.shipping\""]
-                    (map encodeLine picks)
-                )
-                `shouldBe` True
-            map (fmap (.event) . decodeLine . encodeLine) picks
-                `shouldBe` map (Right . (.event)) picks
+        "writes the chief's picks under their route's and branch's names, a block's inside the blocks' route"
+        $ map ((.eventType) . eventRow) chiefPicks
+            `shouldBe` ["route.engineer", "block.shipping"]
+
+    it "reads the chief's picks back by their route's and branch's names" $
+        map (fmap (.event) . decodeLine . encodeLine) chiefPicks
+            `shouldBe` map (Right . (.event)) chiefPicks
 
     it "refuses a run's event inside a scope: only a step's outcome is named so" $
         decodeLine
@@ -381,17 +373,12 @@ spec = describe "Data.Payload.Event" $ do
             )
             `shouldSatisfy` malformed
 
-    it "reads a voided seq under 2^53, and one at 2^53 as unknown (I-JSON)" $
-        [ (.event)
-            <$> decodeLine
-                ( encodeLine reviewRows {event = Voided 7 "r"}
-                    `replacing` ("\"seq\":7", "\"seq\":" <> Text.pack (show n))
-                )
-        | n <- [2 ^ (53 :: Int) - 1, 2 ^ (53 :: Int) :: Integer]
-        ]
-            `shouldSatisfy` \case
-                [Right (Voided 9007199254740991 "r"), unread] -> malformed unread
-                _ -> False
+    it "reads a voided seq of 2^53 - 1, I-JSON's largest integer" $
+        (.event) <$> decodeLine (voidingSeq "9007199254740991")
+            `shouldBe` Right (Voided 9007199254740991 "r")
+
+    it "reads a voided seq of 2^53, past I-JSON's integers, as unknown" $
+        decodeLine (voidingSeq "9007199254740992") `shouldSatisfy` malformed
 
     it "refuses a ruling whose answer breaks the line" $
         decodeLine
@@ -794,6 +781,19 @@ picked =
 
 metR1 :: Text
 metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"
+
+-- | The chief's picks of a route and of a block.
+chiefPicks :: [Envelope]
+chiefPicks =
+    [ reviewRows {event = Took mempty (pickOf "route" "engineer")}
+    , reviewRows {event = Took mempty (pickOf "block" "shipping")}
+    ]
+
+-- | A dumped void, reason @r@, of the seq this JSON number spells.
+voidingSeq :: Text -> Text
+voidingSeq n =
+    encodeLine reviewRows {event = Voided 7 "r"}
+        `replacing` ("\"seq\":7", "\"seq\":" <> n)
 
 -- | A started line naming parent run r7f2.
 parentRun :: Envelope

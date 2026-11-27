@@ -106,6 +106,8 @@ import State.Step.Artifact (
     planOf,
     shapeData,
     shapeOf,
+    tag,
+    tagged,
     targetData,
     targetOf,
     taskEncoding,
@@ -388,14 +390,6 @@ ijsonNatural :: Natural -> Parser Natural
 ijsonNatural n
     | n < 2 ^ (53 :: Int) = pure n
     | otherwise = fail (show n <> " is no I-JSON integer: it is 2^53 or more")
-
--- | A union's tag, RFC 8927's discriminator: the one key named @kind@.
-tag :: Text -> Series
-tag = ("kind" .=)
-
--- | The case of a union by its @kind@: each case reads the object's other keys.
-tagged :: String -> (Object -> Text -> Parser a) -> Value -> Parser a
-tagged what caseOf = withObject what (\obj -> obj .: "kind" >>= caseOf obj)
 
 -- | A stop, and a child's hand-back that ended so: its reason and its detail.
 stopData :: Stop -> Series

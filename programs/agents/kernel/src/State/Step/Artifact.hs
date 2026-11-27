@@ -69,6 +69,8 @@ module State.Step.Artifact (
     keyed,
     named,
     unknownCase,
+    tag,
+    tagged,
 ) where
 
 import Control.Applicative ((<|>))
@@ -385,8 +387,8 @@ planData plan = "plan" .= planName plan
 -- | A union under @shape@: @{kind: own_pr}@ or @{kind: round_on, pr_url}@.
 shapeData :: Shape -> Series
 shapeData shape = pair "shape" . pairs $ case shape of
-    OwnPr -> "kind" .= ("own_pr" :: Text)
-    RoundOn url -> "kind" .= ("round_on" :: Text) <> "pr_url" .= urlText url
+    OwnPr -> tag "own_pr"
+    RoundOn url -> tag "round_on" <> "pr_url" .= urlText url
 
 -- | One key, the target's kind, holding its url or branch.
 targetData :: Target -> Series
@@ -529,8 +531,7 @@ fileCallsOf obj = do
 
 shapeOf :: Object -> Parser Shape
 shapeOf obj =
-    obj .: "shape"
-        >>= withObject "shape" (\shape -> shape .: "kind" >>= caseOf shape)
+    obj .: "shape" >>= tagged "shape" caseOf
   where
     caseOf shape = \case
         "own_pr" -> pure OwnPr
@@ -566,3 +567,11 @@ named what parse raw = maybe (unknownCase what raw) pure (parse raw)
 -- | The refusal of a word, or a union's @kind@, that names no case.
 unknownCase :: String -> Text -> Parser a
 unknownCase what raw = fail ("unknown " <> what <> " " <> show raw)
+
+-- | A union's tag, RFC 8927's discriminator: the one key named @kind@.
+tag :: Text -> Series
+tag = ("kind" .=)
+
+-- | The case of a union by its @kind@: each case reads the object's other keys.
+tagged :: String -> (Object -> Text -> Parser a) -> Value -> Parser a
+tagged what caseOf = withObject what (\obj -> obj .: "kind" >>= caseOf obj)
