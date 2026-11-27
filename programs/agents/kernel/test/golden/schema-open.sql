@@ -126,7 +126,7 @@ CREATE TABLE run_states (
   -- The run's Fuel: how many tokens and how much time it may spend. balanced until a fuel.set event.
   fuel        TEXT NOT NULL
               CONSTRAINT run_states_fuel_enum CHECK (fuel IN ('low', 'balanced', 'max')),
-  -- The user's goal, word for word, from the started event. Optional: a run started with none has none.
+  -- The user's goal, word for word: the newest instructed goal in force. Optional: a run told none has none.
   goal        TEXT,
   -- The git worktree the run works in: an absolute path. The latest worktree_moved event wins.
   worktree    TEXT NOT NULL,

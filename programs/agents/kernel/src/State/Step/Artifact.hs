@@ -116,7 +116,6 @@ import Data.Aeson.Encoding (
  )
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
-import Data.Bool (bool)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
@@ -608,26 +607,21 @@ picksOf obj =
             <$> verdict .: "requirement"
             <*> (verdict .: "outcome" >>= named "outcome" (parseByName judgementName))
 
-{- | A breakdown file: the JSON array of tasks @breakdown.done@ logs, each
-task's shape and plan spelt as 'fileCallsOf' reads them.
--}
+-- | A breakdown file: the JSON array of tasks @breakdown.done@ logs, each spelt as the log spells it.
 decodeBreakdown :: Text -> Either Text Tasks
-decodeBreakdown = decodeWith (breakdownWith fileCallsOf)
+decodeBreakdown = decodeWith breakdownOf
 
--- | A task file for @task add@: one task, as a breakdown file spells each.
+-- | A task file for @task add@: one task, as the log spells it.
 decodeTask :: Text -> Either Text Task
-decodeTask = decodeWith (taskWith fileCallsOf)
+decodeTask = decodeWith taskOf
 
 decodeWith :: (Value -> Parser a) -> Text -> Either Text a
 decodeWith parser raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither parser)
 
 -- | A breakdown as the log holds it.
 breakdownOf :: Value -> Parser Tasks
-breakdownOf = breakdownWith loggedCallsOf
-
-breakdownWith :: (Object -> Parser (Shape, PlanCall)) -> Value -> Parser Tasks
-breakdownWith calls value = do
-    tasks <- parseJSON value >>= traverse (taskWith calls)
+breakdownOf value = do
+    tasks <- parseJSON value >>= traverse taskOf
     case NonEmpty.nonEmpty tasks of
         Nothing -> fail "a breakdown has a task at least"
         Just some -> either (fail . Text.unpack . breakdownErrorText) pure (breakdown some)
@@ -649,18 +643,14 @@ breakdownWith calls value = do
 
 -- | A task as the log holds it.
 taskOf :: Value -> Parser Task
-taskOf = taskWith loggedCallsOf
-
-taskWith :: (Object -> Parser (Shape, PlanCall)) -> Value -> Parser Task
-taskWith calls = withObject "task" (taskFieldsOf calls)
+taskOf = withObject "task" taskFieldsOf
 
 {- | By name, as a field a later breakdown adds is one more line; an optional
-one is omitted when absent. The log and a task file spell the task's shape
-and plan apart: @calls@ reads them. The ids @add@ and @head@ are refused:
+one is omitted when absent. The ids @add@ and @head@ are refused:
 @state record task add|head@ take that word's place.
 -}
-taskFieldsOf :: (Object -> Parser (Shape, PlanCall)) -> Object -> Parser Task
-taskFieldsOf calls obj = do
+taskFieldsOf :: Object -> Parser Task
+taskFieldsOf obj = do
     taskId <- obj .: "id" >>= taskIdOf
     title <- obj .: "title" >>= titleOf
     deps <- map TaskId <$> obj .: "deps"
@@ -673,7 +663,8 @@ taskFieldsOf calls obj = do
         obj .: "security"
             >>= traverse (named "topic" (parseByName topicText))
             >>= distinct "topic"
-    (shape, plan) <- calls obj
+    shape <- shapeOf obj
+    plan <- planOf obj
     repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
     flow <-
@@ -733,22 +724,6 @@ baseOf = \case
         "on_epic" -> obj .: "epic" >>= fmap OnEpic . named "epic name" parseEpicName
         "on_task" -> OnTask . TaskId <$> obj .: "task"
         other -> unknownCase "base" other
-
--- | A task's shape and plan as the log tags them, under @shape@ and @plan@.
-loggedCallsOf :: Object -> Parser (Shape, PlanCall)
-loggedCallsOf obj = (,) <$> shapeOf obj <*> planOf obj
-
-{- | A task's shape and plan as a task file spells them: a round's PR under
-@pr@, a decided plan as @planDecided: true@, each left out otherwise.
--}
-fileCallsOf :: Object -> Parser (Shape, PlanCall)
-fileCallsOf obj = do
-    pr <- obj .:? "pr"
-    decided <- obj .:? "planDecided"
-    pure
-        ( maybe OwnPr (RoundOn . Url) pr
-        , bool ChildConfirms ParentDecided (fromMaybe False decided)
-        )
 
 shapeOf :: Object -> Parser Shape
 shapeOf obj =

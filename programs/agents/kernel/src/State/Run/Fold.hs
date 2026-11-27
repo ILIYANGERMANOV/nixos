@@ -19,7 +19,6 @@ module State.Run.Fold (
     suspendedAsks,
     trace,
     Worker (..),
-    Origin (..),
     ChildId (..),
     Open (..),
     ledger,
@@ -33,7 +32,7 @@ module State.Run.Fold (
     taskHolder,
     taskFan,
     taskRefIn,
-    movable,
+    holdsAlready,
     childRefIn,
     addedTo,
     Round (..),
@@ -54,6 +53,7 @@ module State.Run.Fold (
     append,
     appendTo,
     fuelOf,
+    goalOf,
     targetsAt,
     OnTarget (..),
     shape,
@@ -151,6 +151,7 @@ import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (
     Above,
+    Basis (..),
     Cond (OneRetry),
     Kind (Security),
     OneLine,
@@ -183,8 +184,9 @@ import State.Run.Event (
     Envelope (..),
     EpicName,
     Event (..),
-    EventId,
-    Instruction,
+    EventId (..),
+    Instruction (..),
+    InstructionKind (GoalInstruction),
     Judgement (..),
     Label,
     Need,
@@ -209,6 +211,7 @@ import State.Run.Event (
     TaskState (Delivered, InCi, InReview, Kept, Merged, Parked),
     Url,
     Usage,
+    Verbatim,
     eventId,
     taskNoText,
     tookEvent,
@@ -343,20 +346,14 @@ since it was named: then the user confirms its plan after all.
 data OnTarget = OnTarget {target :: Target, designAsked :: Bool}
     deriving stock (Eq, Show)
 
-{- | A worker at work: its role, the line that opened it, and that line's
-seq, a span's id ('SpanId').
+{- | A worker at work: its role, and the seq of the @span_started@ that
+opened it, its span's id ('SpanId').
 -}
-data Worker = Worker {role :: AgentRole, origin :: Origin, spawnedAt :: Natural}
+data Worker = Worker {role :: AgentRole, spawnedAt :: Natural}
     deriving stock (Eq, Show)
 
-{- | The line that opened a worker: a @span_started@, or a @worker_spawned@
-from before spans (logged at the bind, it names the agent's id).
--}
-data Origin = SpanLine | WorkerLine AgentId
-    deriving stock (Eq, Show)
-
--- | A child of the run: an agent it spawned, a child run of its fan-out, or a span.
-data ChildId = AgentChild AgentId | RunChild RunId | SpanChild SpanId
+-- | A child of the run: a child run of its fan-out, or a span.
+data ChildId = RunChild RunId | SpanChild SpanId
     deriving stock (Eq, Show)
 
 -- | A child of the run spawned and yet to return or hand back its end, and the role that runs it.
@@ -372,7 +369,8 @@ book holds each child's hand-backs, its last one says whether it runs on.
 -}
 ledger :: OpenGraph -> RunState -> [Open]
 ledger g state =
-    [Open (childOf worker) worker.role | worker <- state.workers]
+    [ Open (SpanChild (SpanId worker.spawnedAt)) worker.role | worker <- state.workers
+    ]
         <> [ Open (RunChild childRun.child.run) group.runner
            | (scoped, fan) <- Map.toList state.fans
            , (place, Awaiting group) <- Map.toList g.groupStates
@@ -382,9 +380,6 @@ ledger g state =
            , unsettled fan childRun.child.task
            ]
   where
-    childOf worker = case worker.origin of
-        SpanLine -> SpanChild (SpanId worker.spawnedAt)
-        WorkerLine agent -> AgentChild agent
     -- An untasked child is open while it runs.
     unsettled fan = \case
         Tasked ref -> not (Fan.settled fan ref.task)
@@ -455,11 +450,11 @@ data Refusal
       NotAllowed Ask.Refusal
     | -- | A forward or answer naming another than whoever started the run.
       NotAbove Above
+    | -- | A ruling whose basis names a line this run never logged.
+      UnknownBasis QId EventId
     | FanRefused Fan.Refusal
     | -- | A child's event no fan-out holds, or a task added, where the run is at no fan-out's state and has none.
       NotAtFan
-    | -- | A task's event no fan-out's breakdown holds.
-      NotOneHolder TaskId
     | -- | A void naming no line the run replays: no such seq, a line voided already, or a void.
       NotVoidable Natural
     | -- | A void of this seq leaves a log that does not replay, for this refusal.
@@ -642,8 +637,6 @@ runStart = \case
     TaskAdded _ _ -> Nothing
     Restarted -> Nothing
     WorkerHandedBack _ _ -> Nothing
-    WorkerSpawned _ _ -> Nothing
-    WorkerReturned _ _ -> Nothing
     AgentEnded _ -> Nothing
     Suspended _ _ -> Nothing
     Focused _ -> Nothing
@@ -781,15 +774,12 @@ applyEvent g state n = \case
         (Nothing, Nothing) ->
             atFan g state.at HandsBack
                 >> inFanOf (fanAt state.at) (Fan.handedBack child said)
-    -- 'Fan.moved' ignores a merged task's later move, so the run skips its effects too.
     TaskMoved TaskRef {task} moved ->
         going $
             heldTask task >>= \holder -> do
                 let before = fanIn state.fans holder.fan
                 after <- inFanAt holder.fan (Fan.moved task moved) state
-                if Fan.merged before task
-                    then Right after
-                    else afterMove holder.fan before task moved after
+                afterMove holder.fan before task moved after
     Held ref url -> going (inTaskFan ref.task (Fan.held ref.task url))
     ActedOn ref url -> going (inTaskFan ref.task (Fan.actedOn ref.task url))
     -- A new task joins the fan-out the run is at, else the latest breakdown's ('addingTo').
@@ -803,10 +793,6 @@ applyEvent g state n = \case
     -- The lead's session started afresh: every agent it had at work is gone.
     Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
-    WorkerSpawned role agent ->
-        going
-            (Right state {workers = state.workers <> [Worker role (WorkerLine agent) n]})
-    WorkerReturned role agent -> going (Right state {workers = returned role agent state.workers})
     AgentEnded agent -> going (Right state {agentEnded = Just agent})
     Suspended task summary -> going (handle FocusHandler g state (Suspends n task summary))
     Focused task -> going (handle FocusHandler g state (Focuses task))
@@ -819,7 +805,7 @@ applyEvent g state n = \case
     -- A gap's fix may land after its run stopped or finished: taken in any state.
     GapMoved target move -> (\after -> after {refused = Nothing}) <$> gapMoved state target move
     SpanStarted start ->
-        going (Right state {workers = state.workers <> [Worker start.role SpanLine n]})
+        going (Right state {workers = state.workers <> [Worker start.role n]})
     SpanEnded ended _ _ -> going $ case break (isSpan ended) state.workers of
         (before, _ : after) -> Right state {workers = before <> after}
         (_, []) -> Left (SpanNotOpen ended)
@@ -930,44 +916,32 @@ targetsAt flow place = case flow of
     TenXFlow -> False
     ArchitectFlow -> False
 
-{- | The worker gone from those at work: the one of that id, else the oldest
-of that role, as a hand-back piped in by hand names no id.
--}
-returned :: AgentRole -> Maybe AgentId -> [Worker] -> [Worker]
-returned role agent workers = case break (returning role agent) workers of
-    (before, _ : after) -> before <> after
-    (before, []) -> before
-
 {- | What the parent records when the agent leading its child run ended with
-no hand-back: an untasked child's stop, which closes it in the 'ledger',
-else the agent's return when it was at work ('returnOf').
+no hand-back: an untasked child's stop, which closes it in the 'ledger'.
+A worker of the parent is a span, ended through its link, not here.
 -}
-agentEndedIn :: RunState -> RunId -> AgentRole -> AgentId -> Maybe Event
-agentEndedIn state child role agent = case untaskedFan state child of
-    Just _ ->
-        Just
-            ( HandedBack
-                child
-                Nothing
-                ( Ended
-                    (Event.Stop Failed ("agent " <> agent.agentIdText <> " ended with no hand-back"))
-                )
-            )
-    Nothing -> returnOf state role (Just agent) Event.NoHandback
+agentEndedIn :: RunState -> RunId -> AgentId -> Maybe Event
+agentEndedIn state child agent =
+    HandedBack
+        child
+        Nothing
+        ( Ended
+            (Event.Stop Failed ("agent " <> agent.agentIdText <> " ended with no hand-back"))
+        )
+        <$ untaskedFan state child
 
-{- | The event saying a worker of this role returned, ended so, when it is
-one at work: none for another. With no id, the oldest of the role returns,
-so a span lost to a restart is never the one.
+{- | The span of a worker of this role that returned, ended so, when one is
+at work: the oldest of the role, as a hand-back piped in by hand names no
+agent id. A hand-back by a known agent ends none here: the hook ends its
+span through its link ('endSpan'), and ending the oldest of its role too
+would end another worker's span.
 -}
 returnOf :: RunState -> AgentRole -> Maybe AgentId -> SpanEnding -> Maybe Event
-returnOf state role agent ending = returnedAs <$> find (returning role agent) state.workers
-  where
-    returnedAs worker = case worker.origin of
-        SpanLine -> SpanEnded (SpanId worker.spawnedAt) ending unreported
-        WorkerLine _ -> WorkerReturned role agent
-
-returning :: AgentRole -> Maybe AgentId -> Worker -> Bool
-returning role agent worker = maybe (worker.role == role) ((== worker.origin) . WorkerLine) agent
+returnOf state role agent ending = case agent of
+    Just _ -> Nothing
+    Nothing ->
+        (\worker -> SpanEnded (SpanId worker.spawnedAt) ending unreported)
+            <$> find ((== role) . (.role)) state.workers
 
 {- | The event ending this span so, when it is open: none for one that
 ended already, never started or was lost to a restart. Every writer of a
@@ -977,7 +951,7 @@ endSpan :: RunState -> SpanId -> SpanEnding -> Usage -> Maybe Event
 endSpan state ended ending usage = SpanEnded ended ending usage <$ find (isSpan ended) state.workers
 
 isSpan :: SpanId -> Worker -> Bool
-isSpan ended worker = worker.origin == SpanLine && SpanId worker.spawnedAt == ended
+isSpan ended worker = SpanId worker.spawnedAt == ended
 
 -- | The worker's oldest hand-back gone, once the run asked it as a question.
 triagedBy :: AgentRole -> [(AgentRole, OneLine)] -> [(AgentRole, OneLine)]
@@ -1089,9 +1063,10 @@ breakdown is the latest ('latestHolder').
 taskHolder :: RunState -> TaskId -> Maybe (Holder Task)
 taskHolder state task = latestHolder (`Fan.lookupTask` task) state
 
--- | The fan-out holding the task ('taskHolder'), refused when none does.
+-- | The fan-out holding the task ('taskHolder'), refused as a task no breakdown has when none does.
 holderOf :: RunState -> TaskId -> Either Refusal (Holder Task)
-holderOf state task = maybe (Left (NotOneHolder task)) Right (taskHolder state task)
+holderOf state task =
+    maybe (Left (FanRefused (Fan.UnknownTask task))) Right (taskHolder state task)
 
 -- | The fan-out holding the task ('taskHolder'), and an empty one when none does.
 taskFan :: RunState -> TaskId -> Fan
@@ -1111,16 +1086,9 @@ taskRefIn state task = do
     holder <- holderOf state task
     Bifunctor.first FanRefused (Fan.taskRef (fanIn state.fans holder.fan) task)
 
-{- | A move of this task recorded now, by the fan-out that holds it
-('Fan.movable'): refused once the task merged, or as 'taskRefIn' refuses
-the task. Never in the fold, so a log holding such a move still replays.
--}
-movable :: RunState -> TaskId -> TaskState -> Either Refusal Fan.Movable
-movable state task moved = do
-    holder <- holderOf state task
-    Bifunctor.first
-        FanRefused
-        (Fan.movable task moved (fanIn state.fans holder.fan))
+-- | The task holds this move already, in the fan-out that holds it ('Fan.holds').
+holdsAlready :: RunState -> TaskId -> TaskState -> Bool
+holdsAlready state task moved = Fan.holds task moved (taskFan state task)
 
 -- | The task the child of this run id took, as its @spawned@ names it: none for an untasked or unknown child.
 childRefIn :: RunState -> RunId -> Maybe TaskRef
@@ -1671,12 +1639,30 @@ retagged state qid = do
 ruledOn :: RunState -> QId -> Proposal -> Either Refusal RunState
 ruledOn state qid proposal = do
     asking <- forTriage qid state.pending
+    knownBasis state.run state.seen qid proposal.basis
     let rung = Role.rungAt state.start.flow asking.step
     ruling <- Bifunctor.first NotAllowed $ case triaging state asking of
         RulesOrForwards -> Ask.rule rung asking.question.kind asking.question proposal
         ForwardsOnly -> Left (Ask.MayNotRule rung asking.question.kind)
     Right
         state {pending = close qid state.pending, rulings = state.rulings <> [ruling]}
+
+{- | A basis naming a line names one the run logged: a hook's line by its
+digest, the run's own by its seq. Another run's line is not checked: its
+log is not read here.
+-}
+knownBasis :: RunId -> Set EventId -> QId -> Maybe Basis -> Either Refusal ()
+knownBasis run seen qid = \case
+    Just (AnsweredBy event@(Hashed _)) -> logged event
+    Just (AnsweredBy event@(Numbered on _))
+        | on == run -> logged event
+        | otherwise -> Right ()
+    Just (Obvious _) -> Right ()
+    Nothing -> Right ()
+  where
+    logged event
+        | Set.member event seen = Right ()
+        | otherwise = Left (UnknownBasis qid event)
 
 -- | What the run may do with a question in triage.
 data Triaging = RulesOrForwards | ForwardsOnly
@@ -2054,6 +2040,16 @@ shipped = \case
 -- | Balanced until recorded, as a brief with no @Fuel@ line reads.
 fuelOf :: RunState -> Fuel
 fuelOf state = fromMaybe Balanced state.fuel
+
+{- | The run's goal: the newest instructed goal in force, word for word, by
+its seq, if any.
+-}
+goalOf :: RunState -> Maybe (Natural, Verbatim)
+goalOf state =
+    listToMaybe
+        [ (n, text)
+        | (n, Instruction GoalInstruction text) <- Map.toDescList state.instructions
+        ]
 
 -- | A loop making no progress: these problems were in both of its last two rounds.
 data Stuck = Stuck {loop :: Name, same :: Set Problem}

@@ -465,7 +465,6 @@ started run =
                 , notes = "/notes"
                 , principal = ByUser OwnPr
                 , interface = Set.empty
-                , goal = Nothing
                 , worktree = absolutePath "/work"
                 , repo = Nothing
                 }
@@ -483,7 +482,6 @@ childOf parent run =
                 , notes = "/child"
                 , principal = ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr minBound
                 , interface = Set.empty
-                , goal = Nothing
                 , worktree = absolutePath "/work"
                 , repo = Nothing
                 }

@@ -7,6 +7,10 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (encodeUtf8)
+import Hedgehog (forAll, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
 import State.Artifact (uriRule)
@@ -29,6 +33,7 @@ import State.Cli.Command (
     Until (..),
     Usage (..),
     anyEvent,
+    argvText,
     explain,
     failureText,
     help,
@@ -79,6 +84,7 @@ import State.Run.Event (
     TaskRef (..),
     stepTook,
     tookIn,
+    verbatimText,
  )
 import State.Run.EventGen (
     fuelSet,
@@ -121,6 +127,7 @@ import Test.Hspec (
     shouldBe,
     shouldSatisfy,
  )
+import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Cli.Command" $ do
@@ -235,6 +242,12 @@ spec = describe "State.Cli.Command" $ do
         it "refuses a gap whose --area is more than one line" $
             drafted ["gap", "--area", "fold\ntasks: done", "a", "gap"]
                 `shouldBe` Left "record gap"
+
+        it "refuses a gap whose --area is blank" $
+            ( drafted ["gap", "--area", "", "a", "gap"]
+            , drafted ["gap", "--area", "  ", "a", "gap"]
+            )
+                `shouldBe` (Left "record gap", Left "record gap")
 
         it "refuses a gap with no text" $
             recorded ["gap"] `shouldBe` Left "record gap"
@@ -467,6 +480,10 @@ spec = describe "State.Cli.Command" $ do
             , goalOf <$> parse ["init", "--notes", "/n/"]
             )
                 `shouldBe` (Right (Just "ship  the  --fix"), Right Nothing)
+
+        it "refuses a blank init --goal" $
+            goalOf <$> parse ["init", "--notes", "/n/", "--goal", "  "]
+                `shouldBe` Left "--goal"
 
         it "reads a text that is no absolute URI as a file's path, of a file's kind" $
             registered (parse ["artifact", "notes/r.md", "--kind", "research"])
@@ -801,6 +818,22 @@ spec = describe "State.Cli.Command" $ do
                 [["--parent", "r1", "--task", "t1"], ["--parent", "r1"], ["--task", "t1"]]
                 `shouldBe` replicate 3 (Just "--pr with --parent")
 
+    describe "argv" $ do
+        it "decodes each argument as UTF-8" $
+            argvText
+                ["record", "gap", "\xc3\xa9t\xc3\xa9 \xe2\x9c\x93 \xe6\x97\xa5\xe6\x9c\xac"]
+                `shouldBe` Right ["record", "gap", "été ✓ 日本"]
+
+        it
+            "refuses the first argument that is not UTF-8 by its position from 1, not its bytes"
+            $ argvText ["record", "a\xff\&b", "\xc3"]
+                `shouldBe` Left (Failure BadInput "argument 2" "not UTF-8" "pass each argument as UTF-8")
+
+        it "decodes any text's UTF-8 bytes back to that text" $ hedgehog $ do
+            argv <-
+                forAll (Gen.list (Range.linear 0 5) (Gen.text (Range.linear 0 12) Gen.unicode))
+            argvText (map encodeUtf8 argv) === Right argv
+
     describe "failures" $ do
         it "prints what, why and the fix as the analyzer parses them" $
             failureText "record" (Failure BadInput "fuel" "set once" "state show")
@@ -998,7 +1031,7 @@ spec = describe "State.Cli.Command" $ do
         _ -> Nothing
     goalOf :: Command -> Maybe Text
     goalOf = \case
-        Init args -> args.goal
+        Init args -> verbatimText <$> args.goal
         _ -> Nothing
     registered ::
         Either Text Command -> Either Text (Location FilePath, Maybe Natural)

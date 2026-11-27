@@ -43,7 +43,6 @@ import State.Run.EventGen (
     started,
  )
 import State.Run.Fold (
-    Origin (..),
     RunState (..),
     Triaging (..),
     Worker (..),
@@ -187,7 +186,6 @@ spec = describe "State.Protocol.Advice" $ do
                                             "notes"
                                             (ByUser OwnPr)
                                             Set.empty
-                                            Nothing
                                             (absolutePath "/work")
                                             Nothing
                                         )
@@ -219,7 +217,6 @@ spec = describe "State.Protocol.Advice" $ do
                                     "notes"
                                     (ByUser OwnPr)
                                     Set.empty
-                                    Nothing
                                     (absolutePath "/work")
                                     Nothing
                                 )
@@ -371,7 +368,12 @@ spec = describe "State.Protocol.Advice" $ do
                 ( runAt
                     ( knobs Balanced
                         <> researched
-                        <> [stepTook ResearchHandedBack, WorkerReturned (AgentRole "researcher") Nothing]
+                        <> [ stepTook ResearchHandedBack
+                           , SpanEnded
+                                (SpanId (fromIntegral (length (knobs Balanced <> researched))))
+                                NoHandback
+                                unreported
+                           ]
                     )
                 )
                 `shouldBe` explainedAt (runAt (knobs Balanced))
@@ -1009,7 +1011,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` ["STOP rounds review", "HANDBACK BLOCKED out of rounds: review"]
 
     describe "heldBy" $ do
-        let fixer = [Worker (AgentRole "fixer") (WorkerLine (AgentId "a1")) 7]
+        let fixer = [Worker (AgentRole "fixer") 7]
             finished =
                 Advice
                     (Done (OutputEnd (Just (Url "https://pr/1"))))
@@ -1023,10 +1025,10 @@ spec = describe "State.Protocol.Advice" $ do
             "holds a hand-back to a parent while a worker is at work, naming it in house format"
             $ heldBy child fixer finished
                 `shouldBe` finished
-                    { action = AwaitWorker (Worker (AgentRole "fixer") (WorkerLine (AgentId "a1")) 7)
+                    { action = AwaitWorker (Worker (AgentRole "fixer") 7)
                     , leads = []
                     , facts =
-                        [ "state handback: fixer a1 is still at work - its hand-back is not recorded"
+                        [ "state handback: fixer span 7 is still at work - its hand-back is not recorded"
                         , "fix: wait for it, or state handback fixer for its report, or state void 7 \"<why>\" for a lost one"
                         , "fuel: balanced"
                         ]
@@ -1038,11 +1040,9 @@ spec = describe "State.Protocol.Advice" $ do
               , heldBy child fixer finished {action = Spawn (AgentRole "fixer") Nothing}
               ]
                 `shouldBe` [finished, finished, finished {action = Spawn (AgentRole "fixer") Nothing}]
-        it "awaits the worker by its role and id, or its span's" $
-            map
-                (\origin -> deliver child (AwaitWorker (Worker (AgentRole "fixer") origin 7)))
-                [WorkerLine (AgentId "a1"), SpanLine]
-                `shouldBe` ["AWAIT worker fixer a1", "AWAIT worker fixer span 7"]
+        it "awaits the worker by its role and span" $
+            deliver child (AwaitWorker (Worker (AgentRole "fixer") 7))
+                `shouldBe` "AWAIT worker fixer span 7"
 
     describe "ownAsk" $ do
         it "forwards a Design question to the user" $
@@ -1140,8 +1140,18 @@ spec = describe "State.Protocol.Advice" $ do
     -- As init starts a 10x: at Balanced, given.
     tenXStarted = tenXRun [fuelSet Balanced]
     gathering = StateName "gather"
-    -- A researcher spawned and bound to its agent: open in the ledger until it returns.
-    researched = spawnedIn "gather" <> [WorkerSpawned (AgentRole "researcher") (AgentId "r1")]
+    -- A researcher spawned, its span started: open in the ledger until it ends.
+    researched =
+        spawnedIn "gather"
+            <> [ SpanStarted
+                    ( SpanStart
+                        (AgentRole "researcher")
+                        (Harness "claude-code")
+                        "research"
+                        Nothing
+                        Nothing
+                    )
+               ]
     pickResearch = Took mempty (pickOf "gather" "research")
     -- Each put to the user at the interview and answered, then back at the gather's pick.
     questions n =

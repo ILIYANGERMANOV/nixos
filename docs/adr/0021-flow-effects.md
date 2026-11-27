@@ -88,13 +88,9 @@ flow's, as an unhandled operation goes to the enclosing handler:
   is finished, read off its cursor: the turn records `next.request`. Its forwarded
   questions are parked (S3's `QuestionParked`) and stay answerable.
 - **Cards are derived.** `Card.cards` reads each request's card off the
-  traced log (node, decisions, open questions, last worker, paused-at);
-  nothing is stored for them.
-- **Advice from logged times.** `resumeAdvice` is pure over the pause and
-  now: `resume agent <id>` under `cacheLife - safetyBuffer` (300s - 15s,
-  the user's buffer), else `fresh agent from card`. `state focus rK` takes
-  both times from the log's `ts`, so a replay advises the same; `state
-  tasks` takes now from the clock.
+  traced log (node, decisions, open questions, paused-at); nothing is
+  stored for them. `state focus rK` counts the pause from the log's `ts`,
+  so a replay prints the same; `state tasks` takes now from the clock.
 
 ## Operations replace `Special`
 
@@ -135,7 +131,6 @@ read outside the flow algebra. A step's needs now live in its type alone:
 | ruling one direct child's question changes no other child's log | `MainSpec` |
 | a whole flow with an unhandled Pick, Ask, Focus or Await does not compile | `FlowSpec` |
 | turning away from a request and back lands where the log without the turn does | `FoldSpec` |
-| resume advice turns at exactly `cacheLife - safetyBuffer`, on any seed | `CardSpec` |
 
 ## Consequences
 
@@ -170,3 +165,7 @@ read outside the flow algebra. A step's needs now live in its type alone:
   the Focus handler.
 - #478: inline handlers.
 - #541: operations replace `Special`; the Await handler.
+- #577: the card's "resume agent" advice is gone. It named the last
+  agent a `worker_spawned` line bound, and no kernel writes that line
+  since spans: the advice could never fire for a new run. Only new runs
+  matter, so no reader is kept for old logs.

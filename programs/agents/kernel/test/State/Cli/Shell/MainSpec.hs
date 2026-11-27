@@ -1086,6 +1086,36 @@ spec = describe "state over the doubles" $ do
 
                     map (uncurry (==)) . ownAsked <$> logged world `shouldReturn` [True]
 
+            it "refuses a ruling whose basis names no line, logging no ruling" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+                qid <- askedQId world ["--kind", "Pick", "which", "rows?"]
+
+                ran <-
+                    state
+                        world
+                        [ "rule"
+                        , qid
+                        , "--answer"
+                        , "all"
+                        , "--why"
+                        , "the user said"
+                        , "--cost"
+                        , "none"
+                        , "--basis"
+                        , "h:00000000deadbeef"
+                        ]
+
+                (ran.code, ran.err)
+                    `shouldBe` ( 2
+                               ,
+                                   [ "state rule: unknown_basis - the basis h:00000000deadbeef names no line this run logged"
+                                   , "fix: state dump, then state rule "
+                                        <> qid
+                                        <> " --answer <a> --why <w> --cost <c> --basis <an event id it prints>|obvious:<why>"
+                                   ]
+                               )
+                filter (== "ruled") <$> loggedEvents world `shouldReturn` []
+
             it "numbers a retry's question by the seq of the line that asks it" $ \world -> do
                 parent <- tenXAtFanOut world
                 child <- childRun world parent "/child" "t1"
@@ -1306,7 +1336,7 @@ spec = describe "state over the doubles" $ do
                 (refused.code, refused.err)
                     `shouldBe` ( 2
                                ,
-                                   [ "state init: --task t9 - no fan-out's breakdown has such a task"
+                                   [ "state init: --task t9 - task t9 is not in the breakdown"
                                    , "fix: state brief engineer, in the parent's worktree, prints the init line"
                                    ]
                                )
@@ -1844,7 +1874,7 @@ spec = describe "state over the doubles" $ do
                                            ]
                                        )
                                    , (2, ["state record: unknown_epic - the run never opened epic nope"])
-                                   , (2, ["state record: task t9 - no fan-out's breakdown has such a task"])
+                                   , (2, ["state record: unknown_task - task t9 is not in the breakdown"])
                                    ]
                     (unreasoned.code, take 1 unreasoned.err)
                         `shouldBe` ( 2

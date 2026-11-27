@@ -84,7 +84,6 @@ spec = describe "the advice at every state" $ do
                             "notes"
                             (ByUser OwnPr)
                             Set.empty
-                            Nothing
                             (absolutePath "/work")
                             Nothing
                         )

@@ -3,7 +3,7 @@ in pure code, then append to the log and print. Every decision is the
 kernel's; this module moves data between them and the effects, whose IO
 interpreters 'runShellIO' runs.
 -}
-module State.Cli.Shell (Shell, main, hook, runShellIO, storeDurability, recordedEvent) where
+module State.Cli.Shell (Shell, main, hook, runArgvIO, storeDurability, recordedEvent) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
@@ -30,6 +30,7 @@ import Data.Text.Encoding (
     decodeUtf8Lenient,
     encodeUtf8,
  )
+import Data.Text.IO qualified as TextIO
 import Data.Time (UTCTime)
 import Effectful (Eff, IOE, runEff, (:>))
 import Effectful.Error.Static (Error, catchError, runErrorNoCallStack)
@@ -54,6 +55,7 @@ import Effects.Store.Connection (
     OpenRefusal (..),
  )
 import Effects.Store.Migration (applicationId)
+import GHC.IO.Encoding (setFileSystemEncoding, setLocaleEncoding)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
@@ -102,6 +104,7 @@ import State.Cli.Command (
     answeredQid,
     anyEvent,
     architectInitFix,
+    argvText,
     chiefInitFix,
     defaultFlow,
     explain,
@@ -281,6 +284,8 @@ import State.Run.Event (
     Event (..),
     FlowName (..),
     Handover,
+    Instruction (..),
+    InstructionKind (GoalInstruction),
     NonBlank,
     Note (..),
     RefusalCode (..),
@@ -332,9 +337,12 @@ import State.Step.Catalog (outcome, termSkips)
 import State.Step.Fuel (Outcome (LevelSet))
 import State.Step.Request (Outcome (NextRequest))
 import State.Table (Steps, parseSteps)
-import System.Exit (ExitCode (..))
+import System.Exit (ExitCode (..), exitWith)
 import System.FilePath (equalFilePath, takeDirectory, (</>))
+import System.IO (hSetEncoding, mkTextEncoding, stderr, stdout)
+import System.IO qualified as IO
 import System.IO.Error (isDoesNotExistError)
+import System.Posix.Env.ByteString qualified as Posix
 
 {- | Every effect the shell runs on. A run store it cannot open is an
 'OpenRefusal' it tells as a failure.
@@ -351,6 +359,25 @@ type Shell es =
     , RoFileSystem :> es
     , WrFileSystem :> es
     )
+
+{- | One process of @state@ or @state-hook@, its program run on its argv:
+UTF-8 whatever the locale, and argv decoded before any read or write.
+Pipes to git and gh and file Text IO take the locale encoding, paths and
+a child's arguments the file system's; stdin is read as bytes.
+-}
+runArgvIO :: (forall es. (Shell es) => [Text] -> Eff es ExitCode) -> IO ()
+runArgvIO program = do
+    setLocaleEncoding IO.utf8
+    -- ROUNDTRIP keeps a path's bytes that are not UTF-8, as GHC's default one does (PEP 383).
+    setFileSystemEncoding =<< mkTextEncoding "UTF-8//ROUNDTRIP"
+    -- The standard handles took the locale's encoding when they opened.
+    traverse_ (`hSetEncoding` IO.utf8) [stdout, stderr]
+    argv <- argvText <$> Posix.getArgs
+    exitWith =<< case argv of
+        Left failure -> TextIO.hPutStr stderr (failureText "argv" failure) $> exitOf failure.exit
+        Right decoded ->
+            let (durability, rest) = storeDurability decoded
+             in runShellIO durability (program rest)
 
 -- | A shell program against the real world: the process, its files, git and GitHub.
 runShellIO ::
@@ -407,12 +434,15 @@ main argv =
                     Right out -> Console.out out $> ExitSuccess
                     Left failure -> failed sub failure
   where
-    failed sub failure =
-        Console.err (failureText sub failure) $> case failure.exit of
-            BadInput -> ExitFailure 2
-            Outage -> ExitFailure 1
-            NotStored -> ExitFailure 3
-            NotAnArtifact -> ExitFailure 4
+    failed sub failure = Console.err (failureText sub failure) $> exitOf failure.exit
+
+-- | A failure's exit code.
+exitOf :: Exit -> ExitCode
+exitOf = \case
+    BadInput -> ExitFailure 2
+    Outage -> ExitFailure 1
+    NotStored -> ExitFailure 3
+    NotAnArtifact -> ExitFailure 4
 
 -- | Help asked for goes to stdout, exit 0; a usage error to stderr, exit 2.
 usageOut :: (Console :> es) => String -> Usage -> Eff es ExitCode
@@ -861,12 +891,11 @@ sessionAgents session =
 
 {- | An agent ended with no hand-back, logged once: 'AgentEnded' in the child
 run it leads ('ledRun'), when a parent the test takes started it, then in
-that parent the child's stop, when the child is untasked, else the agent's
-return, when it has the agent at work ('Fold.agentEndedIn'). An agent
-leading no child run, a plain worker or one in a child run, records
-nothing: a return would fake its hand-back. Nor does a child run whose
-@state next@ hands back now: one over, asking up or awaiting made its
-hand-back, or makes it once resumed.
+that parent the child's stop, when the child is untasked
+('Fold.agentEndedIn'). An agent leading no child run, a plain worker or one
+in a child run, records nothing: a return would fake its hand-back. Nor does
+a child run whose @state next@ hands back now: one over, asking up or
+awaiting made its hand-back, or makes it once resumed.
 -}
 agentEnded ::
     (Shell es) =>
@@ -879,7 +908,7 @@ agentEnded steps session under agent =
                 NoRun -> pure ""
                 Ran (Left failure) -> pure (failureText "stop" failure)
                 Ran (Right Nothing) -> pure ""
-                Ran (Right (Just (parent, role))) -> either (failureText "stop") (const "") <$> onLog (returning run role) parent
+                Ran (Right (Just parent)) -> either (failureText "stop") (const "") <$> onLog (stopping run) parent
   where
     sessioned stamp = Stamp stamp.ts stamp.head session
     noted = Right . (`Plan` (\_ _ -> mempty))
@@ -887,7 +916,7 @@ agentEnded steps session under agent =
         ByRole parent _ _
             | under parent.run && not (handsBackNow steps stamp run) ->
                 fmap
-                    (Just (parent.run, (Role.role run.state.start.flow).name) <$)
+                    (Just parent.run <$)
                     ( record
                         (sessioned stamp)
                         run
@@ -897,12 +926,12 @@ agentEnded steps session under agent =
         ByRole {} -> ([], Right Nothing)
         ByUser _ -> ([], Right Nothing)
         ByCaller _ -> ([], Right Nothing)
-    returning child role stamp run =
+    stopping child stamp run =
         record
             (sessioned stamp)
             run
             [Hook (digestOf [runIdText run.state.run, agent.agentIdText, "agent_returned"])]
-            (noted (maybeToList (Fold.agentEndedIn run.state child role agent)))
+            (noted (maybeToList (Fold.agentEndedIn run.state child agent)))
 
 {- | The run the slot's agent leads: the one it is bound to, when its own init
 bound it there. A worker bound to its spawner's run, or a session from before
@@ -1086,7 +1115,7 @@ runAnswer steps call bound found want = case want of
                 ( []
                 , failureText
                     "resume"
-                    (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
+                    (explainIn run.g run.state refusal)
                 )
             Right (restart, after) ->
                 let (new, _, out) = adviceOf steps facts told Nothing stamp after
@@ -1106,7 +1135,7 @@ runAnswer steps call bound found want = case want of
              in case commit stamp run (opening <> spanStarted run parent spawn) of
                     Left refusal ->
                         ( []
-                        , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
+                        , failureText "spawn" (explainIn run.g run.state refusal)
                         )
                     Right (written, after) ->
                         let opened = take (length opening) written
@@ -1129,7 +1158,7 @@ runAnswer steps call bound found want = case want of
         onHook Nothing $ \stamp run -> case commit stamp run (spanStarted run parent (Just spawn)) of
             Left refusal ->
                 ( []
-                , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
+                , failureText "spawn" (explainIn run.g run.state refusal)
                 )
             Right (written, _) -> (map (.envelope) written, "")
     Hook.HandedBack message agent role usage -> do
@@ -1852,7 +1881,7 @@ focusPlan run target summary = do
                 . fromMaybe [focusLine after]
                 $ View.cardLines <$> focusedAt <*> card
   where
-    refusal = explain run.g (Fold.fuelOf run.state) run.state.at
+    refusal = explainIn run.g run.state
     focusLine after = taskNoText after.focus <> " in focus at " <> stateNameText (askedAt after)
 
 {- | @state tasks@: the card of each request of the worktree's run, by the
@@ -1912,7 +1941,7 @@ tasks = do
 cardsOf :: Loaded -> Either Failure [Card.Card]
 cardsOf run =
     Bifunctor.first
-        (explain run.g (Fold.fuelOf run.state) run.state.at)
+        (explainIn run.g run.state)
         (Card.cards <$> Fold.trace run.g run.logged)
 
 {- | @state dump <run>@: the run's rows as stored, one JSON Lines line each in
@@ -2067,7 +2096,7 @@ planOf ::
 planOf steps worktreeHead file unstoredEvidence g state next = \case
     -- The same merge again: its goal holds, so nothing is logged and voiding the merge undoes it.
     Record (MovesTask task moved)
-        | Right Fan.HoldsAlready <- Fold.movable state task moved ->
+        | Fold.holdsAlready state task moved ->
             Right
                 ( Plan
                     []
@@ -2268,7 +2297,7 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
         Failure
             BadInput
             ("--to user on a " <> kindName kind <> " question")
-            (explain g (Fold.fuelOf state) state.at (Fold.NotAllowed refusal)).why
+            (explainIn g state (Fold.NotAllowed refusal)).why
             ( "state ask --kind "
                 <> kindName kind
                 <> " <question>, without --to: the run answers it"
@@ -2418,12 +2447,12 @@ namedEvent g state worktreeHead file n = \case
     -- Never met: the shell appends a need's done in the need's own run first ('closeNeed').
     NeedDone ref note -> Right (UserNeededDone ref.seq note)
     MovesTask task moved ->
-        onTask task (`TaskMoved` moved) <* refusedAs (Fold.movable state task moved)
+        onTask task (`TaskMoved` moved)
   where
     onTask task event = event <$> taskRef task
     taskRef = refusedAs . Fold.taskRefIn state
     refusedAs :: Either Fold.Refusal a -> Either Failure a
-    refusedAs = Bifunctor.first (explain g (Fold.fuelOf state) state.at)
+    refusedAs = Bifunctor.first (explainIn g state)
     parsed :: FilePath -> (Text -> Either Text a) -> Either Failure a
     parsed path parse = case parse <$> file of
         Just (Right event) -> Right event
@@ -2588,7 +2617,7 @@ settledAdvice steps facts stamp run =
                 , current
                 ,
                     [ "PR sync refused: "
-                        <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why
+                        <> (explainIn current.g current.state refusal).why
                     ]
                 )
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
@@ -2698,6 +2727,10 @@ record stamp run sources = \case
     g = run.g
     fuel = Fold.fuelOf run.state
     at = run.state.at
+
+-- | Why the fold refused, told from where the run is and at its Fuel.
+explainIn :: OpenGraph -> RunState -> Fold.Refusal -> Failure
+explainIn g state = explain g (Fold.fuelOf state) state.at
 
 {- | Why a command plans no events: a failure it only tells, or a refusal it
 also logs as @refused@.
@@ -2928,7 +2961,7 @@ answeredDown down =
     write stamp run = case commit stamp run [(source, event)] of
         Right (new, after) -> (map (.envelope) new, Right (run.state, after.state))
         -- The answering run tells the refusal; the child's log does not keep it.
-        Left refusal -> ([], Left (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
+        Left refusal -> ([], Left (explainIn run.g run.state refusal))
     -- Not the fan's stored worktree: @state move@ leaves it stale.
     told why top =
         "child "
@@ -3047,13 +3080,18 @@ initRun gd args = do
                                 , notes = notes
                                 , principal
                                 , interface = interfaceOf principal
-                                , goal = args.goal
                                 , worktree
                                 , repo
                                 }
-                        -- The run starts at its root's Fuel step: a Fuel given takes it at once.
+                        -- The goal is the user's first instruction. The run starts at
+                        -- its root's Fuel step: a Fuel given takes it at once.
                         begun =
-                            Started start : [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
+                            concat
+                                [ [Started start]
+                                , [ Instructed (Instruction GoalInstruction text) Nothing | text <- toList args.goal
+                                  ]
+                                , [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
+                                ]
                     Log.locked fresh $ \case
                         Right Log.Logged {rows = 0} -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
                         -- Eight random hex digits may meet a run of the same id.
@@ -3386,7 +3424,7 @@ spawnedIn parent child task worktree =
                     [source]
                     ( unlogged
                         ( Bifunctor.bimap
-                            (explain run.g (Fold.fuelOf run.state) run.state.at)
+                            (explainIn run.g run.state)
                             (\ref -> Plan [Spawned (Child child ref worktree)] (\_ _ -> mempty))
                             (traverse (Fold.taskRefIn run.state) task)
                         )
@@ -3483,7 +3521,7 @@ childTask g taskId state = maybe (Left notOne) (Right . (.held)) (Fold.taskHolde
         Failure
             BadInput
             ("--task " <> taskIdText taskId)
-            (explain g (Fold.fuelOf state) state.at (Fold.NotOneHolder taskId)).why
+            (explainIn g state (Fold.FanRefused (Fan.UnknownTask taskId))).why
             initLineFix
 
 -- | The task's flow; a @--flow@ named must be that one.

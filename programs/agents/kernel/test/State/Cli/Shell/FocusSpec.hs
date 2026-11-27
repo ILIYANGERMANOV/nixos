@@ -1,5 +1,5 @@
 {- | @state focus@ and @state tasks@ over the doubles, the clock fixed: a
-chief's request switch, its cards and the resume advice (5-minute cache, 15s buffer).
+chief's request switch and its cards.
 -}
 module State.Cli.Shell.FocusSpec (spec) where
 
@@ -11,8 +11,12 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Data.Time (NominalDiffTime, addUTCTime)
 import State.Cli.Shell.World
-import State.Protocol.Binding (AgentId (..))
-import State.Run.Event (AgentRole (..), Event (WorkerSpawned))
+import State.Run.Event (
+    AgentRole (..),
+    Event (SpanStarted),
+    Harness (..),
+    SpanStart (..),
+ )
 import State.Run.RunGen (breakdownJson, plainTask)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, shouldBe)
@@ -21,7 +25,7 @@ spec :: Spec
 spec = describe "a chief's request switch over the doubles" $ before newWorld $ do
     describe "state tasks"
         $ it
-            "prints a waiting request's card, advising its worker resumed at 4 minutes and a fresh agent from the card at 6"
+            "prints a waiting request's card, its pause counted in minutes"
         $ \world -> do
             researching world
 
@@ -36,19 +40,17 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                                [ "notes /notes"
                                , "r2 in focus at fuel"
                                , "r1 paused 4m at architect/fuel: researching the store"
-                               , "  resume agent a7: paused under 4m45s, its cache is warm (SendMessage)"
                                ]
                            ,
                                [ "notes /notes"
                                , "r2 in focus at fuel"
                                , "r1 paused 6m at architect/fuel: researching the store"
-                               , "  fresh agent from card: paused 4m45s or more, its cache is cold"
                                ]
                            )
 
     describe "state focus" $ do
         it
-            "turns back to a waiting request at its node, its card advising by the two logged times"
+            "turns back to a waiting request at its node, its card counting the pause by the two logged times"
             $ \world -> do
                 researching world
                 before' <- succeeded =<< state world ["show"]
@@ -61,7 +63,6 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                 back
                     `shouldBe` [ "recorded 6 focused -> architect/fuel"
                                , "r1 paused 4m at architect/fuel: researching the store"
-                               , "  resume agent a7: paused under 4m45s, its cache is warm (SendMessage)"
                                ]
                 after `shouldBe` before'
 
@@ -391,10 +392,7 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
   where
     untasked = filter ("untasked" `Text.isPrefixOf`)
 
-{- | A chief run in its architect request, a researcher @a7@ at work: its
-@worker_spawned@ line, as a kernel before spans logged at the bind, names its
-agent (a span names none).
--}
+-- | A chief run in its architect request, a researcher at work: its span open.
 researching :: IORef World -> IO ()
 researching world = do
     _ <- startedIn world ["--flow", "chief"]
@@ -403,7 +401,17 @@ researching world = do
         ([["record", "fuel.set", "balanced"], ["record", "route.architect"]] :: [[Text]])
     editLog
         world
-        (appendEvent (WorkerSpawned (AgentRole "researcher") (AgentId "a7")))
+        ( appendEvent
+            ( SpanStarted
+                ( SpanStart
+                    (AgentRole "researcher")
+                    (Harness "claude-code")
+                    "research"
+                    Nothing
+                    Nothing
+                )
+            )
+        )
 
 -- | A chief run whose first request ran to its end, at @next@.
 finished :: IORef World -> IO ()

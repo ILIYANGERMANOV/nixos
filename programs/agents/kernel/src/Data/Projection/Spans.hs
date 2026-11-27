@@ -15,10 +15,11 @@ import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Projection (
-    Insert (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -114,7 +115,7 @@ line of the log carries them (#552 s9, D7).
 -}
 spanInsert :: SpanRow -> Insert
 spanInsert row =
-    Insert
+    insertInto
         "spans"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)

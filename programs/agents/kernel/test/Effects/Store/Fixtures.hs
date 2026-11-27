@@ -110,7 +110,7 @@ import State.Run.EventGen (
     titled,
     uri,
  )
-import State.Run.Fold (Origin (..), Pending (..), RunState (..), Worker (..))
+import State.Run.Fold (Pending (..), RunState (..), Worker (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Id (SpanId (..))
 import State.Run.RunGen (g)
@@ -197,7 +197,7 @@ asking events = do
                     <*> genNonBlank
               ]
                 <> [ SpanEnded (SpanId open) <$> genSpanEnding <*> genUsage
-                   | open <- take 1 [w.spawnedAt | w <- state.workers, SpanLine <- [w.origin]]
+                   | open <- take 1 [w.spawnedAt | w <- state.workers]
                    ]
                 <> [ GapMoved gap <$> genGapMove
                    | (gap, _) <- take 1 (reverse state.gaps)

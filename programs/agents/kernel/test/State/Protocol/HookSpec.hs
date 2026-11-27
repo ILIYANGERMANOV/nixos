@@ -37,7 +37,7 @@ import State.Run.Event (
     Branch (..),
     DraftPr (..),
     Envelope (..),
-    Event (Restarted, SpanStarted, Spawned, Stopped, Voided, WorkerSpawned),
+    Event (Restarted, SpanStarted, Spawned, Stopped, Voided),
     Harness (..),
     Session (..),
     SessionId (..),
@@ -607,13 +607,6 @@ spec = describe "the hooks" $ do
 
         it "records nothing after a compaction, which keeps the agents" $
             restartOf steps Compact childAtWork `shouldBe` Nothing
-
-        it "records a restart when the lead lost a worker at work" $
-            restartOf
-                steps
-                Startup
-                (runAt [WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
-                `shouldBe` Just Restarted
 
         it
             "records a restart when the lead lost a span of a step runner, and none for another role's"

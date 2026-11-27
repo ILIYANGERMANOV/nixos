@@ -182,8 +182,6 @@ genEvent =
         , TaskAdded <$> genSeq <*> (Gen.int (Range.linear 1 6) >>= genTaskAt)
         , pure Restarted
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
-        , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
-        , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
         , AgentEnded . AgentId <$> genText
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo
@@ -580,7 +578,6 @@ genStart =
             , ByCaller <$> genShape
             ]
         <*> genSet Gen.enumBounded
-        <*> Gen.maybe genText
         <*> genAbsPath
         <*> Gen.maybe genRepo
 
@@ -800,10 +797,20 @@ genQId = QId <$> genRunId <*> Gen.integral (Range.linear 0 1000)
 genQuestion :: Gen Question
 genQuestion = Question <$> genQId <*> Gen.enumBounded <*> genOneLine
 
--- | Any reading: a kind and a choice.
+{- | Any reading: a kind and a choice. Its ruling's basis names no line, as
+the generator knows no log's lines: a basis naming one the run never logged
+is refused ('State.Run.Fold' tests that).
+-}
 genReading :: Gen Reading
 genReading =
-    Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> genProposal, pure PassOn]
+    Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> unlined, pure PassOn]
+  where
+    unlined =
+        Proposal
+            <$> genOneLine
+            <*> genOneLine
+            <*> genOneLine
+            <*> Gen.maybe (Obvious <$> genOneLine)
 
 genProposal :: Gen Proposal
 genProposal = Proposal <$> genOneLine <*> genOneLine <*> genOneLine <*> Gen.maybe genBasis
@@ -872,7 +879,6 @@ start =
         "notes"
         (ByUser OwnPr)
         (Set.fromList [AskUser, Hooks])
-        Nothing
         (absolutePath "/work")
         Nothing
 

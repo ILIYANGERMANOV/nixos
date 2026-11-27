@@ -84,7 +84,7 @@ severityText = \case
     Papercut -> "papercut"
 
 {- | Where the gap was met: by default the step the run was at, or a hand-back
-closed; any one line @--area@ gives.
+closed; any one line, not blank, @--area@ gives.
 -}
 newtype GapArea = GapArea OneLine
     deriving stock (Eq, Show)

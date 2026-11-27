@@ -28,11 +28,12 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Payload.Event (questionKindName)
 import Data.Projection (
-    Insert (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
     enumLiteral,
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -282,7 +283,7 @@ data UserNeedBlockRow = UserNeedBlockRow {runId :: RunId, need :: Natural, task 
 
 questionInsert :: QuestionRow -> Insert
 questionInsert row =
-    Insert
+    insertInto
         "questions"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
@@ -313,7 +314,7 @@ questionInsert row =
 
 rulingInsert :: RulingRow -> Insert
 rulingInsert row =
-    Insert
+    insertInto
         "rulings"
         ( ("run_id", runIdValue row.runId)
             :| [ ("question_id", integer row.questionId)
@@ -334,7 +335,7 @@ rulingInsert row =
 
 answerInsert :: AnswerRow -> Insert
 answerInsert row =
-    Insert
+    insertInto
         "answers"
         ( ("run_id", runIdValue row.runId)
             :| [ ("question_id", integer row.questionId)
@@ -355,7 +356,7 @@ answerInsert row =
 
 userNeedInsert :: UserNeedRow -> Insert
 userNeedInsert row =
-    Insert
+    insertInto
         "user_needs"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
@@ -366,7 +367,7 @@ userNeedInsert row =
 
 userNeedBlockInsert :: UserNeedBlockRow -> Insert
 userNeedBlockInsert row =
-    Insert
+    insertInto
         "user_need_blocks"
         ( ("run_id", runIdValue row.runId)
             :| [ ("user_need_id", integer row.need)

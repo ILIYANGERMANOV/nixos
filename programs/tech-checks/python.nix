@@ -4,6 +4,7 @@
   claude,
   opencode,
   guards,
+  state,
 }:
 let
   inherit (pkgs) lib;
@@ -65,7 +66,7 @@ in
       '';
 
   python-tests = pkgs.runCommand "python-tests" (
-    mutation.testEnv
+    mutation.testEnv state
     // {
       nativeBuildInputs = [
         pkgs.git

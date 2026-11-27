@@ -20,6 +20,7 @@ must_answer
 never_asked_of
 no_basis
 not_above
+unknown_basis
 unknown_task
 still_running
 spawned_twice
@@ -37,7 +38,6 @@ task_exists
 task_merged
 task_cycle
 not_at_fan
-not_one_holder
 not_voidable
 void_breaks
 no_focus

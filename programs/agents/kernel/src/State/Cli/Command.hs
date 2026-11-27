@@ -18,6 +18,7 @@ module State.Cli.Command (
     Failure (..),
     Exit (..),
     Usage (..),
+    argvText,
     parseCommand,
     parseHook,
     optparseText,
@@ -45,12 +46,14 @@ module State.Cli.Command (
 
 import Control.Applicative (many, optional, some, (<**>), (<|>))
 import Data.Bifunctor (first)
+import Data.ByteString (ByteString)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (decodeUtf8')
 import Data.Version (showVersion)
 import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
@@ -162,8 +165,10 @@ import State.Run.Event (
     TaskId (..),
     TaskNo,
     TaskState (Kept),
+    Verbatim,
     parseRunId,
     parseTaskNo,
+    parseVerbatim,
     roleText,
     runIdText,
     taskNoText,
@@ -173,7 +178,13 @@ import State.Run.Fold (Answer (about, given), Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Gap (GapMove)
 import State.Run.Gap qualified as Gap
-import State.Run.Id (EventRef, eventRefText, parseEventId, parseEventRef)
+import State.Run.Id (
+    EventRef,
+    eventIdText,
+    eventRefText,
+    parseEventId,
+    parseEventRef,
+ )
 import State.Show (tshow)
 import State.Step.Artifact (
     Branch (..),
@@ -285,8 +296,10 @@ data InitArgs = InitArgs
     { notes :: ShellPath
     , flow :: Maybe FlowName
     , origin :: Origin
-    , goal :: Maybe Text
-    -- ^ The run's goal, word for word; a resumed run keeps the one it started with.
+    , goal :: Maybe Verbatim
+    {- ^ The run's goal, word for word, logged as the user's instructed goal;
+    a resumed run keeps the one it started with.
+    -}
     }
 
 {- | Who starts the run: the user, on a PR of its own or a round on the one
@@ -353,6 +366,25 @@ chiefInitFix = "state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chie
 exit code tells the two apart, so the shell, which owns exit codes, renders it.
 -}
 newtype Usage = Usage (Optparse.ParserFailure Optparse.ParserHelp)
+
+{- | argv as the process got it, bytes, decoded as UTF-8 whatever the locale.
+An argument that is not UTF-8 is refused by its position from 1, its bytes
+never echoed: a lossy decode would store words nobody wrote.
+-}
+argvText :: [ByteString] -> Either Failure [Text]
+argvText = traverse decoded . zip [1 :: Natural ..]
+  where
+    decoded (n, raw) =
+        first
+            ( const
+                ( Failure
+                    BadInput
+                    ("argument " <> Text.pack (show n))
+                    "not UTF-8"
+                    "pass each argument as UTF-8"
+                )
+            )
+            (decodeUtf8' raw)
 
 {- | The subcommand, for the failure line, and the command or why it is not
 one; else optparse's help or usage error. No command at all is help.
@@ -595,7 +627,7 @@ commandInfo steps scope =
                             "<line>"
                             "where the request in focus stands, once it recorded work"
                         )
-            , sub "tasks" "Print each request's card and resume advice" (pure (Right Tasks))
+            , sub "tasks" "Print each request's card and each child run" (pure (Right Tasks))
             , Optparse.command
                 "artifact"
                 ( Optparse.info
@@ -696,17 +728,11 @@ commandInfo steps scope =
             <$> textArgument "<run:seq>"
             <*> textOption "pr" "<url>" "the PR"
     gapAt raw =
-        maybe
-            ( Left
-                (usage ("gap " <> raw) "a gap is named <run:seq>, as state resume prints it")
-            )
-            Right
+        parsedOr
+            ("gap " <> raw)
+            "a gap is named <run:seq>, as state resume prints it"
             (parseEventRef raw)
-    prUri raw =
-        maybe
-            (Left (Failure BadInput ("--pr " <> raw) uriRule "state help"))
-            Right
-            (parseUri raw)
+    prUri raw = parsedOr ("--pr " <> raw) uriRule (parseUri raw)
     artifactShow =
         Optparse.hsubparser
             ( Optparse.command
@@ -719,15 +745,11 @@ commandInfo steps scope =
                 )
             )
     artifactAt raw =
-        maybe
-            ( Left
-                ( usage
-                    ("artifact " <> raw)
-                    "an artifact is named <run:seq>, as state artifact printed it"
-                )
-            )
-            (Right . ShowArtifact)
-            (parseEventRef raw)
+        ShowArtifact
+            <$> parsedOr
+                ("artifact " <> raw)
+                "an artifact is named <run:seq>, as state artifact printed it"
+                (parseEventRef raw)
     artifactRegister =
         ( \raw kind from by ->
             Register
@@ -777,20 +799,16 @@ commandInfo steps scope =
         sub "merged" "An epic's final PR merged" $
             fmap (OnRun . (`MoveEpic` Merges)) . epicOf <$> textArgument "<name>"
     epicOf raw =
-        maybe
-            (Left (usage ("epic " <> raw) "an epic's name is ASCII letters, digits and ._-"))
-            Right
+        parsedOr
+            ("epic " <> raw)
+            "an epic's name is ASCII letters, digits and ._-"
             (parseEpicName raw)
     repoOf raw =
-        maybe
-            (Left (usage ("--repo " <> raw) "a repo is <owner>/<name>, as gh names it"))
-            Right
+        parsedOr
+            ("--repo " <> raw)
+            "a repo is <owner>/<name>, as gh names it"
             (parseRepo raw)
-    epicPr raw =
-        maybe
-            (Left (usage ("--pr " <> raw) ("the PR is " <> prUrlRule)))
-            Right
-            (parsePrUrl raw)
+    epicPr raw = parsedOr ("--pr " <> raw) ("the PR is " <> prUrlRule) (parsePrUrl raw)
     nextStep hiding =
         Optparse.strOption
             ( Optparse.long "next"
@@ -837,10 +855,11 @@ commandInfo steps scope =
     basisOf raw = case Text.stripPrefix "obvious:" raw of
         Just why -> Obvious <$> oneLine (Text.strip why)
         Nothing ->
-            maybe
-                (Left (usage ("--basis " <> raw) "an event id such as r7f2:12, or obvious:<why>"))
-                (Right . AnsweredBy)
-                (parseEventId raw)
+            AnsweredBy
+                <$> parsedOr
+                    ("--basis " <> raw)
+                    "an event id such as r7f2:12, or obvious:<why>"
+                    (parseEventId raw)
     above = \case
         "user" -> Right TheUser
         raw -> ParentRun <$> runId raw
@@ -928,8 +947,16 @@ initArgs =
             )
         <*> optional (textOption "goal" "<goal>" "the run's goal, word for word")
   where
-    init' notesRaw flowRaw parentRaw taskRaw prRaw child goal = do
+    init' notesRaw flowRaw parentRaw taskRaw prRaw child goalRaw = do
         notes <- notesDir notesRaw
+        goal <-
+            traverse
+                ( parsedOr
+                    "--goal"
+                    "the run's goal is the user's words: one character at least that is no space"
+                    . parseVerbatim
+                )
+                goalRaw
         flow <- traverse flowNamed flowRaw
         let mine = if child then FromCaller else FromUser
         origin <- case (prRaw, parentRaw, taskRaw) of
@@ -1033,20 +1060,22 @@ sentence value = Text.unwords <$> some (textArgument value)
 usage :: Text -> Text -> Failure
 usage what why = Failure BadInput what why "state help"
 
+-- | A parse's value, else the usage failure: what is wrong, and why.
+parsedOr :: Text -> Text -> Maybe a -> Either Failure a
+parsedOr what why = maybe (Left (usage what why)) Right
+
 oneLine :: Text -> Either Failure OneLine
 oneLine raw =
-    maybe
-        (Left (usage "a line break" "answers, reasons and questions are one line each"))
-        Right
+    parsedOr
+        "a line break"
+        "answers, reasons and questions are one line each"
         (parseOneLine raw)
 
 named :: Text -> (Text -> Maybe a) -> Text -> Either Failure a
 named what parse raw =
-    maybe
-        ( Left
-            (usage ("no " <> what <> " " <> raw) ("see the " <> what <> "s state help lists"))
-        )
-        Right
+    parsedOr
+        ("no " <> what <> " " <> raw)
+        ("see the " <> what <> "s state help lists")
         (parse raw)
 
 runId :: Text -> Either Failure RunId
@@ -1055,9 +1084,9 @@ runId = named "run id" parseRunId
 -- | A line's seq, as @recorded <seq>@ and the log print it.
 seqOf :: Text -> Either Failure Natural
 seqOf raw =
-    maybe
-        (Left (usage ("seq " <> raw) "a seq is a line's number in the log, from 1"))
-        Right
+    parsedOr
+        ("seq " <> raw)
+        "a seq is a line's number in the log, from 1"
         (readMaybe (Text.unpack raw))
 
 -- | An @--until@ seq: a line's, so from 1.
@@ -1071,9 +1100,9 @@ untilOf raw =
 -- | A kind in any case: the hand-back's @NEEDS_DECISION <Kind>@ alone is spelled exactly.
 kindOf :: Text -> Either Failure Kind
 kindOf raw =
-    maybe
-        (Left (usage ("no kind " <> raw) ("one of " <> choices kindName)))
-        Right
+    parsedOr
+        ("no kind " <> raw)
+        ("one of " <> choices kindName)
         (parseByName (Text.toLower . kindName) (Text.toLower raw))
 
 knownRole :: [AgentRole] -> Text -> Either Failure AgentRole
@@ -1098,11 +1127,9 @@ another directory than init did.
 -}
 notesDir :: Text -> Either Failure ShellPath
 notesDir raw =
-    maybe
-        ( Left
-            (usage ("--notes " <> raw) ("the notes dir is " <> Text.pack shellPathRule))
-        )
-        Right
+    parsedOr
+        ("--notes " <> raw)
+        ("the notes dir is " <> Text.pack shellPathRule)
         (shellPath (dropTrailingPathSeparator (normalise (Text.unpack raw))))
 
 blockName :: Block -> Text
@@ -1309,6 +1336,14 @@ explain g fuel at = \case
             "the answer"
             "only whoever started the run answers it"
             "state answer <qid> <answer>"
+    UnknownBasis qid event ->
+        refused
+            "unknown_basis"
+            ("the basis " <> eventIdText event <> " names no line this run logged")
+            ( "state dump, then "
+                <> rule (qidText qid)
+                <> " --basis <an event id it prints>|obvious:<why>"
+            )
     FanRefused refusal -> case refusal of
         Fan.UnknownTask task ->
             refused
@@ -1423,11 +1458,6 @@ explain g fuel at = \case
         refused
             "the child's or task's event"
             ("the run is at " <> atText at <> ", no fan-out's state")
-            "state show"
-    NotOneHolder task ->
-        refused
-            ("task " <> Codec.taskIdText task)
-            "no fan-out's breakdown has such a task"
             "state show"
     NotVoidable n ->
         refused
@@ -1573,6 +1603,7 @@ refusalCode =
                 Ask.NeverAskedOf {} -> "never_asked_of"
                 Ask.NoBasis {} -> "no_basis"
             NotAbove {} -> "not_above"
+            UnknownBasis {} -> "unknown_basis"
             FanRefused inner -> case inner of
                 Fan.UnknownTask {} -> "unknown_task"
                 Fan.StillRunning {} -> "still_running"
@@ -1591,7 +1622,6 @@ refusalCode =
                 Fan.TaskMerged {} -> "task_merged"
                 Fan.TaskCycle {} -> "task_cycle"
             NotAtFan -> "not_at_fan"
-            NotOneHolder {} -> "not_one_holder"
             NotVoidable {} -> "not_voidable"
             VoidBreaks {} -> "void_breaks"
             NoFocus -> "no_focus"

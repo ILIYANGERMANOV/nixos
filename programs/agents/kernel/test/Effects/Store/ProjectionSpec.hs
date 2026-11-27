@@ -195,6 +195,7 @@ import State.Run.EventGen (
     tasksOf,
     titled,
     uri,
+    verbatim,
  )
 import State.Run.Fold (
     RunState (..),
@@ -421,7 +422,7 @@ spec = describe "Effects.Store.Projection" $ do
                            ]
 
         it
-            "rests a hashed basis on its hook line, and one no line holds on no line (D6)"
+            "rests a hashed basis on its hook line, and another run's on that run's line (D6)"
             $ [ map
                     (\c -> Map.lookup c =<< listToMaybe r)
                     ["basis_kind", "basis_event_run_id", "basis_event_seq"]
@@ -429,7 +430,7 @@ spec = describe "Effects.Store.Projection" $ do
               , let r = row "rulings" [("question_id", SqlInteger id')]
               ]
                 `shouldBe` [ [Just (SqlText "event"), Just (SqlText (runIdText run)), Just (SqlInteger 6)]
-                           , [Just (SqlText "event"), Just SqlNull, Just SqlNull]
+                           , [Just (SqlText "event"), Just (SqlText "p1"), Just (SqlInteger 4)]
                            ]
 
         it "gives a child that stopped to re-plan no token (D8)" $
@@ -468,6 +469,28 @@ spec = describe "Effects.Store.Projection" $ do
                     , [Just (SqlInteger 5), Just (SqlText "t2"), Just (SqlText "planned")]
                     , [Just (SqlInteger 19), Just (SqlText "t3"), Just (SqlText "delivered")]
                     ]
+
+    it "reads a run's goal from its newest instructed goal in force" $
+        [ Map.lookup "goal" columns
+        | ("run_states", columns) <-
+            Set.toList
+                ( inserted
+                    ( Registry.rows
+                        ( NonEmpty.zipWith
+                            line
+                            (1 :| [2 ..])
+                            ( started
+                                :| [ instructed Event.GoalInstruction "ship it" Nothing
+                                   , instructed Event.GoalInstruction "ship it today" Nothing
+                                   , instructed Event.RuleInstruction "no new verb" Nothing
+                                   , instructed Event.GoalInstruction "ship it now" (Just 3)
+                                   ]
+                            )
+                        )
+                    )
+                )
+        ]
+            `shouldBe` [Just (SqlText "ship it now")]
 
     describe "a run's context, gaps and spans" $ do
         let rowsOf table =
@@ -1162,7 +1185,7 @@ tenXRun =
                 , asked 11 Pick Itself
                 , RuledOn (q 11) (ruling (Just (AnsweredBy (Hashed (Digest spawnDigest)))))
                 , asked 13 Pick Itself
-                , RuledOn (q 13) (ruling (Just (AnsweredBy (Hashed (Digest "00000000deadbeef")))))
+                , RuledOn (q 13) (ruling (Just (AnsweredBy (Numbered (runId "p1") 4))))
                 , asked 15 Design (Subagent (AgentRole "researcher"))
                 , Forwarded (q 15) TheUser
                 , Answered (q 15) (Chose "yes") TheUser
@@ -1206,3 +1229,7 @@ c1 = runId "c1aa"
 
 childRun :: NonEmpty Envelope
 childRun = lineOf c1 1 started :| []
+
+-- | The user's instruction of this kind, in these words, retiring the one at this seq if named.
+instructed :: Event.InstructionKind -> Text -> Maybe Natural -> Event
+instructed kind words' = Event.Instructed (Event.Instruction kind (verbatim words'))

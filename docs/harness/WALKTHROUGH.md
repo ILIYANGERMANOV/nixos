@@ -97,9 +97,9 @@ state next:  SPAWN researcher background: yes
 ```json
 {"seq":6,"time":"12:24:32","type":"gather.research","data":{}}
 {"seq":7,"time":"12:24:43","type":"gather/research.spawned","data":{}}
-{"seq":8,"time":"12:24:43","type":"worker_spawned","data":{"role":"researcher","agent":"..."}}
+{"seq":8,"time":"12:24:43","type":"span_started","data":{"agent_role":"researcher","harness":"claude-code","brief":"..."}}
 {"seq":21,"time":"12:27:50","type":"gather/research.handed_back","data":{}}
-{"seq":22,"time":"12:27:50","type":"worker_returned","data":{"role":"researcher","agent":"..."}}
+{"seq":22,"time":"12:27:50","type":"span_ended","data":{"span":8,"status_code":"ok","handback_token":"ready","handback":"..."}}
 {"seq":26,"time":"12:28:46","type":"worker_handed_back","data":{"role":"researcher","line":"NEEDS_DECISION should ADRs 0011-0022 be merged into fewer files? ..."}}
 ```
 
@@ -189,7 +189,7 @@ state next:  SPAWN reviewer background: yes       (align_plan)
 {"seq":45,"time":"12:35:18","type":"skip_refine.run","data":{}}
 {"seq":47,"time":"12:36:33","type":"simplify_plan.done","data":{}}
 {"seq":49,"time":"12:36:58","type":"refused","data":{"message":"simplify_plan.done - no such arrow out of standards_plan","fix":"state record standards_plan.done"}}
-{"seq":54,"time":"12:42:47","type":"worker_spawned","data":{"role":"reviewer","agent":"..."}}
+{"seq":54,"time":"12:42:47","type":"span_started","data":{"agent_role":"reviewer","harness":"claude-code","brief":"..."}}
 {"seq":55,"time":"12:44:36","type":"align_plan.done","data":{}}
 ```
 
@@ -257,7 +257,7 @@ SPAWN implementer background: yes
   why. It did this after each of slices 1 to 4.
 
 ```json
-{"seq":64,"time":"12:49:48","type":"worker_spawned","data":{"role":"implementer","agent":"..."}}
+{"seq":64,"time":"12:49:48","type":"span_started","data":{"agent_role":"implementer","harness":"claude-code","brief":"..."}}
 {"seq":65,"time":"12:59:21","type":"implement.done","data":{"head_sha":"2ad016fd...","touches":["interface","data_model","auth"]}}
 {"seq":67,"time":"12:59:23","type":"skip_refactor.run","data":{}}
 {"seq":68,"time":"12:59:26","type":"overridden","data":{"to":"implement","reason":"slice 1 of 5 done; slices 2-5 remain"}}
@@ -301,13 +301,13 @@ state next:  ASK Scope 9387cd01:6: Refactorer proposals: ... - notify the user, 
 
 ```json
 {"seq":87,"time":"13:21:18","type":"skip_refactor.run","data":{}}
-{"seq":88,"time":"13:21:29","type":"worker_spawned","data":{"role":"refactorer","agent":"..."}}
+{"seq":88,"time":"13:21:29","type":"span_started","data":{"agent_role":"refactorer","harness":"claude-code","brief":"..."}}
 {"seq":89,"time":"13:23:59","type":"refactor.done","data":{"head_sha":"88fdef8f..."}}
 {"seq":91,"time":"13:24:04","type":"asked","data":{"qid":"9387cd01:6","question_kind":"scope","question":"Refactorer proposals: law/model tables are repeated in ADRs 0014/0018/0020 and CATEGORY-THEORY; the skill list is repeated in README, KATEGORY and FLOWS. A) In this PR: ... (Recommended) B) Only the law tables C) Leave as is","step":"review","from":{"kind":"self"}}}
 {"seq":92,"time":"13:24:04","type":"forwarded","data":{"qid":"9387cd01:6","to":{"kind":"user"}}}
 {"seq":93,"time":"13:39:34","type":"answered","data":{"qid":"9387cd01:6","reply":"chose","answer":"A) Both in this PR: CATEGORY-THEORY owns law/model tables, ADRs link; README owns skill list, KATEGORY and FLOWS link","by":{"kind":"user"}}}
 {"seq":94,"time":"13:39:34","type":"overridden","data":{"to":"refactor","reason":"user chose to apply refactor proposals 1 and 3 in this PR"}}
-{"seq":95,"time":"13:39:35","type":"worker_spawned","data":{"role":"refactorer","agent":"..."}}
+{"seq":95,"time":"13:39:35","type":"span_started","data":{"agent_role":"refactorer","harness":"claude-code","brief":"..."}}
 {"seq":96,"time":"13:41:14","type":"refactor.done","data":{"head_sha":"3f857497..."}}
 ```
 
@@ -335,13 +335,13 @@ state next:  RUN one option below      (picked: state record pick.final)
   no rows, and the run went on to `describe`.
 
 ```json
-{"seq":98,"time":"13:41:32","type":"worker_spawned","data":{"role":"review-lead","agent":"..."}}
-{"seq":99,"time":"13:42:45","type":"worker_spawned","data":{"role":"reviewer","agent":"..."}}
+{"seq":98,"time":"13:41:32","type":"span_started","data":{"agent_role":"review-lead","harness":"claude-code","brief":"..."}}
+{"seq":99,"time":"13:42:45","type":"span_started","data":{"agent_role":"reviewer","harness":"claude-code","brief":"..."}}
 {"seq":117,"time":"13:45:14","type":"review.rows","data":{"head_sha":"3f857497..."}}
 {"seq":119,"time":"13:45:23","type":"pick.loop","data":{"rows":["ct-fold-type","ct-ty-target","override-exception","route-child","runloop-fold-law","walkthrough-rereview"],"verdicts":[]}}
-{"seq":120,"time":"13:45:31","type":"worker_spawned","data":{"role":"fixer","agent":"..."}}
+{"seq":120,"time":"13:45:31","type":"span_started","data":{"agent_role":"fixer","harness":"claude-code","brief":"..."}}
 {"seq":121,"time":"13:46:21","type":"fix.done","data":{"head_sha":"597f9289...","touches":[]}}
-{"seq":123,"time":"13:46:31","type":"worker_spawned","data":{"role":"review-lead","agent":"..."}}
+{"seq":123,"time":"13:46:31","type":"span_started","data":{"agent_role":"review-lead","harness":"claude-code","brief":"..."}}
 {"seq":124,"time":"13:47:02","type":"re_review.rows","data":{"head_sha":"597f9289..."}}
 {"seq":126,"time":"13:47:06","type":"pick.final","data":{"rows":[],"verdicts":[]}}
 ```

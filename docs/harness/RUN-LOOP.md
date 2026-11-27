@@ -142,7 +142,7 @@ indexes each run's first event. `blobs` holds file content by sha256
 | Many readers, one writer | WAL mode; a writer waits up to 5 s for another | [`Connection.hs`][connection] |
 | Our file only | open reads `application_id` and `user_version` before it writes; another app's file or a newer schema is refused | [`Connection.hs`][connection] |
 | No two events share a number | each write is `BEGIN IMMEDIATE`: read, decide, append under one lock; a misnumbered batch throws | [`Events.hs`][events] |
-| Append-only | triggers abort every UPDATE and DELETE on the three tables. A line logged in error gets a `Voided` reversal line; replay drops both | [`Migration.hs`][migration], [`unvoided`][unvoided] |
+| Append-only | triggers abort every UPDATE and DELETE on the three tables. A line logged in error gets a `Voided` reversal line; replay drops both | [`appendOnly`][appendonly], [`unvoided`][unvoided] |
 | Hook records are idempotent | a hook can fire twice; its record is keyed on a hash of the run, agent and message (`hook_digest`), and a second copy is a no-op | [`Source`][source], [`append`][append] |
 | Parent and child runs | the first event of a run adds its `runs` row with its parent, in the same transaction; a 10x's engineers and a chief's delegates are children | [`Events.hs`][events] |
 | The envelope is columns | `seq`, `time` (UTC, 3 fraction digits), `session_id`, `head_sha` and `hook_digest` are columns; `data` is the payload, one JSON object | [`Codec.hs`][codec] |
@@ -156,9 +156,9 @@ To look inside a run, or keep what a fresh agent needs:
 | `state show` | prints where the run is and what it holds: step, facts, questions, rulings, gaps |
 | `state dump <run>` | prints the run's raw rows, as JSON Lines: one object per `events` row, every column but `position` (store-internal append order) a key, `data` as stored |
 | `state pending` | prints the questions awaiting an answer |
-| `state tasks` | prints each request's card and its resume advice |
+| `state tasks` | prints each request's card, then each child run, with resume advice for a stopped one |
 | `state render mermaid --flow <f>` | prints the flow's graph (the flow, not one run's walk through it) |
-| `state init --goal "<goal>"` | logs `started` with the goal word for word, the git top as `worktree` and `origin`'s GitHub `owner/name` as `repo` |
+| `state init --goal "<goal>"` | logs `started` with the git top as `worktree` and `origin`'s GitHub `owner/name` as `repo`, then the goal word for word as an `instructed` goal |
 | `state move <dir>` | logs `worktree_moved`: the run now lives in that worktree |
 | `state artifact <path\|url> --kind <k> [--span <seq>]` | logs `artifact`, made by that span when `--span` names one. A file's bytes are a snapshot in `blobs` (up to 1 MiB, never a transcript's); a handover and the run's end snapshot each registered file that changed |
 | `state artifact show <run:seq>` | prints an artifact's stored bytes or its URL; exit 3 when its bytes were not stored, 4 when the line is no artifact |
@@ -269,6 +269,7 @@ record; PR state comes from GitHub) and
 [connection]: ../../programs/agents/kernel/src/Effects/Store/Connection.hs
 [events]: ../../programs/agents/kernel/src/Effects/Store/Events.hs
 [migration]: ../../programs/agents/kernel/src/Effects/Store/Migration.hs
+[appendonly]: ../../programs/agents/kernel/src/Data/Table.hs
 [unvoided]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L462
 [source]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Event.hs#L145
 [append]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L495

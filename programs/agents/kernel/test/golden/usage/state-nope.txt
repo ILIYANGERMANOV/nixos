@@ -32,7 +32,7 @@ Available commands:
   stop                     Stop the run, with a reason and why
   pending                  List the questions awaiting an answer
   focus                    Turn to a waiting request, else a new one
-  tasks                    Print each request's card and resume advice
+  tasks                    Print each request's card and each child run
   artifact                 Register a file or URL; 'artifact show' prints one
   note                     Note context for a fresh agent, under a topic
   epic                     Open an epic, mark it ready for review, or merged

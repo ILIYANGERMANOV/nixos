@@ -151,56 +151,24 @@ typing = describe "typeHandback" $ do
             `shouldBe` Right (Typed [stepTook (FixDone (Commit sha Set.empty))] Nothing)
 
     it
-        "says a worker logged at work returned, by its id or else its role, and no other"
-        $ do
-            let fixing =
-                    runAt
-                        ( fuelSet Balanced
-                            : take 16 happyPath
-                                <> map
-                                    (Took mempty)
-                                    [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
-                                <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")]
-                        )
-                returns agent =
-                    drop 1 . (.events)
-                        <$> typeHandback
-                            steps
-                            g
-                            fixing
-                            (Just sha)
-                            next
-                            (AgentRole "fixer")
-                            agent
-                            "READY fixed"
-                            (parsed "READY fixed")
-            map returns [Just (AgentId "a1"), Nothing, Just (AgentId "a2")]
-                `shouldBe` [ Right [Event.WorkerReturned (AgentRole "fixer") (Just (AgentId "a1"))]
-                           , Right [Event.WorkerReturned (AgentRole "fixer") Nothing]
-                           , Right []
-                           ]
+        "ends no span for a hand-back by a known agent, whose span ends through its link"
+        $ (\result -> [ended | ended@Event.SpanEnded {} <- result.events])
+            <$> typeHandback
+                steps
+                g
+                fixing
+                (Just sha)
+                next
+                (AgentRole "fixer")
+                (Just (AgentId "a1"))
+                "READY fixed"
+                (parsed "READY fixed")
+            `shouldBe` Right []
 
     it
         "ends the oldest open span of the role by the hand-back's token, with the hand-back in full"
         $ do
-            let fixing =
-                    runAt
-                        ( fuelSet Balanced
-                            : take 16 happyPath
-                                <> map
-                                    (Took mempty)
-                                    [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
-                                <> [ Event.SpanStarted
-                                        ( Event.SpanStart
-                                            (AgentRole "fixer")
-                                            (Event.Harness "claude-code")
-                                            "fix"
-                                            Nothing
-                                            Nothing
-                                        )
-                                   ]
-                        )
-                ending message =
+            let ending message =
                     (\result -> [end | Event.SpanEnded _ end _ <- result.events])
                         <$> typeHandback
                             steps
@@ -421,14 +389,27 @@ typing = describe "typeHandback" $ do
     findings = "| Concern | Finding | Change | Source | Confidence |"
     atImplement = runAt (fuelSet Balanced : take 13 happyPath)
     atReview = runAt (fuelSet Balanced : take 16 happyPath)
-    atFix =
+    atFix = runAt fixEvents
+    -- At the fix, a fixer at work: its span open.
+    fixing =
         runAt
-            ( fuelSet Balanced
-                : take 16 happyPath
-                    <> map
-                        (Took mempty)
-                        [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
+            ( fixEvents
+                <> [ Event.SpanStarted
+                        ( Event.SpanStart
+                            (AgentRole "fixer")
+                            (Event.Harness "claude-code")
+                            "fix"
+                            Nothing
+                            Nothing
+                        )
+                   ]
             )
+    fixEvents =
+        fuelSet Balanced
+            : take 16 happyPath
+                <> map
+                    (Took mempty)
+                    [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
     atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
     engineers = StateName "engineers"

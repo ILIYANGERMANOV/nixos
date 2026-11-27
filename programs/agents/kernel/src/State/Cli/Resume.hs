@@ -95,6 +95,7 @@ import State.Run.Fold (
     Waits (..),
     askedAt,
     fuelOf,
+    goalOf,
     recordedPr,
     unvoided,
  )
@@ -187,10 +188,11 @@ header input =
         (Nothing, Exit) -> "finished"
 
 goal :: Input -> [Text]
-goal input = ["goal: " <> text | Just text <- [input.state.start.goal]]
+goal input = ["goal: " <> verbatimText text | Just (_, text) <- [goalOf input.state]]
 
 {- | The user's instructions in force, newest first, each in the user's own
-words, by the bare seq @--replaces@ takes.
+words, by the bare seq @--replaces@ takes. The goal the goal line shows is
+left out; an older goal still in force keeps its line and seq.
 -}
 instructions :: Input -> [Text]
 instructions input =
@@ -204,7 +206,11 @@ instructions input =
         | (n, instruction) <- active
         ]
   where
-    active = Map.toDescList input.state.instructions
+    active =
+        [ (n, instruction)
+        | (n, instruction) <- Map.toDescList input.state.instructions
+        , Just n /= fmap fst (goalOf input.state)
+        ]
 
 place :: Input -> [Text]
 place input =
@@ -407,8 +413,9 @@ openGaps input =
             (\(n, gap) -> (gap.severity, n))
             [(n, tracked.gap) | (n, tracked) <- input.state.gaps, isOpen tracked.status]
 
-{- | Each stopgap in force, its scope, key and value inline: what an agent
-recorded when no typed command fit. Nothing the kernel decides reads them.
+{- | Each stopgap in force, its line, scope, key, value and reason inline:
+what an agent recorded when no typed command fit, and when and why, so a
+stale one shows. Nothing the kernel decides reads them.
 -}
 stopgaps :: Input -> [Text]
 stopgaps input =
@@ -418,9 +425,12 @@ stopgaps input =
             <> ", never read by the kernel):"
         )
         [ Text.unwords
-            [ maybe "run" (taskIdText . (.task)) at.scope
+            [ here input stopgap.seq
+            , maybe "run" (taskIdText . (.task)) at.scope
             , stopgapKeyText at.key
             , jsonText (ijsonValue stopgap.value)
+            , "-"
+            , nonBlankText stopgap.reason
             ]
         | (at, stopgap) <- Map.toList input.state.stopgaps
         ]

@@ -25,13 +25,14 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Projection (
-    Insert (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
     enumIn,
     enumLiteral,
     indexed,
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -138,7 +139,7 @@ locationKindName = \case
 
 noteInsert :: NoteRow -> Insert
 noteInsert row =
-    Insert
+    insertInto
         "notes"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
@@ -149,7 +150,7 @@ noteInsert row =
 
 artifactInsert :: ArtifactRow -> Insert
 artifactInsert row =
-    Insert
+    insertInto
         "artifacts"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
@@ -171,7 +172,7 @@ artifactInsert row =
 -- | A hand-over and each of its next steps, in order, from 1.
 handoverInserts :: HandoverRow -> [Insert]
 handoverInserts row =
-    Insert
+    insertInto
         "handovers"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
@@ -179,7 +180,7 @@ handoverInserts row =
                , ("summary", SqlText row.handover.summary)
                ]
         )
-        : [ Insert
+        : [ insertInto
                 "handover_next_steps"
                 ( ("run_id", runIdValue row.runId)
                     :| [ ("handover_id", integer row.id)
@@ -192,7 +193,7 @@ handoverInserts row =
 
 stopgapInsert :: StopgapRow -> Insert
 stopgapInsert row =
-    Insert
+    insertInto
         "stopgaps"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.stopgap.seq)

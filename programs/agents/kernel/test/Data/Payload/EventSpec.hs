@@ -598,7 +598,6 @@ spec = describe "Data.Payload.Event" $ do
                         , principal =
                             ByRole (Parent (runId "00010203") (InFan (Tasked (TaskId "t1")))) OwnPr minBound
                         , interface = Set.empty
-                        , goal = Nothing
                         , worktree = absolutePath "/work"
                         , repo = Nothing
                         }
@@ -723,7 +722,6 @@ eventGoldens =
             "/notes/r7f2"
             (ByUser OwnPr)
             (Set.fromList [minBound ..])
-            (Just "ship the context facts")
             (absolutePath "/work/r7f2")
             (Just (Repo "o" "r"))
         )
@@ -733,7 +731,6 @@ eventGoldens =
                     "/n"
                     (ByCaller (RoundOn pr))
                     Set.empty
-                    Nothing
                     (absolutePath "/w")
                     Nothing
                 )
@@ -743,7 +740,6 @@ eventGoldens =
                     "/n"
                     (ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms)
                     (Set.singleton Await)
-                    Nothing
                     (absolutePath "/w")
                     Nothing
                 )
@@ -753,7 +749,6 @@ eventGoldens =
                     "/n"
                     (ByRole (Parent parent (InFan Untasked)) (RoundOn pr) ParentDecided)
                     Set.empty
-                    Nothing
                     (absolutePath "/w")
                     Nothing
                 )
@@ -763,7 +758,6 @@ eventGoldens =
                     "/n"
                     (ByRole (Parent parent Direct) OwnPr ChildConfirms)
                     Set.empty
-                    Nothing
                     (absolutePath "/w")
                     Nothing
                 )
@@ -860,8 +854,6 @@ eventGoldens =
            ]
     , Restarted :| []
     , WorkerHandedBack implementer (oneLine "READY abc123") :| []
-    , WorkerSpawned implementer agent :| []
-    , WorkerReturned implementer (Just agent) :| [WorkerReturned implementer Nothing]
     , AgentEnded agent :| []
     , Suspended (TaskNo 2) (oneLine "waits on CI") :| []
     , Focused (TaskNo 2) :| []
@@ -1109,7 +1101,6 @@ parentRun =
                         ChildConfirms
                     )
                     mempty
-                    Nothing
                     (absolutePath "/work")
                     Nothing
                 )

@@ -23,11 +23,12 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Projection (
-    Insert (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
     enumLiteral,
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -51,15 +52,16 @@ import State.Run.Event (
     Label (..),
     Requirement (..),
     RunId,
-    Start (..),
     Stop (..),
     placeOf,
+    verbatimText,
  )
 import State.Run.Fold (
     Problem (..),
     Round (..),
     RunState (..),
     fuelOf,
+    goalOf,
     nodeName,
     over,
     recordedPr,
@@ -69,7 +71,7 @@ projection :: Projection
 projection =
     Projection
         { name = "runs"
-        , version = 1
+        , version = 2
         , tables = runStates :| [stepVisits, loopRounds, roundProblems]
         }
 
@@ -166,7 +168,7 @@ runStateRow trace =
         , status
         , step = stateNameText (nodeName state.at)
         , fuel = fuelOf state
-        , goal = state.start.goal
+        , goal = verbatimText . snd <$> goalOf state
         , worktree = Text.pack (absPathText worktree)
         , repo = repoText <$> repo
         , prUrl = urlText <$> recordedPr state
@@ -236,7 +238,7 @@ roundRows trace =
 
 runStateInsert :: RunStateRow -> Insert
 runStateInsert row =
-    Insert
+    insertInto
         "run_states"
         ( ("run_id", runIdValue row.runId)
             :| [ ("status", SqlText (statusName (statusCase row.status)))
@@ -261,7 +263,7 @@ runStateInsert row =
 
 stepVisitInsert :: StepVisitRow -> Insert
 stepVisitInsert row =
-    Insert
+    insertInto
         "step_visits"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
@@ -273,7 +275,7 @@ stepVisitInsert row =
 
 loopRoundInsert :: LoopRoundRow -> Insert
 loopRoundInsert row =
-    Insert
+    insertInto
         "loop_rounds"
         ( ("run_id", runIdValue row.runId)
             :| [ ("loop", SqlText (nameText row.loop))
@@ -284,7 +286,7 @@ loopRoundInsert row =
 
 roundProblemInsert :: RoundProblemRow -> Insert
 roundProblemInsert row =
-    Insert
+    insertInto
         "round_problems"
         ( ("run_id", runIdValue row.runId)
             :| [ ("loop", SqlText (nameText row.loop))
@@ -321,7 +323,7 @@ runStates =
         , "              CONSTRAINT run_states_fuel_enum CHECK (fuel IN "
             <> spellings fuelName
             <> "),"
-        , "  -- The user's goal, word for word, from the started event. Optional: a run started with none has none."
+        , "  -- The user's goal, word for word: the newest instructed goal in force. Optional: a run told none has none."
         , "  goal        TEXT,"
         , "  -- The git worktree the run works in: an absolute path. The latest worktree_moved event wins."
         , "  worktree    TEXT NOT NULL,"

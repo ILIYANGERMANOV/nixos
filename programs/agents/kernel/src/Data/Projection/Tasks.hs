@@ -32,12 +32,13 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Projection (
-    Insert (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
     enumIn,
     enumLiteral,
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -340,7 +341,7 @@ taskHoldRows listed trace =
 
 breakdownInsert :: BreakdownRow -> Insert
 breakdownInsert row =
-    Insert
+    insertInto
         "breakdowns"
         ( ("run_id", runIdValue row.runId)
             :| [("id", integer row.id), ("fan", SqlText (nameText row.fan))]
@@ -348,7 +349,7 @@ breakdownInsert row =
 
 epicInsert :: EpicRow -> Insert
 epicInsert row =
-    Insert
+    insertInto
         "epics"
         ( ("run_id", runIdValue row.runId)
             :| [ ("name", SqlText (epicNameText row.name))
@@ -361,7 +362,7 @@ epicInsert row =
 
 taskInsert :: TaskRow -> Insert
 taskInsert row =
-    Insert
+    insertInto
         "tasks"
         ( ("run_id", runIdValue row.runId)
             :| [ ("breakdown_id", integer row.breakdown)
@@ -400,7 +401,7 @@ taskInsert row =
 
 taskDependencyInsert :: TaskDependencyRow -> Insert
 taskDependencyInsert row =
-    Insert
+    insertInto
         "task_dependencies"
         ( ("run_id", runIdValue row.runId)
             :| [ ("breakdown_id", integer row.breakdown)
@@ -411,7 +412,7 @@ taskDependencyInsert row =
 
 childRunInsert :: ChildRunRow -> Insert
 childRunInsert row =
-    Insert
+    insertInto
         "child_runs"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
@@ -429,7 +430,7 @@ childRunInsert row =
 
 taskHoldInsert :: TaskHoldRow -> Insert
 taskHoldInsert row =
-    Insert
+    insertInto
         "task_holds"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)

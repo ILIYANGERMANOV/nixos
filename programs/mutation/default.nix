@@ -44,24 +44,29 @@ let
   ]);
 
   # What the Python tests read from the environment, here and in python-tests.
-  testEnv = {
+  # `state` is the installed kernel, which test_analyze.py builds a run store
+  # with. A function of it, so the tech tools take `python` without the kernel.
+  testEnv = state: {
     STDLIB_PYTHON = lib.getExe pkgs.python3;
     # Not `BASH`: bash itself sets that one.
     BASH_ORACLE = lib.getExe pkgs.bash;
     SHFMT = lib.getExe pkgs.shfmt;
+    STATE = lib.getExe state;
   };
 in
 {
   inherit python testEnv;
 
-  runner = shellCheck.writeShellApplication {
-    name = "mutation";
-    runtimeInputs = [
-      pkgs.git
-      pkgs.nodejs
-      pkgs.pnpm
-    ];
-    runtimeEnv = testEnv;
-    text = ''exec ${lib.getExe python} ${./mutation_diff.py} "$@"'';
-  };
+  runner =
+    state:
+    shellCheck.writeShellApplication {
+      name = "mutation";
+      runtimeInputs = [
+        pkgs.git
+        pkgs.nodejs
+        pkgs.pnpm
+      ];
+      runtimeEnv = testEnv state;
+      text = ''exec ${lib.getExe python} ${./mutation_diff.py} "$@"'';
+    };
 }

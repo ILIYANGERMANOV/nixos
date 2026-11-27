@@ -82,9 +82,10 @@ Domain  <-  Data  <-  Effects/Store
 ```
 
 - `State/` is the domain: the events and states the fold decides on.
-- `Data/` is the database's shape, pure: column codecs (`Field.hs`), one
-  row type per table (`Entity/`), and the mapping between events and rows
-  (`Payload/`).
+- `Data/` is the database's shape, pure: column codecs (`Field.hs`), the
+  DDL and row types the tables share (`Table.hs`), each permanent table's
+  row type, DDL and insert (`Entity/`), and the mapping between events and
+  rows (`Payload/`).
 - `Effects/Store/` runs SQL on rows: `Connection.hs`, `Migration.hs`,
   `Events.hs`. It holds no row type and no mapping.
 

@@ -76,11 +76,11 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   one at `next` is finished: the turn records `next.request`, no card.
   A side request while a branch waits on an Ask is the same step: the ask
   is parked, still in `state pending`, answer it any time. `state tasks`
-  prints a card per request (node, decisions, open questions, last agent)
-  and a line per child run; `state focus rK` prints `rK`'s card. A card's
-  advice: `resume agent <id>`, paused under 4m45s (the 5-minute cache less
-  a 15s buffer): SendMessage that agent; `fresh agent from card`: spawn a
-  fresh agent briefed from the card.
+  prints a card per request (node, decisions, open questions) and a line
+  per child run. A child whose agent stopped with no hand-back gets a
+  second line, `RESUME <child> stopped, no hand-back: a fresh <role> from
+  its notes <dir>`: on it, spawn a fresh agent of that role, briefed from
+  those notes. `state focus rK` prints `rK`'s card.
 - **Discussion.** The repo stays read-only: no repo edits, commits, pushes
   or PRs; the hooks deny them. Edit and Write work only on files directly in the notes dir.
   Issue writes only when the user asks: `gh issue create`, or `gh issue

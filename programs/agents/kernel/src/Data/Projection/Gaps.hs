@@ -15,12 +15,13 @@ module Data.Projection.Gaps (
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Projection (
-    Insert (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
     enumIn,
     enumLiteral,
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -94,7 +95,7 @@ evidenceKindName = \case
 
 gapInsert :: GapRow -> Insert
 gapInsert row =
-    Insert
+    insertInto
         "gaps"
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
@@ -119,7 +120,7 @@ gapInsert row =
 -- | Each piece of a gap's evidence, in the order given, from 1.
 evidenceInserts :: GapRow -> [Insert]
 evidenceInserts row =
-    [ Insert
+    [ insertInto
         "gap_evidence"
         ( ("run_id", runIdValue row.runId)
             :| [ ("gap_id", integer row.id)
