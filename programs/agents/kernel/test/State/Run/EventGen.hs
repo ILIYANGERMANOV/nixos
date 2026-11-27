@@ -167,14 +167,14 @@ genEvent =
         , Forwarded <$> genQId <*> genAbove
         , Answered <$> genQId <*> genReply <*> genAbove
         , QuestionParked <$> genQId <*> genOneLine
-        , Spawning <$> genTaskRef <*> genTakeUp
+        , Spawning <$> genTaskRef
         , Spawned
             <$> ( Child
                     <$> genRunId
                     <*> Gen.choice [Tasked <$> genTaskRef, pure Untasked]
                     <*> genPath
                 )
-        , Resumed <$> genRunId <*> Gen.maybe genTaskRef <*> genTakeUp
+        , Resumed <$> genRunId <*> Gen.maybe genTaskRef
         , HandedBack <$> genRunId <*> Gen.maybe genTaskRef <*> genSaid
         , TaskMoved <$> genTaskRef <*> genTaskState
         , Held <$> genTaskRef <*> (Url <$> genText)
@@ -446,9 +446,6 @@ genTaskNo = TaskNo <$> Gen.integral (Range.linear 1 50)
 
 genTaskId :: Gen TaskId
 genTaskId = TaskId <$> Gen.element ["t1", "t2", "t3", "t4", "t5"]
-
-genTakeUp :: Gen TakeUp
-genTakeUp = Gen.element [Joins, TakesUp]
 
 genTaskRef :: Gen TaskRef
 genTaskRef = TaskRef <$> genTaskId <*> genSeq

@@ -201,7 +201,6 @@ import State.Run.Event (
     StateName (..),
     Stop,
     StopReason (Failed),
-    TakeUp (..),
     Target (..),
     Task,
     TaskId,
@@ -633,9 +632,9 @@ runStart = \case
     Forwarded _ _ -> Nothing
     Answered {} -> Nothing
     QuestionParked _ _ -> Nothing
-    Spawning _ _ -> Nothing
+    Spawning _ -> Nothing
     Spawned _ -> Nothing
-    Resumed {} -> Nothing
+    Resumed _ _ -> Nothing
     HandedBack {} -> Nothing
     TaskMoved _ _ -> Nothing
     Held _ _ -> Nothing
@@ -757,11 +756,11 @@ applyEvent g state n = \case
     Answered qid reply by -> going (handle AskHandler g state (Answers qid reply by))
     QuestionParked qid why -> going (handle AskHandler g state (Parks qid why))
     -- A task sent an agent at its fan-out's merge reopens the fan-out, where its child's init joins.
-    Spawning ref takeUp ->
+    Spawning ref ->
         going
             ( heldTask ref.task >>= \holder ->
                 inFanAt holder.fan (Fan.spawning (askingChildren state) ref.task) state
-                    >>= takenUp takeUp g n holder.fan
+                    >>= reopened g n holder.fan
             )
     Spawned child -> going $ case child.task of
         Tasked ref ->
@@ -770,11 +769,9 @@ applyEvent g state n = \case
                     >> inFanAt holder.fan (Fan.spawned (askingChildren state) child) state
         Untasked -> forked g n state child
     -- A resumed child runs again: at the fan-out's merge, it reopens the fan-out for its hand-back.
-    Resumed child _ takeUp -> going $ case childHolder state child of
-        Just holder ->
-            inFanAt holder.fan (Fan.resumed takeUp child) state
-                >>= takenUp takeUp g n holder.fan
-        Nothing -> inFanOf (fanAt state.at) (Fan.resumed takeUp child)
+    Resumed child _ -> going $ case childHolder state child of
+        Just holder -> inFanAt holder.fan (Fan.resumed child) state >>= reopened g n holder.fan
+        Nothing -> inFanOf (fanAt state.at) (Fan.resumed child)
     -- An untasked child hands back wherever the run is, as an agent child does.
     HandedBack child _ said -> going $ case (untaskedFan state child, childHolder state child) of
         (Just fan, _) -> inFanAt fan (Fan.handedBack child said) state
@@ -1467,21 +1464,6 @@ reopened g n scoped state = case state.at of
     At _ -> Right state
     Out -> Right state
     Exit -> Right state
-
-{- | A task taken up ('TakesUp') at its fan-out's merge reopens it
-('reopened'). A line recorded before that rule ('Joins') leaves the run
-where it is, so an old log replays as it did.
--}
-takenUp ::
-    TakeUp ->
-    OpenGraph ->
-    Natural ->
-    ScopedFan ->
-    RunState ->
-    Either Refusal RunState
-takenUp = \case
-    TakesUp -> reopened
-    Joins -> \_ _ _ -> Right
 
 {- | A fan-out inside the scopes it sits in: two scoped copies of one
 fan-out are two, each with its own tasks and children.

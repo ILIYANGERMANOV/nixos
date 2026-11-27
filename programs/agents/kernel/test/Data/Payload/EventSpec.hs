@@ -133,7 +133,6 @@ import State.Run.Event (
     StateName (..),
     Stop (..),
     StopReason (..),
-    TakeUp (..),
     Target (..),
     Task (..),
     TaskId (..),
@@ -328,20 +327,6 @@ spec = describe "Data.Payload.Event" $ do
 
     it "makes no runs row of an event past the first" $
         runRow refused `shouldBe` Nothing
-
-    it
-        "reads a spawning or a resume stored before takes_up as recorded then: it joins"
-        $ do
-            let t1 = TaskRef (TaskId "t1") 1
-                storedAs event payload =
-                    (.event)
-                        <$> known (decodeRow shipped (eventRow (line 2 event)) {Row.payload = payload})
-            [ storedAs (Spawning t1 TakesUp) "{\"task\":\"t1\",\"breakdown\":1}"
-                , storedAs
-                    (Resumed (runId "c1") (Just t1) TakesUp)
-                    "{\"child\":\"c1\",\"task\":\"t1\",\"breakdown\":1}"
-                ]
-                `shouldBe` [Right (Spawning t1 Joins), Right (Resumed (runId "c1") (Just t1) Joins)]
 
     describe "span_ended" $ do
         let ended =
@@ -839,11 +824,10 @@ eventGoldens =
            , Answered qid (Chose "v1") TheCaller
            ]
     , QuestionParked qid (oneLine "waits on the user") :| []
-    , Spawning t1 TakesUp :| [Spawning t1 Joins]
+    , Spawning t1 :| []
     , Spawned (Child child (Tasked t1) "/wt/t1")
         :| [Spawned (Child child Untasked "/wt/c1")]
-    , Resumed child (Just t1) TakesUp
-        :| [Resumed child (Just t1) Joins, Resumed child Nothing Joins]
+    , Resumed child (Just t1) :| [Resumed child Nothing]
     , HandedBack
         child
         (Just t1)

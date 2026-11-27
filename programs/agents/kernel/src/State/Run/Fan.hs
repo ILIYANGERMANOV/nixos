@@ -87,7 +87,6 @@ import State.Run.Event (
     Sha,
     Shape (..),
     Stop,
-    TakeUp (..),
     Task (..),
     TaskId,
     TaskRef (TaskRef, task),
@@ -381,11 +380,10 @@ unparked task fan = case Map.lookup task fan.moves of
         [] -> after
 
 {- | The 10x resumes a child that waits on it: refused while an agent works
-on its task. A parked task taken up ('TakesUp') runs again, as one sent a
-new child does; a line recorded before that rule ('Joins') leaves it parked.
+on its task. A parked task resumed runs again, as one sent a new child does.
 -}
-resumed :: TakeUp -> RunId -> Fan -> Either Refusal Fan
-resumed takeUp run fan = case find ((== run) . (.child.run)) fan.children of
+resumed :: RunId -> Fan -> Either Refusal Fan
+resumed run fan = case find ((== run) . (.child.run)) fan.children of
     Nothing -> Left (UnknownChild run)
     Just found
         | not (live found) -> Left (ChildOver run)
@@ -393,12 +391,8 @@ resumed takeUp run fan = case find ((== run) . (.child.run)) fan.children of
             Tasked ref
                 | Set.member ref.task fan.atWork -> Left (AtWork ref.task)
                 | otherwise ->
-                    Right (takenUp ref.task) {atWork = Set.insert ref.task fan.atWork}
+                    Right (unparked ref.task fan) {atWork = Set.insert ref.task fan.atWork}
             Untasked -> Right fan
-  where
-    takenUp task = case takeUp of
-        TakesUp -> unparked task fan
-        Joins -> fan
 
 -- | A question the 10x asked from this child: after the child stopped, it triages the stop.
 triaged :: RunId -> Fan -> Fan

@@ -284,7 +284,7 @@ spec = describe "State.Run.Fold" $ do
                                , TaskMoved (refTo "t1") (Merged (Url "pr"))
                                , Held (refTo "t1") (Url "pull/2")
                                , TaskAdded 1 fix
-                               , Spawning (refTo "fix") TakesUp
+                               , Spawning (refTo "fix")
                                , Spawned (childOf "c2" "fix")
                                ]
                         )
@@ -336,37 +336,22 @@ spec = describe "State.Run.Fold" $ do
                 `shouldSatisfy` \case
                     Left (NoEdge _ _) -> True
                     _ -> False
-        describe "a spawning or a resume recorded before takes_up replays as it did" $ do
-            let parkedAtMerge =
-                    toEngineers
-                        <> [ Spawned child
-                           , HandedBack (runId "c1") Nothing (Awaits Ci (oneLine "PR #1"))
-                           , TaskMoved (refTo "t1") (Parked "later" Nothing)
-                           ]
-                parked = toEngineers <> [TaskMoved (refTo "t1") (Parked "later" Nothing)]
-                resume = Resumed (runId "c1") (Just (refTo "t1"))
-                mergeDone = stepTook (MergeDone engineers (Url "pr"))
-                after = fmap (\state -> (atName state, (currentFan state).moves)) . tenXRun
-            it
-                "a parked task's child resumed at the merge: it stays parked, the merge goes on"
-                $ map
-                    after
-                    [parkedAtMerge <> [resume Joins], parkedAtMerge <> [resume Joins, mergeDone]]
-                    `shouldBe` [ Right
-                                    ( Just (StateName "merge")
-                                    , Map.fromList [(TaskId "t1", Parked "later" Nothing)]
-                                    )
-                               , Right (Nothing, Map.empty)
-                               ]
-            it
-                "a parked task sent an agent at the merge: it runs, the run stays at the merge"
-                $ after (parked <> [Spawning (refTo "t1") Joins])
-                    `shouldBe` Right (Just (StateName "merge"), Map.empty)
-            it "the same lines taking their task up reopen the fan-out, unparked" $
-                map
-                    after
-                    [parkedAtMerge <> [resume TakesUp], parked <> [Spawning (refTo "t1") TakesUp]]
-                    `shouldBe` replicate 2 (Right (Just (StateName "engineers"), Map.empty))
+        it
+            "reopens the fan-out at its merge for a parked task's child resumed or sent an agent, unparked"
+            $ map
+                (fmap (\state -> (atName state, (currentFan state).moves)) . tenXRun)
+                [ toEngineers
+                    <> [ Spawned child
+                       , HandedBack (runId "c1") Nothing (Awaits Ci (oneLine "PR #1"))
+                       , TaskMoved (refTo "t1") (Parked "later" Nothing)
+                       , Resumed (runId "c1") (Just (refTo "t1"))
+                       ]
+                , toEngineers
+                    <> [ TaskMoved (refTo "t1") (Parked "later" Nothing)
+                       , Spawning (refTo "t1")
+                       ]
+                ]
+                `shouldBe` replicate 2 (Right (Just (StateName "engineers"), Map.empty))
         it
             "refuses a ruling on a Stuck question once its task spent its one retry, but forwards it"
             $ do
@@ -394,7 +379,7 @@ spec = describe "State.Run.Fold" $ do
                 <$> tenXRun
                     ( toEngineers
                         <> [ TaskMoved (refTo "t1") (Parked "later" Nothing)
-                           , Spawning (refTo "t1") TakesUp
+                           , Spawning (refTo "t1")
                            , Spawned child
                            ]
                     )
@@ -1853,7 +1838,7 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
                 ( waiting
                     <> [ Spawned (childOf "c1" "t1")
                        , HandedBack (runId "c1") Nothing (AsksUp (QId (runId "c1") 1))
-                       , Resumed (runId "c1") Nothing TakesUp
+                       , Resumed (runId "c1") Nothing
                        , TaskMoved (refTo "t1") (Merged pr)
                        ]
                 )
@@ -2484,7 +2469,7 @@ handed back, a restart.
 genReplanning :: Gen [Event]
 genReplanning =
     Gen.frequency
-        [ (2, (\t -> [Spawning (refTo t) TakesUp]) <$> task)
+        [ (2, pure . Spawning . refTo <$> task)
         , (2, (\c t -> [Spawned (childOf c t)]) <$> child <*> task)
         , (2, (\c said -> [HandedBack (runId c) Nothing said]) <$> child <*> genSaid)
         , (2, (\t moved -> [TaskMoved (refTo t) moved]) <$> task <*> genTaskState)

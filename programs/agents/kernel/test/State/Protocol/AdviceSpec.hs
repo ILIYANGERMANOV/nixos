@@ -640,8 +640,8 @@ spec = describe "State.Protocol.Advice" $ do
         it "spawns the next task once a spawn is recorded, never the same task twice" $
             map
                 (next noFacts . tenXAt (t1 :| [t2]))
-                [ [Spawning (refTo "t1") TakesUp]
-                , [Spawning (refTo "t1") TakesUp, Spawning (refTo "t2") TakesUp]
+                [ [Spawning (refTo "t1")]
+                , [Spawning (refTo "t1"), Spawning (refTo "t2")]
                 ]
                 `shouldBe` [ Spawn (AgentRole "engineer") (Just (TaskId "t2"))
                            , AwaitChildren (TaskId "t1" :| [TaskId "t2"])
@@ -660,9 +660,9 @@ spec = describe "State.Protocol.Advice" $ do
                                ]
                 map
                     (next noFacts . tenXAt (t1 :| [t2]))
-                    [ both <> [Resumed (runId "c1") Nothing TakesUp]
+                    [ both <> [Resumed (runId "c1") Nothing]
                     , both
-                        <> [Resumed (runId "c1") Nothing TakesUp, Resumed (runId "c2") Nothing TakesUp]
+                        <> [Resumed (runId "c1") Nothing, Resumed (runId "c2") Nothing]
                     ]
                     `shouldBe` [ Resume (runId "c2") "with the answer to c2:1: confirmed"
                                , AwaitChildren (TaskId "t1" :| [TaskId "t2"])
@@ -671,7 +671,7 @@ spec = describe "State.Protocol.Advice" $ do
             let lost = [Spawned (childOf "c1" "t1"), Restarted]
             map
                 (next noFacts . tenXAt (t1 :| []))
-                [lost, lost <> [Resumed (runId "c1") Nothing TakesUp]]
+                [lost, lost <> [Resumed (runId "c1") Nothing]]
                 `shouldBe` [ Resume (runId "c1") "lost at a restart: a fresh engineer with its spawn prompt"
                            , AwaitChildren (TaskId "t1" :| [])
                            ]
@@ -690,7 +690,7 @@ spec = describe "State.Protocol.Advice" $ do
                     (t1 :| [])
                     [ Spawned (childOf "c1" "t1")
                     , HandedBack (runId "c1") Nothing (Awaits Ci (oneLine "https://pr/1"))
-                    , Resumed (runId "c1") Nothing TakesUp
+                    , Resumed (runId "c1") Nothing
                     ]
                 )
                 `shouldBe` AwaitChildren (TaskId "t1" :| [])
@@ -802,7 +802,7 @@ spec = describe "State.Protocol.Advice" $ do
                            ]
             map
                 (next noFacts . tenXAt (t1 :| [t2]))
-                [forwarded, forwarded <> [Resumed (runId "c1") Nothing TakesUp]]
+                [forwarded, forwarded <> [Resumed (runId "c1") Nothing]]
                 `shouldBe` [Resume (runId "c1") "with the answer to c1:1: confirmed", AwaitAnswer asks2]
         it "records a finished task's PR when the child's READY named none" $
             map
@@ -897,7 +897,7 @@ spec = describe "State.Protocol.Advice" $ do
                         (t1 :| [])
                         ( fromChild
                             <> [ RuledOn asks.qid ruling
-                               , Resumed (runId "c1") Nothing TakesUp
+                               , Resumed (runId "c1") Nothing
                                , Held (refTo "t1") (Url "https://pr/1#c")
                                ]
                         )

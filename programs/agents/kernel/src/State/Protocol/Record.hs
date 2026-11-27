@@ -71,7 +71,6 @@ import State.Run.Event (
     Requirement (..),
     RunId,
     Sha,
-    TakeUp (TakesUp),
     Target (..),
     TaskId (..),
     TaskRef,
@@ -470,13 +469,13 @@ recordables =
                 [task, link] -> Right (OnTask (TaskId task) (`ActedOn` Url link))
                 _ -> Left "the task and the held url acted on"
            , named "spawning" "<task>" $ \case
-                [task] -> Right (OnTask (TaskId task) (`Spawning` TakesUp))
+                [task] -> Right (OnTask (TaskId task) Spawning)
                 _ -> Left "the task the engineer you spawn takes"
            , named "resumed" "<child run>" $ \case
                 [child] ->
                     maybe
                         (Left (child <> " is no run id"))
-                        (\run -> Right (OnChild run (\ref -> Resumed run ref TakesUp)))
+                        (\run -> Right (OnChild run (Resumed run)))
                         (parseRunId child)
                 _ -> Left "the child run you resume"
            ]
