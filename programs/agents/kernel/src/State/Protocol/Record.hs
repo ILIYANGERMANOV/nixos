@@ -55,7 +55,7 @@ import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
 import State.Protocol.Handback (parseTouches, refusalText)
 import State.Role (drawnOutcomes)
-import State.Run.Ask (parseOneLine)
+import State.Run.Ask (flattened)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (
@@ -96,6 +96,7 @@ import State.Run.Stopgap (StopgapAt (..), parseStopgapKey, stopgapKeyRule)
 import State.Step.Artifact (
     NonBlank,
     baseTextForms,
+    nonBlankText,
     parseBase,
     parseNamesOrNone,
     parseNonBlank,
@@ -584,7 +585,8 @@ draftOf words' a = do
             (Left ("no " <> what <> " " <> raw <> ": one of " <> choices name))
             Right
             (parseByName name raw)
-    areaOf raw = maybe (Left "the area, one line") (Right . GapArea) (parseOneLine raw)
+    -- A NonBlank has no line break, so flattening it keeps its text.
+    areaOf = fmap (GapArea . flattened . nonBlankText) . oneLine "the area"
     evidenceOf raw = case (parseEventRef raw, parseUri raw) of
         (Just ref, _) -> Right (OfEvent ref)
         (Nothing, Just uri) -> Right (OfUrl uri)

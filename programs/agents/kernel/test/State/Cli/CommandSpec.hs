@@ -242,6 +242,12 @@ spec = describe "State.Cli.Command" $ do
             drafted ["gap", "--area", "fold\ntasks: done", "a", "gap"]
                 `shouldBe` Left "record gap"
 
+        it "refuses a gap whose --area is blank" $
+            ( drafted ["gap", "--area", "", "a", "gap"]
+            , drafted ["gap", "--area", "  ", "a", "gap"]
+            )
+                `shouldBe` (Left "record gap", Left "record gap")
+
         it "refuses a gap with no text" $
             recorded ["gap"] `shouldBe` Left "record gap"
 
