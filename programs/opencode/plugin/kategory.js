@@ -94,7 +94,9 @@ export const Kategory = async ({ directory }) => {
   const spentUnder = (sessionID) =>
     Object.fromEntries(
       [...sessions]
-        .filter(([id, session]) => session.parentID === sessionID && calls.has(id))
+        .filter(
+          ([id, session]) => session.parentID === sessionID && calls.has(id),
+        )
         .map(([id]) => [id, summed([...calls.get(id).values()])]),
     );
   const queue = (sessionID, context) => {
@@ -207,7 +209,10 @@ export const Kategory = async ({ directory }) => {
           if (info.tokens !== undefined) {
             calls.set(
               info.sessionID,
-              (calls.get(info.sessionID) ?? new Map()).set(info.id, info.tokens),
+              (calls.get(info.sessionID) ?? new Map()).set(
+                info.id,
+                info.tokens,
+              ),
             );
           }
           break;
