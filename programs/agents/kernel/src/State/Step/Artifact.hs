@@ -39,7 +39,10 @@ module State.Step.Artifact (
     taskIdText,
     topicText,
     judgementText,
+    judgementName,
     areaText,
+    areaName,
+    planName,
     headData,
     urlData,
     draftData,
@@ -65,6 +68,7 @@ module State.Step.Artifact (
     distinct,
     keyed,
     named,
+    unknownCase,
 ) where
 
 import Control.Applicative ((<|>))
@@ -301,14 +305,35 @@ judgementText = \case
     NotMet -> "not-met"
     Unverified -> "unverified"
 
+-- | As the log spells it, lowercase snake_case; the CLI's is 'judgementText'.
+judgementName :: Judgement -> Text
+judgementName = \case
+    Met -> "met"
+    NotMet -> "not_met"
+    Unverified -> "unverified"
+
+-- | As the CLI and a hand-back spell it.
 areaText :: Area -> Text
 areaText = \case
     Interface -> "interface"
     DataModel -> "data-model"
     Auth -> "auth"
 
+-- | As the log spells it, lowercase snake_case; the CLI's is 'areaText'.
+areaName :: Area -> Text
+areaName = \case
+    Interface -> "interface"
+    DataModel -> "data_model"
+    Auth -> "auth"
+
+-- | As the log spells it.
+planName :: PlanCall -> Text
+planName = \case
+    ChildConfirms -> "child_confirms"
+    ParentDecided -> "parent_decided"
+
 headData :: Sha -> Series
-headData sha = "head" .= shaText sha
+headData sha = "head_sha" .= shaText sha
 
 urlData :: Url -> Series
 urlData url = "url" .= urlText url
@@ -320,7 +345,7 @@ draftData draft =
         <> "branch" .= branchText draft.branch
 
 commitData :: Commit -> Series
-commitData commit = headData commit.head <> "touches" .= map areaText (Set.toList commit.touches)
+commitData commit = headData commit.head <> "touches" .= map areaName (Set.toList commit.touches)
 
 picksData :: Picks -> Series
 picksData picks =
@@ -328,7 +353,7 @@ picksData picks =
         <> pair "verdicts" (list verdictEncoding (Map.toList picks.verdicts))
   where
     verdictEncoding (Requirement requirement, judgement) =
-        pairs ("requirement" .= requirement <> "outcome" .= judgementText judgement)
+        pairs ("requirement" .= requirement <> "outcome" .= judgementName judgement)
 
 tasksData :: Tasks -> Series
 tasksData tasks = pair "tasks" (list taskEncoding (taskList tasks))
@@ -350,21 +375,18 @@ taskEncoding task =
             <> maybe mempty (("worktree" .=) . shellPathText) task.worktree
             <> flowData task.flow
 
--- | The default flow is omitted, so a breakdown older than flows encodes as it was written.
+-- | The default flow is omitted: @flow@ is an optional key.
 flowData :: FlowName -> Series
 flowData = maybe mempty ("flow" .=) . namedFlowText
 
--- | Only a decided plan is written, so a breakdown older than it encodes as it was written.
 planData :: PlanCall -> Series
-planData = \case
-    ChildConfirms -> mempty
-    ParentDecided -> "planDecided" .= True
+planData plan = "plan" .= planName plan
 
--- | Only a round names its PR: a log older than rounds reads as own PRs.
+-- | A union under @shape@: @{kind: own_pr}@ or @{kind: round_on, pr_url}@.
 shapeData :: Shape -> Series
-shapeData = \case
-    OwnPr -> mempty
-    RoundOn url -> "pr" .= urlText url
+shapeData shape = pair "shape" . pairs $ case shape of
+    OwnPr -> "kind" .= ("own_pr" :: Text)
+    RoundOn url -> "kind" .= ("round_on" :: Text) <> "pr_url" .= urlText url
 
 -- | One key, the target's kind, holding its url or branch.
 targetData :: Target -> Series
@@ -374,7 +396,7 @@ targetData = \case
     OnTicket url -> "ticket" .= urlText url
 
 headOf :: Object -> Parser Sha
-headOf obj = Sha <$> obj .: "head"
+headOf obj = Sha <$> obj .: "head_sha"
 
 urlOf :: Object -> Parser Url
 urlOf obj = Url <$> obj .: "url"
@@ -391,7 +413,7 @@ commitOf obj =
     Commit
         <$> headOf obj
         <*> ( Set.fromList
-                <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaText)))
+                <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaName)))
             )
 
 picksOf :: Object -> Parser Picks
@@ -406,22 +428,28 @@ picksOf obj =
     verdictOf verdict =
         (,) . Requirement
             <$> verdict .: "requirement"
-            <*> (verdict .: "outcome" >>= named "outcome" (parseByName judgementText))
+            <*> (verdict .: "outcome" >>= named "outcome" (parseByName judgementName))
 
--- | A breakdown file: the JSON array @breakdown.done@ logs as its @tasks@.
+{- | A breakdown file: the JSON array of tasks @breakdown.done@ logs, each
+task's shape and plan spelt as 'fileCallsOf' reads them.
+-}
 decodeBreakdown :: Text -> Either Text Tasks
-decodeBreakdown = decodeWith breakdownOf
+decodeBreakdown = decodeWith (breakdownWith fileCallsOf)
 
 -- | A task file for @task add@: one task, as a breakdown file spells each.
 decodeTask :: Text -> Either Text Task
-decodeTask = decodeWith taskOf
+decodeTask = decodeWith (taskWith fileCallsOf)
 
 decodeWith :: (Value -> Parser a) -> Text -> Either Text a
 decodeWith parser raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither parser)
 
+-- | A breakdown as the log holds it.
 breakdownOf :: Value -> Parser Tasks
-breakdownOf value = do
-    tasks <- parseJSON value >>= traverse taskOf
+breakdownOf = breakdownWith loggedCallsOf
+
+breakdownWith :: (Object -> Parser (Shape, PlanCall)) -> Value -> Parser Tasks
+breakdownWith calls value = do
+    tasks <- parseJSON value >>= traverse (taskWith calls)
     case NonEmpty.nonEmpty tasks of
         Nothing -> fail "a breakdown has a task at least"
         Just some -> either (fail . Text.unpack . breakdownErrorText) pure (breakdown some)
@@ -430,12 +458,19 @@ breakdownOf value = do
         TaskTwice (TaskId task) -> "task " <> task <> " is named twice"
         DependsLater (TaskId task) (TaskId dep) -> "task " <> task <> " depends on " <> dep <> ", which is not an earlier task"
 
+-- | A task as the log holds it.
 taskOf :: Value -> Parser Task
-taskOf = withObject "task" taskFieldsOf
+taskOf = taskWith loggedCallsOf
 
--- | By name, as a field a later breakdown adds is one more line; an optional one is omitted when absent.
-taskFieldsOf :: Object -> Parser Task
-taskFieldsOf obj = do
+taskWith :: (Object -> Parser (Shape, PlanCall)) -> Value -> Parser Task
+taskWith calls = withObject "task" (taskFieldsOf calls)
+
+{- | By name, as a field a later breakdown adds is one more line; an optional
+one is omitted when absent. The log and a task file spell the task's shape
+and plan apart: @calls@ reads them.
+-}
+taskFieldsOf :: (Object -> Parser (Shape, PlanCall)) -> Object -> Parser Task
+taskFieldsOf calls obj = do
     taskId <- TaskId <$> obj .: "id"
     deps <- map TaskId <$> obj .: "deps"
     base <- Branch <$> obj .: "base"
@@ -447,8 +482,7 @@ taskFieldsOf obj = do
         obj .: "security"
             >>= traverse (named "topic" (parseByName topicText))
             >>= distinct "topic"
-    shape <- shapeOf obj
-    plan <- planOf obj
+    (shape, plan) <- calls obj
     repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
     flow <-
@@ -477,8 +511,31 @@ taskFieldsOf obj = do
             pure
             (shellPath path)
 
+-- | A task's shape and plan as the log tags them, under @shape@ and @plan@.
+loggedCallsOf :: Object -> Parser (Shape, PlanCall)
+loggedCallsOf obj = (,) <$> shapeOf obj <*> planOf obj
+
+{- | A task's shape and plan as a task file spells them: a round's PR under
+@pr@, a decided plan as @planDecided: true@, each left out otherwise.
+-}
+fileCallsOf :: Object -> Parser (Shape, PlanCall)
+fileCallsOf obj = do
+    pr <- obj .:? "pr"
+    decided <- obj .:? "planDecided"
+    pure
+        ( maybe OwnPr (RoundOn . Url) pr
+        , bool ChildConfirms ParentDecided (fromMaybe False decided)
+        )
+
 shapeOf :: Object -> Parser Shape
-shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"
+shapeOf obj =
+    obj .: "shape"
+        >>= withObject "shape" (\shape -> shape .: "kind" >>= caseOf shape)
+  where
+    caseOf shape = \case
+        "own_pr" -> pure OwnPr
+        "round_on" -> RoundOn . Url <$> shape .: "pr_url"
+        other -> unknownCase "shape" other
 
 targetOf :: Object -> Parser Target
 targetOf obj =
@@ -487,7 +544,7 @@ targetOf obj =
         <|> OnTicket . Url <$> obj .: "ticket"
 
 planOf :: Object -> Parser PlanCall
-planOf obj = bool ChildConfirms ParentDecided . fromMaybe False <$> obj .:? "planDecided"
+planOf obj = obj .: "plan" >>= named "plan" (parseByName planName)
 
 {- | A list read as a set, refusing a repeat: a set would keep one copy
 silently, and a log naming one twice is a bug in its writer.
@@ -504,4 +561,8 @@ keyed what entries
     byKey = Map.fromList entries
 
 named :: String -> (Text -> Maybe a) -> Text -> Parser a
-named what parse raw = maybe (fail ("unknown " <> what <> " " <> show raw)) pure (parse raw)
+named what parse raw = maybe (unknownCase what raw) pure (parse raw)
+
+-- | The refusal of a word, or a union's @kind@, that names no case.
+unknownCase :: String -> Text -> Parser a
+unknownCase what raw = fail ("unknown " <> what <> " " <> show raw)

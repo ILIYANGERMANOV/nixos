@@ -78,7 +78,7 @@ spec = describe "State.Run.Codec" $ do
 
     it "dumps the row #360 documents, its columns in the table's order" $
         encodeLine reviewRows
-            `shouldBe` "{\"run_id\":\"r7f2\",\"seq\":12,\"schema_version\":1,\"type\":\"review.rows\",\"time\":\"2026-11-12T10:00:00.000Z\",\"session_id\":null,\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"hook_digest\":null,\"data\":{\"head\":\"abc123\"}}"
+            `shouldBe` "{\"run_id\":\"r7f2\",\"seq\":12,\"schema_version\":1,\"type\":\"review.rows\",\"time\":\"2026-11-12T10:00:00.000Z\",\"session_id\":null,\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"hook_digest\":null,\"data\":{\"head_sha\":\"abc123\"}}"
 
     it "reads a row of run h, whose CLI ids read as hook ids, as unknown" $
         decodeLine
@@ -88,7 +88,7 @@ spec = describe "State.Run.Codec" $ do
     it "refuses a parent run h" $
         decodeLine
             ( encodeLine parentRun
-                `replacing` ("\"run\":\"r7f2\",\"task\"", "\"run\":\"h\",\"task\"")
+                `replacing` ("\"run\":\"r7f2\",\"link\"", "\"run\":\"h\",\"link\"")
             )
             `shouldSatisfy` malformed
 
@@ -172,7 +172,7 @@ spec = describe "State.Run.Codec" $ do
         decodeLine
             ( encodeLine reviewRows
                 `replacing` ("review.rows", "await_ci.red")
-                `replacing` ("{\"head\":\"abc123\"}", "{\"head\":\"abc123\",\"failing\":[]}")
+                `replacing` ("{\"head_sha\":\"abc123\"}", "{\"head_sha\":\"abc123\",\"failing\":[]}")
             )
             `shouldSatisfy` malformed
 
@@ -181,7 +181,7 @@ spec = describe "State.Run.Codec" $ do
             (encodeLine picked `replacing` ("\"rows\":[\"A\"]", "\"rows\":[\"A\",\"A\"]"))
             `shouldSatisfy` malformed
 
-    it "writes a ruling's answer, why, cost and basis under the question's id" $
+    it "writes a ruling's answer, reason, cost and basis under the question's id" $
         encodeLine
             reviewRows
                 { event =
@@ -194,12 +194,24 @@ spec = describe "State.Run.Codec" $ do
                             (Just (AnsweredBy (Numbered (runId "r7f2") 4)))
                         )
                 }
-            `shouldBe` "{\"run_id\":\"r7f2\",\"seq\":12,\"schema_version\":1,\"type\":\"ruled\",\"time\":\"2026-11-12T10:00:00.000Z\",\"session_id\":null,\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"hook_digest\":null,\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
+            `shouldBe` "{\"run_id\":\"r7f2\",\"seq\":12,\"schema_version\":1,\"type\":\"ruled\",\"time\":\"2026-11-12T10:00:00.000Z\",\"session_id\":null,\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"hook_digest\":null,\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"reason\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"kind\":\"event\",\"event\":\"r7f2:4\"}}}"
 
-    it "writes a void as the seq of the line it voids, and why" $
+    it "writes a void as the seq of the line it voids, and its reason" $
         encodeLine reviewRows {event = Voided 7 "logged in the wrong run"}
             `shouldSatisfy` Text.isInfixOf
-                "\"data\":{\"seq\":7,\"why\":\"logged in the wrong run\"}"
+                "\"data\":{\"seq\":7,\"reason\":\"logged in the wrong run\"}"
+
+    it "reads a voided seq under 2^53, and one at 2^53 as unknown (I-JSON)" $
+        [ (.event)
+            <$> decodeLine
+                ( encodeLine reviewRows {event = Voided 7 "r"}
+                    `replacing` ("\"seq\":7", "\"seq\":" <> Text.pack (show n))
+                )
+        | n <- [2 ^ (53 :: Int) - 1, 2 ^ (53 :: Int) :: Integer]
+        ]
+            `shouldSatisfy` \case
+                [Right (Voided 9007199254740991 "r"), unread] -> malformed unread
+                _ -> False
 
     it "refuses a ruling whose answer breaks the line" $
         decodeLine
@@ -214,13 +226,13 @@ spec = describe "State.Run.Codec" $ do
             )
             `shouldSatisfy` malformed
 
-    it "writes a child's stop as its reason, upper case, with its why as the ref" $
+    it "writes a child's stop as ended, with the stop's reason and detail" $
         encodeLine
             reviewRows {event = HandedBack (runId "c1") (Ended (Stop Blocked "no access"))}
             `shouldSatisfy` Text.isInfixOf
-                "\"data\":{\"child\":\"c1\",\"token\":\"BLOCKED\",\"ref\":\"no access\",\"qid\":null}"
+                "\"data\":{\"child\":\"c1\",\"kind\":\"ended\",\"reason\":\"blocked\",\"detail\":\"no access\"}"
 
-    it "writes a child's AWAIT ci as before merges climbed, and names a merge" $
+    it "writes a child's AWAIT with what it awaits, ci or merge" $
         [ encodeLine
             reviewRows
                 { event = HandedBack (runId "c1") (Awaits on (oneLine "https://pr/1"))
@@ -229,26 +241,27 @@ spec = describe "State.Run.Codec" $ do
         ]
             `shouldSatisfy` \case
                 [ci, merge] ->
-                    "\"data\":{\"child\":\"c1\",\"token\":\"AWAIT\",\"ref\":\"https://pr/1\",\"qid\":null}"
+                    "\"data\":{\"child\":\"c1\",\"kind\":\"awaits\",\"on\":\"ci\",\"summary\":\"https://pr/1\"}"
                         `Text.isInfixOf` ci
-                        && "\"qid\":null,\"on\":\"merge\"}" `Text.isInfixOf` merge
+                        && "\"kind\":\"awaits\",\"on\":\"merge\"," `Text.isInfixOf` merge
                 _ -> False
 
     it
-        "writes the user on its own PR as the bare word older logs hold, and a user's round as its PR"
+        "writes the user as a principal tagged user, its PR's shape tagged by its kind"
         $ [ encodeLine
                 reviewRows {event = Started (Start EngineerFlow "/n" (ByUser shape) Set.empty)}
           | shape <- [OwnPr, RoundOn (Url "https://github.com/o/r/pull/7")]
           ]
             `shouldSatisfy` \case
                 [own, round'] ->
-                    "\"principal\":\"user\"" `Text.isInfixOf` own
-                        && "\"principal\":{\"pr\":\"https://github.com/o/r/pull/7\"}"
+                    "\"principal\":{\"kind\":\"user\",\"shape\":{\"kind\":\"own_pr\"}}"
+                        `Text.isInfixOf` own
+                        && "\"principal\":{\"kind\":\"user\",\"shape\":{\"kind\":\"round_on\",\"pr_url\":\"https://github.com/o/r/pull/7\"}}"
                             `Text.isInfixOf` round'
                 _ -> False
 
     it
-        "writes the caller on its own PR as a bare word, and its round as its PR marked caller"
+        "writes the caller as a principal tagged caller, its PR's shape tagged by its kind"
         $ [ encodeLine
                 reviewRows
                     { event = Started (Start EngineerFlow "/n" (ByCaller shape) Set.empty)
@@ -257,21 +270,21 @@ spec = describe "State.Run.Codec" $ do
           ]
             `shouldSatisfy` \case
                 [own, round'] ->
-                    "\"principal\":\"caller\"" `Text.isInfixOf` own
-                        && "\"principal\":{\"caller\":true,\"pr\":\"https://github.com/o/r/pull/7\"}"
+                    "\"principal\":{\"kind\":\"caller\",\"shape\":{\"kind\":\"own_pr\"}}"
+                        `Text.isInfixOf` own
+                        && "\"principal\":{\"kind\":\"caller\",\"shape\":{\"kind\":\"round_on\",\"pr_url\":\"https://github.com/o/r/pull/7\"}}"
                             `Text.isInfixOf` round'
                 _ -> False
 
-    it "reads an AWAIT an older log wrote, with no on, as awaiting CI" $
-        (.event)
-            <$> decodeLine
-                ( encodeLine
-                    reviewRows
-                        { event = HandedBack (runId "c1") (Awaits Merge (oneLine "https://pr/1"))
-                        }
-                    `replacing` (",\"on\":\"merge\"", "")
-                )
-            `shouldBe` Right (HandedBack (runId "c1") (Awaits Ci (oneLine "https://pr/1")))
+    it "refuses an AWAIT that names nothing it awaits" $
+        decodeLine
+            ( encodeLine
+                reviewRows
+                    { event = HandedBack (runId "c1") (Awaits Merge (oneLine "https://pr/1"))
+                    }
+                `replacing` (",\"on\":\"merge\"", "")
+            )
+            `shouldSatisfy` malformed
 
     it "reads a breakdown's tasks in order" $
         map (.id) . taskList
@@ -399,17 +412,17 @@ spec = describe "State.Run.Codec" $ do
                        , Left "Error in $: unknown fuel \"huge\""
                        ]
 
-    it "refuses a retag to any kind but Security" $
+    it "refuses a retag to any kind but security" $
         decodeLine
             ( encodeLine reviewRows {event = RetaggedSecurity (QId (runId "c1") 3)}
-                `replacing` ("\"kind\":\"Security\"", "\"kind\":\"Design\"")
+                `replacing` ("\"question_kind\":\"security\"", "\"question_kind\":\"design\"")
             )
             `shouldSatisfy` malformed
 
     it "refuses picks judging a requirement twice" $
         decodeLine
             ( encodeLine picked
-                `replacing` (metR1, metR1 <> ",{\"requirement\":\"R1\",\"outcome\":\"not-met\"}")
+                `replacing` (metR1, metR1 <> ",{\"requirement\":\"R1\",\"outcome\":\"not_met\"}")
             )
             `shouldSatisfy` malformed
 

@@ -125,7 +125,18 @@ genEvent =
         , AgentEnded . AgentId <$> genText
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo
-        , Voided <$> Gen.integral (Range.linear 0 100000) <*> genText
+        , Voided <$> genIJsonNatural <*> genText
+        ]
+
+{- | An I-JSON integer (RFC 7493 s2.2), 0 to 2^53-1, its two edges drawn
+often: the log's only payload integer, a voided seq, stays in that range.
+-}
+genIJsonNatural :: Gen Natural
+genIJsonNatural =
+    Gen.frequency
+        [ (1, pure 0)
+        , (1, pure (2 ^ (53 :: Int) - 1))
+        , (8, Gen.integral (Range.linear 0 (2 ^ (53 :: Int) - 1)))
         ]
 
 genPath :: Gen FilePath
