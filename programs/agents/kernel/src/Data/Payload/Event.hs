@@ -88,6 +88,7 @@ import State.Run.Codec (
     handoverReasonText,
     ijsonNatural,
     reasonText,
+    taskStateKind,
     tokenWordName,
     usageData,
     usageOf,
@@ -531,17 +532,6 @@ questionKindName = \case
     Confirm -> "confirm"
     Security -> "security"
     Stuck -> "stuck"
-
--- | A task state's @kind@ in the log; the CLI's name is 'State.Run.Codec.taskStateName'.
-taskStateKind :: TaskState -> Text
-taskStateKind = \case
-    InCi _ -> "in_ci"
-    InReview _ -> "in_review"
-    Merged _ -> "merged"
-    Kept _ -> "kept"
-    Round _ -> "round"
-    Parked _ _ -> "parked"
-    Delivered _ -> "delivered"
 
 spanIdOf :: Natural -> Parser SpanId
 spanIdOf n = SpanId <$> ijsonNatural n

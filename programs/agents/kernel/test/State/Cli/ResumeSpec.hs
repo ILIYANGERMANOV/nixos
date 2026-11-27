@@ -62,6 +62,18 @@ spec = describe "state resume over the doubles" . before newWorld $ do
         ran <- state world ["resume"]
         pure (golden "resume/fresh.txt" (decodeUtf8Lenient ran.stdout))
 
+    it "prints a task an agent took as running, and a parked one taken again too" $ \world -> do
+        _ <- tenXAtFanOutBy world [] [plainTask "t1" [], plainTask "t2" []]
+        for_
+            [ ["record", "spawning", "t1"]
+            , ["record", "task", "t2", "parked", "out", "of", "scope"]
+            , ["record", "spawning", "t2"]
+            ]
+            (succeeded <=< state world)
+        out <- succeeded =<< state world ["resume"]
+        map (take 2 . Text.words) (filter (Text.isPrefixOf "  t") out)
+            `shouldBe` [["t1", "running"], ["t2", "running"]]
+
     it "counts neither a voided line nor its void among the header's events" $ \world -> do
         _ <- startedRun world
         fresh <- succeeded =<< state world ["resume"]
@@ -335,6 +347,13 @@ packedRun world = do
                 world
                 (encodeUtf8 ("READY https://github.com/o/r/pull/3\nRun: " <> child <> "\n"))
                 ["handback", "engineer"]
+    for_
+        [ ["epic", "open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
+        , ["record", "task", "t2", "base", "on_epic:limits", "--reason", "restacked"]
+        , ["record", "task", "head", "t1", Text.replicate 4 "0123456789"]
+        , ["epic", "ready", "limits", "--pr", "https://github.com/o/r/pull/40"]
+        ]
+        (succeeded <=< state world)
     putFile world "/work/plan.md" "v1\n"
     _ <- succeeded =<< state world ["artifact", "plan.md", "--kind", "plan"]
     putFile world "/work/plan.md" "v2\n"

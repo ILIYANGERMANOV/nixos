@@ -22,6 +22,7 @@ module State.Run.Codec (
     branchText,
     repoText,
     taskStateName,
+    taskStateKind,
     taskStateArgs,
     prStates,
     topicText,
@@ -191,6 +192,19 @@ taskStateName :: TaskState -> Text
 taskStateName = \case
     InCi _ -> "ci"
     InReview _ -> "review"
+    Merged _ -> "merged"
+    Kept _ -> "kept"
+    Round _ -> "round"
+    Parked _ _ -> "parked"
+    Delivered _ -> "delivered"
+
+{- | A task state as its status (#552's Appendix B section F) and the log's
+@kind@ spell it; @state record task@'s name is 'taskStateName'.
+-}
+taskStateKind :: TaskState -> Text
+taskStateKind = \case
+    InCi _ -> "in_ci"
+    InReview _ -> "in_review"
     Merged _ -> "merged"
     Kept _ -> "kept"
     Round _ -> "round"

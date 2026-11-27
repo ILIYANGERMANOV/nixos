@@ -68,7 +68,8 @@ git -C <worktree> rev-list --merges origin/<base>..<new head>
 - Anything else: code changed, so no chain. The Approved gate asks for a new
   approval: say what changed. An epic child needs none.
 
-Either way, SKILL.md's CI, whose green reruns the gates.
+Either way, `state record task head <id> <new head>`, then SKILL.md's CI,
+whose green reruns the gates.
 
 ## After each merge
 
@@ -76,7 +77,10 @@ GitHub sends no webhook when a base advance makes a PR conflict, so check it
 yourself:
 
 1. Confirm `state` is `MERGED`. `state record task <id> merged <url>`, notify;
-   a PR from a child's `AWAIT merge`: resume that child, as above.
+   a PR from a child's `AWAIT merge`: resume that child, as above. A task
+   based on the merged one now builds on that one's base:
+   `state record task <id> base <base> --reason <why>`, `<base>` as
+   `on_default`, `on_epic:<name>` or `on_task:<id>`.
 2. `git -C <clone> worktree remove <path>`, then
    `git -C <clone> branch -D <branch>`, with `<clone>` as `references/brief.md`
    defines it.

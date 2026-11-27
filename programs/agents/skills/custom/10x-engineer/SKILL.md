@@ -220,7 +220,8 @@ Write `tasks.json` in the notes directory, a JSON array in the plan's order of
 the task's branch starts from, one of:
 
 - `{"kind": "on_default"}`: the repo's default branch.
-- `{"kind": "on_epic", "epic": "<name>"}`: the epic's branch.
+- `{"kind": "on_epic", "epic": "<name>"}`: the epic's branch, opened
+  first (Epics).
 - `{"kind": "on_task", "task": "<id>"}`: the branch of an earlier task.
 
 A bare branch name is refused, and so are the ids `add` and `head`. Then `state record breakdown.done --tasks tasks.json`: the
@@ -314,7 +315,10 @@ then the merge loop's gates.
 
 **READY.** The child is done. `state handback engineer` records the PR its
 line 1 names, in review, or `kept` for a round task, which skips the queue;
-with none named, `state next` prints the record. Notify as the engineer skill's Ship
+with none named, `state next` prints the record. Record its branch's head,
+`state record task head <id> <sha>`, here and after each fixer's push. A
+task the run's rules count done with its PR left open:
+`state record task <id> delivered <url>`. Notify as the engineer skill's Ship
 does in a run with no parent: the PR's `## What & Why` and its optional next
 steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or runtime
 change, `/chief feedback for <PR>: ...` for a review or feedback, and
@@ -348,10 +352,10 @@ The user approves on GitHub. Push one line saying how many PRs wait.
 Work that needs a new plan: `state record merge.next_round` takes the run back
 to gather with fresh budgets.
 
-**Finish.** When every task is `merged`, `kept` or `parked`, spawn a
+**Finish.** When every task is `merged`, `kept`, `delivered` or `parked`, spawn a
 fresh-context audit, a `subagent_type: reviewer` agent, given the run
 directory, where it runs `state show`. From that, `gh` and `git worktree list`
-it checks that every task is merged, kept or parked with a reason, issues of
+it checks that every task is merged, kept, delivered or parked with a reason, issues of
 merged tasks are closed, issues of parked tasks stay open and are listed, an epic child's
 issues counting as its final PR's, `state pending` is empty, and worktrees of
 merged tasks are gone. It reports and never closes anything. Fix what fails,
@@ -361,8 +365,9 @@ parked and why, every ruling, follow-ups.
 
 ## Epics
 
-- Before its first child, fetch, then
-  `git -C <clone> push origin origin/main:refs/heads/epic/<name>`.
+- Before the breakdown that bases tasks on it, fetch, then
+  `git -C <clone> push origin origin/main:refs/heads/epic/<name>` and
+  `state epic open <name> --repo <owner>/<repo> --branch epic/<name>`.
 - Child PRs target `epic/<name>`. You merge one after its reviews and green
   CI, with no user tap, by the same loop minus the approval gate.
 - Children of a later wave branch from the epic.
@@ -372,6 +377,8 @@ parked and why, every ruling, follow-ups.
   requirements files into its `reports/<epic>-requirements.md`. It then takes
   CI, the queue and the merge loop like any PR: the user reviews it and
   approves. Its queue entry summarises per child: PR link, what, rulings.
+  Once it opens, `state epic ready <name> --pr <url>`; once it merges,
+  `state epic merged <name>`.
 - A parked child holds the final PR. Ask once: retry it, ship the rest as a
   partial final PR, or drop the child. A partial final PR leaves the parked
   child's issues out of `Closes`.
