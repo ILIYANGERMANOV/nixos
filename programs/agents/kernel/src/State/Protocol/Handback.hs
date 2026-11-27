@@ -109,12 +109,13 @@ import State.Run.Fold (
     RunState (..),
     ScopedFan (..),
     askedAt,
+    childFan,
     fanIn,
     forks,
     returnOf,
-    untaskedFan,
  )
 import State.Run.Gap (GapArea (..), GapLine, gapLineText, lineGap, parseGapLine)
+import State.Step.Artifact (parseNamesOrNone)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
@@ -258,9 +259,7 @@ parseNeed payload = case (labelled "stuck:", labelled "plan wrong:", asks) of
     orElse stripped whole = fromMaybe whole stripped
 
 parseTouches :: Text -> Either Refusal (Set Area)
-parseTouches raw = case Text.strip raw of
-    "none" -> Right Set.empty
-    names -> Set.fromList <$> traverse (area . Text.strip) (Text.splitOn "," names)
+parseTouches = parseNamesOrNone area
   where
     area name = maybe (Left (NoArea name)) Right (parseByName areaText name)
 
@@ -338,7 +337,9 @@ run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. A worker's hand-back also says it returned, when it was logged at
 work ('returnOf'), its span ended by this hand-back, in full. The sha is
 the worktree's HEAD; the qid is the id of the next line, which a question
-the run mints counts on from.
+the run mints counts on from. A hand-back naming a child of a fan-out is
+that child's, wherever the run's step is ('childFan'), so a re-plan never
+files it as a worker's.
 -}
 typeHandback ::
     Steps ->
@@ -352,7 +353,7 @@ typeHandback ::
     Handback ->
     Either Refusal Typed
 typeHandback steps g state worktreeHead next agent agentId message handback =
-    (\typed -> typed {events = typed.events <> gaps}) <$> case [fan | Just child <- [handback.run], Just fan <- [untaskedFan state child]]
+    (\typed -> typed {events = typed.events <> gaps}) <$> case [fan | Just child <- [handback.run], Just fan <- [childFan state child]]
         <> [ ScopedFan place.scope fan
            | Just _ <- [leads agent]
            , At place <- [state.at]

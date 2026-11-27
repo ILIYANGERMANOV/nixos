@@ -212,6 +212,7 @@ import State.Protocol.Hook (
     LeadSkill,
     Reply (..),
     Spawn (..),
+    StartSource (..),
     ToolCallId,
     Want (..),
     aboutKnown,
@@ -718,7 +719,7 @@ bindAnswer ::
 bindAnswer steps name call bind slot bound = case bind of
     BindSelf binding -> telling name (Just binding.run) $ do
         traverse_ (bindSelf binding) slot
-        sessionBound call binding.run
+        sessionBound steps call binding.run
     BindSpawned child toolCall worker -> do
         -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
         spawner <- boundOrHere call bound
@@ -763,22 +764,25 @@ linkSpan run at toolCall =
         Left failure -> pure (aboutRun run (failureText "bind" failure))
 
 {- | The caller's session started on the run its @state init@ bound it to,
-logged once, by the session's own facts ('initSession'). Its failure is told.
+logged once, by the session's own facts ('initSession'). A new session lost
+every agent the run had at work, as a fresh start does ('restartOf'): a resume
+from a session whose start hook read another worktree's run still sends them
+again. Its failure is told.
 -}
-sessionBound :: (Shell es) => Call -> RunId -> Eff es Text
-sessionBound call run = either (failureText "bind") (const "") <$> onLog start run
+sessionBound :: (Shell es) => Steps -> Call -> RunId -> Eff es Text
+sessionBound steps call run = either (failureText "bind") (const "") <$> onLog start run
   where
     start stamp loaded =
         record
             (Stamp stamp.ts stamp.head call.session)
             loaded
-            [Cli]
-            ( Right
-                ( Plan
-                    (SessionStarted <$> maybeToList (initSession call loaded.logged))
-                    (\_ _ -> mempty)
-                )
-            )
+            [Cli, Cli]
+            (Right (Plan (started loaded) (\_ _ -> mempty)))
+    started loaded = case initSession call loaded.logged of
+        Just session ->
+            SessionStarted session
+                : maybeToList (restartOf steps Startup loaded.state)
+        Nothing -> []
 
 -- | The agent bound to the run its own init printed, and marked its lead ('ledFile').
 bindSelf :: (WrFileSystem :> es) => Binding -> Slot -> Eff es ()
@@ -1377,6 +1381,7 @@ execute steps = \case
             HeadOf _ _ -> Nothing
             OnTasks _ _ -> Nothing
             NeedDone _ _ -> Nothing
+            MovesTask _ _ -> Nothing
         RecordUnknown _ -> Nothing
         Brief _ _ -> Nothing
         ShowRun -> Nothing
@@ -2040,6 +2045,7 @@ recordedAs recording written = case recording of
     AddsTask _ _ -> recorded written
     OnTasks _ _ -> recorded written
     NeedDone _ _ -> recorded written
+    MovesTask _ _ -> recorded written
 
 -- | What every write that prints no advice of its own says to run next.
 nextLine :: Text
@@ -2059,6 +2065,23 @@ planOf ::
     RunCommand ->
     Either Unplanned Plan
 planOf steps worktreeHead file unstoredEvidence g state next = \case
+    -- The same merge again: its goal holds, so nothing is logged and voiding the merge undoes it.
+    Record (MovesTask task moved)
+        | Right Fan.HoldsAlready <- Fold.movable state task moved ->
+            Right
+                ( Plan
+                    []
+                    ( \_ _ ->
+                        printed
+                            ( "task "
+                                <> taskIdText task
+                                <> " "
+                                <> Codec.taskStateArgs moved
+                                <> " already: nothing written\n"
+                                <> nextLine
+                            )
+                    )
+                )
     Record recording -> do
         case unstoredEvidence of
             ref : _ -> Left (Refusing (UnknownEvent ref))
@@ -2108,10 +2131,15 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
     AskFrom kind from text ->
         unlogged (notOpenYet state from text) >> do
             let question = Question next kind text
+                asking = Asking question (askedAt state) from
             Right
                 ( Plan
-                    [Asked (Asking question (askedAt state) from)]
-                    ( \after _ -> asked question <> delivered after (deliver after.start (Triage question))
+                    [Asked asking]
+                    ( \after _ ->
+                        asked question
+                            <> delivered
+                                after
+                                (deliver after.start (Triage question (Fold.triaging after asking)))
                     )
                 )
     RecordUnknown name -> Left (Told (unknownEvent g state name))
@@ -2154,7 +2182,7 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
                                 ( "ruled "
                                     <> qidText question.qid
                                     <> " retry\n\n"
-                                    <> taskBrief after (Fold.currentFan after) found
+                                    <> taskBrief after (Fold.taskFan after found.id) found
                                 )
                     )
     Forward raw raise ->
@@ -2278,6 +2306,7 @@ fileRead recording file = case recording of
     HeadOf _ _ -> Right ([], "", Nothing)
     OnTasks _ _ -> Right ([], "", Nothing)
     NeedDone _ _ -> Right ([], "", Nothing)
+    MovesTask _ _ -> Right ([], "", Nothing)
   where
     parsedFrom kind = do
         found <- traverse readable file
@@ -2388,10 +2417,13 @@ namedEvent g state worktreeHead file n = \case
     OnTasks ids event -> event <$> traverse taskRef ids
     -- Never met: the shell appends a need's done in the need's own run first ('closeNeed').
     NeedDone ref note -> Right (UserNeededDone ref.seq note)
+    MovesTask task moved ->
+        onTask task (`TaskMoved` moved) <* refusedAs (Fold.movable state task moved)
   where
     onTask task event = event <$> taskRef task
-    taskRef =
-        Bifunctor.first (explain g (Fold.fuelOf state) state.at) . Fold.taskRefIn state
+    taskRef = refusedAs . Fold.taskRefIn state
+    refusedAs :: Either Fold.Refusal a -> Either Failure a
+    refusedAs = Bifunctor.first (explain g (Fold.fuelOf state) state.at)
     parsed :: FilePath -> (Text -> Either Text a) -> Either Failure a
     parsed path parse = case parse <$> file of
         Just (Right event) -> Right event
@@ -2846,19 +2878,20 @@ sentEvent down = case down.sent of
         Ask.Other _ -> " --other "
 
 {- | The answer the run holds to the question, or why it parked it, for the
-child that asked it: the fan-out's child waiting on it, else the direct
-child it came up from. A fan-out's child that stopped, its stop asked here,
-is neither.
+child that asked it: a fan-out's live child that asked it, in any of its
+hand-backs, wherever the run's step is, else the direct child it came up
+from. A fan-out's child that stopped, its stop asked here, is neither.
 -}
 downOf :: RunState -> RunState -> QId -> Maybe Down
 downOf before after qid = do
     asker <-
-        ((.child.run) <$> Fan.askedBy fan qid)
+        listToMaybe
+            [(.child.run) found | fan <- fans, Just found <- [Fan.askerOf fan qid]]
             <|> listToMaybe
                 [ run
                 | open <- maybeToList (Fold.pendingAt before qid)
                 , ChildRun run <- [open.asking.from]
-                , run `notElem` map (.child.run) fan.children
+                , run `notElem` [childRun.child.run | fan <- fans, childRun <- fan.children]
                 ]
     sent <-
         listToMaybe
@@ -2866,7 +2899,7 @@ downOf before after qid = do
             <|> (ParkedFor <$> Fold.parkedFor after qid)
     Just (Down after.run asker qid sent)
   where
-    fan = Fold.currentFan before
+    fans = Map.elems before.fans
 
 {- | The answer, appended to the asking child's log under its lock by ids
 hashed from both runs and the question, so a retry appends it once; then on
@@ -3444,13 +3477,13 @@ childStart parent named g state = case parent.link of
 or waiting, must have it in its breakdown.
 -}
 childTask :: OpenGraph -> TaskId -> RunState -> Either Failure Task
-childTask g taskId state = Bifunctor.bimap notOne (.held) (Fold.taskHolder state taskId)
+childTask g taskId state = maybe (Left notOne) (Right . (.held)) (Fold.taskHolder state taskId)
   where
-    notOne requests =
+    notOne =
         Failure
             BadInput
             ("--task " <> taskIdText taskId)
-            (explain g (Fold.fuelOf state) state.at (Fold.NotOneHolder taskId requests)).why
+            (explain g (Fold.fuelOf state) state.at (Fold.NotOneHolder taskId)).why
             initLineFix
 
 -- | The task's flow; a @--flow@ named must be that one.
@@ -3620,7 +3653,7 @@ counts as running; the run's own failure is its command's to tell.
 endedChildren :: (Shell es) => Eff es [RunId]
 endedChildren =
     onRun
-        (\_ run -> ([], Right (map (.child) (Fan.running (Fold.currentFan run.state)))))
+        (\_ run -> ([], Right (map (.child) (foldMap Fan.running run.state.fans))))
         >>= \case
             NoRun -> pure []
             Ran (Left _) -> pure []

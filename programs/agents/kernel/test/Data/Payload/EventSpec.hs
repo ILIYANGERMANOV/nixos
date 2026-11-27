@@ -97,6 +97,7 @@ import State.Run.Event (
     Check (..),
     Child (..),
     Commit (..),
+    DepsEdit (..),
     Digest (..),
     DraftPr (..),
     Envelope (..),
@@ -552,6 +553,28 @@ spec = describe "Data.Payload.Event" $ do
                 `replacing` ("\"question_kind\":\"security\"", "\"question_kind\":\"design\"")
             )
             `shouldSatisfy` malformed
+
+    describe "a base change's dependencies" $ do
+        let row deps =
+                (eventRow refused)
+                    { Row.eventType = "task_base_changed"
+                    , Row.payload =
+                        "{\"task\":\"t1\",\"breakdown\":9,\"base\":{\"kind\":\"on_default\"},\"reason\":\"r\""
+                            <> deps
+                            <> "}"
+                    }
+            based deps =
+                Known
+                    refused
+                        { event = TaskBaseChanged (TaskRef (TaskId "t1") 9) OnDefault (titled "r") deps
+                        }
+        it "reads a row with no deps key, as written before the key, as kept" $
+            decodeRow shipped (row "") `shouldBe` based DepsKept
+        it "reads deps [] as none, never as kept" $
+            decodeRow shipped (row ",\"deps\":[]") `shouldBe` based (DepsSet Set.empty)
+        it "reads a repeated dependency once" $
+            decodeRow shipped (row ",\"deps\":[\"t2\",\"t2\"]")
+                `shouldBe` based (DepsSet (Set.fromList [TaskId "t2"]))
   where
     refused =
         Envelope
@@ -902,9 +925,19 @@ eventGoldens =
     , EpicMoved payments (Readies pr) :| []
     , EpicMoved payments Merges :| []
     , TaskHead t1 (Sha "0123456789abcdef0123456789abcdef01234567") :| []
-    , TaskBaseChanged t1 OnDefault (titled "t2 merged")
-        :| [ TaskBaseChanged t1 (OnEpic payments) (titled "restack")
-           , TaskBaseChanged t1 (OnTask (TaskId "t2")) (titled "restack onto t2")
+    , TaskBaseChanged t1 OnDefault (titled "t2 merged") DepsKept
+        :| [ TaskBaseChanged t1 (OnEpic payments) (titled "restack") DepsKept
+           , TaskBaseChanged t1 (OnTask (TaskId "t2")) (titled "restack onto t2") DepsKept
+           , TaskBaseChanged
+                t1
+                (OnTask (TaskId "t3"))
+                (titled "restack onto a later task")
+                (DepsSet (Set.fromList [TaskId "t3", TaskId "t2"]))
+           , TaskBaseChanged
+                t1
+                OnDefault
+                (titled "its dependency dropped")
+                (DepsSet Set.empty)
            ]
     , Instructed
         (Instruction GoalInstruction (verbatim "Ship the stopgap rows.\nKeep it small."))

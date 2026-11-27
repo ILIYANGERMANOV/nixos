@@ -8,11 +8,14 @@ its child hands back or the task is parked, so the 10x sends one agent per
 task, once. A child's stop is the 10x's to triage before another child takes
 the task. Which tasks to spawn next is derived here too: every task free of
 an agent, once its dependencies merged. A new breakdown starts a fresh
-fan-out, refused while an agent is at work on the old one.
+fan-out, refused while an agent is at work on the old one: the old one's
+tasks stay, read only, as finished history ('Replaced').
 -}
 module State.Run.Fan (
     Fan (..),
     Breakdown (..),
+    Replaced (..),
+    asFan,
     tasksOf,
     taskRef,
     childRef,
@@ -32,6 +35,8 @@ module State.Run.Fan (
     triaged,
     handedBack,
     moved,
+    movable,
+    Movable (..),
     held,
     actedOn,
     leave,
@@ -46,6 +51,7 @@ module State.Run.Fan (
     untriaged,
     latest,
     askedBy,
+    askerOf,
     pullRequest,
     statePr,
     childrenOf,
@@ -60,6 +66,7 @@ module State.Run.Fan (
 ) where
 
 import Data.Foldable (toList)
+import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -74,6 +81,7 @@ import State.Run.Event (
     Base,
     Child (..),
     ChildTask (..),
+    DepsEdit (..),
     RunId,
     Said (..),
     Sha,
@@ -104,8 +112,31 @@ data Fan = Fan
     -- ^ The rounds asked of each task on its PR: a task never asked one is absent.
     , heads :: Map TaskId Sha
     -- ^ The commit each task's branch was last seen at: a task never seen is absent.
+    , replaced :: [Replaced]
+    -- ^ The breakdowns a later one replaced, oldest first.
     }
     deriving stock (Eq, Show)
+
+{- | A breakdown a later one replaced, as it ended: its tasks' facts, read
+only. Nothing works on it, so it holds no agent at work, and no history of
+its own: the fan-out holds the list. A task of it is never spawned again: a
+task of the same id in the new breakdown is another task (decision 27). Its
+fields are 'Fan''s, so it names none: 'asFan' reads it.
+-}
+data Replaced
+    = Replaced
+        Breakdown
+        [ChildRun]
+        (Map TaskId TaskState)
+        [(TaskId, Url)]
+        (Map TaskId Int)
+        (Map TaskId Sha)
+    deriving stock (Eq, Show)
+
+-- | A replaced breakdown as a fan-out with no agent at work, so the fan-out's views read it.
+asFan :: Replaced -> Fan
+asFan (Replaced listed children moves wakes rounds heads) =
+    emptyFan {breakdown = Just listed, children, moves, held = wakes, rounds, heads}
 
 {- | The fan-out's tasks, in the breakdown's order, and the seq of the
 @breakdown.done@ that listed them, or of the @task_added@ that started them
@@ -146,7 +177,7 @@ data Heard = Heard Said | TriagedStop Stop
     deriving stock (Eq, Show)
 
 data Refusal
-    = -- | The breakdown has no such task, or none before the task whose base names it.
+    = -- | The breakdown has no such task.
       UnknownTask TaskId
     | -- | The task's child is still running: a second one is not spawned.
       StillRunning TaskId RunId
@@ -172,6 +203,12 @@ data Refusal
       NotItsRound TaskId Url
     | -- | A task added under an id the fan-out has already.
       TaskExists TaskId
+    | -- | The task merged already, by this PR: it moves no more.
+      TaskMerged TaskId Url
+    | {- | The base change would make these tasks build on each other in a
+      cycle, by their dependencies and bases: each builds on itself.
+      -}
+      TaskCycle (NonEmpty TaskId)
     deriving stock (Eq, Show)
 
 emptyFan :: Fan
@@ -184,19 +221,30 @@ emptyFan =
         , atWork = Set.empty
         , rounds = Map.empty
         , heads = Map.empty
+        , replaced = []
         }
 
 {- | A breakdown, logged at this seq, starts a fresh fan-out: refused while
-an agent works on a task of the old one.
+an agent works on a task of the old one. The old breakdown, if any, joins
+the replaced ones with every fact of its tasks.
 -}
 broken :: Natural -> Tasks -> Fan -> Either Refusal Fan
 broken n tasks fan = case NonEmpty.nonEmpty (map (.id) (busy fan)) of
     Just working -> Left (Busy working)
-    Nothing -> Right emptyFan {breakdown = Just (Breakdown n (tasksInOrder tasks))}
+    Nothing ->
+        Right
+            emptyFan
+                { breakdown = Just (Breakdown n (tasksInOrder tasks))
+                , replaced = fan.replaced <> foldMap (pure . replacedBy) fan.breakdown
+                }
+  where
+    replacedBy listed =
+        Replaced listed fan.children fan.moves fan.held fan.rounds fan.heads
 
 {- | A task joins after the breakdown, last: its dependencies and its base's
-task are tasks the fan-out has, so they stay acyclic. It is spawnable as any
-task is. With no breakdown yet, it starts one at its own seq, @n@.
+task are tasks the fan-out has, and none names the new one, so no cycle
+forms. It is spawnable as any task is. With no breakdown yet, it starts one
+at its own seq, @n@.
 -}
 added :: Natural -> Task -> Fan -> Either Refusal Fan
 added n task fan = case ( lookupTask fan task.id
@@ -208,21 +256,42 @@ added n task fan = case ( lookupTask fan task.id
     (Nothing, [], Just listed) -> Right fan {breakdown = Just listed {tasks = listed.tasks <> pure task}}
     (Nothing, [], Nothing) -> Right fan {breakdown = Just (Breakdown n (pure task))}
 
-{- | The task builds on another base from here on. A task base names an
-earlier task of the breakdown, as the breakdown's own bases do, so the
-bases stay acyclic.
+{- | The task builds on another base from here on, and on other
+dependencies when the edit sets them. Its base and dependencies may name
+any task of the breakdown, later ones too, so long as no task comes to
+build on itself: a cycle is refused, so the breakdown stays acyclic.
 -}
-rebased :: TaskId -> Base -> Fan -> Either Refusal Fan
-rebased task base fan = do
-    _ <- known task fan
-    case builtOn base of
-        Just on
-            | on `notElem` earlier -> Left (UnknownTask on)
-        Just _ -> Right ()
-        Nothing -> Right ()
-    Right (withTask task (\found -> found {base}) fan)
-  where
-    earlier = map (.id) (takeWhile ((/= task) . (.id)) (tasksOf fan))
+rebased :: TaskId -> Base -> DepsEdit -> Fan -> Either Refusal Fan
+rebased task base edit fan = do
+    found <- known task fan
+    let edited = found {base, deps = depsAfter edit found.deps}
+        after = withTask task (const edited) fan
+    case ( filter (isNothing . lookupTask fan) (edited.deps <> toList (builtOn base))
+         , cycleIn (tasksOf after)
+         ) of
+        (unknown : _, _) -> Left (UnknownTask unknown)
+        ([], Just ring) -> Left (TaskCycle ring)
+        ([], Nothing) -> Right after
+
+-- | A task's dependencies after the edit.
+depsAfter :: DepsEdit -> [TaskId] -> [TaskId]
+depsAfter = \case
+    DepsKept -> id
+    DepsSet deps -> const (Set.toList deps)
+
+{- | The tasks of a cycle, if any: each builds on itself through the others,
+by dependencies and bases (a strongly connected component, Tarjan's).
+-}
+cycleIn :: [Task] -> Maybe (NonEmpty TaskId)
+cycleIn tasks =
+    listToMaybe
+        [ ring
+        | NECyclicSCC ring <-
+            stronglyConnComp
+                [ (task.id, task.id, task.deps <> toList (builtOn task.base))
+                | task <- tasks
+                ]
+        ]
 
 -- | The breakdown's task of this id changed, every other as it was.
 withTask :: TaskId -> (Task -> Task) -> Fan -> Fan
@@ -310,7 +379,9 @@ unparked task fan = case Map.lookup task fan.moves of
         lastChild : _ -> triaged lastChild.child.run after
         [] -> after
 
--- | The 10x resumes a child that waits on it: refused while an agent works on its task.
+{- | The 10x resumes a child that waits on it: refused while an agent works
+on its task. A parked task resumed runs again, as one sent a new child does.
+-}
 resumed :: RunId -> Fan -> Either Refusal Fan
 resumed run fan = case find ((== run) . (.child.run)) fan.children of
     Nothing -> Left (UnknownChild run)
@@ -319,7 +390,8 @@ resumed run fan = case find ((== run) . (.child.run)) fan.children of
         | otherwise -> case found.child.task of
             Tasked ref
                 | Set.member ref.task fan.atWork -> Left (AtWork ref.task)
-                | otherwise -> Right fan {atWork = Set.insert ref.task fan.atWork}
+                | otherwise ->
+                    Right (unparked ref.task fan) {atWork = Set.insert ref.task fan.atWork}
             Untasked -> Right fan
 
 -- | A question the 10x asked from this child: after the child stopped, it triages the stop.
@@ -352,7 +424,8 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
 Only a round's PR is kept, and only under that PR's own URL. A round makes
 the task a round on its PR, refused while a child or an agent works on it.
 A merged task stays merged: a later move, such as a stale review's, is
-ignored, never refused, so a log holding one still replays.
+ignored, never refused, so a log holding one still replays ('movable'
+refuses one when it is recorded).
 -}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
 moved task state fan = case Map.lookup task fan.moves of
@@ -402,6 +475,28 @@ moved task state fan = case Map.lookup task fan.moves of
         Merged _ -> after
         Kept _ -> after
         Delivered _ -> after
+
+{- | A move recorded now: refused once its task merged, as 'moved' ignores
+it. The same merge again holds already: it succeeds, and nothing is
+logged, so voiding the merge undoes it. Checked at record time only, so a
+log holding a later move still replays.
+-}
+movable :: TaskId -> TaskState -> Fan -> Either Refusal Movable
+movable task state fan = case Map.lookup task fan.moves of
+    Just (Merged url)
+        | state == Merged url -> Right HoldsAlready
+        | otherwise -> Left (TaskMerged task url)
+    Just (Kept _) -> Right Moves
+    Just (Parked _ _) -> Right Moves
+    Just (Round _) -> Right Moves
+    Just (InReview _) -> Right Moves
+    Just (InCi _) -> Right Moves
+    Just (Delivered _) -> Right Moves
+    Nothing -> Right Moves
+
+-- | A move recorded now: a fact to log, or one its task holds already.
+data Movable = Moves | HoldsAlready
+    deriving stock (Eq, Show)
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan
@@ -506,6 +601,16 @@ answer goes down to, and the one resumed with it.
 -}
 askedBy :: Fan -> QId -> Maybe ChildRun
 askedBy fan qid = find ((== Just (AsksUp qid)) . latest) fan.children
+
+{- | The live child that asked this question up in any hand-back: the one
+its answer goes down to, even after it asked another. Only 'askedBy' resumes
+it, so a child is never resumed with an answer it asked before its latest.
+-}
+askerOf :: Fan -> QId -> Maybe ChildRun
+askerOf fan qid =
+    find
+        (\childRun -> live childRun && Heard (AsksUp qid) `elem` childRun.said)
+        fan.children
 
 -- | The task's PR as last recorded, if one was.
 pullRequest :: Fan -> TaskId -> Maybe Url

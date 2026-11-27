@@ -1306,7 +1306,7 @@ spec = describe "state over the doubles" $ do
                 (refused.code, refused.err)
                     `shouldBe` ( 2
                                ,
-                                   [ "state init: --task t9 - no request's breakdown has such a task"
+                                   [ "state init: --task t9 - no fan-out's breakdown has such a task"
                                    , "fix: state brief engineer, in the parent's worktree, prints the init line"
                                    ]
                                )
@@ -1720,6 +1720,7 @@ spec = describe "state over the doubles" $ do
                     let epic argv = (\ran -> (ran.code, ran.out, ran.err)) <$> state world ("epic" : argv)
                         refusedWith what why fix = (2, [], ["state epic: " <> what <> " - " <> why, "fix: " <> fix])
                         row = "epic limits o/r epic/limits "
+                        replacement = prUrl <> "1"
 
                     ranAll <-
                         traverse
@@ -1729,9 +1730,10 @@ spec = describe "state over the doubles" $ do
                             , ["open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
                             , ["merged", "limits"]
                             , ["ready", "limits", "--pr", prUrl]
+                            , ["ready", "limits", "--pr", replacement]
+                            , ["merged", "limits"]
+                            , ["merged", "limits"]
                             , ["ready", "limits", "--pr", prUrl]
-                            , ["merged", "limits"]
-                            , ["merged", "limits"]
                             ]
 
                     ranAll
@@ -1747,22 +1749,30 @@ spec = describe "state over the doubles" $ do
                                    , refusedWith "epic_exists" "the run opened epic limits already" "state resume"
                                    , refusedWith
                                         "epic_not_ready"
-                                        "epic limits is not ready for review: it is open still, or merged already"
+                                        "epic limits is not ready for review: it is open still"
                                         "state epic ready limits --pr <url>, once its final PR is open"
                                    ,
                                        ( 0
                                        , [row <> "ready_for_review " <> prUrl, "tasks on it: none", "next: state next"]
                                        , []
                                        )
+                                   , -- A replacement final PR, after the first one closed.
+
+                                       ( 0
+                                       ,
+                                           [ row <> "ready_for_review " <> replacement
+                                           , "tasks on it: none"
+                                           , "next: state next"
+                                           ]
+                                       , []
+                                       )
+                                   , (0, [row <> "merged " <> replacement, "next: state next"], [])
+                                   , -- Merged already: the goal holds.
+                                     (0, [row <> "merged " <> replacement, "next: state next"], [])
                                    , refusedWith
                                         "epic_not_open"
-                                        "epic limits is ready or merged already: only an open epic is made ready"
-                                        "state resume"
-                                   , (0, [row <> "merged " <> prUrl, "next: state next"], [])
-                                   , refusedWith
-                                        "epic_not_ready"
-                                        "epic limits is not ready for review: it is open still, or merged already"
-                                        "state epic ready limits --pr <url>, once its final PR is open"
+                                        "epic limits merged already: a merged epic takes no new final PR"
+                                        "state epic open <new name> --repo <owner/name> --branch <branch>, for a next epic"
                                    ]
 
             it
@@ -1810,7 +1820,7 @@ spec = describe "state over the doubles" $ do
                 [ref.task | TaskHead ref _ <- map (.event) envelopes] `shouldBe` [TaskId "t1"]
 
             it
-                "changes a task's base for its brief, and refuses a base on no earlier task or epic"
+                "changes a task's base for its brief, and refuses a base closing a cycle or on no epic"
                 $ \world -> do
                     _ <- tenXAtFanOut world
                     let rebase task base = state world ["record", "task", task, "base", base, "--reason", "restack"]
@@ -1830,11 +1840,11 @@ spec = describe "state over the doubles" $ do
                         `shouldBe` [
                                        ( 2
                                        ,
-                                           [ "state record: unknown_task - task t2 is not in the breakdown, or not earlier than the task whose base names it"
+                                           [ "state record: task_cycle - tasks t1 t2 would build on each other in a cycle, by their bases and dependencies"
                                            ]
                                        )
                                    , (2, ["state record: unknown_epic - the run never opened epic nope"])
-                                   , (2, ["state record: task t9 - no request's breakdown has such a task"])
+                                   , (2, ["state record: task t9 - no fan-out's breakdown has such a task"])
                                    ]
                     (unreasoned.code, take 1 unreasoned.err)
                         `shouldBe` ( 2

@@ -141,7 +141,7 @@ genRecording task =
         ,
             ( ["task", name, "base", "on_default", "--reason", "restack"]
             , Nothing
-            , \n -> TaskBaseChanged (ref n) OnDefault (titled "restack")
+            , \n -> TaskBaseChanged (ref n) OnDefault (titled "restack") DepsKept
             )
         ,
             ( ["user_needed", "add", "the", "key", "--blocks", name]

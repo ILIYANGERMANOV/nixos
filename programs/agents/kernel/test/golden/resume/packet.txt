@@ -14,7 +14,7 @@ owed to the user:
   - answer 00010203:22
 epics:
   limits o/r epic/limits ready_for_review https://github.com/o/r/pull/40
-tasks (breakdown 00010203:5, in dependency order):
+tasks (breakdown 00010203:5, in breakdown order):
   id  status     at_work  base            pr                             head     child run
   t1  in_review  no       on_default      https://github.com/o/r/pull/3  0123456  04050607
   t2  planned    no       on_epic:limits  -                              -        -          after t1

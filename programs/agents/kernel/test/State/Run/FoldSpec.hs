@@ -1,5 +1,6 @@
 module State.Run.FoldSpec (spec) where
 
+import Control.Monad (void)
 import Data.Either (isRight)
 import Data.Foldable (for_)
 import Data.List (inits, intercalate)
@@ -96,6 +97,8 @@ import State.Run.EventGen (
     genQuestion,
     genReading,
     genReply,
+    genSaid,
+    genTaskState,
     hookLine,
     line,
     lineOf,
@@ -227,7 +230,7 @@ spec = describe "State.Run.Fold" $ do
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
             tenXRun (toEngineers <> [Held (refTo "t9") (Url "u")])
-                `shouldBe` Left (NotOneHolder (TaskId "t9") [])
+                `shouldBe` Left (NotOneHolder (TaskId "t9"))
         it "takes a stop at the merge once every task is parked" $ do
             let allParked = Stop Blocked "all tasks parked"
             (.stopped)
@@ -267,6 +270,147 @@ spec = describe "State.Run.Fold" $ do
             fmap (.child.run) . Fan.waiting . currentFan
                 <$> tenXRun (toEngineers <> [Spawned child, Restarted])
                 `shouldBe` Right [runId "c1"]
+        it
+            "takes a child's hand-back, a merge, a held wake, a spawn and an added task while the run re-plans"
+            $ do
+                let fix = plainTask "fix" []
+                    t1 = TaskId "t1"
+                (\state -> (atName state, map facts (Map.elems state.fans)))
+                    <$> tenXRun
+                        ( toEngineers
+                            <> [ Spawned child
+                               , Overridden (StateName "plan") "re-plan"
+                               , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                               , TaskMoved (refTo "t1") (Merged (Url "pr"))
+                               , Held (refTo "t1") (Url "pull/2")
+                               , TaskAdded 1 fix
+                               , Spawning (refTo "fix")
+                               , Spawned (childOf "c2" "fix")
+                               ]
+                        )
+                    `shouldBe` Right
+                        ( Just (StateName "plan")
+                        ,
+                            [
+                                ( [t1, TaskId "fix"]
+                                , Map.fromList [(t1, Merged (Url "pr"))]
+                                , [(t1, Url "pull/2")]
+                                , [runId "c1", runId "c2"]
+                                )
+                            ]
+                        )
+        it "keeps_every_merge_head_try_and_held_wake_through_any_re_plan" . hedgehog $ do
+            events <- concat <$> forAll (Gen.list (Range.linear 1 30) genReplanning)
+            start <- evalEither (tenXRun toEngineers)
+            let taken now (n, event) = case append tenXGraph now (line n event) of
+                    Right (Appended next) -> next
+                    Right AlreadyLogged -> now
+                    Left _ -> now
+                -- The log so far: started, then the breakdown's two lines.
+                states = scanl taken start (zip [3 ..] events)
+                off state = nameAt state `notElem` map Just ["breakdown", "engineers", "merge"]
+            cover
+                10
+                "a breakdown replaced"
+                (not (all (all (null . (.replaced)) . (.fans)) states))
+            cover 10 "a step off every fan-out's state" (any off states)
+            for_ (zip states (drop 1 states)) $ \(before, after) -> do
+                let (merged, heads, tries, held) = everKept before
+                    (merged', heads', tries', held') = everKept after
+                annotateShow (after.at, after.fans)
+                assert
+                    ( all (`elem` merged') merged
+                        && all (`elem` heads') heads
+                        && Map.isSubmapOfBy (<=) tries tries'
+                        && all (`elem` held') held
+                    )
+        it
+            "refuses a child's hand-back at its fan-out's breakdown: only the await takes it"
+            $ tenXRun
+                ( toEngineers
+                    <> [ Spawned child
+                       , Overridden (StateName "breakdown") "re-plan"
+                       , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                       ]
+                )
+                `shouldSatisfy` \case
+                    Left (NoEdge _ _) -> True
+                    _ -> False
+        it
+            "reopens the fan-out at its merge for a parked task's child resumed or sent an agent, unparked"
+            $ map
+                (fmap (\state -> (atName state, (currentFan state).moves)) . tenXRun)
+                [ toEngineers
+                    <> [ Spawned child
+                       , HandedBack (runId "c1") Nothing (Awaits Ci (oneLine "PR #1"))
+                       , TaskMoved (refTo "t1") (Parked "later" Nothing)
+                       , Resumed (runId "c1") (Just (refTo "t1"))
+                       ]
+                , toEngineers
+                    <> [ TaskMoved (refTo "t1") (Parked "later" Nothing)
+                       , Spawning (refTo "t1")
+                       ]
+                ]
+                `shouldBe` replicate 2 (Right (Just (StateName "engineers"), Map.empty))
+        it
+            "refuses a ruling on a Stuck question once its task spent its one retry, but forwards it"
+            $ do
+                let stopped c = HandedBack (runId c) Nothing (Ended (Stop Blocked "no access"))
+                    stuckOn n = Question (QId (runId "r") n) Ask.Stuck (oneLine "retry?")
+                    askedBy c question = Asked (Asking question (StateName "engineers") (ChildRun (runId c)))
+                    retry = Proposal (oneLine "retry") (oneLine "a hint") (oneLine "a child") Nothing
+                    spent =
+                        toEngineers
+                            <> [ Spawned child
+                               , stopped "c1"
+                               , askedBy "c1" (stuckOn 1)
+                               , RuledOn (QId (runId "r") 1) retry
+                               , Spawned (childOf "c2" "t1")
+                               , stopped "c2"
+                               , askedBy "c2" (stuckOn 2)
+                               ]
+                map
+                    (void . tenXRun . (spent <>) . pure)
+                    [RuledOn (QId (runId "r") 2) retry, Forwarded (QId (runId "r") 2) TheUser]
+                    `shouldBe` [Left (NotAllowed (MayNotRule Role.Orchestrator Ask.Stuck)), Right ()]
+        it
+            "reopens the fan-out at its merge for a parked task sent an agent, so its child's init joins"
+            $ atName
+                <$> tenXRun
+                    ( toEngineers
+                        <> [ TaskMoved (refTo "t1") (Parked "later" Nothing)
+                           , Spawning (refTo "t1")
+                           , Spawned child
+                           ]
+                    )
+                `shouldBe` Right (Just (StateName "engineers"))
+        it
+            "keeps the old breakdown's tasks as finished history at a new breakdown, spawning none of them"
+            $ ( \state ->
+                    ( map (facts . Fan.asFan) (foldMap (.replaced) (Map.elems state.fans))
+                    , map (.id) (Fan.spawnable [] (currentFan state))
+                    )
+              )
+                <$> tenXRun
+                    ( toEngineers
+                        <> [ Spawned child
+                           , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                           , TaskMoved (refTo "t1") (Merged (Url "pr"))
+                           , Held (refTo "t1") (Url "pull/2")
+                           ]
+                        <> rePlan
+                    )
+                `shouldBe` Right
+                    (
+                        [
+                            ( [TaskId "t1"]
+                            , Map.fromList [(TaskId "t1", Merged (Url "pr"))]
+                            , [(TaskId "t1", Url "pull/2")]
+                            , [runId "c1"]
+                            )
+                        ]
+                    , [TaskId "t2"]
+                    )
 
     describe "a lead's workers" $ do
         let fixer = AgentRole "fixer"
@@ -402,15 +546,17 @@ spec = describe "State.Run.Fold" $ do
                            ]
                     )
                 `shouldBe` Right Graph.Exit
-        it "refuses a task's move off every fan-out's state" $
-            twoFansRun
-                ( bothDone
-                    <> [ TaskMoved (refTo "t1") (Merged (Url "pr"))
-                       , stepTook (MergeDone engineers (Url "pr"))
-                       , TaskMoved (refTo "t1") (Merged (Url "pr"))
-                       ]
-                )
-                `shouldBe` Left (NotOneHolder t1 [])
+        it
+            "takes a task's held wake off every fan-out's state, in the fan-out holding the task"
+            $ fmap (.held) . Map.elems . (.fans)
+                <$> twoFansRun
+                    ( bothDone
+                        <> [ TaskMoved (refTo "t1") (Merged (Url "pr"))
+                           , stepTook (MergeDone engineers (Url "pr"))
+                           , Held (refTo "t1") (Url "pr2")
+                           ]
+                    )
+                `shouldBe` Right [[(t1, Url "pr2")]]
 
     describe "a flow with a scoped copy" $ do
         let securityRun events = replay securityGraph (logOf (started :| events))
@@ -1698,23 +1844,24 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
                 )
             `shouldBe` Right [True]
 
-    it "refuses a task no request's fan-out holds" $
+    it "refuses a task no fan-out holds" $
         chief (waiting <> [TaskMoved (refTo "t9") (Merged pr)])
-            `shouldBe` Left (NotOneHolder (TaskId "t9") [])
+            `shouldBe` Left (NotOneHolder (TaskId "t9"))
 
-    it "refuses a task two requests' fan-outs hold, naming both" $
-        replay
-            scopedFans
-            ( logOf
-                ( Started (startOf ChiefFlow (ByUser OwnPr)) :| within "a" [stepTook broken]
-                    <> [ Suspended (TaskNo 1) (oneLine "a at work")
-                       , Overridden (StateName "b/breakdown") "to b"
-                       ]
-                    <> within "b" [stepTook broken]
-                    <> [Held (refTo "t1") pr]
+    it "gives a task two requests' fan-outs hold to the latest breakdown's" $
+        fmap (.held) . Map.elems . (.fans)
+            <$> replay
+                scopedFans
+                ( logOf
+                    ( Started (startOf ChiefFlow (ByUser OwnPr)) :| within "a" [stepTook broken]
+                        <> [ Suspended (TaskNo 1) (oneLine "a at work")
+                           , Overridden (StateName "b/breakdown") "to b"
+                           ]
+                        <> within "b" [stepTook broken]
+                        <> [Held (refTo "t1") pr]
+                    )
                 )
-            )
-            `shouldBe` Left (NotOneHolder t1 [TaskNo 1, TaskNo 2])
+            `shouldBe` Right [[], [(t1, pr)]]
   where
     t1 = TaskId "t1"
     pr = Url "https://github.com/o/r/pull/1"
@@ -2314,6 +2461,84 @@ twoFans =
                 :> Do (Merge engineers)
             )
         )
+
+{- | Events of a 10x re-planning with its children at work: theirs, the
+tasks', a task added, a step moved by hand, a new breakdown once every child
+handed back, a restart.
+-}
+genReplanning :: Gen [Event]
+genReplanning =
+    Gen.frequency
+        [ (2, pure . Spawning . refTo <$> task)
+        , (2, (\c t -> [Spawned (childOf c t)]) <$> child <*> task)
+        , (2, (\c said -> [HandedBack (runId c) Nothing said]) <$> child <*> genSaid)
+        , (2, (\t moved -> [TaskMoved (refTo t) moved]) <$> task <*> genTaskState)
+        , (1, (\t -> [Held (refTo t) (Url "pull/9")]) <$> task)
+        , (1, (\t -> [TaskHead (refTo t) sha]) <$> task)
+        , (1, (\t -> [TaskAdded 1 (plainTask t [])]) <$> Gen.element ["t3", "t4"])
+        ,
+            ( 3
+            , (\to -> [Overridden (StateName to) "re-plan"])
+                <$> Gen.element ["plan", "breakdown", "engineers", "merge"]
+            )
+        ,
+            ( 2
+            , pure
+                ( [HandedBack (runId c) Nothing (Finished (oneLine "PR")) | c <- children]
+                    <> [ Overridden (StateName "breakdown") "re-plan"
+                       , stepTook
+                            (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [plainTask "t2" []])))
+                       ]
+                )
+            )
+        , (1, pure [Restarted])
+        ]
+  where
+    task = Gen.element ["t1", "t2", "t3", "t4"]
+    child = Gen.element children
+    children = ["c1", "c2", "c3", "c4", "c5"]
+
+{- | Every merge, head, try and held wake of each of the run's breakdowns,
+current or replaced, by the breakdown's seq: a merge and a held wake by
+their URL, a head by its task, a try counted.
+-}
+everKept ::
+    RunState ->
+    ( [(Natural, TaskId, Url)]
+    , [(Natural, TaskId)]
+    , Map.Map (Natural, TaskId) Int
+    , [(Natural, TaskId, Url)]
+    )
+everKept state =
+    ( [ (listed.seq, task, url)
+      | (listed, fan) <- each
+      , (task, Merged url) <- Map.toList fan.moves
+      ]
+    , [(listed.seq, task) | (listed, fan) <- each, task <- Map.keys fan.heads]
+    , Map.fromList
+        [ ((listed.seq, task.id), Fan.tries fan task.id)
+        | (listed, fan) <- each
+        , task <- Fan.tasksOf fan
+        ]
+    , [(listed.seq, task, url) | (listed, fan) <- each, (task, url) <- fan.held]
+    )
+  where
+    each =
+        [ (listed, fan)
+        | current <- Map.elems state.fans
+        , fan <- map Fan.asFan current.replaced <> [current]
+        , Just listed <- [fan.breakdown]
+        ]
+
+-- | A fan-out's tasks, their moves, its held wakes and its children, as a caller sees them.
+facts ::
+    Fan.Fan -> ([TaskId], Map.Map TaskId TaskState, [(TaskId, Url)], [RunId])
+facts fan =
+    ( map (.id) (Fan.tasksOf fan)
+    , fan.moves
+    , fan.held
+    , map (.child.run) fan.children
+    )
 
 -- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName

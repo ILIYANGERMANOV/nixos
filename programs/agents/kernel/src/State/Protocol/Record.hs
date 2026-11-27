@@ -9,6 +9,7 @@ module State.Protocol.Record (
     Arity (..),
     recordables,
     usageOf,
+    baseChangeUsage,
     recordCommand,
     Option (..),
     commandOption,
@@ -30,6 +31,7 @@ import Data.Char (ord)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -60,6 +62,7 @@ import State.Run.Event (
     Branch (..),
     Check (..),
     Commit (..),
+    DepsEdit (..),
     DraftPr (..),
     Event (..),
     Instruction (..),
@@ -94,9 +97,11 @@ import State.Step.Artifact (
     NonBlank,
     baseTextForms,
     parseBase,
+    parseNamesOrNone,
     parseNonBlank,
     parsePrUrl,
     parseSha,
+    parseTaskId,
     prUrlRule,
     shaRule,
  )
@@ -140,6 +145,10 @@ data Recording
       the run that logged it, under that run's lock.
       -}
       NeedDone EventRef (Maybe NonBlank)
+    | {- | The task's PR moves to this state, refused before it appends once
+      the task merged ('State.Run.Fold.movable').
+      -}
+      MovesTask TaskId TaskState
 
 {- | The @state record@ line for an event, its arguments' usage after it. An
 event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
@@ -271,6 +280,10 @@ usageOf r =
         Repeated -> "[" <> given flag <> "]..."
         Switch -> "[--" <> flag.name <> "]"
     given flag = "--" <> flag.name <> " " <> flag.value
+
+-- | A task's base change, as @state record task@ takes it.
+baseChangeUsage :: Text
+baseChangeUsage = "<id> base <base> --reason <r> [--deps <task>,...|none]"
 
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
@@ -407,9 +420,14 @@ recordables =
                     "task"
                     ( "<id> <"
                         <> prStateNames
-                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> | <id> parked <why>"
+                        <> "> <pr> | add <task.json> | head <id> <sha> | "
+                        <> baseChangeUsage
+                        <> " | <id> parked <why>"
                     )
-                    [Flag "pr" "<url>" Optional, Flag "reason" "<r>" Optional]
+                    [ Flag "pr" "<url>" Optional
+                    , Flag "reason" "<r>" Optional
+                    , Flag "deps" "<task>,...|none" Optional
+                    ]
                 $ \a -> case a.positional of
                     -- Before a move: no task state is named head.
                     ["head", task, raw] ->
@@ -430,7 +448,8 @@ recordables =
                                 (Left "a base change says why, as --reason <r>: one line")
                                 Right
                                 (parseNonBlank =<< option "reason" a)
-                        Right (OnTask (TaskId task) (\ref -> TaskBaseChanged ref base reason))
+                        deps <- maybe (Right DepsKept) (fmap DepsSet . depsOf) (option "deps" a)
+                        Right (OnTask (TaskId task) (\ref -> TaskBaseChanged ref base reason deps))
                     [task, "round", pr] ->
                         maybe
                             (Left (pr <> " is not " <> prUrlRule))
@@ -494,7 +513,7 @@ recordables =
             _ -> Left "the tasks file, as --tasks <file.json>"
     stay name usageText build = named name usageText (fmap Plain . build)
     named name usageText build = atRoot (Recordable name usageText [] (build . (.positional)))
-    moving task = OnTask (TaskId task) . flip TaskMoved
+    moving task = MovesTask (TaskId task)
     prStateNames = Text.intercalate "|" (map fst Codec.prStates)
     outcome event = Recordable (eventText event)
     nothing done = outcome (Catalog.outcomeEvent (Catalog.outcome done)) "" [] $ \a -> case a.positional of
@@ -571,6 +590,16 @@ draftOf words' a = do
         (Nothing, Just uri) -> Right (OfUrl uri)
         (Nothing, Nothing) -> Left (raw <> " is no <run>:<seq>, nor " <> uriRule)
 
+-- | @--deps@: the tasks a task builds on, or @none@ ('parseNamesOrNone').
+depsOf :: Text -> Either Text (Set TaskId)
+depsOf =
+    parseNamesOrNone
+        (taskNamed "a dependency's task id, as --deps t1,t2 or --deps none")
+
+-- | A task id a flag names, or the given error.
+taskNamed :: Text -> Text -> Either Text TaskId
+taskNamed missing = maybe (Left missing) Right . parseTaskId
+
 {- | @user_needed "<text>"@: what the user must do by hand, the tasks it
 holds up, a repeat counted once, and where to do it.
 -}
@@ -579,17 +608,18 @@ needed a = do
     without ["note"] "a new need" a
     text <- oneLine "what the user must do" (Text.unwords a.positional)
     url <- traverse uriOf (option "url" a)
-    tasks <- traverse taskOf (foldMap (Text.splitOn ",") (options "blocks" a))
+    tasks <-
+        Set.unions
+            <$> traverse
+                (parseNamesOrNone (taskNamed "a blocked task's id, as --blocks t3,t4"))
+                (options "blocks" a)
     Right
         ( OnTasks
-            (Set.toList (Set.fromList tasks))
+            (Set.toList tasks)
             (\refs -> UserNeeded (Need text (Set.fromList refs) url))
         )
   where
     uriOf raw = maybe (Left (raw <> " is not " <> uriRule)) Right (parseUri raw)
-    taskOf raw
-        | Text.null raw = Left "a blocked task's id, as --blocks t3,t4"
-        | otherwise = Right (TaskId raw)
 
 -- | @user_needed <run:seq> --done@: the need is done, closed in the run that logged it.
 needDone :: Args -> Either Text Recording

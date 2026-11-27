@@ -83,6 +83,7 @@ import State.Run.Fan (
     Breakdown (..),
     ChildRun (..),
     Fan (..),
+    asFan,
     childTaskId,
     latest,
     pullRequest,
@@ -287,11 +288,14 @@ epics input =
         "epics:"
         [epicRow name epic | (name, epic) <- Map.toList input.state.epics]
 
--- | The tasks of each fan-out's breakdown, in its order, with the columns the fold knows.
+{- | The tasks of each fan-out's breakdown, in its order, with the columns
+the fold knows: first those of each breakdown a later one replaced, as
+they stood then.
+-}
 tasks :: Input -> [Text]
 tasks input =
     concat
-        [ ("tasks (breakdown " <> here input listed.seq <> ", in dependency order):")
+        [ title listed.seq
             : map
                 ("  " <>)
                 ( table
@@ -299,9 +303,14 @@ tasks input =
                         : map (taskRow fan) (toList listed.tasks)
                     )
                 )
-        | fan <- fans input
+        | current <- fans input
+        , (title, fan) <-
+            map ((replacedTitle,) . asFan) current.replaced <> [(currentTitle, current)]
         , Just listed <- [fan.breakdown]
         ]
+  where
+    currentTitle n = "tasks (breakdown " <> here input n <> ", in breakdown order):"
+    replacedTitle n = "tasks (breakdown " <> here input n <> ", replaced by a later one):"
 
 {- | A task's row. Its status is Appendix B section F's: a task an agent
 took is running until a @task@ event moves it, and planned again once a

@@ -26,6 +26,7 @@ module State.Protocol.Advice (
     deliverPrompt,
     ownAsk,
     factLines,
+    taskLine,
     childBudget,
 ) where
 
@@ -189,6 +190,7 @@ import State.Run.Fold (
     ScopedFan (..),
     Stuck (..),
     Suspension (..),
+    Triaging (..),
     Waits (..),
     Worker (..),
     askedAt,
@@ -211,6 +213,7 @@ import State.Run.Fold (
     stuckExits,
     suspendedAsks,
     targetsAt,
+    triaging,
     usedUp,
     waitsAt,
  )
@@ -315,8 +318,8 @@ data Action
       Spawn AgentRole (Maybe TaskId)
     | -- | A question of the run's own, for @state ask --kind@.
       Ask Kind Text
-    | -- | A pending question this run rules on or forwards.
-      Triage Question
+    | -- | A pending question this run rules on or forwards, or only forwards.
+      Triage Question Triaging
     | -- | A forwarded question, until its answer comes down.
       AwaitAnswer Question
     | -- | The run's own question, parked above it, and why: the run waits until its answer.
@@ -503,7 +506,7 @@ advise steps g facts state =
         -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
         (Nothing, _ : _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
         (Nothing, oldest : _) -> plain $ case oldest.waits of
-            ForTriage -> Triage oldest.asking.question
+            ForTriage -> Triage oldest.asking.question (triaging state oldest.asking)
             ForAnswer -> AwaitAnswer oldest.asking.question
             ForLater why -> OnHold oldest.asking.question why
         (Nothing, []) -> case state.untriaged of
@@ -829,7 +832,10 @@ atFan at ended state =
     waiting = Fan.waiting here
     question =
         listToMaybe
-            [Triage p.asking.question | p <- state.pending, p.waits == ForTriage]
+            [ Triage p.asking.question (triaging state p.asking)
+            | p <- state.pending
+            , p.waits == ForTriage
+            ]
     awaitAnswer =
         listToMaybe
             [AwaitAnswer p.asking.question | p <- state.pending, p.waits == ForAnswer]
@@ -1200,7 +1206,7 @@ deliver start = \case
             <> " background: "
             <> if has Event.Background then "yes" else "no"
     Ask kind what -> "ASK " <> kindName kind <> " " <> what
-    Triage question ->
+    Triage question RulesOrForwards ->
         "RUN state rule "
             <> qidText question.qid
             <> " --answer <a> --why <w> --cost <c>"
@@ -1213,6 +1219,8 @@ deliver start = \case
             <> qidText question.qid
             <> " - "
             <> questionLine question
+    Triage question ForwardsOnly ->
+        "RUN state forward " <> qidText question.qid <> " - " <> questionLine question
     AwaitAnswer question ->
         above
             ("ASK " <> questionLine question <> " - " <> askUserAsText question.qid)
@@ -1433,7 +1441,7 @@ runOptions = \case
     Run options -> toList options
     Spawn _ _ -> []
     Ask _ _ -> []
-    Triage _ -> []
+    Triage _ _ -> []
     AwaitAnswer _ -> []
     OnHold _ _ -> []
     AwaitOn _ _ -> []

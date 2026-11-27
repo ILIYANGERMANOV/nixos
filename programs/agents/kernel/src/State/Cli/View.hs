@@ -17,7 +17,6 @@ module State.Cli.View (
     epicRow,
 ) where
 
-import Data.Bifunctor qualified as Bifunctor
 import Data.Bool (bool)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -41,7 +40,7 @@ import State.Category.Step (
  )
 import State.Cli.Render qualified as Render
 import State.FlowName (fixedFuel, namedFlowText)
-import State.Protocol.Advice (Facts (..), factLines)
+import State.Protocol.Advice (Facts (..), factLines, taskLine)
 import State.Protocol.Hook (
     Begin (..),
     HookName (HandbackHook, SpawnHook),
@@ -97,7 +96,7 @@ import State.Run.Event (
     runIdText,
     taskNoText,
  )
-import State.Run.Fan (Fan (..), tries)
+import State.Run.Fan (Breakdown (..), Fan (..), asFan, tasksOf, tries)
 import State.Run.Fold (
     Answer (..),
     Holder (..),
@@ -133,8 +132,9 @@ import State.Step.Artifact (
 import State.Step.Catalog (AnyStep (..))
 import State.Table (Row (..), Steps, agentRoles, row, stepsRunBy)
 
-{- | Where the run is and what it carries: step, mode, rounds, questions,
-rulings, gaps; and which hook records which of the flow's events.
+{- | Where the run is and what it carries: step, mode, rounds, tasks,
+the tasks of each breakdown a later one replaced, questions, rulings, gaps;
+and which hook records which of the flow's events.
 -}
 showRun :: Steps -> OpenGraph -> RunState -> Text
 showRun steps g state =
@@ -143,6 +143,14 @@ showRun steps g state =
             <> concat [linkLine parent.link | ByRole parent _ _ <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
             <> factLines g (Facts Nothing Nothing []) state
+            <> concat
+                [ section
+                    ("breakdown " <> tshow listed.seq <> ", replaced:")
+                    (map (taskLine old []) (tasksOf old))
+                | fan <- Map.elems state.fans
+                , old <- map asFan fan.replaced
+                , Just listed <- [old.breakdown]
+                ]
             <> [ "stopped: " <> reasonText stop.reason <> " " <> stop.why
                | Just stop <- [state.stopped]
                ]
@@ -346,9 +354,9 @@ brief steps g state agent task = case (leads agent, task, fanAt state.at) of
     -- At no fan-out the child takes no task: it names --parent alone.
     (Just flow, Nothing, Nothing) -> Right (untaskedBrief state flow)
     (Just _, Just taskId, _) ->
-        Bifunctor.bimap
-            (const taskId)
-            (\holder -> taskBrief state (fanIn state.fans holder.fan) holder.held)
+        maybe
+            (Left taskId)
+            (\holder -> Right (taskBrief state (fanIn state.fans holder.fan) holder.held))
             (taskHolder state taskId)
     (Nothing, _, _) -> Right (stepBrief steps g state.at agent)
 

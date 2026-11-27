@@ -2,7 +2,9 @@
 last (#552's Appendix B, "Epics"). An epic is opened, then ready for review
 once its final PR opens, then merged; there is no back edge until a run
 needs one. Each edge is a typed function ('ready', 'merge'), so the fold
-cannot take an edge the table lacks: every other move is refused.
+cannot take an edge the table lacks: every other move is refused. A move
+whose goal holds already succeeds: a ready epic takes a replacement final
+PR, a merged one merges again as it is.
 -}
 module State.Run.Epic (
     Epic (..),
@@ -50,9 +52,9 @@ data EpicMove = Opens Repo Branch | Readies Url | Merges
 data Refusal
     = -- | The run opened an epic of this name already.
       EpicExists EpicName
-    | -- | Only an open epic is made ready: it is ready or merged already.
+    | -- | Only an open or ready epic is made ready: it merged already.
       EpicNotOpen EpicName
-    | -- | Only a ready epic merges: it is open still, or merged already.
+    | -- | Only a ready epic merges: it is open still.
       EpicNotReady EpicName
     | -- | The run never opened an epic of this name.
       UnknownEpic EpicName
@@ -69,11 +71,11 @@ moved name move epics = (\epic -> Map.insert name epic epics) <$> next
         (Nothing, Merges) -> Left (UnknownEpic name)
         (Just _, Opens _ _) -> Left (EpicExists name)
         (Just (Open epic), Readies pr) -> Right (Ready (ready epic pr))
-        (Just (Ready _), Readies _) -> Left (EpicNotOpen name)
+        (Just (Ready epic), Readies pr) -> Right (Ready (ReadyEpic epic.repo epic.branch pr))
         (Just (Merged _), Readies _) -> Left (EpicNotOpen name)
         (Just (Open _), Merges) -> Left (EpicNotReady name)
         (Just (Ready epic), Merges) -> Right (Merged (merge epic))
-        (Just (Merged _), Merges) -> Left (EpicNotReady name)
+        (Just (Merged epic), Merges) -> Right (Merged epic)
 
 -- | The final PR opened: the epic is ready for review.
 ready :: OpenEpic -> Url -> ReadyEpic

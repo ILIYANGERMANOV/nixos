@@ -687,7 +687,7 @@ spec = describe "state-hook over the doubles" $ do
                     (said.code, said.out) `shouldBe` (0, [])
                     recordedThere `shouldSatisfy` any ("await_ci.green -> ready" `Text.isSuffixOf`)
 
-            it "lets a parent answer in its child's run, and denies it any other call there" $ \world -> do
+            it "lets a parent answer or stop in its child's run, no other call there" $ \world -> do
                 parent <- startedRun world
                 _ <- directChildAt world parent
                 putFile
@@ -700,12 +700,16 @@ spec = describe "state-hook over the doubles" $ do
                 said <-
                     traverse
                         (hook world "route" . stateCall . (there <>))
-                        ["state answer 0a0a0a0a:1 postgres", "state next", "state stop blocked why"]
+                        [ "state answer 0a0a0a0a:1 postgres"
+                        , "state stop failed died"
+                        , "state next"
+                        , "state retry t1 --why died"
+                        ]
 
                 map (any (Text.isInfixOf "is not this agent's") . (.out)) said
-                    `shouldBe` [False, True, True]
+                    `shouldBe` [False, False, True, True]
 
-            it "denies a run that is not the child's parent a record in the child's run" $ \world -> do
+            it "denies a non-parent run a record or a stop in the child's run" $ \world -> do
                 parent <- startedRun world
                 _ <- directChildAt world parent
                 addWorktree world "/other"
@@ -716,15 +720,15 @@ spec = describe "state-hook over the doubles" $ do
                     (bindings <> "/main")
                     ("run " <> other <> " /other-notes /other\n")
 
-                said <-
-                    hook
-                        world
-                        "route"
-                        ( stateCall
-                            ("cd " <> Text.pack childWorktree <> " && state record await_ci.green")
-                        )
+                let there = "cd " <> Text.pack childWorktree <> " && "
 
-                said.out `shouldSatisfy` any (Text.isInfixOf ("bound to run " <> other))
+                said <-
+                    traverse
+                        (hook world "route" . stateCall . (there <>))
+                        ["state record await_ci.green", "state stop failed died"]
+
+                map (any (Text.isInfixOf ("bound to run " <> other)) . (.out)) said
+                    `shouldBe` [True, True]
 
             it "is silent for a session bound to a worktree since removed" $ \world -> do
                 run <- startedRun world

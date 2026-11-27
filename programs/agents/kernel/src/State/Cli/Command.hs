@@ -69,10 +69,17 @@ import State.Artifact (
     uriText,
     urlKindText,
  )
-import State.Category.Flow (ScopePath, qualifyText, unqualify)
+import State.Category.Flow (
+    ScopePath,
+    namedState,
+    qualify,
+    qualifyText,
+    unqualify,
+ )
 import State.Category.Fuel (Fuel, choices, parseByName)
 import State.Category.Graph (
     Cap (..),
+    Edge,
     Node (..),
     OpenGraph (..),
     Place (..),
@@ -80,10 +87,12 @@ import State.Category.Graph (
     places,
  )
 import State.Category.Meter (someMeterName)
+import State.Category.Path (unrecorded)
 import State.Category.Step (
     EventName (..),
     eventText,
     handedBackOutcome,
+    spawnedOutcome,
     stateNameText,
  )
 import State.Cli.Query (
@@ -101,6 +110,7 @@ import State.Protocol.Record (
     Option (..),
     Recordable (..),
     Recording (..),
+    baseChangeUsage,
     capRecords,
     extend,
     extendOption,
@@ -1205,6 +1215,19 @@ explain g fuel at = \case
             "the event"
             ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why)
             "state init --notes <a new dir>"
+    -- A child's event where the run stands at its fan-out's breakdown or merge: its own state takes it.
+    NoEdge _ event
+        | event.outcome `elem` [spawnedOutcome, handedBackOutcome]
+        , Just scoped <- Fold.fanAt at ->
+            refused
+                (eventText event)
+                ( "the run is at "
+                    <> atText at
+                    <> ": a child's spawn and hand-back are taken at "
+                    <> fanState scoped
+                    <> " or off the fan-out"
+                )
+                ("state override " <> fanState scoped <> " <why>, then the child's command again")
     NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText at) records
     NotSkippable _ -> refused "the skip" "this Fuel never skips the block" "state next"
     OutOfBudget cap allowed ->
@@ -1292,7 +1315,7 @@ explain g fuel at = \case
                 "unknown_task"
                 ( "task "
                     <> Codec.taskIdText task
-                    <> " is not in the breakdown, or not earlier than the task whose base names it"
+                    <> " is not in the breakdown"
                 )
                 "state show"
         Fan.StillRunning task child ->
@@ -1320,7 +1343,10 @@ explain g fuel at = \case
             refused
                 ("an agent for task " <> Codec.taskIdText task)
                 "one works on it already, until its child hands back"
-                "state next"
+                ( "state next, until it hands back | its child died: state stop failed <why> in the child's worktree, then state retry "
+                    <> Codec.taskIdText task
+                    <> " --why <w>"
+                )
         Fan.StopUntriaged child ->
             refused
                 ("a retry of child " <> runIdText child)
@@ -1337,7 +1363,15 @@ explain g fuel at = \case
                 ( "an agent is at work on tasks: "
                     <> Text.unwords (map Codec.taskIdText (toList tasks))
                 )
-                "state next"
+                ( case Fold.fanAt at of
+                    Just scoped ->
+                        "state override "
+                            <> fanState scoped
+                            <> " <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task "
+                            <> baseChangeUsage
+                    -- Never met: a breakdown is recorded at its fan-out's breakdown state.
+                    Nothing -> "state next"
+                )
         Fan.Unmerged tasks ->
             refused
                 "the round's end"
@@ -1364,25 +1398,37 @@ explain g fuel at = \case
                 ("task " <> Codec.taskIdText task)
                 "the fan-out has a task of that id already"
                 "state show"
+        Fan.TaskMerged task url ->
+            refused
+                "task_merged"
+                ( "task "
+                    <> Codec.taskIdText task
+                    <> " merged already by "
+                    <> Codec.urlText url
+                    <> ": a merged task moves no more"
+                )
+                "state void <the seq of its merged line> <why>, if that merge was recorded on the wrong task"
+        Fan.TaskCycle ring ->
+            refused
+                "task_cycle"
+                ( "tasks "
+                    <> Text.unwords (map Codec.taskIdText (toList ring))
+                    <> " would build on each other in a cycle, by their bases and dependencies"
+                )
+                ( "state show, then state record task "
+                    <> baseChangeUsage
+                    <> " that builds on no task of the cycle"
+                )
     NotAtFan ->
         refused
             "the child's or task's event"
             ("the run is at " <> atText at <> ", no fan-out's state")
             "state show"
-    NotOneHolder task requests -> case requests of
-        [] ->
-            refused
-                ("task " <> Codec.taskIdText task)
-                "no request's breakdown has such a task"
-                "state show"
-        holding ->
-            refused
-                ("task " <> Codec.taskIdText task)
-                ( "requests "
-                    <> Text.unwords (map taskNoText holding)
-                    <> " each have such a task in their breakdown"
-                )
-                "state tasks"
+    NotOneHolder task ->
+        refused
+            ("task " <> Codec.taskIdText task)
+            "no fan-out's breakdown has such a task"
+            "state show"
     NotVoidable n ->
         refused
             ("seq " <> tshow n)
@@ -1444,15 +1490,15 @@ explain g fuel at = \case
                 "epic_not_open"
                 ( "epic "
                     <> epicNameText epic
-                    <> " is ready or merged already: only an open epic is made ready"
+                    <> " merged already: a merged epic takes no new final PR"
                 )
-                "state resume"
+                "state epic open <new name> --repo <owner/name> --branch <branch>, for a next epic"
         Epic.EpicNotReady epic ->
             refused
                 "epic_not_ready"
                 ( "epic "
                     <> epicNameText epic
-                    <> " is not ready for review: it is open still, or merged already"
+                    <> " is not ready for review: it is open still"
                 )
                 ( "state epic ready "
                     <> epicNameText epic
@@ -1479,9 +1525,10 @@ explain g fuel at = \case
   where
     refused = Failure BadInput
     records = atPlace $ \place -> case [ recordCommand event
-                                       | (event, _) <- shownEdges g place
+                                       | (event, edge) <- shownEdges g place
                                        , fuelTakes fuel place.name event
                                        , event.outcome /= handedBackOutcome
+                                       , recordable g place edge
                                        ] of
         [] -> "state show"
         commands -> Text.intercalate " | " commands
@@ -1490,6 +1537,7 @@ explain g fuel at = \case
         Out -> "state show"
         Exit -> "state show"
     stateNames = map (stateNameText . placeName) (Set.toList (places g))
+    fanState scoped = stateNameText (qualify scoped.scope (namedState scoped.fan))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid
 
@@ -1540,6 +1588,8 @@ refusalCode =
                 Fan.NotARound {} -> "not_a_round"
                 Fan.NotItsRound {} -> "not_its_round"
                 Fan.TaskExists {} -> "task_exists"
+                Fan.TaskMerged {} -> "task_merged"
+                Fan.TaskCycle {} -> "task_cycle"
             NotAtFan -> "not_at_fan"
             NotOneHolder {} -> "not_one_holder"
             NotVoidable {} -> "not_voidable"
@@ -1604,15 +1654,26 @@ unknownEvent g state name = case Fold.forkingAt g state of
             <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
         At place ->
-            [ (eventText event, recordCommand event)
-            | (event, _) <- shownEdges g place
+            [ (eventText event, commandOf event)
+            | (event, edge) <- shownEdges g place
             , fuelTakes (Fold.fuelOf state) place.name event
+            , recordable g place edge
             ]
         Out -> []
         Exit -> []
+    -- A hand-back is piped in, never recorded by name.
+    commandOf event
+        | event.outcome == handedBackOutcome = "state handback <role>"
+        | otherwise = recordCommand event
     listed = \case
         [] -> "none"
         names -> Text.intercalate ", " names
+
+{- | An edge a command records: not the one a state goes on by with no
+event ('unrecorded'), such as an await's done once every child handed back.
+-}
+recordable :: OpenGraph -> Place -> Edge Node -> Bool
+recordable g place edge = Just edge /= unrecorded g place
 
 -- | An event the grammar lacks, with no run to say where it is: every event, and the help.
 anyEvent :: Text -> Failure
@@ -1652,16 +1713,19 @@ retryOf state task = case ( Fan.lookupTask fan task
             Left
                 ( refused
                     (tshow (Fan.tries fan task) <> " children tried it, its one retry is spent")
+                    -- A Stuck question with its retry spent is the user's ('Ask.OneRetry'): forwarded, never ruled here.
                     ( "state ask --kind Stuck --from "
                         <> runIdText child.run
-                        <> " <question> | state record task "
+                        <> " <question>, then state forward <qid>, then once it is answered state record spawning "
+                        <> Codec.taskIdText task
+                        <> " | state record task "
                         <> Codec.taskIdText task
                         <> " parked <why>"
                     )
                 )
     (Just found, Just (child, stop)) -> Right (found, child, stop)
   where
-    fan = Fold.currentFan state
+    fan = Fold.taskFan state task
     refused = Failure BadInput ("task " <> Codec.taskIdText task)
 
 {- | A question its asker has not open already, and the run has no answer

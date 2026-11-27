@@ -63,8 +63,8 @@ data StateCall = StateCall {dir :: FilePath, sub :: Text, written :: Text, reach
     deriving stock (Eq, Show)
 
 {- | The runs a bound agent's call may act in: its own run's only, or a
-child run's too, as a parent records its child's awaited CI or answers its
-question there (#479).
+child run's too, as a parent records its child's awaited CI, answers its
+question or stops its dead run there (#479).
 -}
 data Reach = OwnRun | OwnOrChildRun
     deriving stock (Eq, Show)
@@ -114,8 +114,9 @@ stateCalls steps cwd command =
         Sql _ -> False
 
 {- | Whose run a command may act in. A parent records in its child's run and
-answers its question there, as the child's hand-back prints; every other
-command acts in the agent's own run only.
+answers its question there, as the child's hand-back prints, and stops it
+there when the child died without one; every other command acts in the
+agent's own run only.
 -}
 reachOf :: Command -> Reach
 reachOf = \case
@@ -133,7 +134,7 @@ reachOf = \case
         Forward _ _ -> OwnRun
         Retry _ _ -> OwnRun
         Park _ _ -> OwnRun
-        StopRun _ -> OwnRun
+        StopRun _ -> OwnOrChildRun
         Pending -> OwnRun
         NoteOn _ _ -> OwnRun
         MoveEpic _ _ -> OwnRun

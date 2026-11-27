@@ -11,9 +11,9 @@ import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
 import State.Artifact (uriRule)
 import State.Artifact qualified as Artifact
-import State.Category.Flow (unqualify)
+import State.Category.Flow (scopePath, unqualify)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (Cap (..), OpenGraph (..))
+import State.Category.Graph (Cap (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Meter (someMeterName)
 import State.Category.Path (unrecorded)
 import State.Category.Step (eventText)
@@ -91,6 +91,7 @@ import State.Run.EventGen (
     uri,
     verbatim,
  )
+import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Gap qualified as Gap
 import State.Run.Id (EventRef (..))
@@ -834,6 +835,17 @@ spec = describe "State.Cli.Command" $ do
         it "fixes a re-review past the cap by the loop's exit alone" $
             (explain g Balanced (runAt picking).at (OutOfBudget (capOf "Re-reviews") 3)).fix
                 `shouldBe` "state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
+
+        it
+            "fixes a breakdown refused while agents work by the in-place edit at its own fan-out"
+            $ ( explain
+                    g
+                    Balanced
+                    (At (Place [] (scopePath "a/b") (StateName "breakdown")))
+                    (FanRefused (Fan.Busy (TaskId "t1" :| [])))
+              ).fix
+                `shouldSatisfy` Text.isPrefixOf
+                    "state override a/b/engineers <why>, then edit the breakdown in place: "
 
         it "explains an extend where no budget asks the user to go on" $
             (explain g Balanced (runAt fueled).at NothingToExtend).fix

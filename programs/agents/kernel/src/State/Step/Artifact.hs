@@ -17,6 +17,8 @@ module State.Step.Artifact (
     Requirement (..),
     Check (..),
     TaskId (..),
+    parseTaskId,
+    parseNamesOrNone,
     Task (..),
     Base (..),
     builtOn,
@@ -196,7 +198,9 @@ data Task = Task
     { id :: TaskId
     , title :: NonBlank
     , deps :: [TaskId]
-    -- ^ Tasks whose work this one builds on: earlier ones only.
+    {- ^ Tasks whose work this one builds on: earlier ones in a breakdown's
+    file, any after a base change, never in a cycle.
+    -}
     , base :: Base
     , branch :: Branch
     , fuel :: Fuel
@@ -216,12 +220,13 @@ data Task = Task
     deriving stock (Eq, Show)
 
 {- | What a task's branch starts from: the repo's default branch, an epic's
-branch, or the branch of an earlier task of its breakdown.
+branch, or the branch of another task of its breakdown: an earlier one in
+the breakdown's file, any after a base change, never in a cycle.
 -}
 data Base = OnDefault | OnEpic EpicName | OnTask TaskId
     deriving stock (Eq, Show)
 
--- | The earlier task the base names, if it names one.
+-- | The task the base names, if it names one.
 builtOn :: Base -> Maybe TaskId
 builtOn = \case
     OnDefault -> Nothing
@@ -247,26 +252,27 @@ parseBase raw = case Text.breakOn ":" raw of
   where
     nonEmpty text = if Text.null text then Nothing else Just text
 
--- | The three bases a refusal names, as 'baseText' spells them.
+-- | The three bases a refusal names, as 'baseText' spells them: a base change may name any task.
 baseTextForms :: Text
-baseTextForms = baseFormsBy baseText
+baseTextForms = baseFormsBy "<task id>" baseText
 
 -- | The three bases a refusal names, as a task file spells them.
 baseForms :: Text
 baseForms =
     baseFormsBy
+        "<earlier task id>"
         (Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . baseEncoding)
 
 {- | The three bases, each spelt by the given function: placeholders stand in
-for the epic and task, so the epic name skips 'parseEpicName'.
+for the epic and the task, the given one, so the epic name skips 'parseEpicName'.
 -}
-baseFormsBy :: (Base -> Text) -> Text
-baseFormsBy spell =
+baseFormsBy :: Text -> (Base -> Text) -> Text
+baseFormsBy task spell =
     spell OnDefault
         <> ", "
         <> spell (OnEpic (EpicName "<name>"))
         <> " or "
-        <> spell (OnTask (TaskId "<earlier task id>"))
+        <> spell (OnTask (TaskId task))
 
 {- | An epic of the run, by the name its branch @epic/<name>@ takes: of
 'slugChar's, so a shell line prints it unquoted. Built by 'parseEpicName' alone.
@@ -281,6 +287,21 @@ parseEpicName raw
 
 epicNameText :: EpicName -> Text
 epicNameText (EpicName name) = name
+
+-- | A task id as a flag names one: any text that is not blank.
+parseTaskId :: Text -> Maybe TaskId
+parseTaskId raw
+    | Text.all isSpace raw = Nothing
+    | otherwise = Just (TaskId raw)
+
+{- | A list a flag or a trailer gives: names comma-separated, as POSIX
+guideline 8 has it, or @none@ for no name. Each name is stripped, then
+parsed; a repeat counts once. So a name @none@ is never alone in a list.
+-}
+parseNamesOrNone :: (Ord a) => (Text -> Either e a) -> Text -> Either e (Set a)
+parseNamesOrNone parse raw = case Text.strip raw of
+    "none" -> Right Set.empty
+    names -> Set.fromList <$> traverse (parse . Text.strip) (Text.splitOn "," names)
 
 {- | Text a person writes and reads as one line, such as a task's title: a
 character at least that is no space, and no line break. Built by

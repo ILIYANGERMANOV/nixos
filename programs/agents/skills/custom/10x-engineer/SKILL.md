@@ -292,11 +292,25 @@ Never relay worker text verbatim.
 **Resume.** On `RESUME`: `state record resumed <child>`, then `SendMessage` the child, or past about an idle
 hour a fresh `engineer` with its spawn prompt, saying "Answer to `<qid>`:
 `<a>`, in your run already. Run `state next`." A ruling also goes into its PR
-body's "Decided without you".
+body's "Decided without you". A child whose run stopped is never resumed:
+Failures.
 
 **Re-plan.** An answer that changes the breakdown itself, a task added,
-dropped or reshaped across tasks, is the user's: ask it, then
-`state override plan <why>` and Propose again. Finished tasks stay.
+dropped or reshaped across tasks, is the user's: `state ask --kind Confirm
+"<q>"` sends it up, as no confirmed breakdown holds it. On a yes, edit the
+breakdown in place, at whatever step the run is. Running children, PRs and
+held wakes carry on:
+
+- Add: `state record task add <task.json>`.
+- Drop: `state record task <id> parked <why>`.
+- Restack or change deps: `state record task <id> base <base> --reason <r>
+  [--deps <t>,...|none]`, `<base>` as `on_default`, `on_epic:<name>` or
+  `on_task:<task>`. The base may name any task. `--deps` replaces the
+  deps; `none` clears them. A cycle is refused `task_cycle`.
+
+A new `breakdown.done` is only for a real next round (Next round), once no
+agent works on a task. Its old tasks stay, as they stood, in `state show`
+and `state resume`, listed as replaced; an id listed again is a new task.
 
 **Round on a PR.** More work on one task's PR in review or kept:
 `state record task <id> round <url>`, then rewrite `briefs/<id>.md` from
@@ -387,8 +401,8 @@ kept, delivered, parked and why, every ruling, follow-ups.
   requirements files into its `reports/<epic>-requirements.md`. It then takes
   CI, the queue and the merge loop like any PR: the user reviews it and
   approves. Its queue entry summarises per child: PR link, what, rulings.
-  Once it opens, `state epic ready <name> --pr <url>`; once it merges,
-  `state epic merged <name>`.
+  Once it opens, `state epic ready <name> --pr <url>`, again for a
+  replacement final PR; once it merges, `state epic merged <name>`.
 - A parked child holds the final PR. Ask once: retry it, ship the rest as a
   partial final PR, or drop the child. A partial final PR leaves the parked
   child's issues out of `Closes`.
@@ -403,11 +417,26 @@ run it, then triage it as any question. No retry spawns before.
 2. A fresh engineer retries, from its PR or its worktree, with the failure in
    the brief: `state retry <task> --why <w>` triages the stop, rules the
    retry and prints the brief head, its `state init` on a fresh notes dir.
-   It refuses once the task's one retry is spent.
+   It refuses once the task's one retry is spent: every child of the task
+   counts as a try.
 3. Stuck, the same failure in 2 tries in a row whatever the commit (`tries`
-   in `state show`): ask once, retry with a direction, re-plan or park, and go
-   on with other tasks. Parked: `state record task <id> parked <why>`, notify.
-   Dependents park with it unless the user re-plans them.
+   in `state show`): `state ask --kind Stuck --from <run> "<q>"`. Its retry
+   is spent, so it goes to the user: ask once, retry with a direction,
+   re-plan or park, and go on with other tasks. Retry: `state record spawning
+   <id>`, then spawn with that direction in the brief. Parked: `state record
+   task <id> parked <why>`, notify. Its dependents wait: park them too, or
+   drop the dep (Re-plan).
+
+A child that died without a hand-back: `state stop failed <why>` in its
+worktree records its stop here, then `state retry` as above. It counts as a
+try. A lost session is none: its child keeps its run (Resume).
+
+A child's `plan wrong` stop (its `NEEDS_DECISION plan wrong: <q>`) asks a
+question: of the two options `state next` prints, take `state ask`, not
+`state retry`. `state ask --kind <K> --from <run> "<q>"`, rule or forward
+it as Triage says, then `state record spawning <id>`. Send the child on with
+the answer, or a fresh engineer with its spawn prompt: its Re-plan starts a
+new run in the same worktree, which counts as a try.
 
 **Base.** A check red on the head of the repo's default branch, unless the PR
 is the base fix itself: an engineer opens `base-fix-<repo>-<n>`, an
@@ -437,20 +466,22 @@ candidates: ask. `state` refusing an older `state`'s log names the fix: move
 its notes directory aside and start fresh. Subagents and subscriptions die
 with the session, so:
 
-1. In the run directory, `state init --notes "$PWD"` (it resumes the run),
-   `state resume`, then each task's PR and issues on
+1. In the run directory, `state init --notes "$PWD"` (it resumes the run;
+   in a new session it records `restarted`), `state resume`, then each
+   task's PR and issues on
    GitHub. GitHub wins: a PR merged or closed meanwhile goes through Wakes in
    `${CLAUDE_SKILL_DIR}/references/merge.md`.
 2. `add_repo` and `subscribe_pr_activity` again for every repo and open PR,
    handling a failed subscribe as CI does. Then read each PR's
    `gh pr checks` and reviews once. A change request or comment on a task
    with a running child: `state record held`.
-3. A fresh or resumed session records `restarted`, so `state next` prints
-   `RESUME` for each child that lost its agent: a fresh engineer with its
-   spawn prompt; its `state init` line resumes its run. A fixer whose `<head>`
-   is no longer the live head pushed: a rebase takes Rebase in
+3. With `restarted` logged, `state next` prints `RESUME` for each child that
+   lost its agent: `state record resumed <child>`, then a fresh agent of the
+   role it names, with its spawn prompt; its `state init` line resumes its
+   run. A fixer whose `<head>` is no longer the live head pushed: a rebase
+   takes Rebase in
    `${CLAUDE_SKILL_DIR}/references/merge.md`, any other CI; any other fixer: a
-   fresh one. A crash is not a failed try.
+   fresh one. A lost session costs no try: each child keeps its run.
 4. Act on the held wakes of each task with no agent, and on each approval of
    a `review` task. Ask every pending question again, resend the queue, and
    carry on with `state next`.
