@@ -121,7 +121,7 @@ jq -j .result.output shell.json >shell.out || fail "the shell did not run: $(cat
 printf '%s\n' "$HOME/user-config" "$HOME/.local/share" "$HOME/.cache" "$HOME/.opencode-kategory/state" \
   state ctx qa-node >want.out
 diff want.out shell.out || fail "a shell sees the XDG dirs or PATH above"
-[ -f "$HOME/.opencode-kategory/state/state/kernel.db" ] || fail "state did not use the moved state dir"
+[ -f "$HOME/.opencode-kategory/state/state/kernel-v2.db" ] || fail "state did not use the moved state dir"
 [ ! -e "$HOME/.local/state" ] || fail "something wrote the user's state dir"
 
 # The plugin's hooks reach the kernel through the adapter. No hook fires

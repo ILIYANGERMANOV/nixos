@@ -42,7 +42,9 @@ BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def at(seconds: float) -> str:
-    return (BASE + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+    """UTC with exactly 3 fraction digits, as the kernel stamps an event."""
+    stamp = (BASE + timedelta(seconds=seconds)).isoformat(timespec="milliseconds")
+    return stamp.replace("+00:00", "Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,20 +279,29 @@ class Home:
 
     @property
     def store(self) -> Path:
-        return self.root.parent / "state" / "kernel.db"
+        return self.root.parent / "state" / "kernel-v2.db"
 
     def log(self, log: RunLog) -> None:
-        """A run's `state` events, in this home's run store. The `events` table keeps
-        only the columns the analyzer reads, so a test can store an older envelope."""
+        """A run's `state` events, in this home's run store. The `events` table has
+        the kernel's columns and keys but not its CHECK constraints and triggers,
+        which the kernel owns (programs/agents/kernel/src/Effects/Store/Migration.hs)."""
         self.store.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.store)) as db, db:
-            _ = db.execute(
-                "CREATE TABLE IF NOT EXISTS events (run TEXT, seq INTEGER, json TEXT)"
-            )
+            _ = db.execute(EVENTS_TABLE)
             _ = db.executemany(
-                "INSERT INTO events VALUES (?, ?, ?)",
+                """
+                INSERT INTO events (run_id, seq, schema_version, type, time, data)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
                 [
-                    (log.run, seq, json.dumps(line))
+                    (
+                        log.run,
+                        seq,
+                        line.schema_version,
+                        line.type,
+                        at(log.start + seq),
+                        json.dumps(line.data),
+                    )
                     for seq, line in enumerate(log.lines, 1)
                 ],
             )
@@ -2464,34 +2475,48 @@ class TestStateCtx:
         ]
 
 
+EVENTS_TABLE = """
+CREATE TABLE IF NOT EXISTS events (
+  position       INTEGER PRIMARY KEY,
+  run_id         TEXT    NOT NULL,
+  seq            INTEGER NOT NULL,
+  schema_version INTEGER NOT NULL,
+  type           TEXT    NOT NULL,
+  time           TEXT    NOT NULL,
+  session_id     TEXT,
+  head_sha       TEXT,
+  hook_digest    TEXT,
+  data           TEXT    NOT NULL,
+  UNIQUE (run_id, seq),
+  UNIQUE (run_id, hook_digest)
+) STRICT
+"""
+
+
+@dataclass
+class StateEvent:
+    """One event of a run's log: its type, payload and the payload's version."""
+
+    type: str
+    data: JsonObject
+    schema_version: int = 1
+
+
 @dataclass
 class RunLog:
-    """A version 4 `state` event log, as the kernel writes it: a `started` line first."""
+    """A `state` event log, as the kernel writes it: a `started` line first."""
 
     run: str
     flow: str = "engineer"
     start: float = 0
     notes: str = "/work/engineer-me-demo-x/"
-    lines: list[JsonObject] = field(default_factory=list)
+    lines: list[StateEvent] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         _ = self.add("started", flow=self.flow, notes=self.notes, principal="user")
 
     def add(self, event: str, /, **data: Json) -> RunLog:
-        seq = len(self.lines) + 1
-        self.lines.append(
-            {
-                "v": 4,
-                "id": f"{self.run}:{seq}",
-                "seq": seq,
-                "ts": at(self.start + seq),
-                "run": self.run,
-                "head": None,
-                "session": None,
-                "type": event,
-                "data": data,
-            }
-        )
+        self.lines.append(StateEvent(event, data))
         return self
 
     def ask(self, qid: str, kind: str, step: str, asker: Json = "self") -> RunLog:
@@ -2500,7 +2525,7 @@ class RunLog:
         return self.add("asked", **fields, **{"from": asker})
 
     def rule(self, qid: str) -> RunLog:
-        return self.add("ruled", qid=qid, answer="a", why="w", cost="c", basis=None)
+        return self.add("ruled", qid=qid, answer="a", why="w", cost="c")
 
     def answer(self, qid: str, by: Json = "user") -> RunLog:
         return self.add("answered", qid=qid, answer="a", by=by)
@@ -2591,35 +2616,38 @@ class TestStateLog:
         assert row(report, "state-log", "blocked") == ["blocked", "1", "no access"]
         assert row(report, "state-log", "r1")[1:] == ["engineer review", "?"]
 
-    def test_a_log_of_an_older_version_is_skipped_and_counted(self, home: Home) -> None:
+    def test_rows_newer_than_the_analyzer_are_skipped_and_counted(
+        self, home: Home
+    ) -> None:
         # Given
-        home.log(RunLog("r1").ask("r1:1", "Fact", "interview"))
-        v3 = RunLog("r0").ask("r0:1", "Fact", "interview")
-        for line in v3.lines:
-            line["v"] = 3
-        home.log(v3)
-        old = RunLog("old")
-        old.lines = [{"seq": 1, "event": {"type": "started", "version": 2}}]
-        home.log(old)
+        log = RunLog("r1").ask("r1:1", "Fact", "interview")
+        _ = log.ask("r1:2", "Fact", "plan")
+        log.lines[-1].schema_version = analyze.KNOWN_SCHEMA_VERSION + 1
+        home.log(log)
         # When
         report = home.report()
         # Then
         assert headline(report, "state-log").startswith("1 runs, 1 questions")
-        assert "logs older than version 4, skipped: 2" in section(report, "state-log")
+        assert "engineer plan|" not in section(report, "state-log")
+        assert "rows newer than this analyzer, skipped: 1" in section(
+            report, "state-log"
+        )
 
-    def test_a_log_whose_start_time_is_not_iso_is_skipped_and_counted(
+    def test_a_run_whose_start_is_newer_than_the_analyzer_is_not_read(
         self, home: Home
     ) -> None:
         # Given
         home.log(RunLog("r1").ask("r1:1", "Fact", "interview"))
-        bad = RunLog("bad")
-        bad.lines[0]["ts"] = "yesterday"
-        home.log(bad)
+        newer = RunLog("r2").ask("r2:1", "Fact", "plan")
+        newer.lines[0].schema_version = analyze.KNOWN_SCHEMA_VERSION + 1
+        home.log(newer)
         # When
         report = home.report()
         # Then
         assert headline(report, "state-log").startswith("1 runs, 1 questions")
-        assert "logs older than version 4, skipped: 1" in section(report, "state-log")
+        assert "rows newer than this analyzer, skipped: 1" in section(
+            report, "state-log"
+        )
 
     def test_only_runs_started_in_the_window_and_project_count(
         self, home: Home
@@ -2650,10 +2678,10 @@ class TestDefaultStore:
     @pytest.mark.parametrize(
         ("xdg", "home", "store"),
         [
-            ("/x", "/h", "/x/state/kernel.db"),
-            ("rel", "/h", "/h/.local/state/state/kernel.db"),
-            ("", "/h", "/h/.local/state/state/kernel.db"),
-            (None, "/h", "/h/.local/state/state/kernel.db"),
+            ("/x", "/h", "/x/state/kernel-v2.db"),
+            ("rel", "/h", "/h/.local/state/state/kernel-v2.db"),
+            ("", "/h", "/h/.local/state/state/kernel-v2.db"),
+            (None, "/h", "/h/.local/state/state/kernel-v2.db"),
             (None, "rel", None),
         ],
     )
