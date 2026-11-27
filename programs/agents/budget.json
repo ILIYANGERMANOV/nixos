@@ -1,9 +1,9 @@
 {
   "checker": 1750,
-  "engineer": 9425,
+  "engineer": 9550,
   "fixer": 5425,
   "implementer": 5975,
-  "instructions": 6875,
+  "instructions": 6905,
   "qa-runner": 5000,
   "refactorer": 7900,
   "repo-instructions": 1825,
