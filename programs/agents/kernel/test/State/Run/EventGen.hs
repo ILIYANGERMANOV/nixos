@@ -2,6 +2,7 @@
 module State.Run.EventGen (
     genEnvelope,
     genInstruction,
+    genStopgapEvent,
     genStopgapAt,
     genStopgapKey,
     genStopgapKeyText,
@@ -227,14 +228,21 @@ genEvent =
                     <*> Gen.maybe genUri
                 )
         , UserNeededDone <$> genSeq <*> Gen.maybe genNonBlank
-        , StopgapSet <$> genStopgapAt <*> genIJson <*> genNonBlank
-        , StopgapUnset <$> genStopgapAt <*> genNonBlank
+        , genStopgapEvent
         ]
 
 -- | An instruction of any kind, its words not blank.
 genInstruction :: Gen Instruction
 genInstruction =
     Instruction <$> Gen.enumBounded <*> Gen.filter (not . Text.all isSpace) genText
+
+-- | A stopgap set or unset, anywhere, with its reason.
+genStopgapEvent :: Gen Event
+genStopgapEvent =
+    Gen.choice
+        [ StopgapSet <$> genStopgapAt <*> genIJson <*> genNonBlank
+        , StopgapUnset <$> genStopgapAt <*> genNonBlank
+        ]
 
 -- | A stopgap's place: the run's or a task's, under any valid key.
 genStopgapAt :: Gen StopgapAt

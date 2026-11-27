@@ -431,7 +431,8 @@ commandInfo steps scope =
                 ( Optparse.info
                     (recordEvent scope)
                     ( Optparse.progDesc "Record an event: 'state record --help' lists them"
-                        <> Optparse.footer "A commit event records HEAD."
+                        <> Optparse.footer
+                            "A commit event records HEAD. Pick the typed event that fits: user_needed the moment the user must act by hand, instructed for the user's words verbatim; stopgap only when none fits."
                     )
                 )
             , sub "handback" "Record a role's hand-back, read from stdin" $

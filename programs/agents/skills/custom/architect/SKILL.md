@@ -67,6 +67,10 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   --severity <s> "<text>"`, plus `--area` and `--evidence` when known
   (`state record --help`). Refusals, overrides, voids and stuck questions
   are logged as events.
+- **Facts.** Record a fact with its typed row first (`state record
+  --help`): `user_needed "<text>"` the moment the user must do something by
+  hand, `instructed <kind> "<words>"` for the user's instruction word for
+  word. `stopgap` comes last, only when no typed command fits.
 - **Read-only.** No repo edits, commits, pushes, PRs, builds or test runs;
   the hooks deny commit, push, `gh pr create/merge`, and Edit and Write
   outside the notes dir. Edit and Write are allowed only on files directly

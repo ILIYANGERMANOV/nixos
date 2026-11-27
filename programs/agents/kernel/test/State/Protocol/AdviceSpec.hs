@@ -33,6 +33,7 @@ import State.Run.EventGen (
     absolutePath,
     fuelSet,
     genStart,
+    genStopgapEvent,
     genText,
     logOf,
     oneLine,
@@ -113,6 +114,21 @@ spec = describe "State.Protocol.Advice" $ do
                         events
                 decided state = (due facts state, advise steps g facts state)
             decided (under one) === decided (under other)
+
+    it "advice_is_equal_with_or_without_stopgaps" . hedgehog $ do
+        events <- forAll genAccepted
+        facts <- forAll genFacts
+        stopgaps <-
+            forAll
+                ( Gen.list
+                    (Range.linear 1 10)
+                    ((,) <$> Gen.int (Range.linear 0 (length events)) <*> genStopgapEvent)
+                )
+        -- Each stopgap event goes in at its drawn place among the run's events.
+        let withStopgaps =
+                foldr (\(i, stopgap) es -> take i es <> [stopgap] <> drop i es) events stopgaps
+            decided state = (due facts state, advise steps g facts state)
+        decided (runUnder start withStopgaps) === decided (runUnder start events)
 
     describe "pullRequestOf" $ do
         it "reads back the PR gh prints" . hedgehog $ do

@@ -408,6 +408,7 @@ otherwise. Names are the current test names.
 | Total authority | every rung and kind has a rule | `AskSpec` `authority_table_is_total`; `-Wall -Werror` refuses a missed case |
 | Total asks | every question ends answered or stopped | `FoldSpec` `every_ask_ends_answered_or_stopped` |
 | Principal-blind | the advice is the same whoever started the run, up to delivery | `ArchitectureSpec.hs` keeps the principal out of every flow module; `AdviceSpec` `advice_is_equal_under_any_principal_of_one_task_shape_up_to_delivery` |
+| Stopgap-blind | the advice is the same with or without stopgap events: the kernel never reads one | `AdviceSpec` `advice_is_equal_with_or_without_stopgaps` |
 
 ### Fuel
 

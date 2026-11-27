@@ -101,4 +101,6 @@ Available commands:
   stopgap                  <key> <json> | <key> [--unset] [--task <id>] --reason
                            <r>
 
-A commit event records HEAD.
+A commit event records HEAD. Pick the typed event that fits: user_needed the
+moment the user must act by hand, instructed for the user's words verbatim;
+stopgap only when none fits.
