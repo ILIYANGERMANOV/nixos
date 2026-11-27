@@ -2217,7 +2217,7 @@ landing s =
 
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
-startOf flow principal = Start flow "notes" principal Set.empty
+startOf flow principal = Start flow "notes" principal Set.empty Nothing "/work" Nothing
 
 -- | The chief run a user started, replayed over these lines.
 chief :: [Event] -> Either Fold.Refusal RunState

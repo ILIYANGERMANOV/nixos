@@ -8,6 +8,7 @@ module Effects.LogSpec (spec) where
 import Concurrently (bothAtOnce)
 import Control.Exception (IOException)
 import Control.Monad (replicateM_)
+import Data.ByteString (ByteString)
 import Data.Either (fromRight, isLeft)
 import Data.Entity.Event (EventRow)
 import Data.Entity.Event qualified as Row
@@ -30,9 +31,12 @@ import Effectful.Error.Static (runErrorNoCallStack)
 import Effectful.Exception (throwIO, try)
 import Effectful.State.Static.Local (evalState, get, put)
 import Effects.Log (
+    Appending (..),
     Log,
     Logged,
     Unread (Unread),
+    appending,
+    blob,
     children,
     exists,
     firstEvent,
@@ -43,11 +47,12 @@ import Effects.Log (
  )
 import Effects.Log qualified as Log
 import Effects.Store.Connection (Durability (Full), OpenRefusal, withStore)
-import Effects.Store.Events (Write (Append))
+import Effects.Store.Events (Batch (..), Write (Append))
 import Effects.Store.Events qualified as Store
 import Hedgehog (PropertyT, annotateShow, assert, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Artifact (Blob (..), blobKey, sha256Of, sha256Text)
 import State.Run.Ask (ChildTask (..), Link (..), Parent (..), Principal (..))
 import State.Run.Event (
     Digest (..),
@@ -87,6 +92,30 @@ spec = describe "Effects.Log" $ do
 
                 atStore dir (locked top (\logged -> ([], map (.seq) . (.events) <$> logged)))
                     `shouldReturn` Right [1 .. 1 + 2 * fromIntegral perWriter]
+
+        it "keeps one blobs row for the same content stored twice" $
+            withSystemTempDirectory "state-store" $ \dir -> do
+                let plan = Blob "the plan"
+                atStore dir $ do
+                    appending top (const (Appending [started top] [plan], ()))
+                    appending top (const (Appending [followed top 2] [plan], ()))
+
+                storeRows
+                    dir
+                    "SELECT count(*) FROM blobs WHERE sha256 = ?"
+                    (SQLite.Only (sha256Text (blobKey plan)))
+                    `shouldReturn` [SQLite.Only (1 :: Int)]
+
+        it "throws on a stored blob whose content does not hash to its key" $
+            withSystemTempDirectory "state-store" $ \dir -> do
+                let key = blobKey (Blob "the plan")
+                atStore dir (locked top (const ([started top], ())))
+                storeExecute
+                    dir
+                    "INSERT INTO blobs (sha256, size_bytes, content) VALUES (?, 9, ?)"
+                    (sha256Text key, "edited by" :: ByteString)
+
+                atStore dir (try @IOException (blob key)) >>= (`shouldSatisfy` isLeft)
 
         it "lists the runs started as a run's children" $
             withSystemTempDirectory "state-store" $ \dir -> do
@@ -179,7 +208,7 @@ inStore upcasts seeded byHand program = withSystemTempDirectory "state-log" $ \d
         >>= either (fail . show) pure
     atStoreWith upcasts dir program
   where
-    writeRaw store write = Store.locked store (runOf write) (const (Just write, ()))
+    writeRaw store write = Store.locked store (runOf write) (const (Just (Batch write []), ()))
 
 -- | A program on the run store under this @XDG_STATE_HOME@, which it must open.
 atStore :: FilePath -> (forall es. (Log :> es) => Eff es a) -> IO a
@@ -204,12 +233,21 @@ storeRows dir sql params =
         (dir </> "state" </> "kernel-v2.db")
         (\c -> SQLite.query c sql params)
 
+-- | A statement run on the store under this @XDG_STATE_HOME@, past the kernel, as an admin edits it.
+storeExecute :: (SQLite.ToRow q) => FilePath -> SQLite.Query -> q -> IO ()
+storeExecute dir sql params =
+    SQLite.withConnection
+        (dir </> "state" </> "kernel-v2.db")
+        (\c -> SQLite.execute c sql params)
+
 inMemory :: Backend
 inMemory upcasts seeded byHand program =
     pure . runPureEff . evalState noRuns . runLogInMemory upcasts $ do
         mapM_ (\e -> locked e.run (const ([e], ()))) seeded
         for_ byHand $ \write ->
-            get >>= either (throwIO . userError) put . written (runId (runOf write)) write
+            get
+                >>= either (throwIO . userError) put
+                    . written (runId (runOf write)) (Batch write [])
         program
 
 -- | The run a write's rows belong to.
@@ -238,6 +276,32 @@ contract on = do
                        , Right [started top, followed top 2]
                        , Just (Right (started top))
                        )
+
+    it "stores a decision's blobs with its events, read back by their keys" $ do
+        let plan = Blob "the plan"
+            notes = Blob "the notes"
+        found <- backend [] $ do
+            appending top (const (Appending [started top] [plan, notes], ()))
+            traverse blob [blobKey plan, blobKey notes, sha256Of "never stored"]
+
+        found `shouldBe` [Just plan, Just notes, Nothing]
+
+    it "keeps one blob per content, however often a decision carries it" $ do
+        let plan = Blob "the plan"
+        found <- backend [started top] $ do
+            appending top (const (Appending [followed top 2] [plan, plan], ()))
+            appending top (const (Appending [followed top 3] [plan], ()))
+            blob (blobKey plan)
+
+        found `shouldBe` Just plan
+
+    it "writes no blob of a decision that appends no event" $ do
+        let plan = Blob "the plan"
+        found <- backend [started top] $ do
+            appending top (const (Appending [] [plan], ()))
+            blob (blobKey plan)
+
+        found `shouldBe` Nothing
 
     it "keeps no run that a decision appends nothing to" $ do
         kept <- backend [] (locked top (const ([], ())) >> exists top)
@@ -417,6 +481,9 @@ started run =
                 , notes = "/notes"
                 , principal = ByUser OwnPr
                 , interface = Set.empty
+                , goal = Nothing
+                , worktree = "/work"
+                , repo = Nothing
                 }
         )
 
@@ -432,6 +499,9 @@ childOf parent run =
                 , notes = "/child"
                 , principal = ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr minBound
                 , interface = Set.empty
+                , goal = Nothing
+                , worktree = "/work"
+                , repo = Nothing
                 }
         )
 

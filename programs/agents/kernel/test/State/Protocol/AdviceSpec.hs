@@ -157,7 +157,8 @@ spec = describe "State.Protocol.Advice" $ do
                             ( replay
                                 chiefGraph
                                 ( logOf
-                                    ( Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty)
+                                    ( Started
+                                        (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty Nothing "/work" Nothing)
                                         :| [fuelSet Max, Took mempty (pickOf "route" "engineer")]
                                     )
                                 )
@@ -180,7 +181,10 @@ spec = describe "State.Protocol.Advice" $ do
                     ( replay
                         chiefGraph
                         ( logOf
-                            (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| events)
+                            ( Started
+                                (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty Nothing "/work" Nothing)
+                                :| events
+                            )
                         )
                     )
             atChief events = advise steps chiefGraph noFacts (chiefAt events)

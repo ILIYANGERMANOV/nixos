@@ -26,6 +26,9 @@ module State.Run.Event (
     Digest (..),
     Event (..),
     Start (..),
+    Handover (..),
+    HandoverReason (..),
+    Session (..),
     FlowName (..),
     Principal (..),
     Parent (..),
@@ -72,11 +75,13 @@ module State.Run.Event (
     TaskState (..),
 ) where
 
+import Data.List.NonEmpty (NonEmpty)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
+import State.Artifact (AbsPath, Artifact)
 import State.Category.Effect (Waiting (..))
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Step (EventName, Outcome, StateName (..))
@@ -252,6 +257,20 @@ data Event
       line, as if neither was logged ("State.Run.Fold").
       -}
       Voided Natural Text
+    | {- | The run moved to this worktree, of this GitHub repo when its
+      @origin@ names one: the worktree its @init@ logged no longer holds it.
+      -}
+      WorktreeMoved FilePath (Maybe Repo)
+    | {- | A file or URL the run registered, derived from the artifact of
+      this seq in the same run, if any (@prov:wasDerivedFrom@).
+      -}
+      ArtifactLogged Artifact (Maybe Natural)
+    | -- | A note under its topic, then its text: context a fresh agent reads.
+      Noted Text Text
+    | -- | The agent hands the run over to a fresh one, and why.
+      HandedOver Handover
+    | -- | A harness session started on the run (written by the session-start hook).
+      SessionStarted Session
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.
@@ -274,6 +293,44 @@ data Start = Start
     , notes :: FilePath
     , principal :: Principal
     , interface :: Set Op
+    , goal :: Maybe Text
+    {- ^ The run's goal, word for word. Optional, unlike #552's Appendix B:
+    its body says every new flag is optional, so a run started with none
+    leaves the key out.
+    -}
+    , worktree :: FilePath
+    -- ^ The git top of the directory @init@ ran in: absolute.
+    , repo :: Maybe Repo
+    -- ^ The worktree's GitHub repo, when its @origin@ names one.
+    }
+    deriving stock (Eq, Show)
+
+-- | A hand-over to a fresh agent: why, where the work stands, and what to do next.
+data Handover = Handover
+    { reason :: HandoverReason
+    , summary :: Text
+    , next :: NonEmpty Text
+    }
+    deriving stock (Eq, Show)
+
+-- | Why the agent hands over: its context is full, the user asked, or it crashed.
+data HandoverReason = Context | User | Crash
+    deriving stock (Eq, Show, Enum, Bounded)
+
+-- | A harness session as its session-start hook saw it.
+data Session = Session
+    { harness :: Text
+    -- ^ The harness's own name for itself, its adapter's constant.
+    , transcript :: Maybe AbsPath
+    {- ^ The session's transcript file. Optional, unlike #552's Appendix B:
+    a harness that writes none (OpenCode) leaves the key out.
+    -}
+    , trigger :: Text
+    {- ^ The hook's own word for why the session started, its @source@:
+    @startup@, @resume@, @compact@. Not @source@: an envelope's is who wrote it.
+    -}
+    , model :: Maybe Text
+    -- ^ The model the harness asked for, when the hook names it.
     }
     deriving stock (Eq, Show)
 

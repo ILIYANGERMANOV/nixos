@@ -1,0 +1,4 @@
+[
+{"harness":"claude-code","transcript_path":"/home/u/t.jsonl","source":"startup","request_model":"opus"},
+{"harness":"opencode","source":"resume"}
+]

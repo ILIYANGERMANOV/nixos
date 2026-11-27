@@ -8,7 +8,6 @@ module Data.Field (
     encode,
     decode,
     time,
-    Sha256,
     sha256,
     sha,
     session,
@@ -22,6 +21,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, parseTimeM)
 import Numeric.Natural (Natural)
+import State.Artifact (Sha256, parseSha256, sha256Text)
 import State.Run.Event (
     Digest (..),
     RunId,
@@ -60,11 +60,8 @@ time =
                     if encode time parsed == raw then Just parsed else Nothing
 
 -- | A SHA-256 digest, as @blobs.sha256@ keys content: 64 lowercase hex.
-newtype Sha256 = Sha256 Text
-    deriving stock (Eq, Ord, Show)
-
 sha256 :: Codec Sha256
-sha256 = Codec (\(Sha256 raw) -> raw) (fmap Sha256 . hex [64])
+sha256 = Codec sha256Text parseSha256
 
 -- | A git object id, as @head_sha@ holds it: 40 (SHA-1) or 64 (SHA-256) lowercase hex.
 sha :: Codec Sha

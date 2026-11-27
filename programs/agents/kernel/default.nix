@@ -48,6 +48,7 @@ let
       base,
       bytestring,
       containers,
+      cryptohash-sha256,
       direct-sqlite,
       directory,
       effectful,
@@ -57,6 +58,7 @@ let
       hspec-discover,
       hspec-golden,
       hspec-hedgehog,
+      network-uri,
       optparse-applicative,
       process,
       sqlite-simple,
@@ -86,10 +88,12 @@ let
         base
         bytestring
         containers
+        cryptohash-sha256
         direct-sqlite
         directory
         effectful
         filepath
+        network-uri
         optparse-applicative
         process
         sqlite-simple

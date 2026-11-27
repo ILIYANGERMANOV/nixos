@@ -5,19 +5,23 @@ Each row's column order lives here, beside its SQL.
 -}
 module Effects.Store.Events (
     Write (..),
+    Batch (..),
     exists,
     rows,
     locked,
+    blob,
     misnumbered,
     children,
     inNotes,
 ) where
 
 import Control.Exception (throwIO)
+import Data.Entity.Blob (BlobRow (..))
 import Data.Entity.Event (EventRow (..))
 import Data.Entity.Run (RunRow (..))
 import Data.Foldable (for_, toList)
 import Data.List.NonEmpty (NonEmpty)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Database.SQLite.Simple (
     Connection,
@@ -37,6 +41,12 @@ write.
 data Write = Append (NonEmpty EventRow) | Start RunRow (NonEmpty EventRow)
     deriving stock (Eq, Show)
 
+{- | A write and the blobs its events' file artifacts snapshot, in one
+transaction: a blob rides only with events, never alone.
+-}
+data Batch = Batch {write :: Write, blobs :: [BlobRow]}
+    deriving stock (Eq, Show)
+
 -- | Whether the run was started in the store.
 exists :: Store -> Text -> IO Bool
 exists (Store conn) run =
@@ -50,22 +60,30 @@ rows (Store conn) = selectRows conn
 {- | The run's rows, in seq order, under the write lock for one decision:
 @decide@ gets them all and returns what to write. Events for a run never
 started violate a foreign key and throw, as do events whose seqs do not
-follow the log's ('misnumbered').
+follow the log's ('misnumbered'). A blob already stored is kept as it is:
+its key is its content's digest, so the content is the same.
 -}
-locked :: Store -> Text -> ([EventRow] -> (Maybe Write, a)) -> IO a
+locked :: Store -> Text -> ([EventRow] -> (Maybe Batch, a)) -> IO a
 locked (Store conn) run decide = withImmediateTransaction conn $ do
     logged <- selectRows conn run
-    let (write, result) = decide logged
-    for_ write $ \case
-        Append new -> append (length logged) new
+    let (batch, result) = decide logged
+    for_ batch $ \Batch {write, blobs} -> do
+        -- Not INSERT OR REPLACE: a replace deletes first, which the blobs' trigger forbids.
+        executeMany
+            conn
+            "INSERT INTO blobs (sha256, size_bytes, content) VALUES (?, ?, ?) ON CONFLICT (sha256) DO NOTHING"
+            [(row.sha256, row.sizeBytes, row.content) | row <- blobs]
+        writing (length logged) write
+    pure result
+  where
+    writing count = \case
+        Append new -> append count new
         Start start new -> do
             execute
                 conn
                 "INSERT INTO runs (id, parent_run_id, flow, notes_dir, created_at) VALUES (?, ?, ?, ?, ?)"
                 (start.id, start.parentRunId, start.flow, start.notesDir, start.createdAt)
-            append (length logged) new
-    pure result
-  where
+            append count new
     append count new = do
         for_ (misnumbered count new) (throwIO . userError)
         executeMany
@@ -83,6 +101,17 @@ locked (Store conn) run decide = withImmediateTransaction conn $ do
               )
             | row <- toList new
             ]
+
+-- | The blob stored under this key, if any.
+blob :: Store -> Text -> IO (Maybe BlobRow)
+blob (Store conn) key =
+    listToMaybe . map blobRow
+        <$> query
+            conn
+            "SELECT sha256, size_bytes, content FROM blobs WHERE sha256 = ?"
+            (Only key)
+  where
+    blobRow (sha256, sizeBytes, content) = BlobRow {sha256, sizeBytes, content}
 
 selectRows :: Connection -> Text -> IO [EventRow]
 selectRows conn run =

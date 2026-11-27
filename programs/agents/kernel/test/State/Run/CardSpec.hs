@@ -79,7 +79,8 @@ spec = do
                         Itself
                 logged =
                     logOf
-                        ( Started (Start ChiefFlow "notes" (ByUser OwnPr) Set.empty)
+                        ( Started
+                            (Start ChiefFlow "notes" (ByUser OwnPr) Set.empty Nothing "/work" Nothing)
                             :| [ Asked (asked 1 Design)
                                , Forwarded (QId run 1) TheUser
                                , WorkerSpawned (AgentRole "researcher") agent

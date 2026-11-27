@@ -2006,7 +2006,16 @@ initRun gd args = do
                 Nothing -> do
                     stamp <- now
                     fresh <- newRunId
-                    let start = Start {flow, notes = notes, principal, interface = interfaceOf principal}
+                    let start =
+                            Start
+                                { flow
+                                , notes = notes
+                                , principal
+                                , interface = interfaceOf principal
+                                , goal = Nothing
+                                , worktree
+                                , repo = Nothing
+                                }
                         -- The run starts at its root's Fuel step: a Fuel given takes it at once.
                         begun =
                             Started start : [Took mempty (outcome (LevelSet level)) | level <- toList fuel]

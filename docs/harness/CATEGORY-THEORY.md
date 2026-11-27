@@ -433,6 +433,9 @@ otherwise. Names are the current test names.
 | Append-only | no stored row is changed or deleted | `Effects/Store/MigrationSpec.hs` "aborts every change to a row with its table's trigger" (UPDATE, DELETE, `INSERT OR REPLACE` and an upsert on each table) |
 | The log only grows | each read of a run's log holds the one before it as a prefix | `LogSpec` "only grows: each decision's log holds the one before it, its seqs dense from 1", over the store and the double |
 | One writer | only the kernel appends to a run's log | Assumed: only `Effects.Store.*` inserts events ([Events.hs][store]) |
+| Blob key | a blob's key is the SHA-256 of its content, so one content is one blob | `State/ArtifactSpec.hs` "keys a blob by the digest of its content"; `LogSpec` "keeps one blob per content, however often a decision carries it", over the store and the double, and "throws on a stored blob whose content does not hash to its key" |
+| Snapshot | every snapshotted file artifact has its blob, and no other does | `ArtifactSpec` "keeps the blob of every file it calls snapshotted, and of no other"; `LogSpec` "stores a decision's blobs with its events, read back by their keys" |
+| Re-snapshot idempotent | re-snapshotting over the newest artifacts, the disk unchanged, adds nothing | `ArtifactSpec` "adds nothing when run again over the newest artifacts, the disk unchanged" |
 
 ### Prof
 

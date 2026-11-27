@@ -19,6 +19,7 @@ import Data.Foldable (for_, toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Payload.Event (
     Decoded (..),
     RetiredEvent (..),
@@ -53,6 +54,20 @@ import Hedgehog (
  )
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Artifact (
+    Artifact (File),
+    FileArtifact (..),
+    FileKind (Plan),
+    FileRef (..),
+    Size (..),
+    UrlKind (Pr),
+    absPath,
+    fileKindText,
+    parseUri,
+    sha256Of,
+    urlKindText,
+ )
+import State.Artifact qualified as Registry (Artifact (Url))
 import State.Category.Flow (scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Golden (golden)
@@ -68,7 +83,14 @@ import State.Run.Ask (
     QId (..),
     Question (..),
  )
-import State.Run.Codec (eventType, flowText, reasonText, topicText, waitingText)
+import State.Run.Codec (
+    eventType,
+    flowText,
+    handoverReasonText,
+    reasonText,
+    topicText,
+    waitingText,
+ )
 import State.Run.Event (
     AgentId (..),
     AgentRole (..),
@@ -85,6 +107,8 @@ import State.Run.Event (
     Event (..),
     EventId (..),
     FlowName (..),
+    Handover (..),
+    HandoverReason (..),
     Judgement (..),
     Label (..),
     Note (..),
@@ -95,6 +119,7 @@ import State.Run.Event (
     Repo (..),
     Requirement (..),
     Said (..),
+    Session (..),
     Sha (..),
     Shape (..),
     Source (..),
@@ -280,6 +305,25 @@ spec = describe "Data.Payload.Event" $ do
         decodeRow shipped (eventRow refused) {Row.payload = "{}"}
             `shouldBe` Unknown (unknownOf (eventRow refused) {Row.payload = "{}"})
 
+    it
+        "reads an artifact whose kind fits not its location, or a relative path, as unknown"
+        $ let row payload = (eventRow refused) {Row.eventType = "artifact", Row.payload = payload}
+              file kind path =
+                "{\"artifact_kind\":\""
+                    <> kind
+                    <> "\",\"location\":{\"kind\":\"file\",\"path\":\""
+                    <> path
+                    <> "\",\"sha256\":\""
+                    <> Text.replicate 64 "a"
+                    <> "\",\"size_bytes\":1}}"
+              url kind =
+                "{\"artifact_kind\":\""
+                    <> kind
+                    <> "\",\"location\":{\"kind\":\"url\",\"url\":\"https://x.org\"}}"
+              misfits = [file "pr" "/a", url "plan", file "plan" "a/b"]
+           in map (decodeRow shipped . row) misfits
+                `shouldBe` map (Unknown . unknownOf . row) misfits
+
     it "reads an aliased type as the type it names" $
         decodeRow retiring (eventRow refused) {Row.eventType = "refusal"}
             `shouldBe` Known refused
@@ -432,6 +476,9 @@ spec = describe "Data.Payload.Event" $ do
                         , principal =
                             ByRole (Parent (runId "00010203") (InFan (Tasked (TaskId "t1")))) OwnPr minBound
                         , interface = Set.empty
+                        , goal = Nothing
+                        , worktree = "/work"
+                        , repo = Nothing
                         }
             }
 
@@ -564,6 +611,9 @@ enumSpellings =
         , map flowText [minBound ..]
         , map fuelName [minBound ..]
         , map topicText [minBound ..]
+        , map fileKindText [minBound ..]
+        , map urlKindText [minBound ..]
+        , map handoverReasonText [minBound ..]
         ]
 
 -- | Lowercase snake_case: words of @a-z@ and @0-9@, joined by single underscores.
@@ -587,14 +637,26 @@ it holds: its golden is @payload/<type>.json@.
 eventGoldens :: [NonEmpty Event]
 eventGoldens =
     [ Started
-        (Start EngineerFlow "/notes/r7f2" (ByUser OwnPr) (Set.fromList [minBound ..]))
-        :| [ Started (Start ArchitectFlow "/n" (ByCaller (RoundOn pr)) Set.empty)
+        ( Start
+            EngineerFlow
+            "/notes/r7f2"
+            (ByUser OwnPr)
+            (Set.fromList [minBound ..])
+            (Just "ship the context facts")
+            "/work/r7f2"
+            (Just (Repo "o" "r"))
+        )
+        :| [ Started
+                (Start ArchitectFlow "/n" (ByCaller (RoundOn pr)) Set.empty Nothing "/w" Nothing)
            , Started
                 ( Start
                     TenXFlow
                     "/n"
                     (ByRole (Parent parent (InFan (Tasked t1))) OwnPr ChildConfirms)
                     (Set.singleton Await)
+                    Nothing
+                    "/w"
+                    Nothing
                 )
            , Started
                 ( Start
@@ -602,6 +664,9 @@ eventGoldens =
                     "/n"
                     (ByRole (Parent parent (InFan Untasked)) (RoundOn pr) ParentDecided)
                     Set.empty
+                    Nothing
+                    "/w"
+                    Nothing
                 )
            , Started
                 ( Start
@@ -609,6 +674,9 @@ eventGoldens =
                     "/n"
                     (ByRole (Parent parent Direct) OwnPr ChildConfirms)
                     Set.empty
+                    Nothing
+                    "/w"
+                    Nothing
                 )
            ]
     , Targeted (OnPr pr)
@@ -675,8 +743,28 @@ eventGoldens =
     , Suspended (TaskNo 2) (oneLine "waits on CI") :| []
     , Focused (TaskNo 2) :| []
     , Voided 7 "logged in the wrong run" :| []
+    , WorktreeMoved "/work/b" (Just (Repo "o" "r"))
+        :| [WorktreeMoved "/work/c" Nothing]
+    , ArtifactLogged
+        ( File
+            ( FileArtifact
+                Plan
+                (FileRef (path "/notes/r7f2/plan.md") (sha256Of "abc") (Size 3))
+            )
+        )
+        (Just 4)
+        :| [ArtifactLogged (Registry.Url Pr uri) Nothing]
+    , Noted "decisions" "the cap stays at 1 MiB" :| []
+    , HandedOver
+        (Handover Context "slice A built" ("build slice B" :| ["open the PR"]))
+        :| []
+    , SessionStarted
+        (Session "claude-code" (Just (path "/home/u/t.jsonl")) "startup" (Just "opus"))
+        :| [SessionStarted (Session "opencode" Nothing "resume" Nothing)]
     ]
   where
+    path raw = fromMaybe (error ("not an absolute path: " <> raw)) (absPath raw)
+    uri = fromMaybe (error "not a URI") (parseUri "https://github.com/o/r/pull/7")
     qid = QId child 3
     parent = runId "r7f2"
     child = runId "c1"
@@ -810,6 +898,9 @@ parentRun =
                         ChildConfirms
                     )
                     mempty
+                    Nothing
+                    "/work"
+                    Nothing
                 )
         }
 

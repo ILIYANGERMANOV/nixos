@@ -78,7 +78,10 @@ spec = describe "the advice at every state" $ do
             ( replay
                 architectGraph
                 ( logOf
-                    (Started (Start ArchitectFlow "notes" (ByUser OwnPr) Set.empty) :| [fuelSet fuel])
+                    ( Started
+                        (Start ArchitectFlow "notes" (ByUser OwnPr) Set.empty Nothing "/work" Nothing)
+                        :| [fuelSet fuel]
+                    )
                 )
             )
 

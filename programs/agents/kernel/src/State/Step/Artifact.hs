@@ -19,6 +19,7 @@ module State.Step.Artifact (
     Target (..),
     PlanCall (..),
     Repo (..),
+    parseRepo,
     parsePrUrl,
     prUrlRule,
     ShellPath,

@@ -7,6 +7,7 @@ module State.Run.Codec (
     eventType,
     areaText,
     reasonText,
+    handoverReasonText,
     stopToken,
     stopWire,
     parseStopLine,
@@ -34,6 +35,7 @@ import State.Category.Step (eventText)
 import State.Role (flowText)
 import State.Run.Event (
     Event (..),
+    HandoverReason (..),
     Stop (..),
     StopReason (..),
     TaskState (..),
@@ -86,6 +88,18 @@ eventType = \case
     Suspended _ _ -> "suspended"
     Focused _ -> "focused"
     Voided _ _ -> "voided"
+    WorktreeMoved _ _ -> "worktree_moved"
+    ArtifactLogged _ _ -> "artifact"
+    Noted _ _ -> "note"
+    HandedOver _ -> "handover"
+    SessionStarted _ -> "session_started"
+
+-- | A hand-over's reason, as the log and the CLI spell it.
+handoverReasonText :: HandoverReason -> Text
+handoverReasonText = \case
+    Context -> "context"
+    User -> "user"
+    Crash -> "crash"
 
 {- | A stop on the wire (#360): its hand-back token, and the prefix its why
 takes there: the hand-back's spelling of a stop. The log's is
