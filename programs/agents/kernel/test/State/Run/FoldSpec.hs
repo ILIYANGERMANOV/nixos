@@ -440,15 +440,14 @@ spec = describe "State.Run.Fold" $ do
             (\state -> returnOf state fixer Nothing NoHandback)
                 <$> afterLog [started' fixer, Restarted, started' fixer]
                 `shouldBe` Right (Just (SpanEnded (SpanId 3) NoHandback unreported))
-        it
-            "ends no span by role for a hand-back naming its agent, nor for a role not at work"
-            $ ( \state ->
-                    ( returnOf state fixer (Just (AgentId "a1")) NoHandback
-                    , returnOf state explorer Nothing NoHandback
-                    )
-              )
+        it "ends no span by role for a hand-back naming its agent" $
+            (\state -> returnOf state fixer (Just (AgentId "a1")) NoHandback)
                 <$> afterLog [started' fixer]
-                `shouldBe` Right (Nothing, Nothing)
+                `shouldBe` Right Nothing
+        it "ends no span for a role not at work" $
+            (\state -> returnOf state explorer Nothing NoHandback)
+                <$> afterLog [started' fixer]
+                `shouldBe` Right Nothing
         it "ends an open span when asked, and none it does not hold" $
             ( \state ->
                 ( endSpan state (SpanId 1) NoHandback unreported

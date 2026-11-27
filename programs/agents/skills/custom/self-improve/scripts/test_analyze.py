@@ -2471,6 +2471,12 @@ class Kernel:
         """A question the run in `worktree` asks; its qid."""
         return self.state(worktree, "ask", "--kind", kind, question).split()[1]
 
+    def rule(self, worktree: str, qid: str) -> None:
+        """The run in `worktree` rules on question `qid`."""
+        _ = self.state(
+            worktree, "rule", qid, "--answer", "a", "--why", "w", "--cost", "c"
+        )
+
     def state(self, worktree: str, *argv: str) -> str:
         """`state argv` run in `worktree`; what it printed."""
         done = subprocess.run(
@@ -2519,9 +2525,7 @@ class TestStateLog:
         _ = kernel.start("r1")
         _ = kernel.ask("r1", "Design", "which store?")
         fact = kernel.ask("r1", "Fact", "which port?")
-        _ = kernel.state(
-            "r1", "rule", fact, "--answer", "a", "--why", "w", "--cost", "c"
-        )
+        kernel.rule("r1", fact)
         _ = kernel.state("r1", "record", "fuel.set", "balanced")
         confirm = kernel.ask("r1", "Confirm", "ship it?")
         _ = kernel.state("r1", "answer", confirm, "a")
@@ -2551,9 +2555,7 @@ class TestStateLog:
         _ = kernel.start("c1", "--parent", parent)
         _ = kernel.state("c1", "record", "fuel.set", "balanced")
         qid = kernel.ask("c1", "Design", "which store?")
-        _ = kernel.state(
-            "p1", "rule", qid, "--answer", "a", "--why", "w", "--cost", "c"
-        )
+        kernel.rule("p1", qid)
         # When
         report = home.report()
         # Then
