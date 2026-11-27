@@ -1855,7 +1855,12 @@ sessionFrom source repo =
     hookEvent
         repo
         Null
-        ["event" .= String "sessionStart", "source" .= String source]
+        [ "event" .= String "sessionStart"
+        , "source" .= String source
+        , "harness" .= String "claude-code"
+        , "transcript_path" .= String "/home/u/.claude/projects/p/s1.jsonl"
+        , "request_model" .= Null
+        ]
 
 -- | A subagent of this role hands back @READY@.
 handedBack :: Repo -> Text -> String

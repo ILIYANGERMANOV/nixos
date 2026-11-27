@@ -24,6 +24,7 @@ import State.Run.Codec (eventType)
 import State.Run.Event (
     Branch (..),
     Envelope (..),
+    Event (WorktreeMoved),
     FlowName (TenXFlow),
     PlanCall (..),
     Repo (..),
@@ -717,6 +718,17 @@ spec = describe "state over the doubles" $ do
                         `shouldBe` [ Just (encodeUtf8 ("run " <> run <> " /notes /target\n"))
                                    , Just "run ffff0000 /elsewhere /work\n"
                                    ]
+
+            it "logs worktree_moved with the new git top and origin's repo" $ \world -> do
+                _ <- startedRun world
+                modifyIORef' world (\w -> w {origin = Just "git@github.com:o/r.git"})
+                addWorktree world "/target"
+
+                _ <- succeeded =<< state world ["move", "/target"]
+
+                events <- logged world
+                map (.event) (take 1 (reverse events))
+                    `shouldBe` [WorktreeMoved "/target" (Just (Repo "o" "r"))]
 
             it
                 "refuses an init in the worktree a run moved from, naming the cd to where it went"

@@ -212,6 +212,7 @@ import State.Protocol.Hook (
     parseHookEvent,
     replyOf,
     restartOf,
+    sessionOf,
     silent,
     spawnedAt,
     toldOf,
@@ -894,13 +895,15 @@ runAnswer ::
     (Shell es) =>
     Steps -> Call -> Maybe Binding -> Maybe RunId -> Want -> Eff es Text
 runAnswer steps call bound found want = case want of
-    ResumeRun source -> do
+    ResumeRun opened -> do
         -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
         (facts, told) <- readFacts
         onHook facts.pr $ \stamp run -> case commit
             stamp
             run
-            [(Cli, event) | event <- maybeToList (restartOf source run.state)] of
+            ( (Cli, SessionStarted (sessionOf opened))
+                : [(Cli, event) | event <- maybeToList (restartOf opened.source run.state)]
+            ) of
             Left refusal ->
                 ( []
                 , failureText

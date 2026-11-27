@@ -21,6 +21,7 @@ from agent_hook import (
     BeforeTool,
     ContextSize,
     Deny,
+    Harness,
     Json,
     JsonObject,
     PromptExpansion,
@@ -308,12 +309,12 @@ def test_a_task_output_that_is_no_task_block_is_refused() -> None:
 @pytest.mark.parametrize(
     ("created", "source"), [(True, Source.STARTUP), (False, Source.RESUME)]
 )
-def test_the_leads_first_message_starts_the_session_new_or_resumed(
+def test_the_leads_first_message_starts_an_opencode_session_with_no_transcript(
     created: bool,  # noqa: FBT001 - a parameter of the test
     source: Source,
 ) -> None:
     assert parse_opencode(message(first=True, created=created), TOOLS) == (
-        SessionStart(SESSION, CWD, None, source),
+        SessionStart(SESSION, CWD, None, source, Harness("opencode"), None, None),
     )
 
 

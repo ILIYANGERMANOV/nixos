@@ -21,6 +21,7 @@ from agent_hook import (
     Event,
     EventName,
     EveryTool,
+    Harness,
     Hook,
     HookName,
     Json,
@@ -58,7 +59,15 @@ VOCABULARY = Path(__file__).with_name("vocabulary.json")
 SESSION = SessionId("s1")
 CWD = Path("/work/repo")
 WORKER = Agent(AgentId("a1"), Role("implementer"))
-START = SessionStart(SESSION, CWD, None, Source.RESUME)
+START = SessionStart(
+    SESSION,
+    CWD,
+    None,
+    Source.RESUME,
+    Harness("claude-code"),
+    Path("/home/u/.claude/projects/p/s1.jsonl"),
+    "claude-opus-5-5",
+)
 SPAWN = BeforeTool(SESSION, CWD, None, Tool.DELEGATE, {"prompt": "brief"})
 RAN = AfterTool(SESSION, CWD, WORKER, Tool.SHELL, {"command": "ls"}, "a\nb\n")
 STARTED = AgentStart(SESSION, CWD, WORKER)
@@ -75,7 +84,16 @@ context_sizes = st.none() | st.builds(ContextSize, counts, st.none() | counts)
 paths = st.text(alphabet="abc/", min_size=1).map(lambda p: Path("/" + p))
 sessions = st.text().map(SessionId)
 events: st.SearchStrategy[Event] = st.one_of(
-    st.builds(SessionStart, sessions, paths, agents, st.sampled_from(Source)),
+    st.builds(
+        SessionStart,
+        sessions,
+        paths,
+        agents,
+        st.sampled_from(Source),
+        texts.map(Harness),
+        st.none() | paths,
+        st.none() | texts,
+    ),
     st.builds(
         BeforeTool,
         sessions,
@@ -165,8 +183,36 @@ def test_an_emitted_event_parses_back_to_itself(event: Event) -> None:
                 "cwd": "/",
                 "agent": None,
                 "source": "clear",
+                "harness": "claude-code",
+                "transcript_path": None,
+                "request_model": None,
             },
             id="unknown source",
+        ),
+        pytest.param(
+            {
+                "event": "sessionStart",
+                "session": "s",
+                "cwd": "/",
+                "agent": None,
+                "source": "startup",
+                "harness": "claude-code",
+                "transcript_path": "projects/s.jsonl",
+                "request_model": None,
+            },
+            id="relative transcript path",
+        ),
+        pytest.param(
+            {
+                "event": "sessionStart",
+                "session": "s",
+                "cwd": "/",
+                "agent": None,
+                "source": "startup",
+                "transcript_path": None,
+                "request_model": None,
+            },
+            id="session start with no harness",
         ),
         pytest.param(
             {
@@ -247,6 +293,38 @@ def test_an_event_reads_as_the_wire_names_it() -> None:
 
     assert parse_event(json.dumps(wire)) == replace(
         RAN, context=ContextSize(150_000, None)
+    )
+
+
+def test_a_session_start_reads_as_the_wire_names_it() -> None:
+    wire = {
+        "event": "sessionStart",
+        "session": "s1",
+        "cwd": "/work/repo",
+        "agent": None,
+        "source": "resume",
+        "harness": "claude-code",
+        "transcript_path": "/home/u/.claude/projects/p/s1.jsonl",
+        "request_model": "claude-opus-5-5",
+    }
+
+    assert parse_event(json.dumps(wire)) == START
+
+
+def test_a_session_start_with_no_transcript_or_model_reads_none() -> None:
+    wire = {
+        "event": "sessionStart",
+        "session": "s1",
+        "cwd": "/work/repo",
+        "agent": None,
+        "source": "resume",
+        "harness": "opencode",
+        "transcript_path": None,
+        "request_model": None,
+    }
+
+    assert parse_event(json.dumps(wire)) == replace(
+        START, harness=Harness("opencode"), transcript=None, model=None
     )
 
 

@@ -42,6 +42,7 @@ module State.Cli.Shell.World (
     notes,
     sessionStart,
     sessionStartIn,
+    transcriptFile,
     handedBack,
     spawned,
     agentStarted,
@@ -457,13 +458,21 @@ hookEventIn cwd agent fields =
 sessionStart :: LBS.ByteString
 sessionStart = sessionStartIn "/work"
 
--- | The lead's session starting in this directory.
+-- | The lead's fresh Claude Code session starting in this directory, its transcript 'transcriptFile'.
 sessionStartIn :: FilePath -> LBS.ByteString
 sessionStartIn cwd =
     hookEventIn
         cwd
         Null
-        ["event" .= String "sessionStart", "source" .= String "startup"]
+        [ "event" .= String "sessionStart"
+        , "source" .= String "startup"
+        , "harness" .= String "claude-code"
+        , "transcript_path" .= transcriptFile
+        , "request_model" .= Null
+        ]
+
+transcriptFile :: FilePath
+transcriptFile = "/home/u/.claude/projects/p/s1.jsonl"
 
 -- | A subagent of this role hands back @READY@.
 handedBack :: Text -> LBS.ByteString

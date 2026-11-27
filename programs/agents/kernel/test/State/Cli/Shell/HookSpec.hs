@@ -12,9 +12,15 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Doubles.FileSystem (Disk (..))
+import State.Artifact (absPath)
 import State.Cli.Shell.World
 import State.Protocol.Advice (Readiness (..))
-import State.Run.Event (Branch (..))
+import State.Run.Event (
+    Branch (..),
+    Envelope (..),
+    Event (SessionStarted),
+    Session (..),
+ )
 import Test.Hspec (
     Spec,
     before,
@@ -42,6 +48,21 @@ spec = describe "state-hook over the doubles" $ do
 
                 (said.code, said.err) `shouldBe` (0, [])
                 contextOf said `shouldSatisfy` maybe False ("step: gather" `Text.isInfixOf`)
+
+            it "logs the session's start, by its harness, transcript and source" $ \world -> do
+                _ <- drive world [Record ["fuel.set", "balanced"]]
+
+                said <- hook world "resume" sessionStart
+
+                events <- map (.event) <$> logged world
+                (said.code, take 1 (reverse events))
+                    `shouldBe` ( 0
+                               ,
+                                   [ SessionStarted
+                                        (Session "claude-code" (absPath transcriptFile) "startup" Nothing)
+                                   ]
+                               )
+                contextOf said `shouldSatisfy` maybe False ("session_started" `Text.isInfixOf`)
 
             it "is silent off the branch the draft PR bound the run to" $ \world -> do
                 _ <- drive world (Record ["fuel.set", "balanced"] : init toImplement)

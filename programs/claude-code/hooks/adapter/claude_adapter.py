@@ -35,6 +35,7 @@ from agent_hook import (
     ContextSize,
     Deny,
     Event,
+    Harness,
     Json,
     JsonObject,
     Manifest,
@@ -55,6 +56,7 @@ from agent_hook import (
     hooks_for,
     parse_json,
     parse_manifest,
+    parse_transcript,
     run_note_hook,
     run_verdict_hook,
 )
@@ -68,6 +70,8 @@ type ReadLines = Callable[[Path], Sequence[bytes]]
 # Enough for two model calls unless a single result is larger, which only
 # costs `previous`; and for the shell commands a subagent ran lately.
 TAIL_BYTES = 256 * 1024
+
+HARNESS = Harness("claude-code")
 
 
 def main() -> None:
@@ -118,7 +122,13 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
             "source": str(source),
         }:
             return SessionStart(
-                SessionId(session), Path(cwd), parse_agent(payload), Source(source)
+                SessionId(session),
+                Path(cwd),
+                parse_agent(payload),
+                Source(source),
+                HARNESS,
+                parse_transcript(payload.get("transcript_path")),
+                parse_model(payload.get("model")),
             )
         case {
             "hook_event_name": "PreToolUse",
@@ -195,6 +205,15 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
             raise ValueError(
                 "not a SessionStart, PreToolUse, PostToolUse, SubagentStart, UserPromptExpansion, SubagentStop or Stop event"
             )
+
+
+def parse_model(model: Json) -> str | None:
+    """The model a session start names; Claude leaves it out at some starts."""
+    match model:
+        case None | str():
+            return model
+        case _:
+            raise ValueError(f"model {model!r} is not a string")
 
 
 def parse_agent(payload: JsonObject) -> Agent | None:
