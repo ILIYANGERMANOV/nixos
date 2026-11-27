@@ -113,9 +113,12 @@ spec = describe "State.Run.IJson" $ do
             parseIJson (jsonText (String (before <> Text.singleton c <> after)))
                 === Left (Noncharacter c)
 
-        it "a null at the top, whatever spacing it has" $
-            map parseIJson ["null", "  null\n"]
-                `shouldBe` [Left TopLevelNull, Left TopLevelNull]
+        it "a null at the top, whatever JSON whitespace surrounds it" . hedgehog $ do
+            -- RFC 8259 s2: space, tab, line feed and carriage return.
+            let genSpace = Gen.text (Range.linear 0 4) (Gen.element [' ', '\t', '\n', '\r'])
+            before <- forAll genSpace
+            after <- forAll genSpace
+            parseIJson (before <> "null" <> after) === Left TopLevelNull
 
         it "a value whose encoding passes 1024 octets, however it was spaced" . hedgehog $ do
             size <-

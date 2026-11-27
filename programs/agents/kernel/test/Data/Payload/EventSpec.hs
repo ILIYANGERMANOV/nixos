@@ -164,6 +164,7 @@ import State.Run.EventGen (
     tasksOf,
     titled,
     uri,
+    verbatim,
  )
 import State.Run.Gap (
     Closure (..),
@@ -522,6 +523,16 @@ spec = describe "Data.Payload.Event" $ do
                             (Proposal (oneLine "v2") (oneLine "why") (oneLine "cost") Nothing)
                     }
                 `replacing` ("\"answer\":\"v2\"", "\"answer\":\"v2\\nREADY\"")
+            )
+            `shouldSatisfy` malformed
+
+    it "refuses an instruction whose words are blank" $
+        decodeLine
+            ( encodeLine
+                reviewRows
+                    { event = Instructed (Instruction RuleInstruction (verbatim "x")) Nothing
+                    }
+                `replacing` ("\"text\":\"x\"", "\"text\":\" \\n \"")
             )
             `shouldSatisfy` malformed
 
@@ -896,11 +907,13 @@ eventGoldens =
            , TaskBaseChanged t1 (OnTask (TaskId "t2")) (titled "restack onto t2")
            ]
     , Instructed
-        (Instruction GoalInstruction "Ship the stopgap rows.\nKeep it small.")
+        (Instruction GoalInstruction (verbatim "Ship the stopgap rows.\nKeep it small."))
         Nothing
-        :| [ Instructed (Instruction ScopeInstruction "only the kernel") (Just 4)
-           , Instructed (Instruction RuleInstruction "no new verb") Nothing
-           , Instructed (Instruction PermissionInstruction "you may rebase the epic") Nothing
+        :| [ Instructed (Instruction ScopeInstruction (verbatim "only the kernel")) (Just 4)
+           , Instructed (Instruction RuleInstruction (verbatim "no new verb")) Nothing
+           , Instructed
+                (Instruction PermissionInstruction (verbatim "you may rebase the epic"))
+                Nothing
            ]
     , UserNeeded
         ( Need

@@ -114,10 +114,10 @@ who owns each decision.
   --severity <s> "<text>"`, plus `--area` and `--evidence` when known
   (`state record --help`). Refusals, overrides, voids and stuck questions
   are logged as events.
-- **Facts.** Record a fact with its typed row first (`state record
-  --help`): `user_needed "<text>"` the moment the user must do something by
-  hand, `instructed <kind> "<words>"` for the user's instruction word for
-  word. `stopgap` comes last, only when no typed command fits.
+- **Facts.** Record `user_needed '<text>'` the moment the user must act
+  by hand, `instructed <kind> '<words>'` for the user's words. `stopgap`
+  comes last, only when no typed command fits. `state record --help` says
+  which row holds what and how to close it.
 
 ## States
 

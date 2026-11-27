@@ -29,6 +29,7 @@ module State.Run.EventGen (
     genTaskRef,
     genSeq,
     titled,
+    verbatim,
     epicNamed,
     genEpicName,
     genEpicMove,
@@ -64,7 +65,6 @@ module State.Run.EventGen (
 import Data.Aeson (Object, Value (..), toJSON)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Char (isSpace)
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -233,7 +233,7 @@ genEvent =
 -- | An instruction of any kind, its words not blank.
 genInstruction :: Gen Instruction
 genInstruction =
-    Instruction <$> Gen.enumBounded <*> Gen.filter (not . Text.all isSpace) genText
+    Instruction <$> Gen.enumBounded <*> Gen.mapMaybe parseVerbatim genText
 
 -- | A stopgap set or unset, anywhere, with its reason.
 genStopgapEvent :: Gen Event
@@ -459,6 +459,10 @@ genNonBlank = do
 -- | A title for a test's task, which is not blank.
 titled :: Text -> NonBlank
 titled = fromMaybe (error "a test's title is not blank") . parseNonBlank
+
+-- | A user's words for a test's instruction, which are not blank.
+verbatim :: Text -> Verbatim
+verbatim = fromMaybe (error "a test's instruction is not blank") . parseVerbatim
 
 -- | An epic name for a test, a slug.
 epicNamed :: Text -> EpicName

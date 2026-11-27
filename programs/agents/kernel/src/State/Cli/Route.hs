@@ -51,6 +51,7 @@ import State.Cli.Command (
  )
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
+import State.Protocol.Record (Recording (NeedDone))
 import State.Role (FlowName (..), leads)
 import State.Run.Event (AgentRole, RunId, runIdText)
 import State.Step.Artifact (shellPath)
@@ -105,6 +106,8 @@ stateCalls steps cwd command =
         Resume _ _ -> False
         -- It opens with the run's id, so it reads another run's state safely (#432).
         OnRun ShowRun -> False
+        -- It names the need's run, whatever directory it runs in, as a gap move does.
+        OnRun (Record (NeedDone _ _)) -> False
         OnRun _ -> True
 
 {- | Whose run a command may act in. A parent records in its child's run and

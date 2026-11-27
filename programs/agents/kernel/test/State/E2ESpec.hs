@@ -754,7 +754,7 @@ spec = describe "the state binary" $ do
                                    , ["recorded 4 stopgap_set -> fuel", "next: state next"]
                                    ]
                                ,
-                                   [ "  " <> run <> ":2 rule \"ask before you push\""
+                                   [ "  2 rule \"ask before you push\""
                                    , "  - do " <> run <> ":3 \"add the deploy key\" at " <> Text.pack keysUrl
                                    , "  run deploy.region \"eu\""
                                    ]
@@ -773,6 +773,28 @@ spec = describe "the state binary" $ do
             done <- owed <$> (succeeded =<< state bin repo ["resume"])
             (open, done)
                 `shouldBe` (["  - do " <> Text.pack needId <> " \"grant access\" blocks t2"], [])
+
+        it
+            "closes a child's need from the parent's worktree, logging the close in the child only"
+            $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                w1 <- worktree repo "w1"
+                child <- childRun bin w1 parent "n1" "t1"
+                need <- (+ 1) . length <$> loggedTypes bin w1
+                _ <-
+                    succeeded
+                        =<< state bin w1 ["record", "user_needed", "grant access"]
+                _ <-
+                    succeeded
+                        =<< state
+                            bin
+                            repo
+                            ["record", "user_needed", Text.unpack child <> ":" <> show need, "--done"]
+                let closes run =
+                        length . filter ("\"type\":\"user_needed_done\"" `Text.isInfixOf`)
+                            <$> dumpOf bin repo run
+                closed <- traverse closes [child, parent]
+                closed `shouldBe` [1, 0]
 
         it "resumes a stopgap until it is unset, and dumps both events" $ \repo -> do
             _ <- drive bin repo []

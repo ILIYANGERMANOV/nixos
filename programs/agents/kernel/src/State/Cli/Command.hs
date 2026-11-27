@@ -53,7 +53,7 @@ import Data.Version (showVersion)
 import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Optparse
-import Options.Applicative.Help.Pretty (pretty, vsep)
+import Options.Applicative.Help.Pretty (fillSep, hang, pretty, vsep)
 import Paths_state (version)
 import State.Artifact (
     AbsPath,
@@ -431,8 +431,7 @@ commandInfo steps scope =
                 ( Optparse.info
                     (recordEvent scope)
                     ( Optparse.progDesc "Record an event: 'state record --help' lists them"
-                        <> Optparse.footer
-                            "A commit event records HEAD. Pick the typed event that fits: user_needed the moment the user must act by hand, instructed for the user's words verbatim; stopgap only when none fits."
+                        <> Optparse.footerDoc (Just (vsep (map paragraph recordFooter)))
                     )
                 )
             , sub "handback" "Record a role's hand-back, read from stdin" $
@@ -744,6 +743,20 @@ commandInfo steps scope =
         , "A refusal prints `state <command>: what - why`, then `fix: <command>`."
         , "Run 'state <command> --help' for a command's arguments."
         ]
+    -- The one full statement of which row holds a fact: the skills point here.
+    recordFooter =
+        [ "A commit event records HEAD. Record a fact by the first row that fits:"
+        , "- user_needed '<text>' the moment the user must act by hand. It tells no one: still ask or hand back. Then user_needed <run:seq> --done once done."
+        , "- instructed <kind> '<words>' for the user's words verbatim. goal: what to build, only when the user changes it; scope: what is in or out; rule: a standing do or don't; permission: what the user allows. --replaces <seq> retires an earlier one."
+        , "- state note --topic <t> '<text>' for prose context."
+        , "- stopgap <key> <json> --reason <r> for a keyed value read back later, only when no typed row fits; stopgap <key> --unset --reason <r> when it ends."
+        , "Never a secret in any row. Single quotes keep the words verbatim in the shell."
+        ]
+    -- A bullet's lines after its first hang under its text.
+    paragraph line =
+        hang
+            (if "- " `Text.isPrefixOf` line then 2 else 0)
+            (fillSep (map pretty (Text.words line)))
     anyRole = agentRoles steps <> map (.name) Role.roles
     sub name about parser = Optparse.command name (Optparse.info parser (Optparse.progDesc about))
     -- Its last words are free text, which may start with a dash: an option it does not take is a word.

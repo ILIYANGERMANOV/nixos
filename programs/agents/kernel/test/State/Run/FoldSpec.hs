@@ -106,6 +106,7 @@ import State.Run.EventGen (
     started,
     tasksOf,
     titled,
+    verbatim,
  )
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
@@ -2275,8 +2276,8 @@ userFacts = describe "the user's instructions and needs" $ do
   where
     -- A run of these events after its start, at seq 0.
     replayed events = replay g (logOf (started :| events))
-    goal = Instruction GoalInstruction "ship it"
-    rule = Instruction RuleInstruction "no new verb"
+    goal = Instruction GoalInstruction (verbatim "ship it")
+    rule = Instruction RuleInstruction (verbatim "no new verb")
     need = Need (titled "add the deploy key") Set.empty Nothing
 
 {- | One fan-out twice, inside scopes @a@ and @b@: each copy is its own

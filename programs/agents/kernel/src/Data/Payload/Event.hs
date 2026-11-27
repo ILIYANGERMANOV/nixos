@@ -139,8 +139,10 @@ import State.Run.Event (
     parseHarness,
     parseRunId,
     parseTaskNo,
+    parseVerbatim,
     runIdText,
     taskNoText,
+    verbatimText,
  )
 import State.Run.Gap (
     Closure (..),
@@ -410,7 +412,7 @@ eventData = \case
             <> "reason" .= Artifact.nonBlankText reason
     Instructed instruction replaces ->
         "instruction_kind" .= instructionKindText instruction.kind
-            <> "text" .= instruction.text
+            <> "text" .= verbatimText instruction.text
             <> foldMap ("replaces" .=) replaces
     UserNeeded need ->
         "text" .= Artifact.nonBlankText need.text
@@ -535,7 +537,7 @@ eventOf kind obj = case kind of
                     <$> ( obj .: "instruction_kind"
                             >>= named "instruction kind" (parseByName instructionKindText)
                         )
-                    <*> obj .: "text"
+                    <*> (obj .: "text" >>= named "verbatim words" parseVerbatim)
                 )
             <*> (obj .:? "replaces" >>= traverse ijsonNatural)
     "user_needed" ->

@@ -13,9 +13,6 @@ refactors, DRY and large files do not.
 - Record only a gap you are certain of. Record it with
   `state record gap --kind <k> --severity <s> "<text>"`, never in a loose
   file; `state show` lists them.
-- Other facts take their typed row first: `user_needed` the moment the
-  user must do something by hand, `instructed` for the user's words
-  verbatim. `stopgap` comes last, only when no typed command fits.
 - A worker writes a hand-back line per gap instead, on its own line after
   line 1: `Gap: <kind> <severity> <text>`.
 - Severity: `blocker` you cannot go on, `slowdown` it cost time,
@@ -30,3 +27,10 @@ refactors, DRY and large files do not.
   sufficient command set whose output carries the context to act; it saves
   tokens or round trips or adds reliability; it uses the strongest rung of
   the logic ladder (`agents-logic-ladder.md`); the kernel stays vendor-free.
+
+### Other facts
+
+A fact that is no gap takes its typed row first: `user_needed` the moment
+the user must act by hand, `instructed` for the user's words verbatim.
+`stopgap` comes last, only when no typed command fits.
+`state record --help` says which row holds what.

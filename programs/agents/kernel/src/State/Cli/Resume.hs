@@ -78,6 +78,7 @@ import State.Run.Event (
     placeOf,
     runIdText,
     spansOf,
+    verbatimText,
  )
 import State.Run.Fan (
     Breakdown (..),
@@ -187,15 +188,17 @@ header input =
 goal :: Input -> [Text]
 goal input = ["goal: " <> text | Just text <- [input.state.start.goal]]
 
--- | The user's instructions in force, newest first, each in the user's own words.
+{- | The user's instructions in force, newest first, each in the user's own
+words, by the bare seq @--replaces@ takes.
+-}
 instructions :: Input -> [Text]
 instructions input =
     section
         ("instructions (" <> tshow (length active) <> ", newest first):")
         [ Text.unwords
-            [ here input n
+            [ tshow n
             , instructionKindText instruction.kind
-            , jsonText (String instruction.text)
+            , jsonText (String (verbatimText instruction.text))
             ]
         | (n, instruction) <- active
         ]

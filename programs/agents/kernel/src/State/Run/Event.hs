@@ -92,12 +92,16 @@ module State.Run.Event (
     TaskState (..),
     Instruction (..),
     InstructionKind (..),
+    Verbatim,
+    parseVerbatim,
+    verbatimText,
     Need (..),
     artifactsOf,
     spansOf,
     placeOf,
 ) where
 
+import Data.Char (isSpace)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -513,8 +517,22 @@ data TaskState
     deriving stock (Eq, Show)
 
 -- | What the user told the run to keep to, of this kind, in the user's own words.
-data Instruction = Instruction {kind :: InstructionKind, text :: Text}
+data Instruction = Instruction {kind :: InstructionKind, text :: Verbatim}
     deriving stock (Eq, Show)
+
+{- | The user's words as given: a character at least that is no space, line
+breaks kept. Built by 'parseVerbatim' alone.
+-}
+newtype Verbatim = Verbatim Text
+    deriving stock (Eq, Show)
+
+parseVerbatim :: Text -> Maybe Verbatim
+parseVerbatim raw
+    | Text.all isSpace raw = Nothing
+    | otherwise = Just (Verbatim raw)
+
+verbatimText :: Verbatim -> Text
+verbatimText (Verbatim text) = text
 
 -- | What an instruction sets: the run's goal, its scope, a rule to keep, or a permission.
 data InstructionKind

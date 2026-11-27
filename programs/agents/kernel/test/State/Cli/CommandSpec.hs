@@ -89,6 +89,7 @@ import State.Run.EventGen (
     stopgapKey,
     titled,
     uri,
+    verbatim,
  )
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Gap qualified as Gap
@@ -320,8 +321,12 @@ spec = describe "State.Cli.Command" $ do
                 , ["instructed", "rule", "no", "new", "verb", "--replaces", "4"]
                 ]
                 `shouldBe` [ Right
-                                (Instructed (Instruction GoalInstruction "Ship it.\nKeep  it small.") Nothing)
-                           , Right (Instructed (Instruction RuleInstruction "no new verb") (Just 4))
+                                ( Instructed
+                                    (Instruction GoalInstruction (verbatim "Ship it.\nKeep  it small."))
+                                    Nothing
+                                )
+                           , Right
+                                (Instructed (Instruction RuleInstruction (verbatim "no new verb")) (Just 4))
                            ]
 
         it

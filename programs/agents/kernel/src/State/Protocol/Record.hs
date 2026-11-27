@@ -26,7 +26,7 @@ module State.Protocol.Record (
 
 import Data.Aeson.Key qualified as Key
 import Data.Bifunctor qualified as Bifunctor
-import Data.Char (isSpace, ord)
+import Data.Char (ord)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -75,6 +75,7 @@ import State.Run.Event (
     TaskState (..),
     Url (..),
     parseRunId,
+    parseVerbatim,
     tookIn,
  )
 import State.Run.Gap (
@@ -304,7 +305,11 @@ recordables =
                         )
                         Right
                         (parseByName Codec.instructionKindText raw)
-                text <- verbatim (Text.unwords words')
+                text <-
+                    maybe
+                        (Left "the user's words")
+                        Right
+                        (parseVerbatim (Text.unwords words'))
                 replaces <- traverse seqOf (option "replaces" a)
                 Right (Plain (Instructed (Instruction kind text) replaces))
             _ -> Left "the instruction's kind, then the user's words"
@@ -650,13 +655,9 @@ ijsonRefusalText = \case
             <> Text.pack (show ijsonCap)
             <> ": keep a stopgap small"
 
--- | The user's words as given, line breaks too: only blank ones are refused.
-verbatim :: Text -> Either Text Text
-verbatim words'
-    | Text.all isSpace words' = Left "the user's words"
-    | otherwise = Right words'
-
--- | A line's seq in the run's log.
+{- | The user's words as given, line breaks too: only blank ones are refused.
+| A line's seq in the run's log.
+-}
 seqOf :: Text -> Either Text Natural
 seqOf raw =
     maybe
