@@ -210,6 +210,9 @@ kernelData =
     , "Data.Payload.Blob"
     , "Data.Payload.Event"
     , "Data.Payload.Upcast"
+    , "Data.Projection"
+    , "Data.Projection.Registry"
+    , "Data.Projection.Runs"
     ]
 
 -- | The store: the only modules that speak SQL.

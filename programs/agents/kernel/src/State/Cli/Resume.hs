@@ -40,7 +40,6 @@ import State.Category.Fuel (fuelName)
 import State.Category.Graph (Node (..))
 import State.Category.Step (stateNameText)
 import State.Cli.View (answerLine, epicRow, gapHeadline, pendingLines, section)
-import State.Protocol.Advice (recordedPr)
 import State.Run.Ask (Principal (..), Question (..), qidText, rulingLine)
 import State.Run.Codec (
     flowText,
@@ -95,6 +94,7 @@ import State.Run.Fold (
     Waits (..),
     askedAt,
     fuelOf,
+    recordedPr,
     unvoided,
  )
 import State.Run.Gap (

@@ -16,12 +16,15 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Foldable (for_)
 import Data.List (isSuffixOf)
 import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Payload.Upcast (shipped)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Database.SQLite.Simple qualified as SQLite
+import Effects.Log (projected)
 import Effects.Store.Connection (Durability (Unsynced), withStore)
 import Effects.Store.Events qualified as Store
+import Effects.Store.Projected (projectionRows, projectionTables)
 import State.Artifact (sha256Of, sha256Text)
 import State.Category.Fuel (Fuel (Low))
 import State.Golden (golden)
@@ -931,6 +934,25 @@ spec = describe "the state binary" $ do
             (refused.code, any ("\"code\":\"unknown_event\"" `Text.isInfixOf`) rows)
                 `shouldBe` (2, True)
 
+        it
+            "prints the same next, show, tasks and resume with every projection table dropped; the next open brings their rows back"
+            $ \repo -> do
+                _ <- drive bin repo balancedPath
+                let deciding =
+                        traverse
+                            (fmap (\ran -> (ran.code, ran.out, ran.err)) . state bin repo)
+                            [["next"], ["show"], ["tasks"], ["resume"]]
+                    projected' = SQLite.withConnection (storeOf repo) projectionRows
+                before <- deciding
+                rows <- projected'
+                SQLite.withConnection (storeOf repo) $ \c ->
+                    for_ ("projection_versions" : projectionTables) $ \table ->
+                        SQLite.execute_ c (SQLite.Query ("DROP TABLE " <> table))
+                after <- deciding
+                rowsAfter <- projected'
+                (after, rowsAfter) `shouldBe` (before, rows)
+                rows `shouldSatisfy` (not . null)
+
         it "loses no event of two state processes appending to one run at once" $ \repo -> do
             _ <- drive bin repo []
             before <- logLines bin repo
@@ -951,6 +973,7 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
+                        (projected shipped)
                         (`Store.children` parent)
                 listed `shouldBe` Right [child]
 
@@ -1004,6 +1027,7 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
+                        (projected shipped)
                         (`Store.children` parent)
 
                 listed `shouldBe` Right [asking, sibling]

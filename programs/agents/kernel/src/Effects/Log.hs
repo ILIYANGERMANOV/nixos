@@ -26,6 +26,7 @@ module Effects.Log (
     loggedUntil,
     decision,
     blobRead,
+    projected,
 ) where
 
 import Control.Exception (throwIO)
@@ -48,6 +49,8 @@ import Data.Payload.Event (
     runRow,
  )
 import Data.Payload.Upcast (Upcasts, shipped)
+import Data.Projection (Projections (..))
+import Data.Projection.Registry qualified as Registry
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -180,7 +183,7 @@ runLogIO upcasts durability = interpret $ \_ op -> do
                     (userError "no run store: neither XDG_STATE_HOME nor HOME is an absolute path")
                 )
         Just db ->
-            liftIO (withStore durability db (onStore upcasts op))
+            liftIO (withStore durability db (projected upcasts) (onStore upcasts op))
                 >>= either throwError pure
 
 onStore :: Upcasts -> Log m a -> Store -> IO a
@@ -195,6 +198,19 @@ onStore upcasts op store = case op of
             >>= either (throwIO . userError) pure . blobRead key
     Children run -> Store.children store (runIdText run) >>= runIds
     InNotes notes -> Store.inNotes store (Text.pack notes) >>= runIds
+
+{- | The projections the store keeps, a run's rows in them folded from its
+rows read through these upcasts: none for a run with a row it cannot read
+(#552 s9, D15), whose raw rows @state dump@ still prints.
+-}
+projected :: Upcasts -> Projections
+projected upcasts =
+    Projections
+        { projections = Registry.projections
+        , refold =
+            either (const []) (maybe [] Registry.rows . nonEmpty . (.events))
+                . loggedOf upcasts
+        }
 
 {- | The first of a run's rows the fold reads, decoded: a retired row is
 skipped, as the fold skips it.

@@ -205,6 +205,7 @@ inStore upcasts seeded byHand program = withSystemTempDirectory "state-log" $ \d
     withStore
         Full
         (dir </> "state" </> "kernel-v2.db")
+        (Log.projected upcasts)
         (for_ byHand . writeRaw)
         >>= either (fail . show) pure
     atStoreWith upcasts dir program

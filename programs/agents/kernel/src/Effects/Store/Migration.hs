@@ -11,11 +11,14 @@ module Effects.Store.Migration (
     latest,
     check,
     migrate,
+    dueUnderLock,
+    permanent,
 ) where
 
 import Control.Exception (catch, throwIO)
 import Data.Foldable (for_)
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Database.SQLite.Simple (
@@ -75,23 +78,45 @@ check path conn = catch (verdict <$> header) notADatabase
             [Only (v :: Int64)] -> pure v
             _ -> throwIO (userError (show q <> " returned no single row"))
 
-{- | Brings the schema to 'latest' from this many applied, read again under
-the write lock first: another process may have migrated, or made the file
-another application's, meanwhile.
+{- | Brings the schema to 'latest' from the migrations the file applied, or
+refuses it as 'check' does.
 -}
-migrate :: FilePath -> Connection -> Int -> IO (Either OpenRefusal ())
-migrate path conn = \case
-    applied | applied == latest -> pure (Right ())
-    _ -> withImmediateTransaction conn $ do
-        check path conn
-            >>= traverse (\applied -> for_ (drop applied (zip [1 :: Int ..] migrations)) apply)
+migrate :: FilePath -> Connection -> IO (Either OpenRefusal ())
+migrate path conn = fromMaybe (Right ()) <$> dueUnderLock conn (due <$> check path conn)
   where
+    due = \case
+        Left refusal -> Just (pure (Left refusal))
+        Right applied
+            | applied == latest -> Nothing
+            | otherwise ->
+                Just (Right () <$ for_ (drop applied (zip [1 :: Int ..] migrations)) apply)
     apply (n, script) = do
         exec (Simple.connectionHandle conn) script
         -- A pragma takes no bound parameter; n is a number this module made.
         exec
             (Simple.connectionHandle conn)
             ("PRAGMA user_version = " <> Text.pack (show n))
+
+{- | What a read finds due, done under the write lock (@BEGIN IMMEDIATE@)
+after the same read again there: another process may have done it, or
+changed the file, meanwhile. So two processes opening at once do it once.
+-}
+dueUnderLock :: Connection -> IO (Maybe (IO a)) -> IO (Maybe a)
+dueUnderLock conn due =
+    due >>= \case
+        Nothing -> pure Nothing
+        Just _ -> withImmediateTransaction conn (due >>= sequence)
+
+{- | The tables the migrations make, by name: the store's facts. Every other
+table and view is a projection, made and dropped by
+"Effects.Store.Projection".
+-}
+permanent :: [Text]
+permanent =
+    [ Text.takeWhile (/= ' ') table
+    | line <- concatMap Text.lines migrations
+    , Just table <- [Text.stripPrefix "CREATE TABLE " line]
+    ]
 
 {- | The migrations, oldest first, each one script; never edit one that
 shipped.

@@ -39,6 +39,9 @@ library
     Data.Payload.Blob
     Data.Payload.Event
     Data.Payload.Upcast
+    Data.Projection
+    Data.Projection.Registry
+    Data.Projection.Runs
     Effects.Clock
     Effects.Console
     Effects.Environment
@@ -48,8 +51,10 @@ library
     Effects.Log
     Effects.Random
     Effects.Store.Connection
+    Effects.Store.EventRows
     Effects.Store.Events
     Effects.Store.Migration
+    Effects.Store.Projection
     State.Artifact
     State.Category.Effect
     State.Category.Flow
@@ -167,6 +172,8 @@ test-suite state-test
     Effects.LogSpec
     Effects.RandomSpec
     Effects.Store.MigrationSpec
+    Effects.Store.Projected
+    Effects.Store.ProjectionSpec
     SpecHook
     State.ArchitectureSpec
     State.ArtifactSpec

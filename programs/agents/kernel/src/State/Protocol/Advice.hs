@@ -27,7 +27,6 @@ module State.Protocol.Advice (
     ownAsk,
     factLines,
     childBudget,
-    recordedPr,
 ) where
 
 import Control.Applicative ((<|>))
@@ -205,6 +204,7 @@ import State.Run.Fold (
     nodeName,
     onRound,
     planSettled,
+    recordedPr,
     settledSkips,
     shape,
     stuck,
@@ -1028,10 +1028,6 @@ outputUrl out facts state = case out of
 -- | The PR's url as GitHub reports it, else the PR the run recorded.
 prUrl :: Facts -> RunState -> Maybe Url
 prUrl facts state = (.draft.url) <$> facts.pr <|> recordedPr state
-
--- | The PR the run recorded last: the one it published, else its draft.
-recordedPr :: RunState -> Maybe Url
-recordedPr state = state.published <|> (.url) <$> state.drafted
 
 -- | The record of each of a step's outcomes, exit first, and where it goes.
 recordOutcomes ::
