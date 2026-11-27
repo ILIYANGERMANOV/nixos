@@ -1,6 +1,7 @@
-{- | The store's schema as SQLite holds it: Appendix A's text, each named
-CHECK refusing its bad row, each append-only trigger aborting every way to
-change a row, and an open that refuses a file not this kernel's.
+{- | The store's schema as SQLite holds it: each named CHECK refusing its
+bad row, each append-only trigger aborting every way to change a row, and
+an open that refuses a file not this kernel's. The schema's text is the
+@schema-open.sql@ golden of "Effects.Store.ProjectionSpec".
 -}
 module Effects.Store.MigrationSpec (spec) where
 
@@ -27,8 +28,6 @@ import Effects.Store.Connection (
     Store (..),
     withStore,
  )
-import Effects.Store.Migration (permanent)
-import State.Golden (golden)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec (
@@ -36,25 +35,12 @@ import Test.Hspec (
     describe,
     expectationFailure,
     it,
-    runIO,
     shouldReturn,
     shouldSatisfy,
  )
 
 spec :: Spec
 spec = describe "Effects.Store.Migration" $ do
-    schema <-
-        runIO . withSystemTempDirectory "state-store" $ \dir ->
-            onStore dir $ \conn ->
-                query_
-                    conn
-                    "SELECT tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY rowid"
-    -- The projections' tables are "Effects.Store.ProjectionSpec"'s.
-    it "creates the schema Appendix A states, as SQLite keeps it" $
-        golden
-            "schema-v2.sql"
-            (Text.unlines [sql <> ";" | (table, sql) <- schema, table `elem` permanent])
-
     it "marks a new store with the application id and the schema version" $
         withSystemTempDirectory "state-store" $ \dir ->
             onStore
