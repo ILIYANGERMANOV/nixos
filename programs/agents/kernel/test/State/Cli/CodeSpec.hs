@@ -9,6 +9,7 @@ import Data.Text qualified as Text
 import State.Category.Graph (Node (..), OpenGraph (..))
 import State.Category.Step (EventName (..), OutcomeName (..))
 import State.Cli.Command (CommandRefusal (..), refusalCode)
+import State.Cli.Query (SqlRefusal (..))
 import State.Golden (golden)
 import State.Role (Rung (..))
 import State.Run.Ask (Above (..), Kind (..), QId (..), Reply (..))
@@ -72,6 +73,9 @@ samples =
         <> [ FileUnreadable (absolutePath "/work/gone.md")
            , UnknownEvent (EventRef run 9)
            , OutsideRunTree (EventRef run 10) (runId "a1b2")
+           , SqlRefused SqlNotReadOnly
+           , SqlRefused SqlNotOneStatement
+           , SqlRefused (SqlError "no such table: nope")
            ]
   where
     folds =

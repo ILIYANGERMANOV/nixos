@@ -63,6 +63,7 @@ import Test.Hspec (
     runIO,
     shouldBe,
     shouldContain,
+    shouldReturn,
     shouldSatisfy,
  )
 
@@ -1098,6 +1099,129 @@ spec = describe "the state binary" $ do
                 exited <- succeeded =<< state bin repo ["record", "pick.final"]
                 recorded exited `shouldBe` ["pick.final -> describe"]
 
+        describe "the read side: state report and state sql" $ do
+            it "prints each report of a scripted run, a fixed header first" $ \repo -> do
+                transcript <- drive bin repo balancedPath
+                transcript `shouldBe` balancedTranscript
+                _ <- succeeded =<< state bin repo ["record", "gap", "the plan step was slow"]
+                heads <-
+                    traverse
+                        (\name -> take 1 <$> (succeeded =<< state bin repo ["report", name]))
+                        ["runs", "steps", "signals", "gaps", "waits"]
+                heads
+                    `shouldBe` map
+                        (pure . Text.intercalate "\t")
+                        [
+                            [ "run_id"
+                            , "parent_run_id"
+                            , "flow"
+                            , "status"
+                            , "created_at"
+                            , "last_event_at"
+                            , "session_count"
+                            , "event_count"
+                            , "span_count"
+                            , "input_tokens"
+                            , "output_tokens"
+                            , "open_gap_count"
+                            , "signal_count"
+                            ]
+                        ,
+                            [ "run_id"
+                            , "step_visit_id"
+                            , "step"
+                            , "entered_at"
+                            , "left_at"
+                            , "duration_seconds"
+                            , "agent_seconds"
+                            ]
+                        , ["run_id", "seq", "time", "session_id", "signal", "code", "detail"]
+                        ,
+                            [ "gap"
+                            , "kind"
+                            , "severity"
+                            , "area"
+                            , "status"
+                            , "fix_pr_url"
+                            , "wont_fix_reason"
+                            , "reporter_role"
+                            , "text"
+                            ]
+                        ,
+                            [ "run_id"
+                            , "step"
+                            , "visit_count"
+                            , "duration_seconds"
+                            , "agent_seconds"
+                            , "rest_seconds"
+                            ]
+                        ]
+                gaps <-
+                    succeeded
+                        =<< state bin repo ["report", "gaps", "--since", "2000-01-01T00:00:00+01:00"]
+                map (take 5 . reverse . Text.splitOn "\t") (drop 1 gaps)
+                    `shouldBe` [["the plan step was slow", "engineer", "\\N", "\\N", "open"]]
+                runs <-
+                    succeeded
+                        =<< state bin repo ["report", "runs", "--since", "2999-01-01T00:00:00Z"]
+                length runs `shouldBe` 1
+
+            it "prints a SELECT as TSV, the schema with its comments" $ \repo -> do
+                _ <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+                ( succeeded
+                        =<< state bin repo ["sql", "SELECT 'a' || char(9) || 'b' AS x, NULL AS y"]
+                    )
+                    `shouldReturn` ["x\ty", "a\\tb\t\\N"]
+                schema <-
+                    succeeded
+                        =<< state bin repo ["sql", "SELECT sql FROM sqlite_schema WHERE name = 'runs'"]
+                schema `shouldSatisfy` any ("-- One row per run." `Text.isInfixOf`)
+
+            it "refuses every write, and an ATTACH read-write leaves the log as it was" $ \repo -> do
+                _ <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+                let events =
+                        SQLite.withConnection (storeOf repo) $ \c ->
+                            SQLite.query_ c "SELECT * FROM events ORDER BY run_id, seq" ::
+                                IO [[SQLite.SQLData]]
+                before <- events
+                refused <-
+                    traverse
+                        (\sql -> state bin repo ["sql", sql])
+                        [ "INSERT INTO runs (id) VALUES ('x')"
+                        , "UPDATE events SET data = '{}'"
+                        , "DELETE FROM events"
+                        , "ATTACH 'file:" <> storeOf repo <> "?mode=rw' AS w; DELETE FROM w.events"
+                        , "PRAGMA query_only = 0"
+                        , "VACUUM INTO '" <> repo.root <> "/copy.db'"
+                        ]
+                map (\ran -> (ran.code, take 1 ran.err)) refused
+                    `shouldBe` replicate
+                        6
+                        ( 2
+                        ,
+                            [ "state sql: sql_not_read_only - state sql runs a SELECT only: no write, ATTACH, PRAGMA or WITH RECURSIVE"
+                            ]
+                        )
+                events `shouldReturn` before
+
+            it
+                "shows a stopgap set in state sql, drops its row once unset, and keeps both lines"
+                $ \repo -> do
+                    _ <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+                    run <- runOf bin repo
+                    let stopgaps =
+                            succeeded =<< state bin repo ["sql", "select key, value, reason from stopgaps"]
+                    _ <-
+                        succeeded
+                            =<< state bin repo ["record", "stopgap", "a.b", "\"x\"", "--reason", "r"]
+                    stopgaps `shouldReturn` ["key\tvalue\treason", "a.b\t\"x\"\tr"]
+                    _ <-
+                        succeeded
+                            =<< state bin repo ["record", "stopgap", "a.b", "--unset", "--reason", "done"]
+                    stopgaps `shouldReturn` ["key\tvalue\treason"]
+                    lines' <- dumpOf bin repo run
+                    length (filter ("stopgap_" `Text.isInfixOf`) lines') `shouldBe` 2
+
         describe "audit" $ do
             it "puts every ruling of a child run in show and in its hand-back" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
@@ -1988,11 +2112,13 @@ spec = describe "the state binary" $ do
                         writeFile (repo.work </> "plan $1.md") text
                         succeeded =<< state bin repo ["artifact", "plan $1.md", "--kind", "plan"]
                     loads <- mapMaybe sqlLoaded <$> (succeeded =<< state bin repo ["resume"])
+                    -- Each through state sql itself: its rows, under its header.
                     counts <-
-                        SQLite.withConnection (storeOf repo) $ \c ->
-                            traverse
-                                (\sql -> length <$> (SQLite.query_ c (SQLite.Query sql) :: IO [[SQLite.SQLData]]))
-                                loads
+                        traverse
+                            ( \sql ->
+                                subtract 1 . length <$> (succeeded =<< state bin repo ["sql", Text.unpack sql])
+                            )
+                            loads
                     (length loads, counts) `shouldBe` (3, [1, 2, 1])
 
                 it

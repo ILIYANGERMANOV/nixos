@@ -48,6 +48,8 @@ library
     Data.Projection.Spans
     Data.Projection.Tasks
     Data.Projection.Views
+    Data.Report
+    Data.Tsv
     Effects.Clock
     Effects.Console
     Effects.Environment
@@ -61,6 +63,8 @@ library
     Effects.Store.Events
     Effects.Store.Migration
     Effects.Store.Projection
+    Effects.Store.Report
+    Effects.Store.Sql
     State.Artifact
     State.Category.Effect
     State.Category.Flow
@@ -71,6 +75,7 @@ library
     State.Category.Step
     State.Category.Ty
     State.Cli.Command
+    State.Cli.Query
     State.Cli.Render
     State.Cli.Render.Mermaid
     State.Cli.Resume
@@ -166,6 +171,8 @@ test-suite state-test
     Data.FieldSpec
     Data.Payload.EventSpec
     Data.Payload.Fixtures
+    Data.ReportSpec
+    Data.TsvSpec
     Doubles.Clock
     Doubles.Console
     Doubles.Environment
@@ -177,9 +184,11 @@ test-suite state-test
     Effects.FileSystemSpec
     Effects.LogSpec
     Effects.RandomSpec
+    Effects.Store.Fixtures
     Effects.Store.MigrationSpec
     Effects.Store.Projected
     Effects.Store.ProjectionSpec
+    Effects.Store.ReadSpec
     SpecHook
     State.ArchitectureSpec
     State.ArtifactSpec
@@ -191,6 +200,7 @@ test-suite state-test
     State.Category.PathSpec
     State.Cli.CodeSpec
     State.Cli.CommandSpec
+    State.Cli.QuerySpec
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec
     State.Cli.ResumeSpec

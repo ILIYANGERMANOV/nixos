@@ -19,6 +19,8 @@ module Effects.Log (
     Unread (..),
     children,
     inNotes,
+    report,
+    sql,
     runLogIO,
     Upcasts,
     shipped,
@@ -30,7 +32,7 @@ module Effects.Log (
 ) where
 
 import Control.Exception (throwIO)
-import Data.Bifunctor (first)
+import Data.Bifunctor (bimap, first)
 import Data.Entity.Blob (BlobRow)
 import Data.Entity.Event (EventRow (..))
 import Data.Field qualified as Field
@@ -50,11 +52,13 @@ import Data.Payload.Event (
  )
 import Data.Payload.Upcast (Upcasts, shipped)
 import Data.Projection (Projections (..))
+import Data.Projection.Gaps qualified as Gaps
 import Data.Projection.Registry qualified as Registry
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Tsv (tsv)
 import Effectful (
     Dispatch (Dynamic),
     DispatchOf,
@@ -67,11 +71,14 @@ import Effectful (
 import Effectful.Dispatch.Dynamic (interpret, send)
 import Effectful.Error.Static (Error, throwError)
 import Effects.Environment (Environment, lookupEnv)
-import Effects.Store.Connection (Durability, OpenRefusal, Store, withStore)
+import Effects.Store.Connection (Durability, OpenRefusal, Store (..), withStore)
 import Effects.Store.Events (Batch (..), Write (..))
 import Effects.Store.Events qualified as Store
+import Effects.Store.Report qualified as Report
+import Effects.Store.Sql qualified as Sql
 import Numeric.Natural (Natural)
 import State.Artifact (Blob, Sha256, digestText)
+import State.Cli.Query (Report (..), SqlRefusal (..), Window (..))
 import State.Protocol.Binding (runStore)
 import State.Run.Event (Envelope, EventId (..), RunId, parseRunId, runIdText)
 
@@ -88,6 +95,12 @@ data Log :: Effect where
     ReadBlob :: Sha256 -> Log m (Maybe Blob)
     Children :: RunId -> Log m [RunId]
     InNotes :: FilePath -> Log m [RunId]
+    {- | A fixed report over every run, as TSV. Only the real store answers
+    it, as SQLite computes it (#552 s9): the in-memory double has no SQL.
+    -}
+    Report :: Report -> Window -> Log m Text
+    -- | One read-only SELECT's rows as TSV, or why it does not run. Only the real store answers it.
+    Sql :: Text -> Log m (Either SqlRefusal Text)
 
 type instance DispatchOf Log = Dynamic
 
@@ -165,6 +178,14 @@ children = send . Children
 inNotes :: (Log :> es) => FilePath -> Eff es [RunId]
 inNotes = send . InNotes
 
+-- | A fixed report's rows in this window, as TSV with a header.
+report :: (Log :> es) => Report -> Window -> Eff es Text
+report kind = send . Report kind
+
+-- | One read-only SELECT's rows as TSV with a header, or why it does not run.
+sql :: (Log :> es) => Text -> Eff es (Either SqlRefusal Text)
+sql = send . Sql
+
 {- | The log in the run store the environment names ('runStore'), opened for
 each operation at this durability, its rows read through these upcasts. A
 file that is not this kernel's store is an 'OpenRefusal'. A store error, such
@@ -183,11 +204,11 @@ runLogIO upcasts durability = interpret $ \_ op -> do
                     (userError "no run store: neither XDG_STATE_HOME nor HOME is an absolute path")
                 )
         Just db ->
-            liftIO (withStore durability db (projected upcasts) (onStore upcasts op))
+            liftIO (withStore durability db (projected upcasts) (onStore upcasts db op))
                 >>= either throwError pure
 
-onStore :: Upcasts -> Log m a -> Store -> IO a
-onStore upcasts op store = case op of
+onStore :: Upcasts -> FilePath -> Log m a -> Store -> IO a
+onStore upcasts path op store = case op of
     Exists run -> Store.exists store (runIdText run)
     FirstEvent run -> firstOf upcasts <$> Store.rows store (runIdText run)
     Rows run -> map dumpLine <$> Store.rows store (runIdText run)
@@ -198,6 +219,26 @@ onStore upcasts op store = case op of
             >>= either (throwIO . userError) pure . blobRead key
     Children run -> Store.children store (runIdText run) >>= runIds
     InNotes notes -> Store.inNotes store (Text.pack notes) >>= runIds
+    -- Read on a second, read-only connection once the open made the projections current.
+    Report kind window ->
+        Sql.readOnly path $ \ro -> tsv <$> reportOf kind ro (filterOf window)
+    Sql text -> Sql.readOnly path $ \ro -> bimap refusal tsv <$> Sql.select ro text []
+  where
+    reportOf = \case
+        RunsReport -> Report.runs Gaps.openStatuses
+        StepsReport -> Report.steps
+        SignalsReport -> Report.signals
+        GapsReport -> Report.gaps
+        WaitsReport -> Report.waits store.connection
+    filterOf window =
+        Report.Filter
+            { since = Field.encode Field.time <$> window.since
+            , run = runIdText <$> window.run
+            }
+    refusal = \case
+        Sql.NotReadOnly -> SqlNotReadOnly
+        Sql.NotOneStatement -> SqlNotOneStatement
+        Sql.Failed why -> SqlError why
 
 {- | The projections the store keeps, a run's rows in them folded from its
 rows read through these upcasts: none for a run with a row it cannot read

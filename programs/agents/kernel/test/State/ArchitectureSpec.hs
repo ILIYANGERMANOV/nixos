@@ -219,6 +219,8 @@ kernelData =
     , "Data.Projection.Spans"
     , "Data.Projection.Tasks"
     , "Data.Projection.Views"
+    , "Data.Report"
+    , "Data.Tsv"
     ]
 
 -- | The store: the only modules that speak SQL.

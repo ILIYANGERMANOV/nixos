@@ -9,6 +9,7 @@ module Data.Projection.Gaps (
     GapRow (..),
     gapInsert,
     evidenceInserts,
+    openStatuses,
 ) where
 
 import Data.List.NonEmpty (NonEmpty (..))
@@ -35,11 +36,14 @@ import State.Run.Gap (
     Evidence (..),
     Gap (..),
     GapStatus (..),
+    StatusCase (..),
     Tracked (..),
     gapAreaText,
     gapKindText,
     gapTextText,
+    openCase,
     severityText,
+    statusCase,
  )
 import State.Run.Id (EventRef (..))
 
@@ -63,16 +67,19 @@ rows trace =
 data GapRow = GapRow {runId :: RunId, id :: Natural, tracked :: Tracked}
     deriving stock (Eq, Show)
 
--- | A gap's status as its row spells it: 'GapStatus' with its PR and reason dropped.
-data GapStatusName = OpenName | FixProposedName | FixedName | WontFixName
-    deriving stock (Eq, Show, Enum, Bounded)
-
-gapStatusName :: GapStatusName -> Text
+-- | A gap's status as its row spells it.
+gapStatusName :: StatusCase -> Text
 gapStatusName = \case
-    OpenName -> "open"
-    FixProposedName -> "fix_proposed"
-    FixedName -> "fixed"
-    WontFixName -> "wont_fix"
+    OpenCase -> "open"
+    FixProposedCase -> "fix_proposed"
+    FixedCase -> "fixed"
+    WontFixCase -> "wont_fix"
+
+{- | The spellings of the statuses 'openCase' holds open: the runs report
+counts a run's open gaps by them, so open has one definition.
+-}
+openStatuses :: [Text]
+openStatuses = [gapStatusName c | c <- [minBound .. maxBound], openCase c]
 
 data EvidenceKind = EventEvidence | UrlEvidence
     deriving stock (Eq, Show, Enum, Bounded)
@@ -93,18 +100,18 @@ gapInsert row =
                , ("area", SqlText (gapAreaText gap.area))
                , ("text", SqlText (gapTextText gap.text))
                , ("reporter_role", SqlText (roleText gap.reporter))
-               , ("status", SqlText (gapStatusName status))
+               , ("status", SqlText (gapStatusName (statusCase row.tracked.status)))
                , ("fix_pr_url", nullable (SqlText . uriText) pr)
                , ("wont_fix_reason", nullable (SqlText . oneLineText) why)
                ]
         )
   where
     gap = row.tracked.gap
-    (status, pr, why) = case row.tracked.status of
-        Open -> (OpenName, Nothing, Nothing)
-        FixProposed url -> (FixProposedName, Just url, Nothing)
-        Closed (Fixed url) -> (FixedName, Just url, Nothing)
-        Closed (WontFix reason) -> (WontFixName, Nothing, Just reason)
+    (pr, why) = case row.tracked.status of
+        Open -> (Nothing, Nothing)
+        FixProposed url -> (Just url, Nothing)
+        Closed (Fixed url) -> (Just url, Nothing)
+        Closed (WontFix reason) -> (Nothing, Just reason)
 
 -- | Each piece of a gap's evidence, in the order given, from 1.
 evidenceInserts :: GapRow -> [Insert]

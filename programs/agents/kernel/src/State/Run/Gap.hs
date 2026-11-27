@@ -31,6 +31,9 @@ module State.Run.Gap (
     transition,
     Tracked (..),
     isOpen,
+    StatusCase (..),
+    statusCase,
+    openCase,
 ) where
 
 import Data.Char (isSpace)
@@ -230,7 +233,25 @@ data Tracked = Tracked {gap :: Gap, status :: GapStatus}
 
 -- | Open, or a fix proposed and not yet merged: still a gap.
 isOpen :: GapStatus -> Bool
-isOpen = \case
-    Open -> True
-    FixProposed _ -> True
-    Closed _ -> False
+isOpen = openCase . statusCase
+
+-- | A status by its case alone, its PR and reason dropped, as a gap's row spells it.
+data StatusCase = OpenCase | FixProposedCase | FixedCase | WontFixCase
+    deriving stock (Eq, Show, Enum, Bounded)
+
+statusCase :: GapStatus -> StatusCase
+statusCase = \case
+    Open -> OpenCase
+    FixProposed _ -> FixProposedCase
+    Closed (Fixed _) -> FixedCase
+    Closed (WontFix _) -> WontFixCase
+
+{- | Whether gaps of this case are open: the one open-gap rule, which
+'isOpen', resume's open gaps and the runs report's count share.
+-}
+openCase :: StatusCase -> Bool
+openCase = \case
+    OpenCase -> True
+    FixProposedCase -> True
+    FixedCase -> False
+    WontFixCase -> False

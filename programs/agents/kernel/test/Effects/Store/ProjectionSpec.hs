@@ -13,8 +13,6 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
-import Data.Payload.Event (eventRow, runRow)
-import Data.Payload.Upcast (shipped)
 import Data.Projection (
     Insert (..),
     Projection (..),
@@ -83,29 +81,31 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), fromGregorian)
 import Database.SQLite.Simple (
-    Connection,
     Only (..),
     SQLError (..),
     execute_,
     query_,
  )
 import Database.SQLite.Simple qualified as SQLite
-import Effects.Log (projected)
-import Effects.Store.Connection (Durability (Unsynced), Store (..), withStore)
-import Effects.Store.Events (Batch (..), Write (..))
-import Effects.Store.Events qualified as Store
+import Effects.Store.Connection (Store (..))
+import Effects.Store.Fixtures (
+    appended,
+    appendedAll,
+    asking,
+    contextRun,
+    fileRef,
+    opened,
+    raw,
+    shippedProjections,
+    stopgapPool,
+ )
 import Effects.Store.Projected (Row, inserted, projectionRows)
 import Effects.Store.Projection (insert)
-import Hedgehog (Gen, assert, cover, evalIO, forAll, (===))
-import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
+import Hedgehog (assert, cover, evalIO, forAll, (===))
 import Numeric.Natural (Natural)
 import State.Artifact (
     Artifact (File),
     FileArtifact (..),
-    FileRef (..),
-    Size (..),
-    sha256Of,
  )
 import State.Artifact qualified as Artifact
 import State.Category.Fuel (Fuel (Balanced))
@@ -141,26 +141,16 @@ import State.Run.Event (
     Event (
         ActedOn,
         Answered,
-        ArtifactLogged,
         Asked,
         EpicMoved,
         Forwarded,
-        GapMoved,
-        Gapped,
         HandedBack,
-        HandedOver,
         Held,
-        Noted,
         Overridden,
         QuestionParked,
         RuledOn,
-        SessionStarted,
-        SpanEnded,
-        SpanStarted,
         Spawned,
         Started,
-        StopgapSet,
-        StopgapUnset,
         TaskMoved,
         UserNeeded
     ),
@@ -171,8 +161,6 @@ import State.Run.Event (
     Repo (..),
     RunId,
     Said (Ended),
-    Session (..),
-    SessionId (..),
     Source (..),
     SpanEnding (..),
     SpanStart (..),
@@ -192,21 +180,9 @@ import State.Run.Event (
 import State.Run.Event qualified as Event
 import State.Run.Event qualified as Started (Start (..))
 import State.Run.EventGen (
-    absolutePath,
     bareGap,
     epicNamed,
     fuelSet,
-    genArtifact,
-    genGap,
-    genGapMove,
-    genIJson,
-    genNonBlank,
-    genOneLine,
-    genProposal,
-    genReply,
-    genSpanEnding,
-    genText,
-    genUsage,
     ijson,
     line,
     lineOf,
@@ -221,11 +197,8 @@ import State.Run.EventGen (
     uri,
  )
 import State.Run.Fold (
-    Origin (..),
-    Pending (..),
     RunState (..),
     Waits (..),
-    Worker (..),
  )
 import State.Run.Fold qualified as Fold
 import State.Run.Gap (Evidence (..), Gap (..), Tracked (..))
@@ -234,7 +207,6 @@ import State.Run.Id (Digest (..), EventId (..), EventRef (..), SpanId (..))
 import State.Run.RunGen (g, genAccepted, happyPath, plainTask, sha)
 import State.Run.Stopgap (Stopgap (..), StopgapAt (..))
 import State.Step.Fan (Outcome (BreakdownDone), engineers)
-import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec (
     Spec,
@@ -626,101 +598,6 @@ spec = describe "Effects.Store.Projection" $ do
                     projectionRows store.connection
             stored === inserted rows
 
-{- | The log of these events with questions and context put between them.
-A question asked, retagged, ruled on, forwarded, answered or parked; a
-note, an artifact (from an earlier one, by an earlier span), a hand-over, a
-span started or ended, a gap logged or moved, a stopgap set or unset: each
-where the fold takes it, and at times a stop at its end. An event the fold
-refuses after one put between ends the log there.
--}
-asking :: [Event] -> Gen (NonEmpty Envelope)
-asking events = do
-    let first = line 1 started
-    (rest, ended) <- go (replayed (first :| [])) [first] 2 events
-    stop <- Gen.element [[], [Event.Stopped (Stop Blocked "stuck")]]
-    pure (first :| rest <> [line (ended + 1) event | ended > 1, event <- stop])
-  where
-    replayed = either (error . show) id . Fold.replay g
-    -- @before@: the lines so far, newest first.
-    go state before n pending' = do
-        between <-
-            Gen.frequency
-                [ (2, pure Nothing)
-                , (1, Just <$> questionOn state n)
-                , (1, Just <$> contextOn state before)
-                ]
-        case (between, pending') of
-            (Just event, _)
-                | Right (Fold.Appended next) <- Fold.append g state (line n event) ->
-                    first' (line n event :) <$> go next (line n event : before) (n + 1) pending'
-            (_, event : rest) -> case Fold.append g state (line n event) of
-                Right (Fold.Appended next) ->
-                    first' (line n event :) <$> go next (line n event : before) (n + 1) rest
-                Right Fold.AlreadyLogged -> pure ([], n - 1)
-                Left _ -> pure ([], n - 1)
-            (_, []) -> pure ([], n - 1)
-    first' f (xs, n) = (f xs, n)
-    questionOn state n =
-        Gen.choice
-            ( ( ( \kind text from ->
-                    Asked (Asking (Question (QId run n) kind text) (Fold.nodeName state.at) from)
-                )
-                    <$> Gen.enumBounded
-                    <*> genOneLine
-                    <*> Gen.element [Itself, Subagent (AgentRole "researcher")]
-              )
-                : [ Gen.choice
-                        [ pure (Event.RetaggedSecurity qid)
-                        , RuledOn qid <$> genProposal
-                        , pure (Forwarded qid TheUser)
-                        , (\reply -> Answered qid reply TheUser) <$> genReply
-                        , QuestionParked qid <$> genOneLine
-                        ]
-                  | open <- take 1 (reverse state.pending)
-                  , let qid = open.asking.question.qid
-                  ]
-            )
-    contextOn state before =
-        Gen.choice
-            ( [ Noted <$> genText <*> genText
-              , ArtifactLogged
-                    <$> genArtifact
-                    <*> Gen.maybe (Gen.element (dangling : artifacts))
-                    <*> Gen.maybe (SpanId <$> Gen.element (dangling : spans'))
-              , HandedOver
-                    <$> ( Handover
-                            <$> Gen.enumBounded
-                            <*> genText
-                            <*> Gen.nonEmpty (Range.linear 1 3) genText
-                        )
-              , SpanStarted
-                    <$> ( SpanStart (AgentRole "researcher") (Harness "claude-code")
-                            <$> genText
-                            <*> Gen.maybe (SpanId <$> Gen.element (dangling : spans'))
-                            <*> Gen.maybe genText
-                        )
-              , Gapped <$> genGap
-              , StopgapSet
-                    <$> Gen.element stopgapPool
-                    <*> genIJson
-                    <*> genNonBlank
-              ]
-                <> [ SpanEnded (SpanId open) <$> genSpanEnding <*> genUsage
-                   | open <- take 1 [w.spawnedAt | w <- state.workers, SpanLine <- [w.origin]]
-                   ]
-                <> [ GapMoved gap <$> genGapMove
-                   | (gap, _) <- take 1 (reverse state.gaps)
-                   ]
-                <> [ StopgapUnset place <$> genNonBlank
-                   | place <- take 1 (Map.keys state.stopgaps)
-                   ]
-            )
-      where
-        -- No line of a generated log has this seq: a reference the trace does not hold.
-        dangling = 100000
-        artifacts = [e.seq | e <- before, ArtifactLogged {} <- [e.event]]
-        spans' = [e.seq | e <- before, SpanStarted _ <- [e.event]]
-
 -- | Whether a row the log makes sets this column.
 anyColumn :: Text -> NonEmpty Envelope -> Bool
 anyColumn column logged =
@@ -731,14 +608,6 @@ anyColumn column logged =
         , c == column
         ]
 
--- | Where the generated stopgaps live: few, so a set often replaces one.
-stopgapPool :: [StopgapAt]
-stopgapPool =
-    [ StopgapAt Nothing (stopgapKey "deploy.window")
-    , StopgapAt (Just (TaskRef (TaskId "t1") 1)) (stopgapKey "deploy.window")
-    , StopgapAt Nothing (stopgapKey "a.b")
-    ]
-
 -- | A question of the log's is pending when its stop ends it.
 stopEnded :: NonEmpty Envelope -> Bool
 stopEnded logged = case (NonEmpty.last logged).event of
@@ -746,9 +615,6 @@ stopEnded logged = case (NonEmpty.last logged).event of
     _ -> False
   where
     lastTwo = either (const []) (take 1 . drop 1 . reverse . toList) . Fold.trace g
-
-shippedProjections :: Projections
-shippedProjections = projected shipped
 
 -- | The shipped projections, every one at this version.
 at :: Natural -> Projections
@@ -758,15 +624,6 @@ at version =
         , views = shippedProjections.views
         , refold = shippedProjections.refold
         }
-
--- | A store under this directory, open with these projections for one action.
-opened :: FilePath -> Projections -> (Store -> IO a) -> IO a
-opened dir ps act =
-    withStore Unsynced (dir </> "kernel-v2.db") ps act >>= either (fail . show) pure
-
--- | A connection to the store's file past the kernel, as an admin opens one.
-raw :: FilePath -> (Connection -> IO a) -> IO a
-raw dir = SQLite.withConnection (dir </> "kernel-v2.db")
 
 inStore :: (FilePath -> IO a) -> IO a
 inStore act = withSystemTempDirectory "state-store" $ \dir ->
@@ -795,27 +652,6 @@ engineerRun = numbered (started :| fuelSet Balanced : happyPath)
 -- | The lines of these events, from seq 1 as the store numbers them.
 numbered :: NonEmpty Event -> NonEmpty Envelope
 numbered = NonEmpty.zipWith line (1 :| [2 ..])
-
--- | One line appended, as the kernel's write appends it.
-appended :: Store -> Envelope -> IO ()
-appended store e =
-    Store.locked
-        store
-        (runIdText e.run)
-        (const (Just (Batch (writeOf (e :| [])) []), ()))
-
--- | Every line appended in one write.
-appendedAll :: Store -> NonEmpty Envelope -> IO ()
-appendedAll store logged@(first :| _) =
-    Store.locked
-        store
-        (runIdText first.run)
-        (const (Just (Batch (writeOf logged) []), ()))
-
-writeOf :: NonEmpty Envelope -> Write
-writeOf logged@(first :| _) = case runRow first of
-    Just started' -> Start started' (fmap eventRow logged)
-    Nothing -> Append (fmap eventRow logged)
 
 -- | The statement of a projection table, as the kernel makes it.
 ddlOf :: Text -> Text
@@ -1264,9 +1100,6 @@ artifactRows =
                | kind <- [minBound .. maxBound]
                ]
 
-fileRef :: FileRef
-fileRef = FileRef (absolutePath "/w/plan.md") (sha256Of "plan") (Size 4)
-
 -- | The run's stopgap, and a task's.
 stopgapRows :: [StopgapRow]
 stopgapRows =
@@ -1342,81 +1175,6 @@ tenXRun =
         Asked
             (Asking (Question (q n) kind (oneLine "which way?")) (StateName "engineers") from)
     ruling = Proposal (oneLine "this way") (oneLine "it fits") (oneLine "none")
-
-{- | An engineer run, by the seq of each line: two spans, one under the
-other, each making an artifact, the second from the first; a note, a
-hand-over, a gap moved on, stopgaps set, replaced and unset, a visit left,
-and a stop. Session s1 writes three lines, the hand-over among them.
--}
-contextRun :: NonEmpty Envelope
-contextRun =
-    NonEmpty.zipWith
-        (\n (session, event) -> (line n event) {session})
-        (1 :| [2 ..])
-        ( (Nothing, started)
-            :| [ (Nothing, fuelSet Balanced)
-               , (Nothing, SpanStarted (spanStart Nothing))
-               , (Nothing, SpanStarted (spanStart (Just (SpanId 3))))
-               ,
-                   ( Nothing
-                   , ArtifactLogged
-                        (File (FileArtifact Artifact.Plan fileRef))
-                        Nothing
-                        (Just (SpanId 3))
-                   )
-               ,
-                   ( Nothing
-                   , ArtifactLogged
-                        (Artifact.Url Artifact.Doc (uri "https://example.com/d"))
-                        (Just 5)
-                        (Just (SpanId 4))
-                   )
-               , (Nothing, SpanEnded (SpanId 3) (WithHandback ReadyWord "READY") unreported)
-               , (Nothing, SpanEnded (SpanId 4) NoHandback unreported)
-               , (s1, SessionStarted (Session (Harness "claude-code") Nothing "startup" Nothing))
-               , (s1, Noted "traps" "cold cache")
-               ,
-                   ( Nothing
-                   , StopgapSet
-                        (StopgapAt Nothing (stopgapKey "a.b"))
-                        (ijson "\"x\"")
-                        (titled "older")
-                   )
-               ,
-                   ( Nothing
-                   , StopgapSet
-                        (StopgapAt Nothing (stopgapKey "deploy.window"))
-                        (ijson "1")
-                        (titled "r")
-                   )
-               ,
-                   ( Nothing
-                   , StopgapSet
-                        (StopgapAt Nothing (stopgapKey "a.b"))
-                        (ijson "\"y\"")
-                        (titled "newer")
-                   )
-               ,
-                   ( Nothing
-                   , StopgapUnset (StopgapAt Nothing (stopgapKey "deploy.window")) (titled "done")
-                   )
-               ,
-                   ( s1
-                   , HandedOver (Handover Context "half done" ("state next" :| ["state resume"]))
-                   )
-               , (Nothing, Overridden (StateName "plan") "the research is in")
-               , (Nothing, Event.Stopped (Stop Blocked "out of options"))
-               ]
-        )
-  where
-    s1 = Just (SessionId "s1")
-    spanStart parent =
-        SpanStart
-            (AgentRole "researcher")
-            (Harness "claude-code")
-            "a brief"
-            parent
-            Nothing
 
 -- | The store's text of the time of 'contextRun''s line at this seq.
 at' :: Natural -> Maybe Value

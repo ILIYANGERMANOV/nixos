@@ -30,6 +30,7 @@ module State.Cli.Command (
     refusedNote,
     explainRefusal,
     outsideRunTree,
+    sqlRefused,
     refusalCode,
     explain,
     unknownEvent,
@@ -84,6 +85,13 @@ import State.Category.Step (
     eventText,
     handedBackOutcome,
     stateNameText,
+ )
+import State.Cli.Query (
+    Report (..),
+    SqlRefusal (..),
+    Window (..),
+    parseSince,
+    reportName,
  )
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (
@@ -209,6 +217,10 @@ data Command
       -}
       MoveGap EventRef GapMove
     | OnRun RunCommand
+    | -- | A fixed report over every run, its rows in this window, as TSV.
+      Report Report Window
+    | -- | One read-only SELECT over the run store, its rows as TSV.
+      Sql Text
 
 {- | The packet as it was after the line of this seq (@--until@): a seq
 counts from 1, as the log's first line is its @started@.
@@ -625,8 +637,50 @@ commandInfo steps scope =
                     )
                     (Optparse.progDesc "Move a gap on: a fix proposed, fixed, or won't fix")
                 )
+            , Optparse.command
+                "report"
+                ( Optparse.info
+                    (Optparse.hsubparser (foldMap reportOf [minBound .. maxBound]))
+                    (Optparse.progDesc "Print a fixed report over every run, as TSV")
+                )
+            , -- A statement may open with a comment's dashes.
+              freeText
+                "sql"
+                "Run one read-only SELECT on the run store, as TSV"
+                (Right . Sql <$> textArgument "<select>")
             , sub "help" "Print this help" (pure (Right Help))
             ]
+    reportOf kind =
+        sub (Text.unpack (reportName kind)) (reportAbout kind) $
+            ( \since run ->
+                Report kind <$> (Window <$> traverse sinceOf since <*> traverse runId run)
+            )
+                <$> optional
+                    ( textOption
+                        "since"
+                        "<time>"
+                        "only rows at or after this RFC 3339 time, by each row's own time"
+                    )
+                <*> optional (textOption "run" "<run>" "only this run's rows")
+    reportAbout = \case
+        RunsReport -> "One row per run: its status, counts, tokens, open gaps and signals"
+        StepsReport -> "Each step visit: its length and the agent time in it (v_steps)"
+        SignalsReport ->
+            "Each refusal, stop, override, void, extension and stuck question (v_signals)"
+        GapsReport -> "Each gap: where its fix stands, and who reported it"
+        WaitsReport -> "Per run and step: visits, time, agent time and time with no agent"
+    sinceOf raw =
+        maybe
+            ( Left
+                ( Failure
+                    BadInput
+                    ("--since " <> raw)
+                    "a time is an RFC 3339 date-time, such as 2026-11-27T09:00:00Z"
+                    "state report runs --since 2026-11-27T09:00:00Z"
+                )
+            )
+            Right
+            (parseSince raw)
     byPr move =
         (\raw pr -> MoveGap <$> gapAt raw <*> (move <$> prUri pr))
             <$> textArgument "<run:seq>"
@@ -1075,6 +1129,8 @@ data CommandRefusal
       told, as neither run may take it.
       -}
       OutsideRunTree EventRef RunId
+    | -- | A @state sql@ statement not run. Only told, as no run takes it.
+      SqlRefused SqlRefusal
     deriving stock (Eq, Show)
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
@@ -1101,6 +1157,7 @@ explainRefusal g fuel at = \case
             "no run in the store has such a line"
             "name a line state dump <run> prints"
     OutsideRunTree ref caller -> outsideRunTree ref caller
+    SqlRefused refusal -> sqlRefused refusal
 
 {- | A need's close naming a line outside the caller's run tree, told with
 its code, as no run logs it.
@@ -1112,6 +1169,30 @@ outsideRunTree ref caller =
         ((refusalCode (OutsideRunTree ref caller)).codeText <> " " <> eventRefText ref)
         ("no run of run " <> runIdText caller <> "'s tree has such a line")
         "state resume lists what is owed to the user as <run:seq>"
+
+-- | A @state sql@ statement not run, told with its code.
+sqlRefused :: SqlRefusal -> Failure
+sqlRefused refusal = case refusal of
+    SqlNotReadOnly ->
+        Failure
+            BadInput
+            code
+            "state sql runs a SELECT only: no write, ATTACH, PRAGMA or WITH RECURSIVE"
+            "state sql \"SELECT * FROM v_steps\""
+    SqlNotOneStatement ->
+        Failure
+            BadInput
+            code
+            "state sql runs exactly one statement"
+            "state sql \"<one SELECT>\""
+    SqlError why ->
+        Failure
+            BadInput
+            code
+            why
+            "state sql \"SELECT sql FROM sqlite_schema\" prints every table and view"
+  where
+    code = (refusalCode (SqlRefused refusal)).codeText
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
@@ -1487,6 +1568,10 @@ refusalCode =
         FileUnreadable {} -> "file_unreadable"
         UnknownEvent {} -> "unknown_event"
         OutsideRunTree {} -> "outside_run_tree"
+        SqlRefused inner -> case inner of
+            SqlNotReadOnly -> "sql_not_read_only"
+            SqlNotOneStatement -> "sql_not_one_statement"
+            SqlError {} -> "sql_error"
 
 -- | Where the run is, by its state's name.
 atText :: Node -> Text

@@ -54,3 +54,6 @@ no_open_need
 file_unreadable
 unknown_event
 outside_run_tree
+sql_not_read_only
+sql_not_one_statement
+sql_error

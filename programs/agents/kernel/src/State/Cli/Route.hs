@@ -76,7 +76,7 @@ data Target = Target {top :: FilePath, parent :: Maybe RunId}
     deriving stock (Eq, Show)
 
 {- | The calls of a command run in this directory that read a run, in order.
-@init@, @help@, @render@, @show@, @dump@, @artifact show@, @resume@ and argv @state@
+@init@, @help@, @render@, @show@, @dump@, @artifact show@, @resume@, @report@, @sql@ and argv @state@
 refuses never route.
 -}
 stateCalls :: Steps -> FilePath -> Text -> [StateCall]
@@ -109,6 +109,9 @@ stateCalls steps cwd command =
         -- It names the need's run, whatever directory it runs in, as a gap move does.
         OnRun (Record (NeedDone _ _)) -> False
         OnRun _ -> True
+        -- They read every run and write nothing, whatever directory they run in.
+        Report _ _ -> False
+        Sql _ -> False
 
 {- | Whose run a command may act in. A parent records in its child's run and
 answers its question there, as the child's hand-back prints; every other
@@ -148,6 +151,8 @@ reachOf = \case
     MoveGap _ _ -> OwnRun
     Register {} -> OwnRun
     Resume _ _ -> OwnRun
+    Report _ _ -> OwnRun
+    Sql _ -> OwnRun
 
 {- | Why a subagent's command is denied: a @state init@ in it starts a user's
 run, which may spawn in the background and ask the user, neither of which a

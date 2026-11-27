@@ -119,6 +119,7 @@ import State.Cli.Command (
     refusalCode,
     refusedNote,
     retryOf,
+    sqlRefused,
     tenXInitFix,
     unknownEvent,
  )
@@ -1298,6 +1299,8 @@ execute steps = \case
     OnRun (Record (NeedDone ref note)) -> closeNeed ref note
     Register location from by -> registerArtifact location from by
     Dump run -> dump run
+    Report kind window -> Right <$> Log.report kind window
+    Sql statement -> Bifunctor.first sqlRefused <$> Log.sql statement
     Resume run k -> resumePacket run k
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
