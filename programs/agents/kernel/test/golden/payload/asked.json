@@ -1,0 +1,5 @@
+[
+{"qid":"c1:3","question_kind":"design","question":"v1 or v2?","step":"plan","from":{"kind":"self"}},
+{"qid":"c1:3","question_kind":"fact","question":"which port?","step":"plan","from":{"kind":"subagent","role":"researcher"}},
+{"qid":"c1:3","question_kind":"stuck","question":"what now?","step":"plan","from":{"kind":"child_run","run":"c1"}}
+]

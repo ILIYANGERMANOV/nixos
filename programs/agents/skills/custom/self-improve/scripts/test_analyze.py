@@ -2502,6 +2502,20 @@ class StateEvent:
     schema_version: int = 1
 
 
+SELF: JsonObject = {"kind": "self"}
+USER: JsonObject = {"kind": "user"}
+
+
+def child_run(run: str) -> JsonObject:
+    """The `from` of a question a child run asked up."""
+    return {"kind": "child_run", "run": run}
+
+
+def parent_run(run: str) -> JsonObject:
+    """The `by` of an answer a parent run gave."""
+    return {"kind": "parent_run", "run": run}
+
+
 @dataclass
 class RunLog:
     """A `state` event log, as the kernel writes it: a `started` line first."""
@@ -2509,29 +2523,42 @@ class RunLog:
     run: str
     flow: str = "engineer"
     start: float = 0
-    notes: str = "/work/engineer-me-demo-x/"
+    notes_dir: str = "/work/engineer-me-demo-x/"
     lines: list[StateEvent] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        _ = self.add("started", flow=self.flow, notes=self.notes, principal="user")
+        principal: JsonObject = {"kind": "user", "shape": {"kind": "own_pr"}}
+        _ = self.add(
+            "started",
+            flow=self.flow,
+            notes_dir=self.notes_dir,
+            principal=principal,
+            interface=[],
+        )
 
     def add(self, event: str, /, **data: Json) -> RunLog:
         self.lines.append(StateEvent(event, data))
         return self
 
-    def ask(self, qid: str, kind: str, step: str, asker: Json = "self") -> RunLog:
-        """`asker` is the wire's `from`: "self", `{"role": r}` or a child's `{"run": id}`."""
-        fields: JsonObject = {"qid": qid, "kind": kind, "question": "?", "step": step}
+    def ask(self, qid: str, kind: str, step: str, asker: Json = SELF) -> RunLog:
+        """`asker` is the wire's `from`: `SELF`, a subagent's or a child run's."""
+        fields: JsonObject = {
+            "qid": qid,
+            "question_kind": kind,
+            "question": "?",
+            "step": step,
+        }
         return self.add("asked", **fields, **{"from": asker})
 
     def rule(self, qid: str) -> RunLog:
-        return self.add("ruled", qid=qid, answer="a", why="w", cost="c")
+        basis: JsonObject = {"kind": "none"}
+        return self.add("ruled", qid=qid, answer="a", reason="w", cost="c", basis=basis)
 
-    def answer(self, qid: str, by: Json = "user") -> RunLog:
-        return self.add("answered", qid=qid, answer="a", by=by)
+    def answer(self, qid: str, by: Json = USER) -> RunLog:
+        return self.add("answered", qid=qid, reply="chose", answer="a", by=by)
 
-    def stop(self, reason: str, why: str) -> RunLog:
-        return self.add("stop", reason=reason, why=why)
+    def stop(self, reason: str, detail: str) -> RunLog:
+        return self.add("stop", reason=reason, detail=detail)
 
 
 class TestStateLog:
@@ -2539,9 +2566,9 @@ class TestStateLog:
         self, home: Home
     ) -> None:
         # Given
-        log = RunLog("r1").ask("r1:1", "Design", "interview").rule("r1:1")
-        _ = log.ask("r1:2", "Fact", "interview")
-        _ = log.ask("r1:3", "Confirm", "confirm").answer("r1:3")
+        log = RunLog("r1").ask("r1:1", "design", "interview").rule("r1:1")
+        _ = log.ask("r1:2", "fact", "interview")
+        _ = log.ask("r1:3", "confirm", "confirm").answer("r1:3")
         home.log(log)
         # When
         report = home.report()
@@ -2551,23 +2578,25 @@ class TestStateLog:
             "1",
             "0",
             "1",
-            "Design 1, Fact 1",
+            "design 1, fact 1",
         ]
         assert row(report, "state-log", "engineer confirm")[1:] == [
             "1",
             "0",
             "1",
             "0",
-            "Confirm 1",
+            "confirm 1",
         ]
 
     def test_a_child_question_counts_once_at_its_own_step_ruled_by_the_parent(
         self, home: Home
     ) -> None:
         # Given
-        child = RunLog("c1").ask("c1:1", "Design", "plan").answer("c1:1", {"run": "p1"})
+        child = (
+            RunLog("c1").ask("c1:1", "design", "plan").answer("c1:1", parent_run("p1"))
+        )
         parent = RunLog("p1", flow="10x").ask(
-            "c1:1", "Design", "engineers", {"run": "c1"}
+            "c1:1", "design", "engineers", child_run("c1")
         )
         home.log(child)
         home.log(parent.rule("c1:1"))
@@ -2582,7 +2611,7 @@ class TestStateLog:
     ) -> None:
         # Given
         parent = RunLog("p1", flow="10x").ask(
-            "p1:1", "Design", "engineers", {"run": "c1"}
+            "p1:1", "design", "engineers", child_run("c1")
         )
         home.log(parent)
         # When
@@ -2593,7 +2622,7 @@ class TestStateLog:
             "0",
             "0",
             "1",
-            "Design 1",
+            "design 1",
         ]
 
     def test_stuck_rounds_and_re_plans_are_counted_in_the_headline(
@@ -2601,7 +2630,7 @@ class TestStateLog:
     ) -> None:
         # Given
         log = (
-            RunLog("r1").ask("r1:1", "Stuck", "review").stop("replan", "plan wrong: x")
+            RunLog("r1").ask("r1:1", "stuck", "review").stop("replan", "plan wrong: x")
         )
         home.log(log)
         home.log(RunLog("r2").stop("replan", "plan wrong: y"))
@@ -2620,8 +2649,8 @@ class TestStateLog:
         self, home: Home
     ) -> None:
         # Given
-        log = RunLog("r1").ask("r1:1", "Fact", "interview")
-        _ = log.ask("r1:2", "Fact", "plan")
+        log = RunLog("r1").ask("r1:1", "fact", "interview")
+        _ = log.ask("r1:2", "fact", "plan")
         log.lines[-1].schema_version = analyze.KNOWN_SCHEMA_VERSION + 1
         home.log(log)
         # When
@@ -2637,8 +2666,8 @@ class TestStateLog:
         self, home: Home
     ) -> None:
         # Given
-        home.log(RunLog("r1").ask("r1:1", "Fact", "interview"))
-        newer = RunLog("r2").ask("r2:1", "Fact", "plan")
+        home.log(RunLog("r1").ask("r1:1", "fact", "interview"))
+        newer = RunLog("r2").ask("r2:1", "fact", "plan")
         newer.lines[0].schema_version = analyze.KNOWN_SCHEMA_VERSION + 1
         home.log(newer)
         # When
@@ -2653,10 +2682,10 @@ class TestStateLog:
         self, home: Home
     ) -> None:
         # Given
-        home.log(RunLog("r1", start=0).ask("r1:1", "Fact", "interview"))
-        home.log(RunLog("r2", start=1000).ask("r2:1", "Fact", "plan"))
-        other = RunLog("r3", start=1000, notes="/work/engineer-me-other-x/")
-        home.log(other.ask("r3:1", "Fact", "draft"))
+        home.log(RunLog("r1", start=0).ask("r1:1", "fact", "interview"))
+        home.log(RunLog("r2", start=1000).ask("r2:1", "fact", "plan"))
+        other = RunLog("r3", start=1000, notes_dir="/work/engineer-me-other-x/")
+        home.log(other.ask("r3:1", "fact", "draft"))
         # When
         report = home.report("--since", at(500), "--project", "demo")
         # Then

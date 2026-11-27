@@ -2969,7 +2969,7 @@ def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:
 
 KNOWN_SCHEMA_VERSION = 1  # the newest payload version of every type read here
 REPLAN = "replan"  # the stop reason that ends a run for a new plan
-STUCK = "Stuck"  # the question kind the stuck guard asks
+STUCK = "stuck"  # the question kind the stuck guard asks
 
 
 def default_store() -> Path | None:
@@ -3004,7 +3004,7 @@ class Question:
 @dataclass(frozen=True)
 class RunStop:
     reason: str
-    why: str
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -3071,7 +3071,7 @@ def read_log(rows: list[EventRow]) -> RunLog | None:
             return RunLog(
                 first.run,
                 datetime.fromisoformat(first.time).timestamp(),
-                text_of(started.get("notes")),
+                text_of(started.get("notes_dir")),
                 [
                     question(flow, data)
                     for kind, data in events
@@ -3080,7 +3080,7 @@ def read_log(rows: list[EventRow]) -> RunLog | None:
                 {qid_of(data) for kind, data in events if kind == "ruled"},
                 {qid_of(data) for kind, data in events if kind == "answered"},
                 [
-                    RunStop(text_of(data.get("reason")), text_of(data.get("why")))
+                    RunStop(text_of(data.get("reason")), text_of(data.get("detail")))
                     for kind, data in events
                     if kind == "stop"
                 ],
@@ -3096,7 +3096,7 @@ def payload(row: EventRow) -> dict[str, Json]:
 def question(flow: str, asked: dict[str, Json]) -> Question:
     return Question(
         qid_of(asked),
-        text_of(asked.get("kind")),
+        text_of(asked.get("question_kind")),
         f"{flow} {text_of(asked.get('step'))}",
         text_of(asked.get("question")),
     )
@@ -3147,13 +3147,13 @@ def state_log(logs: StateLogs) -> Section:
         for step, qs in sorted(by_step.items(), key=lambda kv: -len(kv[1]))
     ]
     stuck = [(r, q) for r, q in asked if q.kind == STUCK]
-    stops: dict[str, list[str]] = defaultdict(list)  # reason: whys
+    stops: dict[str, list[str]] = defaultdict(list)  # reason: details
     for r in runs:
         for stop in r.stops:
-            stops[stop.reason].append(stop.why)
+            stops[stop.reason].append(stop.detail)
     stop_rows = [
-        [reason, str(len(whys)), clip(whys[-1], 80)]
-        for reason, whys in sorted(stops.items(), key=lambda kv: -len(kv[1]))
+        [reason, str(len(details)), clip(details[-1], 80)]
+        for reason, details in sorted(stops.items(), key=lambda kv: -len(kv[1]))
     ]
     stuck_rows = [[r.run, q.step, clip(q.text, 80)] for r, q in stuck[-TOP:]]
     fact = (
@@ -3167,7 +3167,7 @@ def state_log(logs: StateLogs) -> Section:
             f"rows newer than this analyzer, skipped: {logs.newer}",
             *table(["step", "asked", "ruled", "answered", "open", "kinds"], step_rows),
             "stops:",
-            *table(["reason", "n", "latest why"], stop_rows),
+            *table(["reason", "n", "latest detail"], stop_rows),
             "stuck rounds, latest:",
             *table(["run", "step", "question"], stuck_rows),
         ],

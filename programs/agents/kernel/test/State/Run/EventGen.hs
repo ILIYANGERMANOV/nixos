@@ -21,6 +21,7 @@ module State.Run.EventGen (
     tasksOf,
     oneLine,
     runId,
+    replacing,
     run,
     start,
     started,
@@ -125,7 +126,18 @@ genEvent =
         , AgentEnded . AgentId <$> genText
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo
-        , Voided <$> Gen.integral (Range.linear 0 100000) <*> genText
+        , Voided <$> genIJsonNatural <*> genText
+        ]
+
+{- | An I-JSON integer (RFC 7493 s2.2), 0 to 2^53-1, its two edges drawn
+often: the log's only payload integer, a voided seq, stays in that range.
+-}
+genIJsonNatural :: Gen Natural
+genIJsonNatural =
+    Gen.frequency
+        [ (1, pure 0)
+        , (1, pure (2 ^ (53 :: Int) - 1))
+        , (8, Gen.integral (Range.linear 0 (2 ^ (53 :: Int) - 1)))
         ]
 
 genPath :: Gen FilePath
@@ -480,6 +492,14 @@ genEventId =
 -- | A line the test spells, which must hold no line break.
 oneLine :: Text -> OneLine
 oneLine raw = fromMaybe (error ("not one line: " <> show raw)) (parseOneLine raw)
+
+{- | Errors when @old@ is absent, so a stale pattern fails its test instead of
+quietly checking the unchanged line.
+-}
+replacing :: Text -> (Text, Text) -> Text
+replacing whole (old, new)
+    | old `Text.isInfixOf` whole = Text.replace old new whole
+    | otherwise = error ("replacing: " <> show old <> " is not in " <> show whole)
 
 -- | A run id the test spells, which must be one the kernel accepts.
 runId :: Text -> RunId
