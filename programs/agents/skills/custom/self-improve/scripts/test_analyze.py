@@ -38,6 +38,8 @@ type JsonObject = dict[str, Json]
 ANALYZER = Path(__file__).with_name("analyze.py")
 # Bare python, so an import outside the stdlib fails here as it would when deployed.
 PYTHON = os.environ["STDLIB_PYTHON"]
+# The installed kernel, whose runs the state-log tests read back.
+STATE = os.environ["STATE"]
 BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -280,31 +282,6 @@ class Home:
     @property
     def store(self) -> Path:
         return self.root.parent / "state" / "kernel-v2.db"
-
-    def log(self, log: RunLog) -> None:
-        """A run's `state` events, in this home's run store. The `events` table has
-        the kernel's columns and keys but not its CHECK constraints and triggers,
-        which the kernel owns (programs/agents/kernel/src/Effects/Store/Migration.hs)."""
-        self.store.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(self.store)) as db, db:
-            _ = db.execute(EVENTS_TABLE)
-            _ = db.executemany(
-                """
-                INSERT INTO events (run_id, seq, schema_version, type, time, data)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        log.run,
-                        seq,
-                        line.schema_version,
-                        line.type,
-                        at(log.start + seq),
-                        json.dumps(line.data),
-                    )
-                    for seq, line in enumerate(log.lines, 1)
-                ],
-            )
 
     def sources(self) -> list[str]:
         """The transcripts and only this home's run store, never the machine's."""
@@ -2475,112 +2452,90 @@ class TestStateCtx:
         ]
 
 
-EVENTS_TABLE = """
-CREATE TABLE IF NOT EXISTS events (
-  position       INTEGER PRIMARY KEY,
-  run_id         TEXT    NOT NULL,
-  seq            INTEGER NOT NULL,
-  schema_version INTEGER NOT NULL,
-  type           TEXT    NOT NULL,
-  time           TEXT    NOT NULL,
-  session_id     TEXT,
-  head_sha       TEXT,
-  hook_digest    TEXT,
-  data           TEXT    NOT NULL,
-  UNIQUE (run_id, seq),
-  UNIQUE (run_id, hook_digest)
-) STRICT
-"""
+@dataclass(frozen=True)
+class Kernel:
+    """The real `state` binary, logging runs into a home's run store from the
+    worktrees of one git repo: each run in its own worktree, as the kernel finds a
+    run by the worktree it is called in."""
 
+    root: Path  # the store's XDG_STATE_HOME, and where the repo and notes live
 
-@dataclass
-class StateEvent:
-    """One event of a run's log: its type, payload and the payload's version."""
+    def start(self, name: str, *argv: str, notes: str = "engineer-me-demo-x") -> str:
+        """`state init` in a new worktree `name`; the run's id."""
+        _ = git(self.root / "repo", "worktree", "add", "-q", "-b", name, f"../{name}")
+        notes_dir = str(self.root / "notes" / notes / name)
+        started = self.state(name, "init", "--notes", notes_dir, *argv)
+        return started.split()[1]
 
-    type: str
-    data: JsonObject
-    schema_version: int = 1
+    def ask(self, worktree: str, kind: str, question: str) -> str:
+        """A question the run in `worktree` asks; its qid."""
+        return self.state(worktree, "ask", "--kind", kind, question).split()[1]
 
-
-SELF: JsonObject = {"kind": "self"}
-USER: JsonObject = {"kind": "user"}
-
-
-def child_run(run: str) -> JsonObject:
-    """The `from` of a question a child run asked up."""
-    return {"kind": "child_run", "run": run}
-
-
-def parent_run(run: str) -> JsonObject:
-    """The `by` of an answer a parent run gave."""
-    return {"kind": "parent_run", "run": run}
-
-
-@dataclass
-class RunLog:
-    """A `state` event log, as the kernel writes it: a `started` line first."""
-
-    run: str
-    flow: str = "engineer"
-    start: float = 0
-    notes_dir: str = "/work/engineer-me-demo-x/"
-    lines: list[StateEvent] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        principal: JsonObject = {"kind": "user", "shape": {"kind": "own_pr"}}
-        _ = self.add(
-            "started",
-            flow=self.flow,
-            notes_dir=self.notes_dir,
-            principal=principal,
-            interface=[],
+    def state(self, worktree: str, *argv: str) -> str:
+        """`state argv` run in `worktree`; what it printed."""
+        done = subprocess.run(
+            [STATE, *argv],
+            cwd=self.root / worktree,
+            env={
+                **os.environ,
+                "HOME": str(self.root),
+                "XDG_STATE_HOME": str(self.root),
+            },
+            capture_output=True,
+            encoding="utf-8",
+            check=False,
         )
+        assert done.returncode == 0, done.stderr
+        return done.stdout
 
-    def add(self, event: str, /, **data: Json) -> RunLog:
-        self.lines.append(StateEvent(event, data))
-        return self
 
-    def ask(self, qid: str, kind: str, step: str, asker: Json = SELF) -> RunLog:
-        """`asker` is the wire's `from`: `SELF`, a subagent's or a child run's."""
-        fields: JsonObject = {
-            "qid": qid,
-            "question_kind": kind,
-            "question": "?",
-            "step": step,
-        }
-        return self.add("asked", **fields, **{"from": asker})
+def git(cwd: Path, *argv: str) -> str:
+    done = subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv],
+        cwd=cwd,
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+    )
+    return done.stdout
 
-    def rule(self, qid: str) -> RunLog:
-        basis: JsonObject = {"kind": "none"}
-        return self.add("ruled", qid=qid, answer="a", reason="w", cost="c", basis=basis)
 
-    def answer(self, qid: str, by: Json = USER) -> RunLog:
-        return self.add("answered", qid=qid, reply="chose", answer="a", by=by)
-
-    def stop(self, reason: str, detail: str) -> RunLog:
-        return self.add("stop", reason=reason, detail=detail)
+@pytest.fixture
+def kernel(home: Home) -> Kernel:
+    """A kernel writing to `home`'s run store."""
+    root = home.store.parent.parent
+    repo = root / "repo"
+    repo.mkdir(parents=True)
+    _ = git(repo, "init", "-q")
+    _ = git(repo, "commit", "-q", "--allow-empty", "-m", "base")
+    return Kernel(root)
 
 
 class TestStateLog:
     def test_questions_count_per_step_by_how_they_were_settled(
-        self, home: Home
+        self, home: Home, kernel: Kernel
     ) -> None:
         # Given
-        log = RunLog("r1").ask("r1:1", "design", "interview").rule("r1:1")
-        _ = log.ask("r1:2", "fact", "interview")
-        _ = log.ask("r1:3", "confirm", "confirm").answer("r1:3")
-        home.log(log)
+        _ = kernel.start("r1")
+        _ = kernel.ask("r1", "Design", "which store?")
+        fact = kernel.ask("r1", "Fact", "which port?")
+        _ = kernel.state(
+            "r1", "rule", fact, "--answer", "a", "--why", "w", "--cost", "c"
+        )
+        _ = kernel.state("r1", "record", "fuel.set", "balanced")
+        confirm = kernel.ask("r1", "Confirm", "ship it?")
+        _ = kernel.state("r1", "answer", confirm, "a")
         # When
         report = home.report()
         # Then
-        assert row(report, "state-log", "engineer interview")[1:] == [
+        assert row(report, "state-log", "engineer fuel")[1:] == [
             "2",
             "1",
             "0",
             "1",
             "design 1, fact 1",
         ]
-        assert row(report, "state-log", "engineer confirm")[1:] == [
+        assert row(report, "state-log", "engineer gather")[1:] == [
             "1",
             "0",
             "1",
@@ -2589,52 +2544,36 @@ class TestStateLog:
         ]
 
     def test_a_child_question_counts_once_at_its_own_step_ruled_by_the_parent(
-        self, home: Home
+        self, home: Home, kernel: Kernel
     ) -> None:
         # Given
-        child = (
-            RunLog("c1").ask("c1:1", "design", "plan").answer("c1:1", parent_run("p1"))
+        parent = kernel.start("p1", "--flow", "10x")
+        _ = kernel.start("c1", "--parent", parent)
+        _ = kernel.state("c1", "record", "fuel.set", "balanced")
+        qid = kernel.ask("c1", "Design", "which store?")
+        _ = kernel.state(
+            "p1", "rule", qid, "--answer", "a", "--why", "w", "--cost", "c"
         )
-        parent = RunLog("p1", flow="10x").ask(
-            "c1:1", "design", "engineers", child_run("c1")
-        )
-        home.log(child)
-        home.log(parent.rule("c1:1"))
         # When
         report = home.report()
         # Then
-        assert row(report, "state-log", "engineer plan")[1:3] == ["1", "1"]
-        assert "10x engineers|" not in section(report, "state-log")
-
-    def test_a_question_the_parent_raised_on_a_child_hand_back_is_the_parents(
-        self, home: Home
-    ) -> None:
-        # Given
-        parent = RunLog("p1", flow="10x").ask(
-            "p1:1", "design", "engineers", child_run("c1")
+        assert headline(report, "state-log").startswith(
+            "2 runs, 1 questions, 1 rulings"
         )
-        home.log(parent)
-        # When
-        report = home.report()
-        # Then
-        assert row(report, "state-log", "10x engineers")[1:] == [
-            "1",
-            "0",
-            "0",
-            "1",
-            "design 1",
-        ]
+        assert row(report, "state-log", "engineer gather")[1:3] == ["1", "1"]
+        assert "10x gather|" not in section(report, "state-log")
 
     def test_stuck_rounds_and_re_plans_are_counted_in_the_headline(
-        self, home: Home
+        self, home: Home, kernel: Kernel
     ) -> None:
         # Given
-        log = (
-            RunLog("r1").ask("r1:1", "stuck", "review").stop("replan", "plan wrong: x")
-        )
-        home.log(log)
-        home.log(RunLog("r2").stop("replan", "plan wrong: y"))
-        home.log(RunLog("r3").stop("blocked", "no access"))
+        stuck = kernel.start("r1")
+        _ = kernel.ask("r1", "Stuck", "what now?")
+        _ = kernel.state("r1", "stop", "replan", "plan wrong: x")
+        _ = kernel.start("r2")
+        _ = kernel.state("r2", "stop", "replan", "plan wrong: y")
+        _ = kernel.start("r3")
+        _ = kernel.state("r3", "stop", "blocked", "no access")
         # When
         report = home.report()
         # Then
@@ -2643,56 +2582,22 @@ class TestStateLog:
         )
         assert row(report, "state-log", "replan") == ["replan", "2", "plan wrong: y"]
         assert row(report, "state-log", "blocked") == ["blocked", "1", "no access"]
-        assert row(report, "state-log", "r1")[1:] == ["engineer review", "?"]
-
-    def test_rows_newer_than_the_analyzer_are_skipped_and_counted(
-        self, home: Home
-    ) -> None:
-        # Given
-        log = RunLog("r1").ask("r1:1", "fact", "interview")
-        _ = log.ask("r1:2", "fact", "plan")
-        log.lines[-1].schema_version = analyze.KNOWN_SCHEMA_VERSION + 1
-        home.log(log)
-        # When
-        report = home.report()
-        # Then
-        assert headline(report, "state-log").startswith("1 runs, 1 questions")
-        assert "engineer plan|" not in section(report, "state-log")
-        assert "rows newer than this analyzer, skipped: 1" in section(
-            report, "state-log"
-        )
-
-    def test_a_run_whose_start_is_newer_than_the_analyzer_is_not_read(
-        self, home: Home
-    ) -> None:
-        # Given
-        home.log(RunLog("r1").ask("r1:1", "fact", "interview"))
-        newer = RunLog("r2").ask("r2:1", "fact", "plan")
-        newer.lines[0].schema_version = analyze.KNOWN_SCHEMA_VERSION + 1
-        home.log(newer)
-        # When
-        report = home.report()
-        # Then
-        assert headline(report, "state-log").startswith("1 runs, 1 questions")
-        assert "rows newer than this analyzer, skipped: 1" in section(
-            report, "state-log"
-        )
+        assert row(report, "state-log", stuck)[1:] == ["engineer fuel", "what now?"]
 
     def test_only_runs_started_in_the_window_and_project_count(
-        self, home: Home
+        self, home: Home, kernel: Kernel
     ) -> None:
         # Given
-        home.log(RunLog("r1", start=0).ask("r1:1", "fact", "interview"))
-        home.log(RunLog("r2", start=1000).ask("r2:1", "fact", "plan"))
-        other = RunLog("r3", start=1000, notes_dir="/work/engineer-me-other-x/")
-        home.log(other.ask("r3:1", "fact", "draft"))
+        _ = kernel.start("r1")
+        _ = kernel.ask("r1", "Fact", "which port?")
+        _ = kernel.start("r2", notes="engineer-me-other-x")
+        _ = kernel.ask("r2", "Fact", "which port?")
         # When
-        report = home.report("--since", at(500), "--project", "demo")
+        in_project = home.report("--since", "2000-01-01", "--project", "demo")
+        before = home.report("--since", "9999-01-01")
         # Then
-        body = section(report, "state-log")
-        assert "engineer plan|" in body
-        assert "engineer interview|" not in body
-        assert "engineer draft|" not in body
+        assert headline(in_project, "state-log").startswith("1 runs, 1 questions")
+        assert headline(before, "state-log").startswith("0 runs, 0 questions")
 
     def test_without_logs_the_section_says_none(self, home: Home) -> None:
         # When
@@ -2701,6 +2606,17 @@ class TestStateLog:
         assert headline(report, "state-log") == (
             "0 runs, 0 questions, 0 rulings, 0 stuck rounds, 0 re-plans"
         )
+
+    def test_a_store_no_current_kernel_opened_is_refused_naming_the_fix(
+        self, home: Home
+    ) -> None:
+        # Given
+        home.store.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(home.store)) as db:
+            _ = db.execute("CREATE TABLE events (data TEXT)")
+        # When / Then
+        with pytest.raises(SystemExit, match="state sql 'SELECT 1'"):
+            _ = home.report()
 
 
 class TestDefaultStore:

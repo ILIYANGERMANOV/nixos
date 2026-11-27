@@ -26,6 +26,10 @@ sections whose headline shows the largest cost (effective tokens or
 minutes), about the top 5. `${CLAUDE_SKILL_DIR}/references/metrics.md` says how to
 read them.
 
+Its `state-log` section reads the run store's projection tables read-only.
+The kernel builds them when it opens the store. If the analyzer says the store
+has no current projections, run `state sql 'SELECT 1'` once, then run it again.
+
 Before you brief researchers, read the run store:
 
 - `state report runs|steps|signals|gaps|waits`: one fixed TSV report each.

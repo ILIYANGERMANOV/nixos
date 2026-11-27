@@ -274,6 +274,7 @@
             guards
             kernel
             kernelDev
+            state
             ;
         }
       );
@@ -300,7 +301,12 @@
           inherit (pkgs.stdenv.hostPlatform) system;
         in
         {
-          mutation = (import ./programs/mutation { inherit pkgs; }).runner;
+          mutation =
+            (import ./programs/mutation { inherit pkgs; }).runner
+              (import ./adapters/agents.nix {
+                inherit inputs pkgs;
+                root = self;
+              }).state;
         }
         # `just probe-agents-hooks` runs it, see its default.nix. Not on
         # x86_64-darwin: `llm-agents` has no package there.
