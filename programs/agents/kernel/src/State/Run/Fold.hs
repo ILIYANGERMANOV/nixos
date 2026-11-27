@@ -866,7 +866,7 @@ applyEvent g state n = \case
         Delivered _ -> Right
         Parked _ _ -> Right . unaskedBy fan task
     -- A task's event goes to the fan-out that holds the task, wherever the run is ('taskHolder').
-    heldTask task = maybe (Left (NotOneHolder task)) Right (taskHolder state task)
+    heldTask = holderOf state
     inTaskFan task change = heldTask task >>= \holder -> inFanAt holder.fan change state
     {- Where a request stands at the fan-out, the graph's edge there must
     take the child's event; a fan-out no request stands at takes it as is. -}
@@ -1085,6 +1085,10 @@ breakdown is the latest ('latestHolder').
 taskHolder :: RunState -> TaskId -> Maybe (Holder Task)
 taskHolder state task = latestHolder (`Fan.lookupTask` task) state
 
+-- | The fan-out holding the task ('taskHolder'), refused when none does.
+holderOf :: RunState -> TaskId -> Either Refusal (Holder Task)
+holderOf state task = maybe (Left (NotOneHolder task)) Right (taskHolder state task)
+
 -- | The fan-out holding the task ('taskHolder'), and an empty one when none does.
 taskFan :: RunState -> TaskId -> Fan
 taskFan state task = maybe emptyFan (fanIn state.fans . (.fan)) (taskHolder state task)
@@ -1100,7 +1104,7 @@ of the fan-out that holds it: refused as that event would be.
 -}
 taskRefIn :: RunState -> TaskId -> Either Refusal TaskRef
 taskRefIn state task = do
-    holder <- maybe (Left (NotOneHolder task)) Right (taskHolder state task)
+    holder <- holderOf state task
     Bifunctor.first FanRefused (Fan.taskRef (fanIn state.fans holder.fan) task)
 
 {- | A move of this task recorded now, by the fan-out that holds it
@@ -1109,7 +1113,7 @@ the task. Never in the fold, so a log holding such a move still replays.
 -}
 movable :: RunState -> TaskId -> TaskState -> Either Refusal ()
 movable state task moved = do
-    holder <- maybe (Left (NotOneHolder task)) Right (taskHolder state task)
+    holder <- holderOf state task
     Bifunctor.first
         FanRefused
         (Fan.movable task moved (fanIn state.fans holder.fan))

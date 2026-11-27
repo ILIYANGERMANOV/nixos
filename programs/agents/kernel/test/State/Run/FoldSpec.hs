@@ -2424,8 +2424,6 @@ twoFans =
             )
         )
 
--- | The state a run is at, if it is at one.
-
 {- | Events of a 10x re-planning with its children at work: theirs, the
 tasks', a task added, a step moved by hand, a new breakdown once every child
 handed back, a restart.
@@ -2504,6 +2502,7 @@ facts fan =
     , map (.child.run) fan.children
     )
 
+-- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName
 atName state = case state.at of
     At place -> Just (placeName place)

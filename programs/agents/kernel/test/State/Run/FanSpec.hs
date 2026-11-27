@@ -503,7 +503,7 @@ spec = describe "State.Run.Fan" $ do
             edits <- forAll (Gen.list (Range.linear 0 10) genEdit)
             let after = foldl' (\now edit -> fromRight now (edited edit now)) fan edits
                 ids = map (.id) (Fan.tasksOf fan)
-                mergedOf now = Map.filter isMerged now.moves
+                mergedOf now = Map.filterWithKey (\task _ -> merged now task) now.moves
             cover 10 "an edit taken" (after /= fan)
             (mergedOf after, after.heads, map (tries after) ids, after.held)
                 === (mergedOf fan, fan.heads, map (tries fan) ids, fan.held)
@@ -699,17 +699,6 @@ depsOr :: [TaskId] -> DepsEdit -> [TaskId]
 depsOr kept = \case
     DepsKept -> kept
     DepsSet deps -> Set.toList deps
-
--- | The task's PR merged, by any URL.
-isMerged :: TaskState -> Bool
-isMerged = \case
-    Merged _ -> True
-    Parked _ _ -> False
-    InReview _ -> False
-    InCi _ -> False
-    Kept _ -> False
-    Round _ -> False
-    Delivered _ -> False
 
 -- | A breakdown, then spawns, hand-backs and moves, each kept only where the fan accepts it.
 genFan :: Gen Fan

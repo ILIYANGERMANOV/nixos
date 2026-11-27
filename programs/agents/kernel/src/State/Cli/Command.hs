@@ -1701,9 +1701,10 @@ retryOf state task = case ( Fan.lookupTask fan task
             Left
                 ( refused
                     (tshow (Fan.tries fan task) <> " children tried it, its one retry is spent")
+                    -- A Stuck question with its retry spent is the user's ('Ask.OneRetry'): forwarded, never ruled here.
                     ( "state ask --kind Stuck --from "
                         <> runIdText child.run
-                        <> " <question>, then state rule <qid> --answer <a> --why <w> --cost <c>, then state record spawning "
+                        <> " <question>, then state forward <qid>, then once it is answered state record spawning "
                         <> Codec.taskIdText task
                         <> " | state record task "
                         <> Codec.taskIdText task

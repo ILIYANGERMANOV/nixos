@@ -1909,34 +1909,36 @@ spec = describe "the state binary" $ do
                 followed bin fix repo ["override", "engineers", "back", "to", "the", "fan-out"]
                 followed bin fix repo ["record", "task", "t2", "parked", "dropped"]
 
-            it "a spent retry: the stopped child's Stuck question, ruled, then a new spawn" $ \repo -> do
-                parent <- tenXAtFanOut bin repo
-                _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
-                w1 <- worktree repo "w1"
-                _ <- childRun bin w1 parent "n1" "t1"
-                _ <- succeeded =<< state bin w1 ["stop", "failed", "one"]
-                _ <- succeeded =<< state bin repo ["retry", "t1", "--why", "again"]
-                w2 <- worktree repo "w2"
-                c2 <- childRun bin w2 parent "n2" "t1"
-                _ <- succeeded =<< state bin w2 ["stop", "failed", "two"]
-                fix <- fixOf bin repo ["retry", "t1", "--why", "a third"]
-                fix
-                    `shouldBe` "state ask --kind Stuck --from "
-                        <> c2
-                        <> " <question>, then state rule <qid> --answer <a> --why <w> --cost <c>, then state record spawning t1 | state record task t1 parked <why>"
-                asked : _ <-
-                    succeeded
-                        =<< state
-                            bin
-                            repo
-                            ["ask", "--kind", "Stuck", "--from", Text.unpack c2, "once", "more?"]
-                let qid = Text.unpack (Text.drop (Text.length "asked ") asked)
-                followed
-                    bin
+            it
+                "a spent retry: the stopped child's Stuck question, forwarded to the user, then a new spawn"
+                $ \repo -> do
+                    parent <- tenXAtFanOut bin repo
+                    _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
+                    w1 <- worktree repo "w1"
+                    _ <- childRun bin w1 parent "n1" "t1"
+                    _ <- succeeded =<< state bin w1 ["stop", "failed", "one"]
+                    _ <- succeeded =<< state bin repo ["retry", "t1", "--why", "again"]
+                    w2 <- worktree repo "w2"
+                    c2 <- childRun bin w2 parent "n2" "t1"
+                    _ <- succeeded =<< state bin w2 ["stop", "failed", "two"]
+                    fix <- fixOf bin repo ["retry", "t1", "--why", "a third"]
                     fix
-                    repo
-                    ["rule", qid, "--answer", "yes", "--why", "a lead", "--cost", "none"]
-                followed bin fix repo ["record", "spawning", "t1"]
+                        `shouldBe` "state ask --kind Stuck --from "
+                            <> c2
+                            <> " <question>, then state forward <qid>, then once it is answered state record spawning t1 | state record task t1 parked <why>"
+                    asked : _ <-
+                        succeeded
+                            =<< state
+                                bin
+                                repo
+                                ["ask", "--kind", "Stuck", "--from", Text.unpack c2, "once", "more?"]
+                    let qid = Text.unpack (Text.drop (Text.length "asked ") asked)
+                    followed bin fix repo ["forward", qid]
+                    -- Not before the user answers: the task's child asks up still.
+                    early <- state bin repo ["record", "spawning", "t1"]
+                    early.code `shouldBe` 2
+                    _ <- succeeded =<< state bin repo ["answer", qid, "retry", "with", "a", "hint"]
+                    followed bin fix repo ["record", "spawning", "t1"]
 
             it "stop_untriaged: a question from the stopped child" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
