@@ -119,7 +119,6 @@ import State.Cli.Command (
  )
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
-import State.Cli.Resume (artifactsOf)
 import State.Cli.Resume qualified as Resume
 import State.Cli.Route (
     StateCall (..),
@@ -269,8 +268,10 @@ import State.Run.Event (
     TaskId,
     TaskNo,
     Waiting (Ci),
+    artifactsOf,
     parseRunId,
     parseSessionId,
+    placeOf,
     roleText,
     runIdText,
     stepTook,
@@ -2634,7 +2635,7 @@ moveRun gd target = do
 
 -- | The worktree the run's log last names: the last it moved to, else its start's.
 worktreeOf :: Start -> NonEmpty Envelope -> AbsPath
-worktreeOf start logged = fst (Resume.placeOf start logged)
+worktreeOf start logged = fst (placeOf start logged)
 
 {- | The worktree's top as the log keeps it. Git names its top absolute and
 normalised, so a refusal is git's fault, told as an outage.

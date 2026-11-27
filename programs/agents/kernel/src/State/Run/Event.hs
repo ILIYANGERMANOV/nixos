@@ -75,9 +75,13 @@ module State.Run.Event (
     Said (..),
     Waiting (..),
     TaskState (..),
+    artifactsOf,
+    placeOf,
 ) where
 
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -388,3 +392,19 @@ data TaskState
     | -- | Set aside, and why: a parked task counts as settled.
       Parked Text (Maybe Url)
     deriving stock (Eq, Show)
+
+-- | The artifacts these lines log, each with its seq.
+artifactsOf :: (Foldable t) => t Envelope -> [(Natural, Artifact)]
+artifactsOf logged =
+    [(e.seq, artifact) | e <- toList logged, ArtifactLogged artifact _ <- [e.event]]
+
+-- | Where these lines leave the run: the worktree and repo it last moved to, else its start's.
+placeOf :: (Foldable t) => Start -> t Envelope -> (AbsPath, Maybe Repo)
+placeOf start logged =
+    fromMaybe
+        (start.worktree, start.repo)
+        ( listToMaybe
+            ( reverse
+                [(top, repo) | line <- toList logged, WorktreeMoved top repo <- [line.event]]
+            )
+        )

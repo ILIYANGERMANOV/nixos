@@ -68,7 +68,7 @@ import Effects.Store.Connection (Durability, OpenRefusal, Store, withStore)
 import Effects.Store.Events (Batch (..), Write (..))
 import Effects.Store.Events qualified as Store
 import Numeric.Natural (Natural)
-import State.Artifact (Blob, Sha256)
+import State.Artifact (Blob, Sha256, digestText)
 import State.Protocol.Binding (runStore)
 import State.Run.Event (Envelope, EventId (..), RunId, parseRunId, runIdText)
 
@@ -236,8 +236,8 @@ blobRead key = traverse $ \row -> case blobOf row of
     Just found -> Right found
     Nothing ->
         Left
-            ( "the blob stored under sha256:"
-                <> Text.unpack (Field.encode Field.sha256 key)
+            ( "the blob stored under "
+                <> Text.unpack (digestText key)
                 <> " does not hash to its key: the store was edited"
             )
 

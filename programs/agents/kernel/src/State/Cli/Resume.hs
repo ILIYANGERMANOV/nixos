@@ -10,8 +10,6 @@ them: a section a later slice adds is one more entry in 'sections'.
 module State.Cli.Resume (
     Input (..),
     packet,
-    artifactsOf,
-    placeOf,
 ) where
 
 import Data.Foldable (toList)
@@ -25,7 +23,6 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Numeric.Natural (Natural)
 import State.Artifact (
-    AbsPath,
     Artifact (..),
     FileArtifact (..),
     FileRef (..),
@@ -62,7 +59,6 @@ import State.Run.Event (
     Event (..),
     Handover (..),
     Harness (..),
-    Repo,
     RunId,
     Said (..),
     Session (..),
@@ -71,6 +67,8 @@ import State.Run.Event (
     Stop (..),
     Task (..),
     TaskState (Parked),
+    artifactsOf,
+    placeOf,
     runIdText,
  )
 import State.Run.Fan (ChildRun (..), Fan (..), latest, pullRequest)
@@ -140,7 +138,7 @@ header input =
         <> ": "
         <> tshow (length (sessionsOf input))
         <> " sessions, "
-        <> tshow (length input.logged)
+        <> tshow (length (kept input))
         <> " events, "
         <> case lastHandover input of
             Just (n, handover) ->
@@ -449,20 +447,6 @@ sessionsOf input = grouped [(sid, line) | line <- kept input, Just sid <- [line.
         (sid, line) : rest ->
             (sid, line :| [other | (s, other) <- rest, s == sid])
                 : grouped [p | p@(s, _) <- rest, s /= sid]
-
--- | The artifacts these lines log, each with its seq.
-artifactsOf :: (Foldable t) => t Envelope -> [(Natural, Artifact)]
-artifactsOf logged =
-    [(e.seq, artifact) | e <- toList logged, ArtifactLogged artifact _ <- [e.event]]
-
--- | Where these lines leave the run: the worktree and repo it last moved to, else its start's.
-placeOf :: (Foldable t) => Start -> t Envelope -> (AbsPath, Maybe Repo)
-placeOf start logged =
-    fromMaybe
-        (start.worktree, start.repo)
-        ( lastMaybe
-            [(top, repo) | line <- toList logged, WorktreeMoved top repo <- [line.event]]
-        )
 
 {- | At most 'cap' items, newest first as given, then how many more and the
 command that lists them all (Appendix E's inline caps).

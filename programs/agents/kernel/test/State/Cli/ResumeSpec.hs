@@ -11,7 +11,7 @@ import Data.Payload.Upcast (shipped)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient, encodeUtf8)
-import Data.Time (addUTCTime)
+import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
 import Hedgehog (Gen, annotateShow, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
@@ -32,6 +32,7 @@ import State.Cli.Shell.World (
     prUrl,
     putFile,
     removeFile,
+    runOf,
     sessionStart,
     startedRun,
     state,
@@ -59,6 +60,14 @@ spec = describe "state resume over the doubles" . before newWorld $ do
         _ <- startedRun world
         ran <- state world ["resume"]
         pure (golden "resume/fresh.txt" (decodeUtf8Lenient ran.stdout))
+
+    it "counts neither a voided line nor its void among the header's events" $ \world -> do
+        _ <- startedRun world
+        fresh <- succeeded =<< state world ["resume"]
+        _ <- succeeded =<< state world ["note", "--topic", "traps", "cold", "cache"]
+        _ <- succeeded =<< state world ["void", "2", "wrong", "note"]
+        voided <- succeeded =<< state world ["resume"]
+        take 1 voided `shouldBe` take 1 fresh
 
     it "prints the run's PR and the live state commands once it has a PR" $ \world -> do
         _ <- drive world (Record ["fuel.set", "balanced"] : toImplement)
@@ -177,13 +186,17 @@ spec = describe "state resume over the doubles" . before newWorld $ do
                             ]
                         )
 
-    it "prints the same bytes for the same log, read back through the store's codec" $
-        \_ -> hedgehog $ do
+    it
+        "prints the same bytes for the same log, read back through the store's codec in another world"
+        $ \_ -> hedgehog $ do
             ops <- forAll genOps
             (world, rows) <- evalIO (loggedRun ops)
-            first <- evalIO (state world ["resume"])
-            again <-
-                evalIO (withRows world [eventRow e | Known e <- map (decodeRow shipped) rows])
+            run <- evalIO (runOf world)
+            first <- evalIO (state world ["resume", run])
+            again <- evalIO $ do
+                other <- elsewhere world
+                editLog other (const [eventRow e | Known e <- map (decodeRow shipped) rows])
+                state other ["resume", run]
             (first.code, again.stdout) === (0, first.stdout)
   where
     runOfHeader = map (Text.takeWhile (/= ',')) . take 1
@@ -192,7 +205,7 @@ spec = describe "state resume over the doubles" . before newWorld $ do
 {- | One write a generated log is made of: 'Later' notes after the clock
 moved on, 'Voided' notes and voids the note at once.
 -}
-data Op = Note Text | Link | Ask | HandOver | Gap | Later | Voided
+data Op = Note Text | Link | Ask | HandOver | Gap | Later | Voided | File
     deriving stock (Show)
 
 genOps :: Gen [Op]
@@ -207,6 +220,7 @@ genOps =
             , pure Gap
             , pure Later
             , pure Voided
+            , pure File
             ]
         )
 
@@ -235,7 +249,25 @@ loggedRun ops = do
                 seq' <- (+ 1) . length <$> logRows world
                 _ <- succeeded =<< state world ["note", "--topic", "traps", "wrong"]
                 state world ["void", Text.pack (show seq'), "noted", "in", "error"]
+            File -> do
+                putFile world "/work/plan.md" (Text.pack (show i))
+                state world ["artifact", "plan.md", "--kind", "plan"]
     (world,) <$> logRows world
+
+{- | A fresh world whose store holds this world's runs: another clock,
+worktree, session and files, so a packet that reads any of them differs.
+-}
+elsewhere :: IORef World -> IO (IORef World)
+elsewhere world = do
+    other <- newWorld
+    stored <- (.runs) <$> readIORef world
+    modifyIORef'
+        other
+        (\w -> w {runs = stored, clock = UTCTime (fromGregorian 2030 1 2) 7})
+    atWorktree other "/elsewhere"
+    inSession other "s2"
+    putFile other "/work/plan.md" "another plan\n"
+    pure other
 
 -- | @state resume@ in a copy of the world whose run's store holds these rows alone.
 withRows :: IORef World -> [EventRow] -> IO Ran
