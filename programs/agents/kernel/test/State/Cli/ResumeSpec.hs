@@ -1,7 +1,7 @@
 -- | @state resume@ over the doubles: the packet a fresh agent takes a run up from.
 module State.Cli.ResumeSpec (spec) where
 
-import Control.Monad (void)
+import Control.Monad (void, (<=<))
 import Data.Entity.Event (EventRow)
 import Data.Foldable (for_)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
@@ -68,6 +68,40 @@ spec = describe "state resume over the doubles" . before newWorld $ do
         _ <- succeeded =<< state world ["void", "2", "wrong", "note"]
         voided <- succeeded =<< state world ["resume"]
         take 1 voided `shouldBe` take 1 fresh
+
+    it
+        "lists the gaps open or with a fix proposed, worst first and oldest first within a severity, not the closed ones"
+        $ \world -> do
+            _ <- startedRun world
+            run <- runOf world
+            first <- (+ 1) . length <$> logRows world
+            let gapAt n = run <> ":" <> Text.pack (show (first + n))
+                pr = "https://github.com/o/r/pull/8"
+            for_
+                [ ["papercut", "p", "open"]
+                , ["blocker", "b", "fixed"]
+                , ["blocker", "b", "proposed"]
+                , ["papercut", "p", "wontfix"]
+                , ["blocker", "b", "open"]
+                , ["slowdown", "s", "open"]
+                ]
+                $ \words' ->
+                    void . succeeded
+                        =<< state world (["record", "gap", "--kind", "kernel", "--severity"] <> words')
+            for_
+                [ ["gap", "fixed", gapAt 1, "--pr", pr]
+                , ["gap", "proposed", gapAt 2, "--pr", pr]
+                , ["gap", "wontfix", gapAt 3, "out", "of", "scope"]
+                ]
+                (void . succeeded <=< state world)
+            out <- succeeded =<< state world ["resume"]
+            takeWhile (/= "") (dropWhile (not . ("open gaps" `Text.isPrefixOf`)) out)
+                `shouldBe` [ "open gaps (4, 2 blocker):"
+                           , "  " <> gapAt 2 <> " kernel blocker \"b proposed\""
+                           , "  " <> gapAt 4 <> " kernel blocker \"b open\""
+                           , "  " <> gapAt 5 <> " kernel slowdown \"s open\""
+                           , "  " <> gapAt 0 <> " kernel papercut \"p open\""
+                           ]
 
     it "prints the run's PR and the live state commands once it has a PR" $ \world -> do
         _ <- drive world (Record ["fuel.set", "balanced"] : toImplement)

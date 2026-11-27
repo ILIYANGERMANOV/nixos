@@ -675,7 +675,7 @@ spec = describe "the state binary" $ do
             (types, stored, kept) `shouldBe` (["started", "gap", "voided"], True, bytes)
 
         it
-            "logs a gap per Gap: line of a hand-back, then shows them and resumes the open ones, blockers first"
+            "logs a gap per Gap: line of a hand-back, telling a malformed one the allowed words, then shows them and resumes the open ones, worst first"
             $ \repo -> do
                 _ <-
                     drive
@@ -695,12 +695,19 @@ spec = describe "the state binary" $ do
                                 repo
                                 "researcher"
                                 ( researched
-                                    <> "Gap: tool papercut slow grep\nGap: kernel blocker the fold drops a line\n"
+                                    <> "Gap: tool papercut slow grep\nGap: kernel blocker the fold drops a line\nGap: odd words\n"
                                 )
                             )
                 shown <- Text.unlines <$> (succeeded =<< state bin repo ["show"])
                 resumed <- succeeded =<< state bin repo ["resume"]
                 ( any ("gap -> " `Text.isInfixOf`) back
+                    , any
+                        ( Text.isInfixOf
+                            ( "gap logged as other slowdown, its words not Gap: <kind> <severity> <text>, "
+                                <> "kind kernel|prose|tool|permission|ci|process|other, severity blocker|slowdown|papercut"
+                            )
+                        )
+                        back
                     , all
                         (`Text.isInfixOf` shown)
                         [ "tool papercut \"slow grep\""
@@ -709,15 +716,16 @@ spec = describe "the state binary" $ do
                         ]
                     , drop
                         1
-                        (dropWhile (not . ("open gaps (2, 1 blocker):" `Text.isPrefixOf`)) resumed)
+                        (dropWhile (not . ("open gaps (3, 1 blocker):" `Text.isPrefixOf`)) resumed)
                     )
                     `shouldSatisfy` \case
-                        (True, True, blocker : papercut : _) ->
+                        (True, True, True, blocker : slowdown : papercut : _) ->
                             " kernel blocker \"the fold drops a line\"" `Text.isSuffixOf` blocker
+                                && " other slowdown \"odd words\"" `Text.isSuffixOf` slowdown
                                 && " tool papercut \"slow grep\"" `Text.isSuffixOf` papercut
                         _ -> False
                 types <- loggedTypes bin repo
-                length (filter (== "gap") types) `shouldBe` 2
+                length (filter (== "gap") types) `shouldBe` 3
 
         it "fixes a gap in a run that stopped, and refuses a closed gap gap_closed" $ \repo -> do
             _ <- drive bin repo []

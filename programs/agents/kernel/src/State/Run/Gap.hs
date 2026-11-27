@@ -11,7 +11,10 @@ module State.Run.Gap (
     Severity (..),
     severityText,
     GapArea (..),
+    gapAreaText,
     Evidence (..),
+    GapText,
+    gapTextText,
     parseGapText,
     GapDraft (..),
     draft,
@@ -45,8 +48,7 @@ data Gap = Gap
     { kind :: GapKind
     , severity :: Severity
     , area :: GapArea
-    , text :: OneLine
-    -- ^ Never empty: 'parseGapText' builds it.
+    , text :: GapText
     , reporter :: AgentRole
     -- ^ The role that saw it: the run's lead, or the worker whose hand-back named it.
     , evidence :: [Evidence]
@@ -79,20 +81,29 @@ severityText = \case
     Papercut -> "papercut"
 
 {- | Where the gap was met: by default the step the run was at, or a hand-back
-closed; any word @--area@ gives.
+closed; any one line @--area@ gives.
 -}
-newtype GapArea = GapArea {areaText :: Text}
+newtype GapArea = GapArea OneLine
     deriving stock (Eq, Show)
+
+gapAreaText :: GapArea -> Text
+gapAreaText (GapArea area) = oneLineText area
 
 -- | What shows the gap: a line of any run, as an artifact's line names a file, or a URL.
 data Evidence = OfEvent EventRef | OfUrl Uri
     deriving stock (Eq, Show)
 
--- | A gap's text: one line, not blank.
-parseGapText :: Text -> Maybe OneLine
+-- | A gap's text: one line, not blank. Only 'parseGapText' builds one.
+newtype GapText = GapText OneLine
+    deriving stock (Eq, Show)
+
+gapTextText :: GapText -> Text
+gapTextText (GapText text) = oneLineText text
+
+parseGapText :: Text -> Maybe GapText
 parseGapText raw
     | Text.null (Text.strip raw) = Nothing
-    | otherwise = parseOneLine raw
+    | otherwise = GapText <$> parseOneLine raw
 
 {- | A gap as @state record gap@ gives it, before the run fills in the area
 it left out and the reporter.
@@ -101,13 +112,13 @@ data GapDraft = GapDraft
     { kind :: GapKind
     , severity :: Severity
     , area :: Maybe GapArea
-    , text :: OneLine
+    , text :: GapText
     , evidence :: [Evidence]
     }
     deriving stock (Eq, Show)
 
 -- | A bare gap's defaults (#552's Appendix B): kind other, severity slowdown, no evidence.
-draft :: OneLine -> GapDraft
+draft :: GapText -> GapDraft
 draft text = GapDraft Other Slowdown Nothing text []
 
 -- | The gap a draft logs, met here by this role.
@@ -125,7 +136,7 @@ filed here reporter d =
 {- | A hand-back's @Gap: <kind> <severity> <text>@ line, or one whose words
 do not read so: never refused, it logs the whole value with the defaults.
 -}
-data GapLine = WellFormed GapKind Severity OneLine | Malformed OneLine
+data GapLine = WellFormed GapKind Severity GapText | Malformed GapText
     deriving stock (Eq, Show)
 
 {- | A hand-back line that starts @Gap:@, indented or as a @- @ or @* @ list
@@ -159,8 +170,8 @@ parseGapValue raw =
 gapLineText :: GapLine -> Text
 gapLineText = \case
     WellFormed kind severity text ->
-        Text.unwords [gapKindText kind, severityText severity, oneLineText text]
-    Malformed text -> oneLineText text
+        Text.unwords [gapKindText kind, severityText severity, gapTextText text]
+    Malformed text -> gapTextText text
 
 -- | The words a @Gap:@ line takes, as a malformed one is told.
 gapLineRule :: Text

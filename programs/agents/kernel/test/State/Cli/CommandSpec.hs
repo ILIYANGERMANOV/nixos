@@ -69,7 +69,7 @@ import State.Run.Event (
     stepTook,
     tookIn,
  )
-import State.Run.EventGen (fuelSet, oneLine, runId, uri)
+import State.Run.EventGen (fuelSet, gapText, oneLine, runId, uri)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Gap qualified as Gap
 import State.Run.Id (EventRef (..))
@@ -174,7 +174,7 @@ spec = describe "State.Cli.Command" $ do
 
         it "records a gap with its text, words joined back" $
             drafted ["gap", "no", "hook", "fact"]
-                `shouldBe` Right (Gap.draft (oneLine "no hook fact"))
+                `shouldBe` Right (Gap.draft (gapText "no hook fact"))
 
         it "records a gap's kind, severity, area and evidence, the evidence in order" $
             drafted
@@ -196,8 +196,8 @@ spec = describe "State.Cli.Command" $ do
                     ( Gap.GapDraft
                         Gap.Kernel
                         Gap.Blocker
-                        (Just (Gap.GapArea "fold"))
-                        (oneLine "a gap")
+                        (Just (Gap.GapArea (oneLine "fold")))
+                        (gapText "a gap")
                         [ Gap.OfEvent (EventRef (runId "r1") 4)
                         , Gap.OfUrl (uri "https://github.com/o/r/issues/2")
                         ]
@@ -208,6 +208,10 @@ spec = describe "State.Cli.Command" $ do
             , drafted ["gap", "--severity", "nope", "a"]
             )
                 `shouldBe` (Left "record gap", Left "record gap")
+
+        it "refuses a gap whose --area is more than one line" $
+            drafted ["gap", "--area", "fold\ntasks: done", "a", "gap"]
+                `shouldBe` Left "record gap"
 
         it "refuses a gap with no text" $
             recorded ["gap"] `shouldBe` Left "record gap"
@@ -517,6 +521,20 @@ spec = describe "State.Cli.Command" $ do
                            , Left "--until 0"
                            ]
 
+        it "takes gap proposed, fixed and wontfix to their moves on the gap named" $
+            map
+                (fmap moved . parse)
+                [ ["gap", "proposed", "r1:4", "--pr", "https://github.com/o/r/pull/8"]
+                , ["gap", "fixed", "r1:4", "--pr", "https://github.com/o/r/pull/8"]
+                , ["gap", "wontfix", "r1:4", "out", "of", "scope"]
+                ]
+                `shouldBe` map
+                    (Right . Just . (EventRef (runId "r1") 4,))
+                    [ Gap.Propose (uri "https://github.com/o/r/pull/8")
+                    , Gap.Close (Gap.Fixed (uri "https://github.com/o/r/pull/8"))
+                    , Gap.Close (Gap.WontFix (oneLine "out of scope"))
+                    ]
+
         it "refuses a notes dir that is relative or holds what a shell reads" $
             map
                 (failureWhat . parse . (["init", "--notes"] <>) . pure)
@@ -767,6 +785,10 @@ spec = describe "State.Cli.Command" $ do
     dumped :: Command -> Maybe RunId
     dumped = \case
         Dump run -> Just run
+        _ -> Nothing
+    moved :: Command -> Maybe (EventRef, Gap.GapMove)
+    moved = \case
+        MoveGap ref move -> Just (ref, move)
         _ -> Nothing
     resumed :: Command -> Maybe (Maybe RunId, Maybe Natural)
     resumed = \case

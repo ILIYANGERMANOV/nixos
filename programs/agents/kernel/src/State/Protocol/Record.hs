@@ -48,6 +48,7 @@ import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
 import State.Protocol.Handback (parseTouches, refusalText)
 import State.Role (drawnOutcomes)
+import State.Run.Ask (parseOneLine)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (
@@ -447,12 +448,13 @@ draftOf words' a = do
     let bare = Gap.draft text
     kind <- traverse (allowed "gap kind" gapKindText) (option "kind" a)
     severity <- traverse (allowed "severity" severityText) (option "severity" a)
+    area <- traverse areaOf (option "area" a)
     evidence <- traverse evidenceOf (options "evidence" a)
     Right
         ( GapDraft
             (fromMaybe bare.kind kind)
             (fromMaybe bare.severity severity)
-            (GapArea <$> option "area" a)
+            area
             text
             evidence
         )
@@ -463,6 +465,7 @@ draftOf words' a = do
             (Left ("no " <> what <> " " <> raw <> ": one of " <> choices name))
             Right
             (parseByName name raw)
+    areaOf raw = maybe (Left "the area, one line") (Right . GapArea) (parseOneLine raw)
     evidenceOf raw = case (parseEventRef raw, parseUri raw) of
         (Just ref, _) -> Right (OfEvent ref)
         (Nothing, Just uri) -> Right (OfUrl uri)

@@ -110,10 +110,11 @@ import State.Run.Gap (
     Closure (..),
     Evidence (..),
     Gap (..),
-    GapArea (..),
     GapStatus (..),
     Tracked (..),
+    gapAreaText,
     gapKindText,
+    gapTextText,
     severityText,
  )
 import State.Run.Id (eventRefText)
@@ -158,7 +159,7 @@ gapShown n tracked =
         <> " "
         <> gapHeadline gap
         <> " (area "
-        <> gap.area.areaText
+        <> gapAreaText gap.area
         <> ", by "
         <> roleText gap.reporter
         <> foldMap (", evidence " <>) (nonEmptyWords (map evidenceText gap.evidence))
@@ -183,7 +184,7 @@ gapHeadline gap =
     Text.unwords
         [ gapKindText gap.kind
         , severityText gap.severity
-        , "\"" <> oneLineText gap.text <> "\""
+        , "\"" <> gapTextText gap.text <> "\""
         ]
 
 -- | A titled section, its items indented under it; none when it has no items.

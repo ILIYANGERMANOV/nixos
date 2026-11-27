@@ -21,6 +21,7 @@ module State.Run.EventGen (
     genTaskState,
     tasksOf,
     oneLine,
+    gapText,
     runId,
     absolutePath,
     uri,
@@ -91,6 +92,7 @@ import State.Run.Gap (
     Gap (..),
     GapArea (..),
     GapMove (..),
+    GapText,
     draft,
     filed,
     parseGapText,
@@ -183,7 +185,7 @@ genGap =
     Gap
         <$> Gen.enumBounded
         <*> Gen.enumBounded
-        <*> (GapArea <$> genText)
+        <*> (GapArea <$> genOneLine)
         <*> Gen.mapMaybe parseGapText genText
         <*> (AgentRole <$> genText)
         <*> Gen.list (Range.linear 0 3) genEvidence
@@ -195,7 +197,7 @@ genEvidence =
 
 -- | A gap with this text and the defaults, met at plan by the engineer.
 bareGap :: Text -> Gap
-bareGap = filed (GapArea "plan") (AgentRole "engineer") . draft . oneLine
+bareGap = filed (GapArea (oneLine "plan")) (AgentRole "engineer") . draft . gapText
 
 -- | Any status event's move: a fix proposed, fixed or not to be fixed.
 genGapMove :: Gen GapMove
@@ -610,6 +612,10 @@ genEventId =
         [ Numbered <$> genRunId <*> Gen.integral (Range.linear 0 1000)
         , Gen.mapMaybe (parseEventId . ("h:" <>)) genIdText
         ]
+
+-- | A gap's text the test spells, which must be one line and not blank.
+gapText :: Text -> GapText
+gapText raw = fromMaybe (error ("no gap text: " <> show raw)) (parseGapText raw)
 
 -- | A line the test spells, which must hold no line break.
 oneLine :: Text -> OneLine

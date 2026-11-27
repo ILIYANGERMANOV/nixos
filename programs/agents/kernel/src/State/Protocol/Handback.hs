@@ -63,6 +63,7 @@ import State.Run.Ask (
     OneLine,
     QId (..),
     Question (..),
+    flattened,
     oneLineText,
     parseKind,
     parseOneLine,
@@ -361,8 +362,10 @@ typeHandback steps g state worktreeHead next agent agentId handback =
             ( Gapped
                 . lineGap
                     ( GapArea
-                        ( stateNameText
-                            (maybe (askedAt state) (placeName . fst) (stepHere steps g state agent))
+                        ( flattened
+                            ( stateNameText
+                                (maybe (askedAt state) (placeName . fst) (stepHere steps g state agent))
+                            )
                         )
                     )
                     agent

@@ -12,7 +12,7 @@ import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Category.Fuel (Area (..), Fuel (Balanced))
 import State.Protocol.Handback
-import State.Run.Ask (Kind (..), QId (..), Question (..), oneLineText)
+import State.Run.Ask (Kind (..), QId (..), Question (..))
 import State.Run.Event (
     AgentId (..),
     AgentRole (..),
@@ -33,6 +33,7 @@ import State.Run.Event (
 import State.Run.Event qualified as Event
 import State.Run.EventGen (
     fuelSet,
+    gapText,
     genOneLine,
     genQuestion,
     genRunId,
@@ -44,6 +45,7 @@ import State.Run.Gap (
     GapKind (Process, Tool),
     GapLine (..),
     Severity (Blocker, Papercut),
+    gapTextText,
  )
 import State.Run.RunGen (
     childOf,
@@ -95,9 +97,9 @@ spec = describe "State.Protocol.Handback" $ do
             <$> parseHandback
                 "READY done\nGap: tool papercut slow grep\n- Gap: process blocker no runner\n  * Gap: odd words\n"
             `shouldBe` Right
-                [ WellFormed Tool Papercut (oneLine "slow grep")
-                , WellFormed Process Blocker (oneLine "no runner")
-                , Malformed (oneLine "odd words")
+                [ WellFormed Tool Papercut (gapText "slow grep")
+                , WellFormed Process Blocker (gapText "no runner")
+                , Malformed (gapText "odd words")
                 ]
 
     it
@@ -397,11 +399,11 @@ genGapLine :: Gen GapLine
 genGapLine =
     Gen.choice
         [ WellFormed <$> Gen.enumBounded <*> Gen.enumBounded <*> words'
-        , Malformed . oneLine . ("about " <>) . oneLineText <$> words'
+        , Malformed . gapText . ("about " <>) . gapTextText <$> words'
         ]
   where
     words' =
-        oneLine . Text.unwords
+        gapText . Text.unwords
             <$> Gen.list (Range.linear 1 4) (Gen.text (Range.linear 1 8) Gen.alphaNum)
 
 genToken :: Gen Token

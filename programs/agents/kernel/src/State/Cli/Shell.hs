@@ -1971,7 +1971,7 @@ namedEvent state worktreeHead file = \case
         Right
             ( Gapped
                 ( Gap.filed
-                    (GapArea (stateNameText (askedAt state)))
+                    (GapArea (Ask.flattened (stateNameText (askedAt state))))
                     (Role.role state.start.flow).name
                     gap
                 )

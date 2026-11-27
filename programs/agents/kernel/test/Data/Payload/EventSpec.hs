@@ -138,6 +138,7 @@ import State.Run.Event (
  )
 import State.Run.EventGen (
     absolutePath,
+    gapText,
     genEnvelope,
     genTaskState,
     genText,
@@ -720,8 +721,8 @@ eventGoldens =
         ( Gap
             Kernel
             Blocker
-            (GapArea "implement")
-            (oneLine "no test drives the CLI's --help")
+            (GapArea (oneLine "implement"))
+            (gapText "no test drives the CLI's --help")
             implementer
             [OfEvent (EventRef parent 4), OfUrl (uri "https://github.com/o/r/issues/9")]
         )
@@ -729,8 +730,8 @@ eventGoldens =
                 ( Gap
                     Gap.Other
                     Slowdown
-                    (GapArea "plan")
-                    (oneLine "slow")
+                    (GapArea (oneLine "plan"))
+                    (gapText "slow")
                     (AgentRole "engineer")
                     []
                 )

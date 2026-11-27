@@ -128,7 +128,9 @@ import State.Run.Gap (
     Gap (..),
     GapArea (..),
     GapMove (..),
+    gapAreaText,
     gapKindText,
+    gapTextText,
     parseGapText,
     severityText,
  )
@@ -304,8 +306,8 @@ eventData = \case
     Gapped gap ->
         "gap_kind" .= gapKindText gap.kind
             <> "severity" .= severityText gap.severity
-            <> "area" .= gap.area.areaText
-            <> "text" .= oneLineText gap.text
+            <> "area" .= gapAreaText gap.area
+            <> "text" .= gapTextText gap.text
             <> "reporter" .= roleText gap.reporter
             <> pair "evidence" (list evidenceEncoding gap.evidence)
     Took _ outcome -> outcomeData outcome
@@ -645,7 +647,7 @@ gapOf obj =
     Gap
         <$> (obj .: "gap_kind" >>= named "gap kind" (parseByName gapKindText))
         <*> (obj .: "severity" >>= named "severity" (parseByName severityText))
-        <*> (GapArea <$> obj .: "area")
+        <*> (GapArea <$> oneLineAt "area" obj)
         <*> (obj .: "text" >>= named "gap text, one line" parseGapText)
         <*> (AgentRole <$> obj .: "reporter")
         <*> (obj .: "evidence" >>= traverse evidenceOf)

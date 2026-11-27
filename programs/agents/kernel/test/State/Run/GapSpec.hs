@@ -10,8 +10,8 @@ import Numeric.Natural (Natural)
 import State.Artifact (Uri)
 import State.Category.Flow (AgentRole (..))
 import State.Run.Event (Event (..), Stop (..), StopReason (..))
-import State.Run.EventGen (bareGap, logOf, oneLine, started, uri)
-import State.Run.Fold (Refusal (..), RunState (..), replay)
+import State.Run.EventGen (bareGap, gapText, line, logOf, oneLine, started, uri)
+import State.Run.Fold (Append (..), Refusal (..), RunState (..), append, replay)
 import State.Run.Gap
 import State.Run.RunGen (g)
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -22,15 +22,15 @@ spec = describe "State.Run.Gap" $ do
     describe "a hand-back's Gap: line" $ do
         it "reads a kind, a severity and the text" $
             parseGapLine "Gap: kernel blocker the fold drops a line"
-                `shouldBe` Just (WellFormed Kernel Blocker (oneLine "the fold drops a line"))
+                `shouldBe` Just (WellFormed Kernel Blocker (gapText "the fold drops a line"))
 
         it "keeps a line whose words are no kind and severity whole" $
             parseGapLine "Gap: core blocker a slip"
-                `shouldBe` Just (Malformed (oneLine "core blocker a slip"))
+                `shouldBe` Just (Malformed (gapText "core blocker a slip"))
 
         it "keeps a line with a kind and severity but no text whole" $
             parseGapLine "Gap:kernel blocker"
-                `shouldBe` Just (Malformed (oneLine "kernel blocker"))
+                `shouldBe` Just (Malformed (gapText "kernel blocker"))
 
         it "reads a blank line as no gap" $
             parseGapLine "Gap:  " `shouldBe` Nothing
@@ -42,7 +42,7 @@ spec = describe "State.Run.Gap" $ do
                 , "- Gap: tool papercut slow grep"
                 , "  *  Gap: tool papercut slow grep"
                 ]
-                `shouldBe` replicate 3 (Just (WellFormed Tool Papercut (oneLine "slow grep")))
+                `shouldBe` replicate 3 (Just (WellFormed Tool Papercut (gapText "slow grep")))
 
         it "reads no gap from a line that only mentions Gap: or has another marker" $
             map
@@ -54,13 +54,25 @@ spec = describe "State.Run.Gap" $ do
                 `shouldBe` [Nothing, Nothing, Nothing]
 
         it "logs a malformed line as other and slowdown, its whole text kept" $
-            lineGap (GapArea "fix") fixer (Malformed (oneLine "core blocker a slip"))
-                `shouldBe` Gap Other Slowdown (GapArea "fix") (oneLine "core blocker a slip") fixer []
+            lineGap
+                (GapArea (oneLine "fix"))
+                fixer
+                (Malformed (gapText "core blocker a slip"))
+                `shouldBe` Gap
+                    Other
+                    Slowdown
+                    (GapArea (oneLine "fix"))
+                    (gapText "core blocker a slip")
+                    fixer
+                    []
 
         it
             "logs a well-formed line with its kind and severity, met where the hand-back closes"
-            $ lineGap (GapArea "fix") fixer (WellFormed Tool Papercut (oneLine "slow grep"))
-                `shouldBe` Gap Tool Papercut (GapArea "fix") (oneLine "slow grep") fixer []
+            $ lineGap
+                (GapArea (oneLine "fix"))
+                fixer
+                (WellFormed Tool Papercut (gapText "slow grep"))
+                `shouldBe` Gap Tool Papercut (GapArea (oneLine "fix")) (gapText "slow grep") fixer []
 
     describe "the gap table" $ do
         it "moves an open gap along every edge" $
@@ -106,6 +118,12 @@ spec = describe "State.Run.Gap" $ do
                     Nothing -> maybe Open FixProposed (lastOf proposals)
             (fmap (.status) . lookup 1 . (.gaps) <$> replayed events)
                 === Right (Just expected)
+
+        it "logs the PR proposed again no more: a retry appends no line" $
+            ( (\state -> append g state (line 3 (GapMoved 1 (Propose pr1))))
+                <$> replayed [GapMoved 1 (Propose pr1)]
+            )
+                `shouldBe` Right (Right AlreadyLogged)
 
         it "refuses a move on a seq that is no gap unknown_gap" . hedgehog $ do
             -- Seq 1 is the gap: every other seq is the started line or no line.
