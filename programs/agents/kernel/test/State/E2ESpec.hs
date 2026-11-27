@@ -796,6 +796,33 @@ spec = describe "the state binary" $ do
                 closed <- traverse closes [child, parent]
                 closed `shouldBe` [1, 0]
 
+        it
+            "refuses outside_run_tree the close of an unrelated run's need, writing nothing"
+            $ \repo -> do
+                mine <- startedRun bin repo
+                w1 <- worktree repo "w1"
+                other <- startedIn bin w1 ["--notes", repo.root </> "n1"]
+                need <- (+ 1) . length <$> loggedTypes bin w1
+                _ <- succeeded =<< state bin w1 ["record", "user_needed", "grant access"]
+                let needId = other <> ":" <> Text.pack (show need)
+                    logs = traverse (dumpOf bin repo) [mine, other]
+                before' <- logs
+                refused <-
+                    state bin repo ["record", "user_needed", Text.unpack needId, "--done"]
+                after <- logs
+                (refused.code, refused.err, after == before')
+                    `shouldBe` ( 2
+                               ,
+                                   [ "state record: outside_run_tree "
+                                        <> needId
+                                        <> " - no run of run "
+                                        <> mine
+                                        <> "'s tree has such a line"
+                                   , "fix: state resume lists what is owed to the user as <run:seq>"
+                                   ]
+                               , True
+                               )
+
         it "resumes a stopgap until it is unset, and dumps both events" $ \repo -> do
             _ <- drive bin repo []
             run <- runOf bin repo

@@ -29,6 +29,7 @@ module State.Cli.Command (
     CommandRefusal (..),
     refusedNote,
     explainRefusal,
+    outsideRunTree,
     refusalCode,
     explain,
     unknownEvent,
@@ -1059,9 +1060,9 @@ notStarted =
         "its first line is not started"
         "state init --notes <dir>"
 
-{- | A refusal a command logs as @refused@: the fold's, or one the command
-meets before it folds. A parse or usage failure is none: it logs nothing
-and has no code.
+{- | A refusal a command logs as @refused@, or only tells when no run may
+take it: the fold's, or one the command meets before it folds. A parse or
+usage failure is none: it logs nothing and has no code.
 -}
 data CommandRefusal
     = FoldRefused Refusal
@@ -1069,6 +1070,11 @@ data CommandRefusal
       FileUnreadable AbsPath
     | -- | Evidence naming a line no run stores: the run, and the seq.
       UnknownEvent EventRef
+    | {- | A need's close naming a line of a run outside the caller's run
+      tree, the store lacking it too: the line, and the caller's run. Only
+      told, as neither run may take it.
+      -}
+      OutsideRunTree EventRef RunId
     deriving stock (Eq, Show)
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
@@ -1094,6 +1100,18 @@ explainRefusal g fuel at = \case
             ("event " <> eventRefText ref)
             "no run in the store has such a line"
             "name a line state dump <run> prints"
+    OutsideRunTree ref caller -> outsideRunTree ref caller
+
+{- | A need's close naming a line outside the caller's run tree, told with
+its code, as no run logs it.
+-}
+outsideRunTree :: EventRef -> RunId -> Failure
+outsideRunTree ref caller =
+    Failure
+        BadInput
+        ((refusalCode (OutsideRunTree ref caller)).codeText <> " " <> eventRefText ref)
+        ("no run of run " <> runIdText caller <> "'s tree has such a line")
+        "state resume lists what is owed to the user as <run:seq>"
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
@@ -1468,6 +1486,7 @@ refusalCode =
             NoOpenNeed {} -> "no_open_need"
         FileUnreadable {} -> "file_unreadable"
         UnknownEvent {} -> "unknown_event"
+        OutsideRunTree {} -> "outside_run_tree"
 
 -- | Where the run is, by its state's name.
 atText :: Node -> Text

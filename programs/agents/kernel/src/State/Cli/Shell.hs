@@ -113,6 +113,7 @@ import State.Cli.Command (
     notStarted,
     openQid,
     optparseText,
+    outsideRunTree,
     parseCommand,
     parseHook,
     refusalCode,
@@ -278,6 +279,7 @@ import State.Run.Event (
     Event (..),
     FlowName (..),
     Handover,
+    NonBlank,
     Note (..),
     RefusalCode (..),
     Repo,
@@ -619,11 +621,14 @@ targetAt dir =
     parentOf = \case
         Nothing -> Nothing
         Just (Left _) -> Nothing
-        Just (Right started) -> Fold.runStart started.event >>= principalParent . (.principal)
-    principalParent = \case
-        ByRole parent _ _ -> Just parent.run
-        ByUser _ -> Nothing
-        ByCaller _ -> Nothing
+        Just (Right started) -> Fold.runStart started.event >>= parentRun . (.principal)
+
+-- | The run that started a run, if a run did.
+parentRun :: Principal -> Maybe RunId
+parentRun = \case
+    ByRole parent _ _ -> Just parent.run
+    ByUser _ -> Nothing
+    ByCaller _ -> Nothing
 
 -- | What a want says at the run its caller is bound to ("State.Protocol.Binding"), or where it waits ('delivery').
 wantAnswer ::
@@ -1290,12 +1295,7 @@ execute steps = \case
     HandOver handover -> handOver handover
     ShowArtifact ref -> showArtifact ref
     MoveGap ref move -> moveGap ref move
-    OnRun (Record (NeedDone ref note)) ->
-        inRunOf
-            ref
-            (UserNeededDone ref.seq note)
-            (Fold.NoOpenNeed ref.seq)
-            "state resume lists what is owed to the user as <run:seq>"
+    OnRun (Record (NeedDone ref note)) -> closeNeed ref note
     Register location from by -> registerArtifact location from by
     Dump run -> dump run
     Resume run k -> resumePacket run k
@@ -1432,6 +1432,42 @@ moveGap ref move =
         (GapMoved ref.seq move)
         (Fold.UnknownGap ref.seq)
         "state resume names the open gaps as <run:seq>"
+
+{- | @state record user_needed <run:seq> --done@: the need's close,
+appended to the need's own run as a gap move is ('inRunOf'), when that run
+shares the caller's run tree: the same root run ('rootRun'). The caller's
+run is the one 'resumedRun' finds. A run outside that tree, the store lacking
+it too, is refused before any append, and only told.
+-}
+closeNeed ::
+    (Shell es) => EventRef -> Maybe NonBlank -> Eff es (Either Failure Text)
+closeNeed ref note =
+    resumedRun >>= \case
+        Left failure -> pure (Left failure)
+        Right Nothing -> pure (Left noRun)
+        Right (Just caller) ->
+            ((==) <$> rootRun caller <*> rootRun ref.run) >>= \case
+                False -> pure (Left (outsideRunTree ref caller))
+                True ->
+                    inRunOf
+                        ref
+                        (UserNeededDone ref.seq note)
+                        (Fold.NoOpenNeed ref.seq)
+                        "state resume lists what is owed to the user as <run:seq>"
+
+{- | The run a run's tree grows from: its parent's root, else itself. A run
+the store lacks, or whose first line this state cannot read, is its own root.
+-}
+rootRun :: (Log :> es) => RunId -> Eff es RunId
+rootRun run =
+    Log.firstEvent run >>= \case
+        Just (Right first) ->
+            maybe
+                (pure run)
+                rootRun
+                (Fold.runStart first.event >>= parentRun . (.principal))
+        Just (Left _) -> pure run
+        Nothing -> pure run
 
 {- | The event for the line @ref@ names, appended to that line's run under
 its lock, whichever run the worktree holds: refused there and logged as
@@ -2347,7 +2383,7 @@ namedEvent g state worktreeHead file n = \case
     AddsTask path parse -> (\event -> event (Fold.addedTo state n)) <$> parsed path parse
     HeadOf task sha -> onTask task (`TaskHead` sha)
     OnTasks ids event -> event <$> traverse taskRef ids
-    -- Never met: the shell appends a need's done in the need's own run first ('inRunOf').
+    -- Never met: the shell appends a need's done in the need's own run first ('closeNeed').
     NeedDone ref note -> Right (UserNeededDone ref.seq note)
   where
     onTask task event = event <$> taskRef task

@@ -655,9 +655,7 @@ ijsonRefusalText = \case
             <> Text.pack (show ijsonCap)
             <> ": keep a stopgap small"
 
-{- | The user's words as given, line breaks too: only blank ones are refused.
-| A line's seq in the run's log.
--}
+-- | A line's seq in the run's log.
 seqOf :: Text -> Either Text Natural
 seqOf raw =
     maybe
