@@ -654,7 +654,7 @@ agentsEnded steps call = \case
 
 -- | The subagents with a slot in the session's bindings.
 sessionAgents ::
-    (Environment :> es, RoFileSystem :> es) => SessionId -> Eff es [AgentId]
+    (Environment :> es, RoFileSystem :> es) => Maybe SessionId -> Eff es [AgentId]
 sessionAgents session =
     maybe (pure []) (fmap slottedAgents . FileSystem.listDirectory . sessionDir)
         =<< slotFor session Main
@@ -669,7 +669,8 @@ nothing: a return would fake its hand-back. Nor does a child run whose
 hand-back, or makes it once resumed.
 -}
 agentEnded ::
-    (Shell es) => Steps -> SessionId -> (RunId -> Bool) -> AgentId -> Eff es Text
+    (Shell es) =>
+    Steps -> Maybe SessionId -> (RunId -> Bool) -> AgentId -> Eff es Text
 agentEnded steps session under agent =
     slotFor session (AgentKey agent) >>= maybe (pure Nothing) ledRun >>= \case
         Nothing -> pure ""
@@ -680,7 +681,7 @@ agentEnded steps session under agent =
                 Ran (Right Nothing) -> pure ""
                 Ran (Right (Just (parent, role))) -> either (failureText "stop") (const "") <$> onLog (returning run role) parent
   where
-    sessioned stamp = Stamp stamp.ts stamp.head (hookSession session)
+    sessioned stamp = Stamp stamp.ts stamp.head session
     noted = Right . (`Plan` (\_ _ -> mempty))
     end stamp run = case run.state.start.principal of
         ByRole parent _ _
@@ -724,13 +725,13 @@ by an id hashed from the run and the worker, so a bind seen twice appends it
 once: the run hands back only once the worker returned. A refusal is told.
 -}
 workerSpawned ::
-    (Shell es) => Binding -> SessionId -> AgentId -> AgentRole -> Eff es Text
+    (Shell es) => Binding -> Maybe SessionId -> AgentId -> AgentRole -> Eff es Text
 workerSpawned binding session child role = either (failureText "bind") (const "") <$> onLog append binding.run
   where
     source = Hook (digestOf [runIdText binding.run, child.agentIdText, "worker_spawned"])
     append stamp run =
         record
-            (Stamp stamp.ts stamp.head (hookSession session))
+            (Stamp stamp.ts stamp.head session)
             run
             [source]
             (Right (Plan [WorkerSpawned role child] (\_ _ -> mempty)))
@@ -769,9 +770,10 @@ atRun steps name call want bound = do
         Nothing -> pure ""
         Just dir -> FileSystem.inDirectory dir (hookAnswer steps name call bound want)
 
--- | A key's slot in the session's bindings; none without a store root.
-slotFor :: (Environment :> es) => SessionId -> Key -> Eff es (Maybe Slot)
-slotFor session key = (>>= \at -> slotOf at session key) <$> bindingsRoot
+-- | A key's slot in the session's bindings; none without a session or a store root.
+slotFor :: (Environment :> es) => Maybe SessionId -> Key -> Eff es (Maybe Slot)
+slotFor session key =
+    (\root -> do at <- root; named <- session; slotOf at named key) <$> bindingsRoot
 
 bindingsRoot :: (Environment :> es) => Eff es (Maybe FilePath)
 bindingsRoot = storeRoot <$> lookupEnv "XDG_STATE_HOME" <*> lookupEnv "HOME"
@@ -941,7 +943,7 @@ runAnswer steps call bound found want = case want of
                 | silent branch ((.readiness) <$> pr) run.logged run.state -> ([], Right "")
                 | otherwise ->
                     Right . aboutRun run.state.run
-                        <$> act (Stamp stamp.ts stamp.head (hookSession call.session)) run
+                        <$> act (Stamp stamp.ts stamp.head call.session) run
         pure (either (aboutKnown found . failureText "hook") id (orNoRun result))
     -- GitHub unread is no PR: the hook speaks.
     runPr = fromRight Nothing . pullRequestOf <$> (Gh.prView =<< runShape)
@@ -2410,10 +2412,6 @@ now =
         <$> Clock.now
         <*> Git.headSha
         <*> ((parseSessionId . Text.pack =<<) <$> lookupEnv "STATE_SESSION")
-
--- | The session a hook names, none when it is empty.
-hookSession :: SessionId -> Maybe SessionId
-hookSession (SessionId session) = parseSessionId session
 
 -- | Short and random: eight hex digits from the kernel's entropy.
 newRunId :: (Random :> es) => Eff es RunId

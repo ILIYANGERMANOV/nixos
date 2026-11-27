@@ -91,7 +91,15 @@ import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
 import Doubles.Gh (printedPr, runGhScripted)
 import Doubles.Git (Worktree (..), runGitMissing, runGitScripted)
-import Doubles.Log (Runs (..), editRows, rowsOf, runLogInMemory)
+import Doubles.Log (
+    Access (..),
+    Runs,
+    editRows,
+    noRuns,
+    rowsOf,
+    runLogInMemory,
+    withAccess,
+ )
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
 import Effectful.Error.Static (runErrorNoCallStack)
@@ -151,7 +159,7 @@ newWorld = do
                     , dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"]
                     , cwd = "/work"
                     }
-            , runs = Runs []
+            , runs = noRuns
             , gitDir = Right "/work/.git"
             , others = []
             , gitOnPath = True
@@ -375,7 +383,7 @@ editLogIn world dir edit = modifyIORef' world $ \w ->
     w
         { runs =
             maybe
-                (Runs (rowsOf w.runs))
+                (withAccess Writable w.runs)
                 (\found -> editRows found edit w.runs)
                 (runIn w dir)
         }
@@ -424,7 +432,7 @@ runIn w dir =
 
 -- | The run store takes no write from now on, as on a disk failure; it still reads.
 storeDown :: IORef World -> IO ()
-storeDown world = modifyIORef' world (\w -> w {runs = ReadOnly (rowsOf w.runs)})
+storeDown world = modifyIORef' world (\w -> w {runs = withAccess ReadOnly w.runs})
 
 -- | A file's bytes as written, if it exists.
 fileBytes :: IORef World -> FilePath -> IO (Maybe ByteString)

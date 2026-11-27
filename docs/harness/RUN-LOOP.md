@@ -144,7 +144,7 @@ To look inside a run:
 | Command | Prints |
 |---|---|
 | `state show` | where the run is and what it holds: step, facts, questions, rulings, gaps |
-| `state dump <run>` | the run's raw rows, as JSON Lines: one object per `events` row, every column a key, `data` as stored |
+| `state dump <run>` | the run's raw rows, as JSON Lines: one object per `events` row, every column but `position` (store-internal append order) a key, `data` as stored |
 | `state pending` | the questions awaiting an answer |
 | `state tasks` | each request's card and its resume advice |
 | `state render mermaid --flow <f>` | the flow's graph (the flow, not one run's walk through it) |

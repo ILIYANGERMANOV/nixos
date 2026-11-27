@@ -70,8 +70,10 @@ trace         --rows, same transaction--> projections            rebuilt, never 
   layers. Every mapping is pure, so round trips are property tests with
   no database.
 - **`state dump` prints the raw rows**: JSON Lines, one object per
-  `events` row, every column a key and `data` as stored. It never decodes
-  a payload, so it never fails on a row.
+  `events` row, every column but `position` a key and `data` as stored.
+  `position` is SQLite's rowid alias: store-internal append order the
+  kernel never reads. Dump never decodes a payload, so it never fails on
+  a row.
 
 ## Laws
 

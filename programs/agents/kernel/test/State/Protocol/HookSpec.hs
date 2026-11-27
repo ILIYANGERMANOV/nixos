@@ -69,7 +69,7 @@ spec = describe "the hooks" $ do
                 `shouldBe` Right
                     ( BeforeTool
                         ( Call
-                            (SessionId "s")
+                            (Just (SessionId "s"))
                             "/w"
                             (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "fixer"))))
                         )
@@ -79,14 +79,18 @@ spec = describe "the hooks" $ do
 
         it "reads the lead, whose agent is null" $
             parseHookEvent (sessionStart "startup")
-                `shouldBe` Right (SessionStart (Call (SessionId "s") "/w" Nothing) Startup)
+                `shouldBe` Right (SessionStart (Call (Just (SessionId "s")) "/w" Nothing) Startup)
+
+        it "reads an empty session as none" $
+            parseHookEvent (withField "session" "" (sessionStart "startup"))
+                `shouldBe` Right (SessionStart (Call Nothing "/w" Nothing) Startup)
 
         it "reads a subagent's start, by its agent" $
             parseHookEvent (agentStart "engineer")
                 `shouldBe` Right
                     ( AgentStart
                         ( Call
-                            (SessionId "s")
+                            (Just (SessionId "s"))
                             "/w"
                             (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "engineer"))))
                         )
@@ -94,20 +98,21 @@ spec = describe "the hooks" $ do
 
         it "reads a typed prompt's expansion, by the skill it names" $
             parseHookEvent (promptExpansion "10x-engineer")
-                `shouldBe` Right (PromptExpansion (Call (SessionId "s") "/w" Nothing) "10x-engineer")
+                `shouldBe` Right
+                    (PromptExpansion (Call (Just (SessionId "s")) "/w" Nothing) "10x-engineer")
 
         it "reads an agent's stop, with the agents still running" $
             map parseHookEvent [agentStop fixer ["a1", "b2"], agentStop Null []]
                 `shouldBe` [ Right
                                 ( AgentStop
                                     ( Call
-                                        (SessionId "s")
+                                        (Just (SessionId "s"))
                                         "/w"
                                         (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "fixer"))))
                                     )
                                     [AgentId "a1", AgentId "b2"]
                                 )
-                           , Right (AgentStop (Call (SessionId "s") "/w" Nothing) [])
+                           , Right (AgentStop (Call (Just (SessionId "s")) "/w" Nothing) [])
                            ]
 
         it "refuses an agent's stop that lists no agents running" $
@@ -133,7 +138,7 @@ spec = describe "the hooks" $ do
             parseHookEvent (encodeObject (afterToolFields "delegate"))
                 `shouldBe` Right
                     ( AfterTool
-                        (Call (SessionId "s") "/w" (Just reviewLead))
+                        (Call (Just (SessionId "s")) "/w" (Just reviewLead))
                         Delegate
                         KeyMap.empty
                         (String "ok")
@@ -169,7 +174,10 @@ spec = describe "the hooks" $ do
         it "resumes for the lead, and for an agent no flow knows" $
             map
                 ( \agent ->
-                    wants steps ResumeHook (SessionStart (Call (SessionId "s") "/w" agent) Startup)
+                    wants
+                        steps
+                        ResumeHook
+                        (SessionStart (Call (Just (SessionId "s")) "/w" agent) Startup)
                 )
                 [Nothing, Just (Agent Nothing (Just (AgentRole "engineer")))]
                 `shouldBe` [ Right (Just (Asks (ResumeRun Startup)))
@@ -180,7 +188,11 @@ spec = describe "the hooks" $ do
             wants
                 steps
                 SpawnHook
-                (BeforeTool (Call (SessionId "s") "/w" (Just reviewLead)) Delegate KeyMap.empty)
+                ( BeforeTool
+                    (Call (Just (SessionId "s")) "/w" (Just reviewLead))
+                    Delegate
+                    KeyMap.empty
+                )
                 `shouldBe` Right Nothing
 
         it "reads the role the lead spawns" $
@@ -188,7 +200,7 @@ spec = describe "the hooks" $ do
                 steps
                 SpawnHook
                 ( BeforeTool
-                    (Call (SessionId "s") "/w" Nothing)
+                    (Call (Just (SessionId "s")) "/w" Nothing)
                     Delegate
                     (KeyMap.fromList [("subagent_type", String "implementer")])
                 )
@@ -199,7 +211,7 @@ spec = describe "the hooks" $ do
                 steps
                 HandbackHook
                 ( BeforeTool
-                    (Call (SessionId "s") "/w" (Just agent))
+                    (Call (Just (SessionId "s")) "/w" (Just agent))
                     HandbackTool
                     (message "READY")
                 )
@@ -219,8 +231,8 @@ spec = describe "the hooks" $ do
             $ [ wants
                     steps
                     StopHook
-                    (AgentStop (Call (SessionId "s") "/w" (Just reviewLead)) [AgentId "a2"])
-              , wants steps StopHook (AgentStop (Call (SessionId "s") "/w" Nothing) [])
+                    (AgentStop (Call (Just (SessionId "s")) "/w" (Just reviewLead)) [AgentId "a2"])
+              , wants steps StopHook (AgentStop (Call (Just (SessionId "s")) "/w" Nothing) [])
               ]
                 `shouldBe` [ Right (Just (Ends (Stops (AgentKey (AgentId "a2")) [AgentId "a2"])))
                            , Right (Just (Ends (Stops Main [])))
@@ -231,7 +243,7 @@ spec = describe "the hooks" $ do
                 steps
                 StopHook
                 ( AfterTool
-                    (Call (SessionId "s") "/w" Nothing)
+                    (Call (Just (SessionId "s")) "/w" Nothing)
                     tool
                     (KeyMap.fromList [("task_id", String "c1")])
                     (object [])
@@ -241,7 +253,10 @@ spec = describe "the hooks" $ do
                 `shouldBe` [Right (Just (Ends (StopsAgent (AgentId "c1")))), Right Nothing]
 
         it "refuses a hook at an event it is not declared on" $
-            wants steps SpawnHook (SessionStart (Call (SessionId "s") "/w" Nothing) Startup)
+            wants
+                steps
+                SpawnHook
+                (SessionStart (Call (Just (SessionId "s")) "/w" Nothing) Startup)
                 `shouldBe` Left "state-hook spawn does not run at sessionStart"
 
     describe "what a call routes" $ do
@@ -250,7 +265,7 @@ spec = describe "the hooks" $ do
                     steps
                     RouteHook
                     ( BeforeTool
-                        (Call (SessionId "s") "/w" agent)
+                        (Call (Just (SessionId "s")) "/w" agent)
                         tool
                         (KeyMap.fromList [("command", String command)])
                     )
@@ -268,7 +283,7 @@ spec = describe "the hooks" $ do
                     steps
                     RouteHook
                     ( BeforeTool
-                        (Call (SessionId "s") "/w" Nothing)
+                        (Call (Just (SessionId "s")) "/w" Nothing)
                         tool
                         (KeyMap.fromList [("file_path", String file)])
                     )
@@ -289,7 +304,7 @@ spec = describe "the hooks" $ do
                     BeginHook
                     ( AgentStart
                         ( Call
-                            (SessionId "s")
+                            (Just (SessionId "s"))
                             "/w"
                             (Just (Agent (Just (AgentId "a1")) (AgentRole <$> role)))
                         )
@@ -299,7 +314,7 @@ spec = describe "the hooks" $ do
                     steps
                     BeginHook
                     ( BeforeTool
-                        (Call (SessionId "s") "/w" Nothing)
+                        (Call (Just (SessionId "s")) "/w" Nothing)
                         tool
                         (KeyMap.fromList [("skill", String skill)])
                     )
@@ -321,7 +336,7 @@ spec = describe "the hooks" $ do
             [ wants
                 steps
                 BeginHook
-                (PromptExpansion (Call (SessionId "s") "/w" Nothing) "engineer")
+                (PromptExpansion (Call (Just (SessionId "s")) "/w" Nothing) "engineer")
             , called Skill "10x-engineer"
             ]
                 `shouldBe` [ Right (Just (Begins (TypedSkill EngineerSkill)))
@@ -329,7 +344,10 @@ spec = describe "the hooks" $ do
                            ]
 
         it "says nothing at another skill, or another tool naming a lead skill" $
-            [ wants steps BeginHook (PromptExpansion (Call (SessionId "s") "/w" Nothing) "qa")
+            [ wants
+                steps
+                BeginHook
+                (PromptExpansion (Call (Just (SessionId "s")) "/w" Nothing) "qa")
             , called Skill "refactor"
             , called Shell "engineer"
             ]
@@ -341,7 +359,7 @@ spec = describe "the hooks" $ do
                     steps
                     BindHook
                     ( AfterTool
-                        (Call (SessionId "s") "/w" Nothing)
+                        (Call (Just (SessionId "s")) "/w" Nothing)
                         Shell
                         (KeyMap.fromList [("command", String command)])
                         (object ["stdout" .= (stdout :: Text), "stderr" .= ("" :: Text)])
@@ -351,7 +369,7 @@ spec = describe "the hooks" $ do
                     steps
                     BindHook
                     ( AfterTool
-                        (Call (SessionId "s") "/w" Nothing)
+                        (Call (Just (SessionId "s")) "/w" Nothing)
                         Delegate
                         (KeyMap.fromList [("subagent_type", String role)])
                         (object ["status" .= ("completed" :: Text), "agentId" .= ("c1" :: Text)])

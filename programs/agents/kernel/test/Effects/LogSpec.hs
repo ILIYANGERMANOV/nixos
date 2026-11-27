@@ -24,11 +24,11 @@ import Data.Text qualified as Text
 import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
 import Database.SQLite.Simple qualified as SQLite
 import Doubles.Environment (runEnvironmentGiven)
-import Doubles.Log (Runs (..), editRows, runLogInMemory)
+import Doubles.Log (noRuns, runLogInMemory, written)
 import Effectful (Eff, runEff, runPureEff, (:>))
 import Effectful.Error.Static (runErrorNoCallStack)
-import Effectful.Exception (try)
-import Effectful.State.Static.Local (evalState, modify)
+import Effectful.Exception (throwIO, try)
+import Effectful.State.Static.Local (evalState, get, put)
 import Effects.Log (
     Log,
     Logged,
@@ -156,14 +156,14 @@ spec = describe "Effects.Log" $ do
                             ]
 
 {- | Runs a program, read through these upcasts, on a log with these runs,
-each its events, then these rows as a writer left them, appended by hand;
-the program gets nothing else.
+each its events, then these writes of raw rows as another writer left them,
+past the domain's mapping; the program gets nothing else.
 -}
 type Backend =
     forall a.
     Upcasts ->
     [Envelope] ->
-    [EventRow] ->
+    [Write] ->
     (forall es. (Log :> es) => Eff es a) ->
     IO a
 
@@ -171,16 +171,15 @@ type Backend =
 inStore :: Backend
 inStore upcasts seeded byHand program = withSystemTempDirectory "state-log" $ \dir -> do
     atStore dir (mapM_ (\e -> locked e.run (const ([e], ()))) seeded)
-    -- Raw rows through the store's own append, past the domain's mapping.
+    -- Raw rows through the store's own write, past the domain's mapping.
     withStore
         Full
         (dir </> "state" </> "kernel-v2.db")
-        (for_ byHand . appendRaw)
+        (for_ byHand . writeRaw)
         >>= either (fail . show) pure
     atStoreWith upcasts dir program
   where
-    appendRaw store row =
-        Store.locked store row.runId (const (Just (Append (row :| [])), ()))
+    writeRaw store write = Store.locked store (runOf write) (const (Just write, ()))
 
 -- | A program on the run store under this @XDG_STATE_HOME@, which it must open.
 atStore :: FilePath -> (forall es. (Log :> es) => Eff es a) -> IO a
@@ -207,10 +206,17 @@ storeRows dir sql params =
 
 inMemory :: Backend
 inMemory upcasts seeded byHand program =
-    pure . runPureEff . evalState (Runs []) . runLogInMemory upcasts $ do
+    pure . runPureEff . evalState noRuns . runLogInMemory upcasts $ do
         mapM_ (\e -> locked e.run (const ([e], ()))) seeded
-        for_ byHand $ \row -> modify (editRows (runId row.runId) (<> [row]))
+        for_ byHand $ \write ->
+            get >>= either (throwIO . userError) put . written (runId (runOf write)) write
         program
+
+-- | The run a write's rows belong to.
+runOf :: Write -> Text.Text
+runOf = \case
+    Append (row :| _) -> row.runId
+    Store.Start _ (row :| _) -> row.runId
 
 contract :: Backend -> Spec
 contract on = do
@@ -281,6 +287,25 @@ contract on = do
 
         failed `shouldSatisfy` isLeft
 
+    it "throws on a second row of a hook digest the run holds already" $ do
+        failed <- backend [started top] $ do
+            locked top (const ([hooked {seq = 2}], ()))
+            try @IOException (locked top (const ([hooked {seq = 3}], ())))
+
+        failed `shouldSatisfy` isLeft
+
+    it "lists a run's children by its runs row, its first row one it cannot read" $ do
+        found <-
+            on
+                shipped
+                [started top]
+                [ Store.Start index (unknownStart :| [])
+                | Just index <- [runRow (childOf top child)]
+                ]
+                (children top)
+
+        found `shouldBe` [child]
+
     modifyMaxSuccess (const 30) $ do
         it
             "only grows: each decision's log holds the one before it, its seqs dense from 1"
@@ -309,27 +334,25 @@ contract on = do
                 locked top (\logged -> ([], fromRight [] (eventsOf logged)))
             map (.source) logged === [Cli, hooked.source]
 
-    it
-        "refuses an append to a run holding a row it cannot read, naming its seq and type"
-        $ do
-            refused <-
-                on shipped [started top] [unknownRow] $
-                    locked top $ \case
-                        Left unread -> ([], Left unread)
-                        Right logged -> ([followed top (fromIntegral logged.rows + 1)], Right ())
+    it "gives a decision the row it cannot read, naming its seq and type" $ do
+        refused <-
+            on shipped [started top] [appended unknownRow] $
+                locked top $ \case
+                    Left unread -> ([], Left unread)
+                    Right logged -> ([followed top (fromIntegral logged.rows + 1)], Right ())
 
-            refused
-                `shouldBe` Left (Unread 2 "no_such_event" 1)
+        refused
+            `shouldBe` Left (Unread 2 "no_such_event" 1)
 
     it "appends after a retired row at the next seq, the row skipped" $ do
-        logged <- on retiring [started top] [retiredRow Nothing] $ do
+        logged <- on retiring [started top] [appended (retiredRow Nothing)] $ do
             locked top appendOne
             locked top (\logged -> ([], (.seq) <$> fromRight [] (eventsOf logged)))
 
         logged `shouldBe` [1, 3]
 
     it "skips a hook fired again on a retired row of that hook" $ do
-        logged <- on retiring [started top] [retiredRow (Just "0123456789abcdef")] $ do
+        logged <- on retiring [started top] [appended (retiredRow (Just "0123456789abcdef"))] $ do
             locked top hookOnce
             locked top (\logged -> ([], (\l -> (map (.seq) l.events, l.rows)) <$> logged))
 
@@ -339,9 +362,17 @@ contract on = do
 eventsOf :: Either Unread Logged -> Either Unread [Envelope]
 eventsOf = fmap (.events)
 
+-- | A write of this one row, appended.
+appended :: EventRow -> Write
+appended row = Append (row :| [])
+
 -- | Seq 2 of 'top', of a type no kernel knows.
 unknownRow :: EventRow
 unknownRow = (eventRow (followed top 2)) {Row.eventType = "no_such_event"}
+
+-- | The first row of 'child' under 'top', of a type no kernel knows.
+unknownStart :: EventRow
+unknownStart = (eventRow (childOf top child)) {Row.eventType = "no_such_event"}
 
 -- | Seq 2 of 'top', of the type 'retiring' retired, written by this hook if any.
 retiredRow :: Maybe Text.Text -> EventRow
