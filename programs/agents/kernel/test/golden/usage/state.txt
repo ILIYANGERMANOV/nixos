@@ -30,6 +30,7 @@ Available commands:
   artifact                 Register a file or URL; 'artifact show' prints one
   note                     Note context for a fresh agent, under a topic
   handover                 Hand the run over to a fresh agent
+  resume                   Print the packet a fresh agent resumes the run from
   help                     Print this help
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck

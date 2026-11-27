@@ -17,6 +17,7 @@ module State.Cli.Shell.World (
     startedIn,
     putFile,
     putBytes,
+    removeFile,
     tenXAtFanOut,
     tenXAtFanOutOf,
     tenXAtFanOutBy,
@@ -39,6 +40,7 @@ module State.Cli.Shell.World (
     editLogIn,
     appendUnread,
     lessUnread,
+    unknownType,
     newerStart,
     logRows,
     fileBytes,
@@ -294,6 +296,13 @@ putBytes :: IORef World -> FilePath -> ByteString -> IO ()
 putBytes world path content = modifyIORef' world $ \w ->
     let disk = w.disk
      in w {disk = disk {files = Map.insert path content disk.files}}
+
+-- | A file deleted outside @state@.
+removeFile :: IORef World -> FilePath -> IO ()
+removeFile world path =
+    modifyIORef'
+        world
+        (\w -> w {disk = w.disk {files = Map.delete path w.disk.files}})
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
 @t1@, @t2@ heavy; the run's id.

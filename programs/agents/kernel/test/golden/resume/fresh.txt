@@ -1,0 +1,6 @@
+resume run 00010203 (engineer), active at fuel: 0 sessions, 1 events, no handover yet
+worktree: /work   repo: none   fuel: balanced
+pr: none yet   notes dir: /notes
+
+context map (load on demand, or in a subagent):
+  raw log: state dump 00010203

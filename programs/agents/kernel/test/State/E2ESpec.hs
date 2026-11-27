@@ -22,6 +22,7 @@ import Data.Text.IO qualified as Text
 import Database.SQLite.Simple qualified as SQLite
 import Effects.Store.Connection (Durability (Unsynced), withStore)
 import Effects.Store.Events qualified as Store
+import State.Artifact (sha256Of, sha256Text)
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Event (FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
@@ -355,6 +356,51 @@ spec = describe "the state binary" $ do
                     , original
                     )
                     `shouldBe` (True, True, ["v2"], ["b"])
+
+        it
+            "resumes from a file's snapshot past its deletion: register, delete, hand over, resume, show"
+            $ \repo -> do
+                run <- startedRun bin repo
+                let notes = repo.work </> "notes.md"
+                writeFile notes "v1\n"
+                _ <- succeeded =<< state bin repo ["artifact", "notes.md", "--kind", "notes"]
+                removeFile notes
+                _ <-
+                    succeeded
+                        =<< state
+                            bin
+                            repo
+                            ["handover", "--reason", "context", "--summary", "s", "--next", "go on"]
+                resumed <- succeeded =<< state bin repo ["resume"]
+                shown <-
+                    succeeded =<< state bin repo ["artifact", "show", Text.unpack run <> ":2"]
+                ( filter (Text.isPrefixOf "notes " . Text.strip) resumed
+                    , filter (Text.isInfixOf "load: state artifact show") resumed
+                    , filter (Text.isPrefixOf "  1. ") resumed
+                    , shown
+                    )
+                    `shouldBe` (
+                                   [ "    notes "
+                                        <> run
+                                        <> ":2 "
+                                        <> Text.pack notes
+                                        <> " sha256:"
+                                        <> sha256Text (sha256Of "v1\n")
+                                        <> " 3 bytes stored"
+                                   ]
+                               , ["      load: state artifact show " <> run <> ":2"]
+                               , ["  1. go on"]
+                               , ["v1"]
+                               )
+
+        it "resumes a moved run at its new worktree" $ \repo -> do
+            _ <- startedRun bin repo
+            target <- worktree repo "target"
+            top <- Text.strip . Text.pack <$> gitOut target ["rev-parse", "--show-toplevel"]
+            _ <- succeeded =<< state bin repo ["move", target.work]
+            resumed <- succeeded =<< state bin target ["resume"]
+            filter (Text.isPrefixOf "worktree: ") resumed
+                `shouldBe` ["worktree: " <> top <> "   repo: none   fuel: balanced"]
 
         it
             "logs a plan.done whose plan may not be read, with no artifact, and names the path"

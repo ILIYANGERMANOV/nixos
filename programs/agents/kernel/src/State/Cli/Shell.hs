@@ -69,13 +69,13 @@ import State.Artifact (
     absPath,
     absPathText,
     blobsOf,
+    digestText,
     fileKindText,
     keepsContent,
     newest,
     originRepo,
     register,
     resnapshot,
-    sha256Text,
     snapshotted,
     uriText,
     urlKindText,
@@ -95,6 +95,7 @@ import State.Cli.Command (
     Origin (..),
     Raise (..),
     RunCommand (..),
+    Until (..),
     Usage (..),
     answeredQid,
     anyEvent,
@@ -118,6 +119,8 @@ import State.Cli.Command (
  )
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
+import State.Cli.Resume (artifactsOf)
+import State.Cli.Resume qualified as Resume
 import State.Cli.Route (
     StateCall (..),
     Target (..),
@@ -1086,6 +1089,7 @@ execute steps = \case
     ShowArtifact run n -> showArtifact run n
     Register location from -> registerArtifact location from
     Dump run -> dump run
+    Resume run k -> resumePacket run k
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
@@ -1256,8 +1260,8 @@ artifactLine run n artifact =
     "artifact " <> numberedText run n <> " " <> case artifact of
         File file ->
             fileKindText file.kind
-                <> " sha256:"
-                <> sha256Text file.ref.sha256
+                <> " "
+                <> digestText file.ref.sha256
                 <> " "
                 <> tshow file.ref.size.bytes
                 <> " bytes, "
@@ -1268,11 +1272,6 @@ artifactLine run n artifact =
 -- | The artifacts these lines log, each with its seq.
 artifactsWritten :: [Written] -> [(Natural, Artifact)]
 artifactsWritten written = artifactsOf [w.envelope | w <- written]
-
--- | The artifacts these lines log, each with its seq.
-artifactsOf :: (Foldable t) => t Envelope -> [(Natural, Artifact)]
-artifactsOf logged =
-    [(e.seq, artifact) | e <- toList logged, ArtifactLogged artifact _ <- [e.event]]
 
 {- | The append of these lines and the blobs of the files they register,
 from the bytes read before the lock: a refusal registers none.
@@ -1421,8 +1420,7 @@ showArtifact run n =
                                         ( Failure
                                             NotStored
                                             (pathText file.ref.path)
-                                            ( "sha256:"
-                                                <> sha256Text file.ref.sha256
+                                            ( digestText file.ref.sha256
                                                 <> ", its bytes not stored: a transcript, or over the cap"
                                             )
                                             ("read the file at " <> pathText file.ref.path)
@@ -1535,15 +1533,62 @@ version prints, so dump never fails on a row.
 dump :: (Log :> es) => RunId -> Eff es (Either Failure Text)
 dump run =
     Log.rows run <&> \case
-        [] ->
-            Left
-                ( Failure
-                    BadInput
-                    ("run " <> runIdText run)
-                    "no such run in the run store"
-                    "state show names the worktree's run"
-                )
+        [] -> Left (noSuchRun run)
         lines' -> Right (foldMap (<> "\n") lines')
+
+noSuchRun :: RunId -> Failure
+noSuchRun run =
+    Failure
+        BadInput
+        ("run " <> runIdText run)
+        "no such run in the run store"
+        "state show names the worktree's run"
+
+{- | @state resume [<run>] [--until <seq>]@: the packet a fresh agent takes
+the run up from ("State.Cli.Resume"), of the run named, else the run the
+session (@STATE_SESSION@) is bound to, else the worktree's. Read in one
+statement without the lock, and cut at @--until@ before any line is read: a
+line this state cannot read refuses the packet only when the cut keeps it.
+Each child run's notes dir is read from its first line alone, so a child's
+unreadable line refuses nothing here.
+-}
+resumePacket ::
+    (Shell es) => Maybe RunId -> Maybe Until -> Eff es (Either Failure Text)
+resumePacket named k =
+    maybe resumedRun (pure . Right . Just) named >>= \case
+        Left failure -> pure (Left failure)
+        Right Nothing -> pure (Left noRun)
+        Right (Just run) ->
+            Log.readUntil run ((.seq) <$> k) >>= \case
+                Left unread -> pure (Left (unreadRefusal run unread))
+                Right Log.Logged {events = []} -> pure (Left (noSuchRun run))
+                Right Log.Logged {events = first : rest} -> case replayed run (first :| rest) of
+                    Left failure -> pure (Left failure)
+                    Right (_, state) ->
+                        Right
+                            . Resume.packet
+                            . Resume.Input state (first :| rest)
+                            . Map.fromList
+                            . catMaybes
+                            <$> traverse
+                                notesDirOf
+                                [c.child.run | fan <- Map.elems state.fans, c <- fan.children]
+  where
+    notesDirOf child =
+        Log.firstEvent child <&> \case
+            Just (Right first) -> (child,) . (.notes) <$> Fold.runStart first.event
+            Just (Left _) -> Nothing
+            Nothing -> Nothing
+
+-- | The run the session is bound to, else the worktree's run, if any.
+resumedRun :: (Shell es) => Eff es (Either Failure (Maybe RunId))
+resumedRun =
+    stateSession
+        >>= (`slotFor` Main)
+        >>= maybe (pure Nothing) (readBinding . bindingFile)
+        >>= \case
+            Just binding -> pure (Right (Just binding.run))
+            Nothing -> gitDir >>= traverse readPointer
 
 -- | What a command appends, and what it prints from the state reached and the lines written.
 data Plan = Plan {events :: [Event], say :: RunState -> [Written] -> Output}
@@ -2585,9 +2630,7 @@ moveRun gd target = do
 
 -- | The worktree the run's log last names: the last it moved to, else its start's.
 worktreeOf :: Start -> NonEmpty Envelope -> AbsPath
-worktreeOf start logged = case reverse [top | line <- toList logged, WorktreeMoved top _ <- [line.event]] of
-    top : _ -> top
-    [] -> start.worktree
+worktreeOf start logged = fst (Resume.placeOf start logged)
 
 {- | The worktree's top as the log keeps it. Git names its top absolute and
 normalised, so a refusal is git's fault, told as an outage.
@@ -2902,7 +2945,11 @@ now =
     Stamp
         <$> Clock.now
         <*> Git.headSha
-        <*> ((parseSessionId . Text.pack =<<) <$> lookupEnv "STATE_SESSION")
+        <*> stateSession
+
+-- | The session @STATE_SESSION@ names, if any.
+stateSession :: (Environment :> es) => Eff es (Maybe SessionId)
+stateSession = (parseSessionId . Text.pack =<<) <$> lookupEnv "STATE_SESSION"
 
 -- | Short and random: eight hex digits from the kernel's entropy.
 newRunId :: (Random :> es) => Eff es RunId

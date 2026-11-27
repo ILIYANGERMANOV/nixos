@@ -23,6 +23,7 @@ module State.Artifact (
     sha256Of,
     parseSha256,
     sha256Text,
+    digestText,
     Size (..),
     sizeOf,
     cap,
@@ -169,6 +170,10 @@ parseSha256 = fmap Sha256 . lowerHex [64]
 
 sha256Text :: Sha256 -> Text
 sha256Text (Sha256 raw) = raw
+
+-- | A digest as the kernel prints it, in the OCI digest form: @sha256:<hex>@.
+digestText :: Sha256 -> Text
+digestText key = "sha256:" <> sha256Text key
 
 -- | A file's size in bytes.
 newtype Size = Size {bytes :: Natural}

@@ -3,7 +3,9 @@ brief@; and the texts that need no run: a role's brief and how work begins.
 -}
 module State.Cli.View (
     showRun,
+    section,
     pendingLines,
+    answerLine,
     brief,
     briefSection,
     taskBrief,
@@ -128,21 +130,27 @@ showRun steps g state =
             <> section "gaps:" [tshow n <> " " <> gap | (n, gap) <- state.gaps]
             <> section "hooks:" (hookLines steps g)
   where
-    answerLine answered =
-        qidText answered.about.qid
-            <> " "
-            <> kindName answered.about.kind
-            <> ": "
-            <> oneLineText answered.about.text
-            <> " - "
-            <> replyText answered.about.kind answered.given
-    section title = \case
-        [] -> []
-        items -> title : map ("  " <>) items
     linkLine = \case
         InFan (Tasked task) -> ["task: " <> taskIdText task]
         InFan Untasked -> ["untasked: the parent handed on its request whole"]
         Direct -> []
+
+-- | A titled section, its items indented under it; none when it has no items.
+section :: Text -> [Text] -> [Text]
+section title = \case
+    [] -> []
+    items -> title : map ("  " <>) items
+
+-- | A forwarded question and the answer that came down.
+answerLine :: Answer -> Text
+answerLine answered =
+    qidText answered.about.qid
+        <> " "
+        <> kindName answered.about.kind
+        <> ": "
+        <> oneLineText answered.about.text
+        <> " - "
+        <> replyText answered.about.kind answered.given
 
 {- | What the hooks record of the flow's events, so no agent records them
 by hand: the spawn and the hand-back of each step a subagent runs as a child

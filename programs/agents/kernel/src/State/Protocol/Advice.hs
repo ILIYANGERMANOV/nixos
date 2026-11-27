@@ -27,6 +27,7 @@ module State.Protocol.Advice (
     ownAsk,
     factLines,
     childBudget,
+    prUrl,
 ) where
 
 import Control.Applicative ((<|>))

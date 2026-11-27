@@ -62,6 +62,7 @@ library
     State.Cli.Command
     State.Cli.Render
     State.Cli.Render.Mermaid
+    State.Cli.Resume
     State.Cli.Route
     State.Cli.Shell
     State.Cli.View
@@ -173,6 +174,7 @@ test-suite state-test
     State.Cli.CommandSpec
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec
+    State.Cli.ResumeSpec
     State.Cli.RouteSpec
     State.Cli.Shell.ContextSpec
     State.Cli.Shell.FocusSpec

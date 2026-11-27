@@ -14,7 +14,7 @@ import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Flow.Role.TenX (tenX)
-import State.Protocol.Advice
+import State.Protocol.Advice hiding (prUrl)
 import State.Protocol.Record (Option (..), commandOption)
 import State.Role (Rung (Lead))
 import State.Run.Ask (
