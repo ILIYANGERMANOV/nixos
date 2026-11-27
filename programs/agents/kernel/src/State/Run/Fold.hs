@@ -190,8 +190,8 @@ import State.Run.Event (
     Target (..),
     Task,
     TaskId,
-    TaskRef (..),
     TaskNo (..),
+    TaskRef (..),
     TaskState (InCi, InReview, Kept, Merged, Parked),
     Url,
     Usage,
@@ -895,7 +895,12 @@ meter and its problems join the rounds it ends. A forked child's hand-back
 changes nothing: its agent's return closes its entry in the 'ledger'.
 -}
 took ::
-    OpenGraph -> RunState -> Natural -> ScopePath -> AnyOutcome -> Either Refusal RunState
+    OpenGraph ->
+    RunState ->
+    Natural ->
+    ScopePath ->
+    AnyOutcome ->
+    Either Refusal RunState
 took g state n scope outcome@(AnyOutcome _ some)
     | any (\cap -> owedBy cap.meter (RecordedOutcome some) == Just Closes) g.caps =
         Right state
@@ -1048,7 +1053,12 @@ untaskedFan state run =
         ]
 
 walked ::
-    OpenGraph -> RunState -> Natural -> ScopePath -> AnyOutcome -> Either Refusal RunState
+    OpenGraph ->
+    RunState ->
+    Natural ->
+    ScopePath ->
+    AnyOutcome ->
+    Either Refusal RunState
 walked g state n scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
     (from, edge) <-
@@ -1140,6 +1150,7 @@ data Skipping = ByLevel Name (PerFuel SkipWhen) | ByShape
 in the layer's own match below. A fan-out's outcome moves the fan-out in the
 outcome's scope.
 -}
+
 -- | @n@ is the outcome's seq.
 effects :: Natural -> ScopePath -> AnyOutcome -> Effect
 effects n scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of

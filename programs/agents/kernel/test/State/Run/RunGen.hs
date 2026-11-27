@@ -90,7 +90,6 @@ import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (
-    titled,
     fuelSet,
     genOutcomeNamed,
     line,
@@ -101,6 +100,7 @@ import State.Run.EventGen (
     start,
     started,
     tasksOf,
+    titled,
  )
 import State.Run.Fold (
     Append (..),

@@ -590,7 +590,7 @@ and plan apart: @calls@ reads them. The ids @add@ and @head@ are refused:
 taskFieldsOf :: (Object -> Parser (Shape, PlanCall)) -> Object -> Parser Task
 taskFieldsOf calls obj = do
     taskId <- obj .: "id" >>= taskIdOf
-    title <- obj .: "title" >>= named "title, a line that is not blank," parseNonBlank
+    title <- obj .: "title" >>= titleOf
     deps <- map TaskId <$> obj .: "deps"
     base <- obj .: "base" >>= baseOf
     branch <- Branch <$> obj .: "branch"
@@ -627,8 +627,19 @@ taskFieldsOf calls obj = do
   where
     taskIdOf raw
         | raw `elem` ["add", "head"] =
-            fail ("task id " <> show raw <> " is taken by state record task " <> Text.unpack raw <> ": name the task otherwise")
+            fail
+                ( "task id "
+                    <> show raw
+                    <> " is taken by state record task "
+                    <> Text.unpack raw
+                    <> ": name the task otherwise"
+                )
         | otherwise = pure (TaskId raw)
+    titleOf raw =
+        maybe
+            (fail ("a title is one line, not blank, not " <> show raw))
+            pure
+            (parseNonBlank raw)
     worktreeOf path =
         maybe
             (fail ("a worktree is " <> shellPathRule <> ", not " <> show path))

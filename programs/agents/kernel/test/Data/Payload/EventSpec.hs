@@ -94,8 +94,8 @@ import State.Run.Event (
     AgentRole (..),
     AnyOutcome,
     Asker (..),
-    Base (..),
     Asking (..),
+    Base (..),
     Branch (..),
     Check (..),
     Child (..),
@@ -830,12 +830,21 @@ eventGoldens =
     , Spawned (Child child (Tasked t1) "/wt/t1")
         :| [Spawned (Child child Untasked "/wt/c1")]
     , Resumed child (Just t1) :| [Resumed child Nothing]
-    , HandedBack child (Just t1) (Finished (oneLine "READY https://github.com/o/r/pull/7"))
+    , HandedBack
+        child
+        (Just t1)
+        (Finished (oneLine "READY https://github.com/o/r/pull/7"))
         :| [ HandedBack child (Just t1) (AsksUp qid)
            , HandedBack child (Just t1) (Awaits Ci (oneLine "https://github.com/o/r/pull/7"))
-           , HandedBack child (Just t1) (Awaits Merge (oneLine "https://github.com/o/r/pull/7"))
+           , HandedBack
+                child
+                (Just t1)
+                (Awaits Merge (oneLine "https://github.com/o/r/pull/7"))
            , HandedBack child (Just t1) (Ended (Stop OutOfRounds "three rounds, still red"))
-           , HandedBack child Nothing (Finished (oneLine "READY https://github.com/o/r/pull/7"))
+           , HandedBack
+                child
+                Nothing
+                (Finished (oneLine "READY https://github.com/o/r/pull/7"))
            ]
     , TaskMoved t1 (InCi pr)
         :| [ TaskMoved t1 (InReview pr)
@@ -848,7 +857,8 @@ eventGoldens =
     , Held t1 pr :| []
     , ActedOn t1 pr :| []
     , TaskAdded 9 everyKey
-        :| [TaskAdded 9 (plainTask "t1" []) {Artifact.base = OnEpic (epicNamed "payments")}]
+        :| [ TaskAdded 9 (plainTask "t1" []) {Artifact.base = OnEpic (epicNamed "payments")}
+           ]
     , Restarted :| []
     , WorkerHandedBack implementer (oneLine "READY abc123") :| []
     , WorkerSpawned implementer agent :| []

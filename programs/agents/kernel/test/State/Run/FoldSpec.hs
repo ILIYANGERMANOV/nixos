@@ -393,7 +393,9 @@ spec = describe "State.Run.Fold" $ do
             (.at)
                 <$> twoFansRun
                     ( bothDone
-                        <> [TaskMoved (refTo "t1") (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr"))]
+                        <> [ TaskMoved (refTo "t1") (Merged (Url "pr"))
+                           , stepTook (MergeDone engineers (Url "pr"))
+                           ]
                     )
                 `shouldBe` Right Graph.Exit
         it "refuses a task's move off every fan-out's state" $
@@ -1824,7 +1826,8 @@ tenXRounds = describe "the 10x's rounds" $ do
             `shouldBe` Left (FanRefused (Fan.NotARound t1))
 
     it "refuses to keep a PR other than the round's own" $
-        tenXRun (toEngineers onPr <> [TaskMoved (refTo "t1") (Kept (Url "https://pr/2"))])
+        tenXRun
+            (toEngineers onPr <> [TaskMoved (refTo "t1") (Kept (Url "https://pr/2"))])
             `shouldBe` Left (FanRefused (Fan.NotItsRound t1 pr))
 
     it "goes back to the fan-out for a task added at the merge, and spawns it" $ do

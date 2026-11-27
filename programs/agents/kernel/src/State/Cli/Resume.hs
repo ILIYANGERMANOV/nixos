@@ -73,7 +73,14 @@ import State.Run.Event (
     runIdText,
     spansOf,
  )
-import State.Run.Fan (ChildRun (..), Fan (..), childTaskId, latest, pullRequest, tasksOf)
+import State.Run.Fan (
+    ChildRun (..),
+    Fan (..),
+    childTaskId,
+    latest,
+    pullRequest,
+    tasksOf,
+ )
 import State.Run.Fold (
     Answer (..),
     Pending (..),

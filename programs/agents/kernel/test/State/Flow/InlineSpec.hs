@@ -35,7 +35,14 @@ import State.Run.Fold (
     fanAt,
     replay,
  )
-import State.Run.RunGen (breakdownJson, childOf, loadSteps, plainTask, refTo, scopedIn)
+import State.Run.RunGen (
+    breakdownJson,
+    childOf,
+    loadSteps,
+    plainTask,
+    refTo,
+    scopedIn,
+ )
 import State.Step.Fan (engineers)
 import State.Table (Steps)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe)
@@ -92,7 +99,8 @@ spec = describe "a 10x run inline under a Scope" $ do
     handedBack =
         toFanOut
             <> [ logged (Spawned (childOf "c1" "t1"))
-               , logged (HandedBack (runId "c1") (Just (refTo "t1")) (Finished (oneLine "PR #1")))
+               , logged
+                    (HandedBack (runId "c1") (Just (refTo "t1")) (Finished (oneLine "PR #1")))
                ]
     held = bare ["held", "t1", wake]
     merged = handedBack <> [bare ["task", "t1", "merged", pr]]

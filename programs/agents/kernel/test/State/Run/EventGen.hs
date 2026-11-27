@@ -338,18 +338,21 @@ genNonBlank = do
 
 -- | A title for a test's task, which is not blank.
 titled :: Text -> NonBlank
-titled = maybe (error "a test's title is not blank") id . parseNonBlank
+titled = fromMaybe (error "a test's title is not blank") . parseNonBlank
 
 -- | An epic name for a test, a slug.
 epicNamed :: Text -> EpicName
-epicNamed = maybe (error "a test's epic name is a slug") id . parseEpicName
+epicNamed = fromMaybe (error "a test's epic name is a slug") . parseEpicName
 
 -- | A base for the task @ti@: the default, an epic, or one of @t1@ to the one before it.
 genBaseAt :: Int -> Gen Base
 genBaseAt i =
     Gen.choice
         ( [pure OnDefault, OnEpic <$> genEpicName]
-            <> [OnTask . TaskId . ("t" <>) . Text.pack . show <$> Gen.int (Range.linear 1 (i - 1)) | i > 1]
+            <> [ OnTask . TaskId . ("t" <>) . Text.pack . show
+                    <$> Gen.int (Range.linear 1 (i - 1))
+               | i > 1
+               ]
         )
 
 genEpicName :: Gen EpicName

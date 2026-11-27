@@ -7,6 +7,7 @@ import Data.Foldable (for_)
 import Data.IORef (IORef, modifyIORef', readIORef)
 import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
@@ -24,13 +25,17 @@ import State.Run.Codec (eventType)
 import State.Run.Event (
     Asking (..),
     Branch (..),
+    Child (..),
+    ChildTask (..),
     Envelope (..),
-    Event (Asked, WorktreeMoved),
+    Event (Asked, HandedBack, Spawned, Spawning, WorktreeMoved),
     FlowName (TenXFlow),
     PlanCall (..),
     Repo (..),
     SessionId (..),
     Task (..),
+    TaskId (..),
+    TaskRef (..),
  )
 import State.Run.EventGen (absolutePath)
 import State.Run.Id (numberedText)
@@ -1686,6 +1691,26 @@ spec = describe "state over the doubles" $ do
                 shown <- succeeded =<< state world ["show"]
 
                 shown `shouldContain` ["task t2: not started, tries 0, held https://pr/2#b"]
+
+            it
+                "names the breakdown's seq on the spawn, the child's spawned and its hand-back"
+                $ \world -> do
+                    parent <- tenXAtFanOut world
+                    _ <- succeeded =<< state world ["record", "spawning", "t1"]
+                    _ <- childRun world parent "/child" "t1"
+                    _ <- state world ["stop", "failed", "no", "access"]
+
+                    envelopes <- logged world
+
+                    let breakdownAt = [e.seq | e <- envelopes, eventType e.event == "breakdown.done"]
+                        refs =
+                            [("spawning" :: Text, ref) | Spawning ref <- map (.event) envelopes]
+                                <> [("spawned", ref) | Spawned (Child _ (Tasked ref) _) <- map (.event) envelopes]
+                                <> [("handed_back", ref) | HandedBack _ (Just ref) _ <- map (.event) envelopes]
+                    [(name, ref.task, Just ref.breakdown) | (name, ref) <- refs]
+                        `shouldBe` [ (name, TaskId "t1", listToMaybe breakdownAt)
+                                   | name <- ["spawning", "spawned", "handed_back"]
+                                   ]
 
             it "briefs an engineer with its task's fields, then its init line" $ \world -> do
                 run <- tenXAtFanOut world

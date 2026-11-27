@@ -345,7 +345,8 @@ moved task state fan = case Map.lookup task fan.moves of
     rounded after = case state of
         Round url ->
             after
-                { breakdown = (\listed -> listed {tasks = onRound url <$> listed.tasks}) <$> after.breakdown
+                { breakdown =
+                    (\listed -> listed {tasks = onRound url <$> listed.tasks}) <$> after.breakdown
                 , rounds = Map.insertWith (+) task 1 after.rounds
                 }
         Parked _ _ -> after
@@ -475,7 +476,8 @@ pullRequest fan task =
 
 -- | The task's children, oldest first.
 childrenOf :: Fan -> TaskId -> [ChildRun]
-childrenOf fan task = [childRun | childRun <- fan.children, childTaskId childRun.child == Tasked task]
+childrenOf fan task =
+    [childRun | childRun <- fan.children, childTaskId childRun.child == Tasked task]
 
 {- | Parked, or no child of it runs and its PR is in review, merged or kept,
 or its latest child finished and its PR is unrecorded. A PR in CI waits for
@@ -558,7 +560,8 @@ merged fan task = case Map.lookup task fan.moves of
 breakdown's order: the fan-out waits for them to merge.
 -}
 mergesAwaited :: Fan -> [TaskId]
-mergesAwaited fan = [dep.id | dep <- tasksOf fan, opened dep.id, any (elem dep.id . (.deps)) open]
+mergesAwaited fan =
+    [dep.id | dep <- tasksOf fan, opened dep.id, any (elem dep.id . (.deps)) open]
   where
     open = [task | task <- tasksOf fan, not (settled fan task.id)]
     opened task = case Map.lookup task fan.moves of

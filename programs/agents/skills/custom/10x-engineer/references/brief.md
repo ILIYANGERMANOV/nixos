@@ -12,6 +12,14 @@ git -C <clone> fetch origin
 git -C <clone> worktree add -b <branch> ~/.10x/<run>/worktrees/<task> origin/<base>
 ```
 
+`<base>` is the branch the brief's `Base:` line names:
+
+| `Base:` | `<base>` |
+|---|---|
+| `on_default` | the repo's default branch |
+| `on_epic:<name>` | the epic's branch |
+| `on_task:<id>` | the branch of task `<id>` |
+
 A named PR:
 
 ```sh

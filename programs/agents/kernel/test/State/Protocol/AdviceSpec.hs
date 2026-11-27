@@ -644,14 +644,19 @@ spec = describe "State.Protocol.Advice" $ do
                                ]
         it "sends a child lost at a restart again, and waits on it once resumed" $ do
             let lost = [Spawned (childOf "c1" "t1"), Restarted]
-            map (next noFacts . tenXAt (t1 :| [])) [lost, lost <> [Resumed (runId "c1") Nothing]]
+            map
+                (next noFacts . tenXAt (t1 :| []))
+                [lost, lost <> [Resumed (runId "c1") Nothing]]
                 `shouldBe` [ Resume (runId "c1") "lost at a restart: a fresh engineer with its spawn prompt"
                            , AwaitChildren (TaskId "t1" :| [])
                            ]
         it "spawns a task added mid-run" $
             next
                 noFacts
-                (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), TaskAdded 1 (plainTask "fix" [])])
+                ( tenXAt
+                    (t1 :| [])
+                    [Spawned (childOf "c1" "t1"), TaskAdded 1 (plainTask "fix" [])]
+                )
                 `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
         it "waits on CI no more once the child is resumed" $
             next

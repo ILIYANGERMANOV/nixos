@@ -2229,7 +2229,13 @@ the run, the breakdown of the task it names: a task unknown to the run is
 refused as its event would be.
 -}
 namedEvent ::
-    OpenGraph -> RunState -> Maybe Sha -> Maybe Text -> Natural -> Recording -> Either Failure Event
+    OpenGraph ->
+    RunState ->
+    Maybe Sha ->
+    Maybe Text ->
+    Natural ->
+    Recording ->
+    Either Failure Event
 namedEvent g state worktreeHead file n = \case
     Plain event -> Right event
     Filing gap ->
@@ -2254,7 +2260,10 @@ namedEvent g state worktreeHead file n = \case
     FromFile _ path parse -> parsed path parse
     NamesFile _ _ event -> Right event
     OnTask task event ->
-        Bifunctor.bimap (explain g (Fold.fuelOf state) state.at) event (Fold.taskRefIn state task)
+        Bifunctor.bimap
+            (explain g (Fold.fuelOf state) state.at)
+            event
+            (Fold.taskRefIn state task)
     OnChild child event -> Right (event (Fold.childRefIn state child))
     AddsTask path parse -> (\event -> event (Fold.addedTo state n)) <$> parsed path parse
   where
@@ -3207,7 +3216,8 @@ lock, by an id hashed from both runs: a retried init appends it once. Its
 task is named beside the parent's breakdown that holds it.
 -}
 spawnedIn ::
-    (Shell es) => RunId -> RunId -> ChildTask TaskId -> FilePath -> Eff es (Either Failure ())
+    (Shell es) =>
+    RunId -> RunId -> ChildTask TaskId -> FilePath -> Eff es (Either Failure ())
 spawnedIn parent child task worktree =
     Monad.void
         <$> onLog

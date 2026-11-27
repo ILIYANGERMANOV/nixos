@@ -213,10 +213,17 @@ base fix included (Failures).
 ### Breakdown
 
 Write `tasks.json` in the notes directory, a JSON array in the plan's order of
-`{"id", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
-"security": [topics], "repo", "worktree"}`, `fuel` one of `low`, `balanced`, `max`,
-`repo` the task's `<owner>/<repo>`, `worktree` the absolute path of its worktree
-(`~` expanded), then `state record breakdown.done --tasks tasks.json`: the
+`{"id", "title", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
+"security": [topics], "repo", "worktree"}`, `title` one line naming the task,
+`fuel` one of `low`, `balanced`, `max`, `repo` the task's `<owner>/<repo>`,
+`worktree` the absolute path of its worktree (`~` expanded). `base` is what
+the task's branch starts from, one of:
+
+- `{"kind": "on_default"}`: the repo's default branch.
+- `{"kind": "on_epic", "epic": "<name>"}`: the epic's branch.
+- `{"kind": "on_task", "task": "<id>"}`: the branch of an earlier task.
+
+A bare branch name is refused, and so are the ids `add` and `head`. Then `state record breakdown.done --tasks tasks.json`: the
 `--tasks` file registers itself. A round task adds
 `"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
 settles it `kept`. A task whose plan is already settled adds
@@ -388,7 +395,7 @@ run it, then triage it as any question. No retry spawns before.
 **Base.** A check red on the head of the repo's default branch, unless the PR
 is the base fix itself: an engineer opens `base-fix-<repo>-<n>`, an
 independent PR to that branch, `Heavy` as the red check builds, ahead of the
-queue, with no confirmation. Add it with `state record task add` after
+queue, with no confirmation. Its base is `{"kind": "on_default"}`. Add it with `state record task add` after
 `breakdown.done`, as a breakdown starts a fresh fan-out without it; `state
 next` spawns it at once, at `merge` too, which goes back to `engineers`. No
 check runs there means CI does not run on push, so the base is unknown: treat

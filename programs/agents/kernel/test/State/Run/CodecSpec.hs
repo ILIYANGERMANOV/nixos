@@ -3,13 +3,14 @@ module State.Run.CodecSpec (spec) where
 
 import State.Run.Codec (decodeBreakdown, decodeTask)
 import State.Run.Event (
+    Base (..),
     FlowName (..),
     Repo (..),
     Task (..),
     TaskId (..),
     taskList,
  )
-import State.Run.EventGen (replacing)
+import State.Run.EventGen (epicNamed, replacing, titled)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import State.Step.Artifact (shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
@@ -111,6 +112,67 @@ spec = describe "State.Run.Codec" $ do
             `shouldBe` [ Left "Error in $: parsing task failed, expected Object, but encountered Array"
                        , Left "Error in $: unknown fuel \"huge\""
                        ]
+
+    describe "a task's title and base" $ do
+        it "reads the title and each base form" $
+            map
+                (\task -> decodeTask (taskFileJson task) == Right task)
+                [ (plainTask "t2" []) {base = OnDefault}
+                , (plainTask "t2" []) {base = OnEpic (epicNamed "payments")}
+                , (plainTask "t2" []) {base = OnTask (TaskId "t1")}
+                , (plainTask "t2" []) {title = titled "Pay by card"}
+                ]
+                `shouldBe` [True, True, True, True]
+
+        it "refuses a title that is blank or more than one line" $
+            map
+                ( \raw ->
+                    decodeTask (taskFileJson (plainTask "t1" []) `replacing` ("\"Task t1\"", raw))
+                )
+                ["\"\"", "\" \"", "\"a\\nb\""]
+                `shouldBe` map
+                    (\raw -> Left ("Error in $: a title is one line, not blank, not " <> raw))
+                    ["\"\"", "\" \"", "\"a\\nb\""]
+
+        it "refuses a bare branch name as a base, naming the three forms" $
+            decodeTask
+                ( taskFileJson (plainTask "t1" [])
+                    `replacing` ("{\"kind\":\"on_default\"}", "\"main\"")
+                )
+                `shouldBe` Left
+                    ( "Error in $: a base is "
+                        <> "{\"kind\": \"on_default\"}, {\"kind\": \"on_epic\", \"epic\": \"<name>\"} "
+                        <> "or {\"kind\": \"on_task\", \"task\": \"<earlier task id>\"}, not the bare name \"main\""
+                    )
+
+        it "refuses a base of no kind it knows, and an epic name that is no slug" $
+            map
+                ( \raw ->
+                    decodeTask
+                        (taskFileJson (plainTask "t1" []) `replacing` ("{\"kind\":\"on_default\"}", raw))
+                )
+                ["{\"kind\":\"on_branch\"}", "{\"kind\":\"on_epic\",\"epic\":\"a b\"}"]
+                `shouldBe` [ Left "Error in $: unknown base \"on_branch\""
+                           , Left "Error in $: unknown epic name \"a b\""
+                           ]
+
+        it "refuses the ids add and head, which state record task takes as words" $
+            map (decodeTask . taskFileJson . (`plainTask` [])) ["add", "head"]
+                `shouldBe` [ Left
+                                "Error in $: task id \"add\" is taken by state record task add: name the task otherwise"
+                           , Left
+                                "Error in $: task id \"head\" is taken by state record task head: name the task otherwise"
+                           ]
+
+        it "refuses a breakdown whose task is based on a later task, or on itself" $
+            map
+                (either Left (const (Right ())) . decodeBreakdown . breakdownJson)
+                [ [(plainTask "t1" []) {base = OnTask (TaskId "t2")}, plainTask "t2" []]
+                , [(plainTask "t1" []) {base = OnTask (TaskId "t1")}]
+                ]
+                `shouldBe` [ Left "Error in $: task t1 has base t2, which is not an earlier task"
+                           , Left "Error in $: task t1 has base t1, which is not an earlier task"
+                           ]
 
 -- | A task whose child runs the 10x flow.
 ledBy10x :: Task

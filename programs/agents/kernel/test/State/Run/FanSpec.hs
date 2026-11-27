@@ -1,7 +1,8 @@
 module State.Run.FanSpec (spec) where
 
-import Data.Either (fromRight)
-import Data.Foldable (for_)
+import Data.Either (fromRight, isRight)
+import Data.Foldable (for_, toList)
+import Data.List (inits)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
@@ -25,6 +26,7 @@ import State.Run.EventGen (
 import State.Run.Fan hiding (merged, tasksOf)
 import State.Run.Fan qualified as Fan (tasksOf)
 import State.Run.RunGen (plainTask)
+import State.Step.Artifact qualified as Artifact (Task (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -78,7 +80,10 @@ spec = describe "State.Run.Fan" $ do
         map (.id) (spawnable [] five)
             `shouldBe` map TaskId ["t1", "t2", "t3", "t4", "t5"]
         length . (.atWork)
-            <$> foldl' (\fan task -> fan >>= spawning [] task.id) (Right five) (Fan.tasksOf five)
+            <$> foldl'
+                (\fan task -> fan >>= spawning [] task.id)
+                (Right five)
+                (Fan.tasksOf five)
             `shouldBe` Right 5
 
     it "settles a task whose child finished" $
@@ -183,6 +188,16 @@ spec = describe "State.Run.Fan" $ do
         (applied [moved t1 (Parked "out of scope" Nothing)] >>= leave)
             `shouldBe` Right ()
 
+    it "runs a parked task again once an agent or a child takes it" $
+        map
+            ( fmap (\fan -> (settled fan t1, allParked fan))
+                . applied
+                . (moved t1 (Parked "later" Nothing) :)
+                . pure
+            )
+            [spawning [] t1, spawned [] (childFor "c1" t1)]
+            `shouldBe` replicate 2 (Right (False, False))
+
     it "does not leave while a child runs on a task already in review" $
         ( applied
             [ spawned [] (childFor "c1" t1)
@@ -272,6 +287,16 @@ spec = describe "State.Run.Fan" $ do
             added 1 (plainTask "fix" ["t9"]) oneTask
                 `shouldBe` Left (UnknownTask (TaskId "t9"))
 
+        it "is refused based on a task the fan-out lacks" $
+            added 1 (plainTask "fix" []) {Artifact.base = OnTask (TaskId "t9")} oneTask
+                `shouldBe` Left (UnknownTask (TaskId "t9"))
+
+        it "joins the breakdown's seq, or with none starts one at its own" $
+            map
+                (fmap (fmap (.seq) . (.breakdown)) . added 7 (plainTask "fix" []))
+                [oneTask, emptyFan]
+                `shouldBe` [Right (Just 1), Right (Just 7)]
+
     describe "a round on a task's PR" $ do
         let finishedInReview =
                 applied
@@ -344,6 +369,22 @@ spec = describe "State.Run.Fan" $ do
         it "refuses a dependency on a later task, so dependencies never cycle" $
             breakdown (plainTask "t1" ["t2"] :| [plainTask "t2" []])
                 `shouldBe` Left (DependsLater t1 t2)
+
+        it
+            "accepts_a_breakdown_only_if_no_dependency_or_base_names_a_task_not_before_it"
+            . hedgehog
+            $ do
+                tasks <- forAll genLoose
+                let ids = map (.id) (toList tasks)
+                    earlierOnly =
+                        and
+                            [ task.id `notElem` before
+                                && all (`elem` before) (task.deps <> toList (builtOn task.base))
+                            | (before, task) <- zip (inits ids) (toList tasks)
+                            ]
+                cover 10 "accepted" earlierOnly
+                cover 10 "refused" (not earlierOnly)
+                isRight (breakdown tasks) === earlierOnly
   where
     settledAfter changes = (`settled` t1) <$> applied changes
     applied = foldl' (>>=) (Right oneTask)
@@ -384,6 +425,22 @@ awaitsCi fan task = case ( Map.lookup task fan.moves
 
 tshow :: Int -> Text.Text
 tshow = Text.pack . show
+
+{- | A breakdown's tasks as 'genTasks' makes them, or up to four tasks of
+ids @t1@ to @t5@ in any order, each depending on and based on any of them:
+the breakdown decides which may stand.
+-}
+genLoose :: Gen (NonEmpty Task)
+genLoose =
+    Gen.choice [tasksInOrder <$> genTasks, Gen.nonEmpty (Range.linear 1 4) genAny]
+  where
+    genAny = do
+        task <- Gen.int (Range.linear 1 5) >>= genTaskAt
+        deps <- Gen.subsequence ids
+        base <- Gen.choice [pure OnDefault, OnTask <$> Gen.element ids, pure task.base]
+        name <- Gen.element ids
+        pure task {Artifact.id = name, Artifact.deps = deps, Artifact.base = base}
+    ids = map (TaskId . ("t" <>) . Text.pack . show) [1 :: Int .. 5]
 
 -- | A breakdown, then spawns, hand-backs and moves, each kept only where the fan accepts it.
 genFan :: Gen Fan
