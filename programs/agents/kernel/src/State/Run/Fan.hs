@@ -220,15 +220,20 @@ rebased task base fan = do
             | on `notElem` earlier -> Left (BaseNotEarlier task on)
         Just _ -> Right ()
         Nothing -> Right ()
-    Right
-        fan
-            { breakdown =
-                (\listed -> listed {tasks = based <$> listed.tasks}) <$> fan.breakdown
-            }
+    Right (withTask task (\found -> found {base}) fan)
   where
     earlier = map (.id) (takeWhile ((/= task) . (.id)) (tasksOf fan))
-    based found
-        | found.id == task = found {base}
+
+-- | The breakdown's task of this id changed, every other as it was.
+withTask :: TaskId -> (Task -> Task) -> Fan -> Fan
+withTask task change fan =
+    fan
+        { breakdown =
+            (\listed -> listed {tasks = changed <$> listed.tasks}) <$> fan.breakdown
+        }
+  where
+    changed found
+        | found.id == task = change found
         | otherwise = found
 
 -- | The commit the task's branch is at now.
@@ -384,10 +389,8 @@ moved task state fan = case Map.lookup task fan.moves of
         Delivered _ -> fan.atWork
     rounded after = case state of
         Round url ->
-            after
-                { breakdown =
-                    (\listed -> listed {tasks = onRound url <$> listed.tasks}) <$> after.breakdown
-                , rounds = Map.insertWith (+) task 1 after.rounds
+            (withTask task (\found -> found {shape = RoundOn url}) after)
+                { rounds = Map.insertWith (+) task 1 after.rounds
                 }
         Parked _ _ -> after
         InCi _ -> after
@@ -395,9 +398,6 @@ moved task state fan = case Map.lookup task fan.moves of
         Merged _ -> after
         Kept _ -> after
         Delivered _ -> after
-    onRound url found
-        | found.id == task = found {shape = RoundOn url}
-        | otherwise = found
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan
@@ -451,10 +451,7 @@ lookupTask fan task = find ((== task) . (.id)) (tasksOf fan)
 
 -- | The breakdown's task the child of this run id took.
 childTask :: Fan -> RunId -> Maybe Task
-childTask fan run =
-    find ((== run) . (.child.run)) fan.children >>= \found -> case found.child.task of
-        Tasked ref -> lookupTask fan ref.task
-        Untasked -> Nothing
+childTask fan run = childRef fan run >>= lookupTask fan . (.task)
 
 -- | The children not yet finished or stopped, oldest first.
 running :: Fan -> [ChildRun]

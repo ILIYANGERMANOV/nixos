@@ -138,15 +138,14 @@ spec = describe "State.Run.Codec" $ do
                        ]
 
     describe "a task's title and base" $ do
-        it "reads the title and each base form" $
-            map
-                (\task -> decodeTask (taskFileJson task) == Right task)
-                [ (plainTask "t2" []) {base = OnDefault}
-                , (plainTask "t2" []) {base = OnEpic (epicNamed "payments")}
-                , (plainTask "t2" []) {base = OnTask (TaskId "t1")}
-                , (plainTask "t2" []) {title = titled "Pay by card"}
-                ]
-                `shouldBe` [True, True, True, True]
+        it "reads the title and each base form" $ do
+            let tasks =
+                    [ (plainTask "t2" []) {base = OnDefault}
+                    , (plainTask "t2" []) {base = OnEpic (epicNamed "payments")}
+                    , (plainTask "t2" []) {base = OnTask (TaskId "t1")}
+                    , (plainTask "t2" []) {title = titled "Pay by card"}
+                    ]
+            map (decodeTask . taskFileJson) tasks `shouldBe` map Right tasks
 
         it "refuses a title that is blank or more than one line" $
             map

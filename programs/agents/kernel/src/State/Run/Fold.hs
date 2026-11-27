@@ -1177,9 +1177,8 @@ data Skipping = ByLevel Name (PerFuel SkipWhen) | ByShape
 {- | One arm per layer: a new layer breaks the build here, and a new outcome
 in the layer's own match below. A fan-out's outcome moves the fan-out in the
 outcome's scope.
+@n@ is the outcome's seq.
 -}
-
--- | @n@ is the outcome's seq.
 effects :: Natural -> ScopePath -> AnyOutcome -> Effect
 effects n scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     GatherLayer -> none

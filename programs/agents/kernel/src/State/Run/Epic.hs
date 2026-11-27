@@ -42,13 +42,6 @@ data ReadyEpic = ReadyEpic {repo :: Repo, branch :: Branch, pr :: Url}
 data MergedEpic = MergedEpic {repo :: Repo, branch :: Branch, pr :: Url}
     deriving stock (Eq, Show)
 
--- | The final PR opened: the epic is ready for review.
-ready :: OpenEpic -> Url -> ReadyEpic
-ready epic = ReadyEpic epic.repo epic.branch
-
-merge :: ReadyEpic -> MergedEpic
-merge epic = MergedEpic epic.repo epic.branch epic.pr
-
 -- | What an epic's event does: open it on a branch, mark it ready with its PR, or merge it.
 data EpicMove = Opens Repo Branch | Readies Url | Merges
     deriving stock (Eq, Show)
@@ -81,6 +74,13 @@ moved name move epics = (\epic -> Map.insert name epic epics) <$> next
         (Just (Open _), Merges) -> Left (EpicNotReady name)
         (Just (Ready epic), Merges) -> Right (Merged (merge epic))
         (Just (Merged _), Merges) -> Left (EpicNotReady name)
+
+-- | The final PR opened: the epic is ready for review.
+ready :: OpenEpic -> Url -> ReadyEpic
+ready epic = ReadyEpic epic.repo epic.branch
+
+merge :: ReadyEpic -> MergedEpic
+merge epic = MergedEpic epic.repo epic.branch epic.pr
 
 {- | A task's base names only an epic the run opened, at any stage: @state
 epic open@ comes before the breakdown that uses it.

@@ -585,12 +585,10 @@ commandInfo steps scope =
                 (\topic text -> Right (OnRun (NoteOn topic text)))
                     <$> textOption "topic" "<t>" "what the note is about"
                     <*> sentence "<text>"
-            , Optparse.command
+            , sub
                 "epic"
-                ( Optparse.info
-                    (Optparse.hsubparser (epicOpen <> epicReady <> epicMerged))
-                    (Optparse.progDesc "Open an epic, mark it ready for review, or merged")
-                )
+                "Open an epic, mark it ready for review, or merged"
+                (Optparse.hsubparser (epicOpen <> epicReady <> epicMerged))
             , sub "handover" "Hand the run over to a fresh agent" $
                 ( \reason summary first' rest ->
                     (\r -> HandOver (Handover r summary (first' :| rest)))

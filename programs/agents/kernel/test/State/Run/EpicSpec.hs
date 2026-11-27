@@ -1,11 +1,11 @@
 module State.Run.EpicSpec (spec) where
 
-import Control.Monad (foldM_)
+import Control.Monad (foldM)
 import Data.Foldable (for_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Hedgehog (forAll, (===))
+import Hedgehog (cover, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Run.Epic
@@ -27,7 +27,7 @@ spec = describe "State.Run.Epic" $ do
     merged, each move gives its stage or its refusal. -}
     describe "takes the epic table's edges and refuses every other move" $
         for_ table $ \(from, move, expected) ->
-            it (show (stageOf <$> from) <> " then " <> show move) $
+            it (show (stageName <$> from) <> " then " <> show move) $
                 (stageName <$> (moved limits move (at from) >>= found))
                     `shouldBe` expected
 
@@ -38,18 +38,21 @@ spec = describe "State.Run.Epic" $ do
                     (Range.linear 0 20)
                     ((,) <$> Gen.element [limits, epicNamed "auth"] <*> genEpicMove)
                 )
-        foldM_
-            ( \epics (name, move) -> case moved name move epics of
-                Right after -> do
-                    -- One epic moved, along its listed edge.
-                    Map.delete name after === Map.delete name epics
-                    (stageName <$> Map.lookup name after)
-                        === Just (listed (stageName <$> Map.lookup name epics) move)
-                    pure after
-                Left _ -> pure epics
-            )
-            Map.empty
-            moves
+        final <-
+            foldM
+                ( \epics (name, move) -> case moved name move epics of
+                    Right after -> do
+                        -- One epic moved, along its listed edge.
+                        Map.delete name after === Map.delete name epics
+                        (stageName <$> Map.lookup name after)
+                            === Just (listed (stageName <$> Map.lookup name epics) move)
+                        pure after
+                    Left _ -> pure epics
+                )
+                Map.empty
+                moves
+        -- The last edge was taken, so the property is not passed by refusals alone.
+        cover 5 "an epic merged" ("merged" `elem` map stageName (Map.elems final))
 
     describe "names only an opened epic in a base" $ do
         it "takes an epic opened at any stage" $
@@ -82,9 +85,6 @@ merged' = Merged (merge (ready (OpenEpic repo branch) pr))
 -- | The run's epics: @limits@ at this stage, or none.
 at :: Maybe Epic -> Map EpicName Epic
 at = maybe Map.empty (Map.singleton limits)
-
-stageOf :: Epic -> Text
-stageOf = stageName
 
 -- | Each cell: the stage before, the move, and the stage after or the refusal.
 table :: [(Maybe Epic, EpicMove, Either Refusal Text)]
