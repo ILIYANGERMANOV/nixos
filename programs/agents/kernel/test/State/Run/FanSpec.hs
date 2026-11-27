@@ -160,8 +160,8 @@ spec = describe "State.Run.Fan" $ do
         applied
             [ spawned [] (childFor "c1" t1)
             , handedBack (runId "c1") (Awaits Ci (oneLine "PR #1"))
-            , resumed (runId "c1")
-            , resumed (runId "c1")
+            , resumed TakesUp (runId "c1")
+            , resumed TakesUp (runId "c1")
             ]
             `shouldBe` Left (AtWork t1)
 
@@ -221,7 +221,7 @@ spec = describe "State.Run.Fan" $ do
                 [ spawned [] (childFor "c1" t1)
                 , handedBack (runId "c1") (Awaits Ci (oneLine "PR #1"))
                 , moved t1 (Parked "later" Nothing)
-                , resumed (runId "c1")
+                , resumed TakesUp (runId "c1")
                 ]
             `shouldBe` Right (False, False, [runId "c1"])
 
@@ -298,7 +298,7 @@ spec = describe "State.Run.Fan" $ do
             , InReview (Url "pr")
             , Parked "wrong task" Nothing
             ]
-            `shouldBe` Right ()
+            `shouldBe` Right HoldsAlready
                 : replicate 3 (Left (TaskMerged t1 (Url "pr")))
 
     it "takes_any_move_of_a_task_not_merged_at_record_time" . hedgehog $ do
@@ -310,7 +310,7 @@ spec = describe "State.Run.Fan" $ do
                     genTaskState
                 )
         later <- forAll genTaskState
-        (applied [moved t1 before] >>= movable t1 later) === Right ()
+        (applied [moved t1 before] >>= movable t1 later) === Right Moves
 
     it "awaits the merge of a dependency in review" $
         mergesAwaited <$> moved t1 (InReview (Url "pr")) twoTasks `shouldBe` Right [t1]
@@ -725,7 +725,8 @@ genFan = do
             , (\taskId _ -> spawning [] taskId) <$> genTaskId
             , (\i _ fan -> Right (triaged (pickChild i fan) fan))
                 <$> Gen.int (Range.linear 0 10)
-            , (\i _ fan -> resumed (pickChild i fan) fan) <$> Gen.int (Range.linear 0 10)
+            , (\i _ fan -> resumed TakesUp (pickChild i fan) fan)
+                <$> Gen.int (Range.linear 0 10)
             , (\task _ -> added 1 task) <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
             , pure (\_ fan -> Right (restarted fan))
             ]

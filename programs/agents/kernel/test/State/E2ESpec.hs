@@ -1926,13 +1926,24 @@ spec = describe "the state binary" $ do
                         `shouldBe` "state ask --kind Stuck --from "
                             <> c2
                             <> " <question>, then state forward <qid>, then once it is answered state record spawning t1 | state record task t1 parked <why>"
-                    asked : _ <-
+                    asked : advice <-
                         succeeded
                             =<< state
                                 bin
                                 repo
                                 ["ask", "--kind", "Stuck", "--from", Text.unpack c2, "once", "more?"]
                     let qid = Text.unpack (Text.drop (Text.length "asked ") asked)
+                    -- The Stuck row answers only while no retry was spent: forward alone is offered.
+                    ( any ("state forward " `Text.isInfixOf`) advice
+                        , any ("state rule" `Text.isInfixOf`) advice
+                        )
+                        `shouldBe` (True, False)
+                    ruled <-
+                        fixOf
+                            bin
+                            repo
+                            ["rule", qid, "--answer", "yes", "--why", "a lead", "--cost", "none"]
+                    ruled `shouldBe` "state forward <qid>"
                     followed bin fix repo ["forward", qid]
                     -- Not before the user answers: the task's child asks up still.
                     early <- state bin repo ["record", "spawning", "t1"]
@@ -1954,22 +1965,31 @@ spec = describe "the state binary" $ do
                     repo
                     ["ask", "--kind", "Stuck", "--from", Text.unpack c1, "retry?"]
 
-            it "task_merged: the wrong merge voided, then the move" $ \repo -> do
-                _ <- tenXAtFanOut bin repo
-                mergedLine : _ <-
-                    succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
-                let seq' =
-                        Text.unpack
-                            (Text.takeWhile (/= ' ') (Text.drop (Text.length "recorded ") mergedLine))
-                -- The same merge again: its goal holds.
-                _ <-
-                    succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
-                fix <- fixOf bin repo ["record", "task", "t1", "review", prUrlString]
-                fix
-                    `shouldBe` "state void <the seq of its merged line> <why>, if that merge was recorded on the wrong task"
-                followed bin fix repo ["void", seq', "merged", "on", "the", "wrong", "task"]
-                other <- fixOf bin repo ["record", "task", "t1", "merged", prUrlString <> "9"]
-                other `shouldBe` fix
+            it
+                "task_merged: the same merge again writes nothing, so voiding the merge frees the move"
+                $ \repo -> do
+                    _ <- tenXAtFanOut bin repo
+                    let merge = ["record", "task", "t1", "merged", prUrlString]
+                        review = ["record", "task", "t1", "review", prUrlString]
+                    mergedLine : _ <- succeeded =<< state bin repo merge
+                    let seq' =
+                            Text.unpack
+                                (Text.takeWhile (/= ' ') (Text.drop (Text.length "recorded ") mergedLine))
+                    logged <- loggedTypes bin repo
+                    again <- succeeded =<< state bin repo merge
+                    after <- loggedTypes bin repo
+                    (again, after)
+                        `shouldBe` ( ["task t1 merged " <> prUrl <> " already: nothing written", "next: state next"]
+                                   , logged
+                                   )
+                    other <- fixOf bin repo ["record", "task", "t1", "merged", prUrlString <> "9"]
+                    fix <- fixOf bin repo review
+                    (other, fix)
+                        `shouldBe` ( fix
+                                   , "state void <the seq of its merged line> <why>, if that merge was recorded on the wrong task"
+                                   )
+                    followed bin fix repo ["void", seq', "merged", "on", "the", "wrong", "task"]
+                    void (succeeded =<< state bin repo review)
 
             it
                 "no_edge and an unknown event at engineers: no await's done, a hand-back piped in"

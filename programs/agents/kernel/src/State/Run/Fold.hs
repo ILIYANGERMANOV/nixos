@@ -41,6 +41,8 @@ module State.Run.Fold (
     Pending (..),
     Answer (..),
     Waits (..),
+    Triaging (..),
+    triaging,
     Refusal (..),
     Append (..),
     Answering (..),
@@ -149,6 +151,7 @@ import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (
     Above,
+    Cond (OneRetry),
     Kind (Security),
     OneLine,
     Principal (..),
@@ -156,6 +159,7 @@ import State.Run.Ask (
     QId (..),
     Question (..),
     Reply (..),
+    Rule (AnswersIf),
     Ruling,
     deliver,
     flattened,
@@ -197,6 +201,7 @@ import State.Run.Event (
     StateName (..),
     Stop,
     StopReason (Failed),
+    TakeUp (..),
     Target (..),
     Task,
     TaskId,
@@ -628,9 +633,9 @@ runStart = \case
     Forwarded _ _ -> Nothing
     Answered {} -> Nothing
     QuestionParked _ _ -> Nothing
-    Spawning _ -> Nothing
+    Spawning _ _ -> Nothing
     Spawned _ -> Nothing
-    Resumed _ _ -> Nothing
+    Resumed {} -> Nothing
     HandedBack {} -> Nothing
     TaskMoved _ _ -> Nothing
     Held _ _ -> Nothing
@@ -752,11 +757,11 @@ applyEvent g state n = \case
     Answered qid reply by -> going (handle AskHandler g state (Answers qid reply by))
     QuestionParked qid why -> going (handle AskHandler g state (Parks qid why))
     -- A task sent an agent at its fan-out's merge reopens the fan-out, where its child's init joins.
-    Spawning ref ->
+    Spawning ref takeUp ->
         going
             ( heldTask ref.task >>= \holder ->
                 inFanAt holder.fan (Fan.spawning (askingChildren state) ref.task) state
-                    >>= reopened g n holder.fan
+                    >>= takenUp takeUp g n holder.fan
             )
     Spawned child -> going $ case child.task of
         Tasked ref ->
@@ -765,9 +770,11 @@ applyEvent g state n = \case
                     >> inFanAt holder.fan (Fan.spawned (askingChildren state) child) state
         Untasked -> forked g n state child
     -- A resumed child runs again: at the fan-out's merge, it reopens the fan-out for its hand-back.
-    Resumed child _ -> going $ case childHolder state child of
-        Just holder -> inFanAt holder.fan (Fan.resumed child) state >>= reopened g n holder.fan
-        Nothing -> inFanOf (fanAt state.at) (Fan.resumed child)
+    Resumed child _ takeUp -> going $ case childHolder state child of
+        Just holder ->
+            inFanAt holder.fan (Fan.resumed takeUp child) state
+                >>= takenUp takeUp g n holder.fan
+        Nothing -> inFanOf (fanAt state.at) (Fan.resumed takeUp child)
     -- An untasked child hands back wherever the run is, as an agent child does.
     HandedBack child _ said -> going $ case (untaskedFan state child, childHolder state child) of
         (Just fan, _) -> inFanAt fan (Fan.handedBack child said) state
@@ -1111,7 +1118,7 @@ taskRefIn state task = do
 ('Fan.movable'): refused once the task merged, or as 'taskRefIn' refuses
 the task. Never in the fold, so a log holding such a move still replays.
 -}
-movable :: RunState -> TaskId -> TaskState -> Either Refusal ()
+movable :: RunState -> TaskId -> TaskState -> Either Refusal Fan.Movable
 movable state task moved = do
     holder <- holderOf state task
     Bifunctor.first
@@ -1461,6 +1468,21 @@ reopened g n scoped state = case state.at of
     Out -> Right state
     Exit -> Right state
 
+{- | A task taken up ('TakesUp') at its fan-out's merge reopens it
+('reopened'). A line recorded before that rule ('Joins') leaves the run
+where it is, so an old log replays as it did.
+-}
+takenUp ::
+    TakeUp ->
+    OpenGraph ->
+    Natural ->
+    ScopedFan ->
+    RunState ->
+    Either Refusal RunState
+takenUp = \case
+    TakesUp -> reopened
+    Joins -> \_ _ _ -> Right
+
 {- | A fan-out inside the scopes it sits in: two scoped copies of one
 fan-out are two, each with its own tasks and children.
 -}
@@ -1667,17 +1689,33 @@ retagged state qid = do
 ruledOn :: RunState -> QId -> Proposal -> Either Refusal RunState
 ruledOn state qid proposal = do
     asking <- forTriage qid state.pending
-    ruling <-
-        Bifunctor.first
-            NotAllowed
-            ( Ask.rule
-                (Role.rungAt state.start.flow asking.step)
-                asking.question.kind
-                asking.question
-                proposal
-            )
+    let rung = Role.rungAt state.start.flow asking.step
+    ruling <- Bifunctor.first NotAllowed $ case triaging state asking of
+        RulesOrForwards -> Ask.rule rung asking.question.kind asking.question proposal
+        ForwardsOnly -> Left (Ask.MayNotRule rung asking.question.kind)
     Right
         state {pending = close qid state.pending, rulings = state.rulings <> [ruling]}
+
+-- | What the run may do with a question in triage.
+data Triaging = RulesOrForwards | ForwardsOnly
+    deriving stock (Eq, Show)
+
+{- | A question in triage the run may rule on or forward, but a Stuck one
+from a child whose task spent its one retry: 'Ask.OneRetry' fails, and the
+run's own tries settle it, not the LLM. That one is only forwarded.
+-}
+triaging :: RunState -> Asking -> Triaging
+triaging state asking = case asking.from of
+    ChildRun child
+        | Ask.authority rung asking.question.kind == AnswersIf OneRetry
+        , Just holder <- childHolder state child
+        , not (Fan.retryLeft (fanIn state.fans holder.fan) holder.held.id) ->
+            ForwardsOnly
+    ChildRun _ -> RulesOrForwards
+    Subagent _ -> RulesOrForwards
+    Itself -> RulesOrForwards
+  where
+    rung = Role.rungAt state.start.flow asking.step
 
 forwarded :: RunState -> QId -> Above -> Either Refusal RunState
 forwarded state qid to = do

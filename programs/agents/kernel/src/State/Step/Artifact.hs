@@ -17,6 +17,8 @@ module State.Step.Artifact (
     Requirement (..),
     Check (..),
     TaskId (..),
+    parseTaskId,
+    parseNamesOrNone,
     Task (..),
     Base (..),
     builtOn,
@@ -285,6 +287,21 @@ parseEpicName raw
 
 epicNameText :: EpicName -> Text
 epicNameText (EpicName name) = name
+
+-- | A task id as a flag names one: any text that is not blank.
+parseTaskId :: Text -> Maybe TaskId
+parseTaskId raw
+    | Text.all isSpace raw = Nothing
+    | otherwise = Just (TaskId raw)
+
+{- | A list a flag or a trailer gives: names comma-separated, as POSIX
+guideline 8 has it, or @none@ for no name. Each name is stripped, then
+parsed; a repeat counts once. So a name @none@ is never alone in a list.
+-}
+parseNamesOrNone :: (Ord a) => (Text -> Either e a) -> Text -> Either e (Set a)
+parseNamesOrNone parse raw = case Text.strip raw of
+    "none" -> Right Set.empty
+    names -> Set.fromList <$> traverse (parse . Text.strip) (Text.splitOn "," names)
 
 {- | Text a person writes and reads as one line, such as a task's title: a
 character at least that is no space, and no line break. Built by

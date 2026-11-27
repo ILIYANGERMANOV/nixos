@@ -1,8 +1,11 @@
 -- | A breakdown and a task file read as the 10x and the chief write them.
 module State.Run.CodecSpec (spec) where
 
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Hedgehog (forAll, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import State.Run.Codec (
     decodeBreakdown,
     decodeTask,
@@ -22,7 +25,7 @@ import State.Run.Event (
  )
 import State.Run.EventGen (epicNamed, genTaskState, replacing, titled)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
-import State.Step.Artifact (shellPath)
+import State.Step.Artifact (parseNamesOrNone, shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -137,6 +140,16 @@ spec = describe "State.Run.Codec" $ do
             `shouldBe` [ Left "Error in $: parsing task failed, expected Object, but encountered Array"
                        , Left "Error in $: unknown fuel \"huge\""
                        ]
+
+    describe "a comma list or none, as --deps, --blocks and Touches: give it" $ do
+        let names = parseNamesOrNone (\name -> if name == "bad" then Left name else Right name)
+        it "reads_back_each_name_once_however_spaced" . hedgehog $ do
+            listed <- forAll (Gen.list (Range.linear 1 6) (Gen.element ["t1", "t2", "t3"]))
+            spacing <- forAll (Gen.element ["", " "])
+            names (Text.intercalate ("," <> spacing) listed) === Right (Set.fromList listed)
+        it "reads none as no name, and refuses by the first name its parse refuses" $
+            map names [" none ", "t1,bad", "t1,,t2"]
+                `shouldBe` [Right Set.empty, Left "bad", Right (Set.fromList ["", "t1", "t2"])]
 
     describe "a task's title and base" $ do
         it "reads the title and each base form" $ do

@@ -2065,6 +2065,23 @@ planOf ::
     RunCommand ->
     Either Unplanned Plan
 planOf steps worktreeHead file unstoredEvidence g state next = \case
+    -- The same merge again: its goal holds, so nothing is logged and voiding the merge undoes it.
+    Record (MovesTask task moved)
+        | Right Fan.HoldsAlready <- Fold.movable state task moved ->
+            Right
+                ( Plan
+                    []
+                    ( \_ _ ->
+                        printed
+                            ( "task "
+                                <> taskIdText task
+                                <> " "
+                                <> Codec.taskStateArgs moved
+                                <> " already: nothing written\n"
+                                <> nextLine
+                            )
+                    )
+                )
     Record recording -> do
         case unstoredEvidence of
             ref : _ -> Left (Refusing (UnknownEvent ref))
@@ -2114,10 +2131,15 @@ planOf steps worktreeHead file unstoredEvidence g state next = \case
     AskFrom kind from text ->
         unlogged (notOpenYet state from text) >> do
             let question = Question next kind text
+                asking = Asking question (askedAt state) from
             Right
                 ( Plan
-                    [Asked (Asking question (askedAt state) from)]
-                    ( \after _ -> asked question <> delivered after (deliver after.start (Triage question))
+                    [Asked asking]
+                    ( \after _ ->
+                        asked question
+                            <> delivered
+                                after
+                                (deliver after.start (Triage question (Fold.triaging after asking)))
                     )
                 )
     RecordUnknown name -> Left (Told (unknownEvent g state name))

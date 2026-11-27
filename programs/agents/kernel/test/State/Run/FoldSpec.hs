@@ -1,5 +1,6 @@
 module State.Run.FoldSpec (spec) where
 
+import Control.Monad (void)
 import Data.Either (isRight)
 import Data.Foldable (for_)
 import Data.List (inits, intercalate)
@@ -283,7 +284,7 @@ spec = describe "State.Run.Fold" $ do
                                , TaskMoved (refTo "t1") (Merged (Url "pr"))
                                , Held (refTo "t1") (Url "pull/2")
                                , TaskAdded 1 fix
-                               , Spawning (refTo "fix")
+                               , Spawning (refTo "fix") TakesUp
                                , Spawned (childOf "c2" "fix")
                                ]
                         )
@@ -335,13 +336,65 @@ spec = describe "State.Run.Fold" $ do
                 `shouldSatisfy` \case
                     Left (NoEdge _ _) -> True
                     _ -> False
+        describe "a spawning or a resume recorded before takes_up replays as it did" $ do
+            let parkedAtMerge =
+                    toEngineers
+                        <> [ Spawned child
+                           , HandedBack (runId "c1") Nothing (Awaits Ci (oneLine "PR #1"))
+                           , TaskMoved (refTo "t1") (Parked "later" Nothing)
+                           ]
+                parked = toEngineers <> [TaskMoved (refTo "t1") (Parked "later" Nothing)]
+                resume = Resumed (runId "c1") (Just (refTo "t1"))
+                mergeDone = stepTook (MergeDone engineers (Url "pr"))
+                after = fmap (\state -> (atName state, (currentFan state).moves)) . tenXRun
+            it
+                "a parked task's child resumed at the merge: it stays parked, the merge goes on"
+                $ map
+                    after
+                    [parkedAtMerge <> [resume Joins], parkedAtMerge <> [resume Joins, mergeDone]]
+                    `shouldBe` [ Right
+                                    ( Just (StateName "merge")
+                                    , Map.fromList [(TaskId "t1", Parked "later" Nothing)]
+                                    )
+                               , Right (Nothing, Map.empty)
+                               ]
+            it
+                "a parked task sent an agent at the merge: it runs, the run stays at the merge"
+                $ after (parked <> [Spawning (refTo "t1") Joins])
+                    `shouldBe` Right (Just (StateName "merge"), Map.empty)
+            it "the same lines taking their task up reopen the fan-out, unparked" $
+                map
+                    after
+                    [parkedAtMerge <> [resume TakesUp], parked <> [Spawning (refTo "t1") TakesUp]]
+                    `shouldBe` replicate 2 (Right (Just (StateName "engineers"), Map.empty))
+        it
+            "refuses a ruling on a Stuck question once its task spent its one retry, but forwards it"
+            $ do
+                let stopped c = HandedBack (runId c) Nothing (Ended (Stop Blocked "no access"))
+                    stuckOn n = Question (QId (runId "r") n) Ask.Stuck (oneLine "retry?")
+                    askedBy c question = Asked (Asking question (StateName "engineers") (ChildRun (runId c)))
+                    retry = Proposal (oneLine "retry") (oneLine "a hint") (oneLine "a child") Nothing
+                    spent =
+                        toEngineers
+                            <> [ Spawned child
+                               , stopped "c1"
+                               , askedBy "c1" (stuckOn 1)
+                               , RuledOn (QId (runId "r") 1) retry
+                               , Spawned (childOf "c2" "t1")
+                               , stopped "c2"
+                               , askedBy "c2" (stuckOn 2)
+                               ]
+                map
+                    (void . tenXRun . (spent <>) . pure)
+                    [RuledOn (QId (runId "r") 2) retry, Forwarded (QId (runId "r") 2) TheUser]
+                    `shouldBe` [Left (NotAllowed (MayNotRule Role.Orchestrator Ask.Stuck)), Right ()]
         it
             "reopens the fan-out at its merge for a parked task sent an agent, so its child's init joins"
             $ atName
                 <$> tenXRun
                     ( toEngineers
                         <> [ TaskMoved (refTo "t1") (Parked "later" Nothing)
-                           , Spawning (refTo "t1")
+                           , Spawning (refTo "t1") TakesUp
                            , Spawned child
                            ]
                     )
@@ -1800,7 +1853,7 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
                 ( waiting
                     <> [ Spawned (childOf "c1" "t1")
                        , HandedBack (runId "c1") Nothing (AsksUp (QId (runId "c1") 1))
-                       , Resumed (runId "c1") Nothing
+                       , Resumed (runId "c1") Nothing TakesUp
                        , TaskMoved (refTo "t1") (Merged pr)
                        ]
                 )
@@ -2431,7 +2484,7 @@ handed back, a restart.
 genReplanning :: Gen [Event]
 genReplanning =
     Gen.frequency
-        [ (2, pure . Spawning . refTo <$> task)
+        [ (2, (\t -> [Spawning (refTo t) TakesUp]) <$> task)
         , (2, (\c t -> [Spawned (childOf c t)]) <$> child <*> task)
         , (2, (\c said -> [HandedBack (runId c) Nothing said]) <$> child <*> genSaid)
         , (2, (\t moved -> [TaskMoved (refTo t) moved]) <$> task <*> genTaskState)

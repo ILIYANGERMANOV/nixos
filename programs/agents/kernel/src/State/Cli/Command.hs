@@ -1362,7 +1362,14 @@ explain g fuel at = \case
                 ( "an agent is at work on tasks: "
                     <> Text.unwords (map Codec.taskIdText (toList tasks))
                 )
-                "state override engineers <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r> [--deps <task>,...|none]"
+                ( case Fold.fanAt at of
+                    Just scoped ->
+                        "state override "
+                            <> fanState scoped
+                            <> " <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task <id> base <base> --reason <r> [--deps <task>,...|none]"
+                    -- Never met: a breakdown is recorded at its fan-out's breakdown state.
+                    Nothing -> "state next"
+                )
         Fan.Unmerged tasks ->
             refused
                 "the round's end"

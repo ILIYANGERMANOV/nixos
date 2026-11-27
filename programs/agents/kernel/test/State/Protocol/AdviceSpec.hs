@@ -42,7 +42,13 @@ import State.Run.EventGen (
     start,
     started,
  )
-import State.Run.Fold (Origin (..), RunState (..), Worker (..), replay)
+import State.Run.Fold (
+    Origin (..),
+    RunState (..),
+    Triaging (..),
+    Worker (..),
+    replay,
+ )
 import State.Run.RunGen (
     architectGraph,
     chiefGraph,
@@ -634,7 +640,9 @@ spec = describe "State.Protocol.Advice" $ do
         it "spawns the next task once a spawn is recorded, never the same task twice" $
             map
                 (next noFacts . tenXAt (t1 :| [t2]))
-                [[Spawning (refTo "t1")], [Spawning (refTo "t1"), Spawning (refTo "t2")]]
+                [ [Spawning (refTo "t1") TakesUp]
+                , [Spawning (refTo "t1") TakesUp, Spawning (refTo "t2") TakesUp]
+                ]
                 `shouldBe` [ Spawn (AgentRole "engineer") (Just (TaskId "t2"))
                            , AwaitChildren (TaskId "t1" :| [TaskId "t2"])
                            ]
@@ -652,8 +660,9 @@ spec = describe "State.Protocol.Advice" $ do
                                ]
                 map
                     (next noFacts . tenXAt (t1 :| [t2]))
-                    [ both <> [Resumed (runId "c1") Nothing]
-                    , both <> [Resumed (runId "c1") Nothing, Resumed (runId "c2") Nothing]
+                    [ both <> [Resumed (runId "c1") Nothing TakesUp]
+                    , both
+                        <> [Resumed (runId "c1") Nothing TakesUp, Resumed (runId "c2") Nothing TakesUp]
                     ]
                     `shouldBe` [ Resume (runId "c2") "with the answer to c2:1: confirmed"
                                , AwaitChildren (TaskId "t1" :| [TaskId "t2"])
@@ -662,7 +671,7 @@ spec = describe "State.Protocol.Advice" $ do
             let lost = [Spawned (childOf "c1" "t1"), Restarted]
             map
                 (next noFacts . tenXAt (t1 :| []))
-                [lost, lost <> [Resumed (runId "c1") Nothing]]
+                [lost, lost <> [Resumed (runId "c1") Nothing TakesUp]]
                 `shouldBe` [ Resume (runId "c1") "lost at a restart: a fresh engineer with its spawn prompt"
                            , AwaitChildren (TaskId "t1" :| [])
                            ]
@@ -681,7 +690,7 @@ spec = describe "State.Protocol.Advice" $ do
                     (t1 :| [])
                     [ Spawned (childOf "c1" "t1")
                     , HandedBack (runId "c1") Nothing (Awaits Ci (oneLine "https://pr/1"))
-                    , Resumed (runId "c1") Nothing
+                    , Resumed (runId "c1") Nothing TakesUp
                     ]
                 )
                 `shouldBe` AwaitChildren (TaskId "t1" :| [])
@@ -713,6 +722,14 @@ spec = describe "State.Protocol.Advice" $ do
                     ]
             next noFacts (tenXAt (t1 :| []) twice)
                 `shouldBe` TriageStop (runId "c2") Nothing stop
+            let again = Question (QId (runId "r7f2") 2) Stuck (oneLine "retry again?")
+            next
+                noFacts
+                ( tenXAt
+                    (t1 :| [])
+                    (twice <> [Asked (Asking again (StateName "engineers") (ChildRun (runId "c2")))])
+                )
+                `shouldBe` Triage again ForwardsOnly
         it "waits on the user's answer to a stopped child's question before a retry" $ do
             let stuckOn = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
                 forwarded =
@@ -785,7 +802,7 @@ spec = describe "State.Protocol.Advice" $ do
                            ]
             map
                 (next noFacts . tenXAt (t1 :| [t2]))
-                [forwarded, forwarded <> [Resumed (runId "c1") Nothing]]
+                [forwarded, forwarded <> [Resumed (runId "c1") Nothing TakesUp]]
                 `shouldBe` [Resume (runId "c1") "with the answer to c1:1: confirmed", AwaitAnswer asks2]
         it "records a finished task's PR when the child's READY named none" $
             map
@@ -811,7 +828,8 @@ spec = describe "State.Protocol.Advice" $ do
                 )
                 `shouldBe` ["task t1: child c1 waits to resume, tries 1"]
         it "triages a child's question before anything else" $
-            next noFacts (tenXAt (t1 :| [t2]) fromChild) `shouldBe` Triage asks
+            next noFacts (tenXAt (t1 :| [t2]) fromChild)
+                `shouldBe` Triage asks RulesOrForwards
         it "resumes a child with the ruling on its question" $
             next noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling]))
                 `shouldBe` Resume (runId "c1") "with the answer to c1:1: confirmed"
@@ -879,7 +897,7 @@ spec = describe "State.Protocol.Advice" $ do
                         (t1 :| [])
                         ( fromChild
                             <> [ RuledOn asks.qid ruling
-                               , Resumed (runId "c1") Nothing
+                               , Resumed (runId "c1") Nothing TakesUp
                                , Held (refTo "t1") (Url "https://pr/1#c")
                                ]
                         )
@@ -900,7 +918,8 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "names a basis in the triage line of a Security question only" $
             map
-                (\kind -> deliver start (Triage (Question which.qid kind which.text)))
+                ( \kind -> deliver start (Triage (Question which.qid kind which.text) RulesOrForwards)
+                )
                 [Design, Security]
                 `shouldBe` [ "RUN state rule r7f2:1 --answer <a> --why <w> --cost <c> | state forward r7f2:1 - Design r7f2:1: which store?"
                            , "RUN state rule r7f2:1 --answer <a> --why <w> --cost <c> --basis <event-id>|obvious:<why> | state forward r7f2:1 - Security r7f2:1: which store?"

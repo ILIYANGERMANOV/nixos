@@ -1705,7 +1705,7 @@ spec = describe "state over the doubles" $ do
 
                     let breakdownAt = [e.seq | e <- envelopes, eventType e.event == "breakdown.done"]
                         refs =
-                            [("spawning" :: Text, ref) | Spawning ref <- map (.event) envelopes]
+                            [("spawning" :: Text, ref) | Spawning ref _ <- map (.event) envelopes]
                                 <> [("spawned", ref) | Spawned (Child _ (Tasked ref) _) <- map (.event) envelopes]
                                 <> [("handed_back", ref) | HandedBack _ (Just ref) _ <- map (.event) envelopes]
                     [(name, ref.task, Just ref.breakdown) | (name, ref) <- refs]

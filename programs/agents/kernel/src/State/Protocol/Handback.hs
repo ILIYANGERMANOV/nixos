@@ -115,6 +115,7 @@ import State.Run.Fold (
     returnOf,
  )
 import State.Run.Gap (GapArea (..), GapLine, gapLineText, lineGap, parseGapLine)
+import State.Step.Artifact (parseNamesOrNone)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
@@ -258,9 +259,7 @@ parseNeed payload = case (labelled "stuck:", labelled "plan wrong:", asks) of
     orElse stripped whole = fromMaybe whole stripped
 
 parseTouches :: Text -> Either Refusal (Set Area)
-parseTouches raw = case Text.strip raw of
-    "none" -> Right Set.empty
-    names -> Set.fromList <$> traverse (area . Text.strip) (Text.splitOn "," names)
+parseTouches = parseNamesOrNone area
   where
     area name = maybe (Left (NoArea name)) Right (parseByName areaText name)
 

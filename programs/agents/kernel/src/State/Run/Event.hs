@@ -26,6 +26,7 @@ module State.Run.Event (
     parseSessionId,
     Digest (..),
     Event (..),
+    TakeUp (..),
     Start (..),
     Handover (..),
     HandoverReason (..),
@@ -251,13 +252,13 @@ data Event
     | -- | An event the run refused, logged so the next read can warn of it.
       Refused Note
     | -- | The 10x spawns an engineer for the task, before the child's @init@ logs 'Spawned'.
-      Spawning TaskRef
+      Spawning TaskRef TakeUp
     | -- | A child run started for a task, at the fan-out (written by the child's @init@).
       Spawned Child
     | {- | The 10x resumes the child run, which works again until it hands back.
       Its task, if it took one, is copied from the child's 'Spawned'.
       -}
-      Resumed RunId (Maybe TaskRef)
+      Resumed RunId (Maybe TaskRef) TakeUp
     | -- | What a child run's hand-back said, by its run id, and its task as 'Resumed' names it.
       HandedBack RunId (Maybe TaskRef) Said
     | -- | Where a task's PR stands, as the 10x saw it.
@@ -486,6 +487,15 @@ data Note = Note {code :: RefusalCode, message :: Text, fix :: Text}
 -}
 newtype RefusalCode = RefusalCode {codeText :: Text}
     deriving stock (Eq, Ord, Show)
+
+{- | The rule a 'Spawning' or 'Resumed' was recorded under, so a stored line
+replays as it was recorded. 'TakesUp': the task runs again, a parked one
+unparked, and a fan-out at its merge reopens. 'Joins', every line from
+before that rule: the run stays where it is, and a resume leaves the task's
+moves as they are.
+-}
+data TakeUp = Joins | TakesUp
+    deriving stock (Eq, Show)
 
 -- | A child run of the fan-out: its run id, what it was spawned for and its worktree.
 data Child = Child {run :: RunId, task :: ChildTask TaskRef, worktree :: FilePath}

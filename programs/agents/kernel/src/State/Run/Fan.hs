@@ -36,6 +36,7 @@ module State.Run.Fan (
     handedBack,
     moved,
     movable,
+    Movable (..),
     held,
     actedOn,
     leave,
@@ -86,6 +87,7 @@ import State.Run.Event (
     Sha,
     Shape (..),
     Stop,
+    TakeUp (..),
     Task (..),
     TaskId,
     TaskRef (TaskRef, task),
@@ -379,10 +381,11 @@ unparked task fan = case Map.lookup task fan.moves of
         [] -> after
 
 {- | The 10x resumes a child that waits on it: refused while an agent works
-on its task. A parked task resumed runs again, as one sent a new child does.
+on its task. A parked task taken up ('TakesUp') runs again, as one sent a
+new child does; a line recorded before that rule ('Joins') leaves it parked.
 -}
-resumed :: RunId -> Fan -> Either Refusal Fan
-resumed run fan = case find ((== run) . (.child.run)) fan.children of
+resumed :: TakeUp -> RunId -> Fan -> Either Refusal Fan
+resumed takeUp run fan = case find ((== run) . (.child.run)) fan.children of
     Nothing -> Left (UnknownChild run)
     Just found
         | not (live found) -> Left (ChildOver run)
@@ -390,8 +393,12 @@ resumed run fan = case find ((== run) . (.child.run)) fan.children of
             Tasked ref
                 | Set.member ref.task fan.atWork -> Left (AtWork ref.task)
                 | otherwise ->
-                    Right (unparked ref.task fan) {atWork = Set.insert ref.task fan.atWork}
+                    Right (takenUp ref.task) {atWork = Set.insert ref.task fan.atWork}
             Untasked -> Right fan
+  where
+    takenUp task = case takeUp of
+        TakesUp -> unparked task fan
+        Joins -> fan
 
 -- | A question the 10x asked from this child: after the child stopped, it triages the stop.
 triaged :: RunId -> Fan -> Fan
@@ -476,21 +483,26 @@ moved task state fan = case Map.lookup task fan.moves of
         Delivered _ -> after
 
 {- | A move recorded now: refused once its task merged, as 'moved' ignores
-it. The same merge again succeeds: its goal holds. Checked at record time
-only, so a log holding a later move still replays.
+it. The same merge again holds already: it succeeds, and nothing is
+logged, so voiding the merge undoes it. Checked at record time only, so a
+log holding a later move still replays.
 -}
-movable :: TaskId -> TaskState -> Fan -> Either Refusal ()
+movable :: TaskId -> TaskState -> Fan -> Either Refusal Movable
 movable task state fan = case Map.lookup task fan.moves of
     Just (Merged url)
-        | state == Merged url -> Right ()
+        | state == Merged url -> Right HoldsAlready
         | otherwise -> Left (TaskMerged task url)
-    Just (Kept _) -> Right ()
-    Just (Parked _ _) -> Right ()
-    Just (Round _) -> Right ()
-    Just (InReview _) -> Right ()
-    Just (InCi _) -> Right ()
-    Just (Delivered _) -> Right ()
-    Nothing -> Right ()
+    Just (Kept _) -> Right Moves
+    Just (Parked _ _) -> Right Moves
+    Just (Round _) -> Right Moves
+    Just (InReview _) -> Right Moves
+    Just (InCi _) -> Right Moves
+    Just (Delivered _) -> Right Moves
+    Nothing -> Right Moves
+
+-- | A move recorded now: a fact to log, or one its task holds already.
+data Movable = Moves | HoldsAlready
+    deriving stock (Eq, Show)
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan

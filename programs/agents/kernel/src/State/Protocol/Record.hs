@@ -71,6 +71,7 @@ import State.Run.Event (
     Requirement (..),
     RunId,
     Sha,
+    TakeUp (TakesUp),
     Target (..),
     TaskId (..),
     TaskRef,
@@ -96,9 +97,11 @@ import State.Step.Artifact (
     NonBlank,
     baseTextForms,
     parseBase,
+    parseNamesOrNone,
     parseNonBlank,
     parsePrUrl,
     parseSha,
+    parseTaskId,
     prUrlRule,
     shaRule,
  )
@@ -467,13 +470,13 @@ recordables =
                 [task, link] -> Right (OnTask (TaskId task) (`ActedOn` Url link))
                 _ -> Left "the task and the held url acted on"
            , named "spawning" "<task>" $ \case
-                [task] -> Right (OnTask (TaskId task) Spawning)
+                [task] -> Right (OnTask (TaskId task) (`Spawning` TakesUp))
                 _ -> Left "the task the engineer you spawn takes"
            , named "resumed" "<child run>" $ \case
                 [child] ->
                     maybe
                         (Left (child <> " is no run id"))
-                        (\run -> Right (OnChild run (Resumed run)))
+                        (\run -> Right (OnChild run (\ref -> Resumed run ref TakesUp)))
                         (parseRunId child)
                 _ -> Left "the child run you resume"
            ]
@@ -581,17 +584,15 @@ draftOf words' a = do
         (Nothing, Just uri) -> Right (OfUrl uri)
         (Nothing, Nothing) -> Left (raw <> " is no <run>:<seq>, nor " <> uriRule)
 
-{- | @--deps@: the tasks a task builds on, comma-separated as POSIX
-guideline 8 has it, or @none@; a repeat counts once.
--}
+-- | @--deps@: the tasks a task builds on, or @none@ ('parseNamesOrNone').
 depsOf :: Text -> Either Text (Set TaskId)
-depsOf raw = case Text.strip raw of
-    "none" -> Right Set.empty
-    names -> Set.fromList <$> traverse (taskOf . Text.strip) (Text.splitOn "," names)
-  where
-    taskOf name
-        | Text.null name = Left "a dependency's task id, as --deps t1,t2 or --deps none"
-        | otherwise = Right (TaskId name)
+depsOf =
+    parseNamesOrNone
+        (taskNamed "a dependency's task id, as --deps t1,t2 or --deps none")
+
+-- | A task id a flag names, or the given error.
+taskNamed :: Text -> Text -> Either Text TaskId
+taskNamed missing = maybe (Left missing) Right . parseTaskId
 
 {- | @user_needed "<text>"@: what the user must do by hand, the tasks it
 holds up, a repeat counted once, and where to do it.
@@ -601,17 +602,18 @@ needed a = do
     without ["note"] "a new need" a
     text <- oneLine "what the user must do" (Text.unwords a.positional)
     url <- traverse uriOf (option "url" a)
-    tasks <- traverse taskOf (foldMap (Text.splitOn ",") (options "blocks" a))
+    tasks <-
+        Set.unions
+            <$> traverse
+                (parseNamesOrNone (taskNamed "a blocked task's id, as --blocks t3,t4"))
+                (options "blocks" a)
     Right
         ( OnTasks
-            (Set.toList (Set.fromList tasks))
+            (Set.toList tasks)
             (\refs -> UserNeeded (Need text (Set.fromList refs) url))
         )
   where
     uriOf raw = maybe (Left (raw <> " is not " <> uriRule)) Right (parseUri raw)
-    taskOf raw
-        | Text.null raw = Left "a blocked task's id, as --blocks t3,t4"
-        | otherwise = Right (TaskId raw)
 
 -- | @user_needed <run:seq> --done@: the need is done, closed in the run that logged it.
 needDone :: Args -> Either Text Recording

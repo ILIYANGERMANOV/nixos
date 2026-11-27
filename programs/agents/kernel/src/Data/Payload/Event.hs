@@ -132,6 +132,7 @@ import State.Run.Event (
     Start (..),
     StateName (..),
     Stop (..),
+    TakeUp (..),
     TaskId (..),
     TaskNo,
     TaskRef (..),
@@ -358,8 +359,9 @@ eventData = \case
     Answered qid reply by -> qidData qid <> replyData reply <> pair "by" (partyEncoding by)
     QuestionParked qid why -> qidData qid <> "reason" .= oneLineText why
     Spawned child -> spawnedData child
-    Spawning ref -> taskRefData ref
-    Resumed child ref -> "child" .= runIdText child <> foldMap taskRefData ref
+    Spawning ref takeUp -> taskRefData ref <> takeUpData takeUp
+    Resumed child ref takeUp ->
+        "child" .= runIdText child <> foldMap taskRefData ref <> takeUpData takeUp
     HandedBack child ref said -> "child" .= runIdText child <> foldMap taskRefData ref <> saidData said
     TaskMoved ref moved -> taskRefData ref <> pair "state" (taskStateEncoding moved)
     Held ref url -> taskRefData ref <> urlData url
@@ -462,8 +464,8 @@ eventOf kind obj = case kind of
     in place, as @refused@'s @code@ does: no store with the older shape shipped.
     -}
     "spawned" -> Spawned <$> spawnedOf obj
-    "spawning" -> Spawning <$> taskRefOf obj
-    "resumed" -> Resumed <$> childOf obj <*> childTaskRefOf obj
+    "spawning" -> Spawning <$> taskRefOf obj <*> takeUpOf obj
+    "resumed" -> Resumed <$> childOf obj <*> childTaskRefOf obj <*> takeUpOf obj
     "handed_back" -> HandedBack <$> childOf obj <*> childTaskRefOf obj <*> saidOf obj
     "task" -> TaskMoved <$> taskRefOf obj <*> (obj .: "state" >>= taskStateOf)
     "held" -> Held <$> taskRefOf obj <*> urlOf obj
@@ -686,6 +688,21 @@ childTaskRefOf obj =
         (Nothing, Nothing) -> pure Nothing
         (Just _, Nothing) -> fail "a task with no breakdown"
         (Nothing, Just _) -> fail "a breakdown with no task"
+
+{- | @takes_up: true@ on a line recorded under 'TakesUp'. A line from before
+that rule has no key, and @false@ reads as it does: 'Joins'.
+-}
+takeUpData :: TakeUp -> Series
+takeUpData = \case
+    TakesUp -> "takes_up" .= True
+    Joins -> mempty
+
+takeUpOf :: Object -> Parser TakeUp
+takeUpOf obj =
+    obj .:? "takes_up" >>= \case
+        Just True -> pure TakesUp
+        Just False -> pure Joins
+        Nothing -> pure Joins
 
 -- | The event is the union: @kind: tasked@ names the child's task, @untasked@ none.
 spawnedData :: Child -> Series

@@ -92,7 +92,7 @@ spec = describe "State.Cli.Shell" $ do
             )
             Nothing
             ["resumed", "c1"]
-            `shouldBe` Just (Resumed (runId "c1") (Just (TaskRef (TaskId "t1") 1)))
+            `shouldBe` Just (Resumed (runId "c1") (Just (TaskRef (TaskId "t1") 1)) TakesUp)
 
 -- | A 10x run of these events after its start, at seq 0.
 replayed :: [Event] -> RunState
@@ -118,7 +118,7 @@ writes given the seq of the breakdown that holds the task.
 genRecording :: TaskId -> Gen ([Text], Maybe Text, Natural -> Event)
 genRecording task =
     Gen.element
-        [ (["spawning", name], Nothing, Spawning . ref)
+        [ (["spawning", name], Nothing, \n -> Spawning (ref n) TakesUp)
         , (["held", name, url], Nothing, \n -> Held (ref n) (Url url))
         , (["acted", name, url], Nothing, \n -> ActedOn (ref n) (Url url))
         ,
