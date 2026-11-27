@@ -11,6 +11,7 @@ module Data.Projection (
     Projection (..),
     Table (..),
     strictTable,
+    indexed,
     Insert (..),
     Value (..),
     integer,
@@ -34,11 +35,12 @@ and its tables.
 data Projection = Projection {name :: Text, version :: Natural, tables :: NonEmpty Table}
     deriving stock (Eq, Show)
 
-{- | A table: its name, and its @CREATE TABLE@ statement exactly as SQLite
-stores it in @sqlite_schema.sql@, comments kept and no @;@. Open compares
-the stored text byte for byte, so the statement says only what SQLite keeps.
+{- | A table: its name, its @CREATE TABLE@ statement exactly as SQLite
+stores it in @sqlite_schema.sql@, comments kept and no @;@, and its indexes'
+@CREATE INDEX@ statements, made after it. Open compares the stored text byte
+for byte, so each statement says only what SQLite keeps.
 -}
-data Table = Table {name :: Text, ddl :: Text}
+data Table = Table {name :: Text, ddl :: Text, indexes :: [Text]}
     deriving stock (Eq, Show)
 
 {- | A STRICT table of this name, its lines between the parentheses, each
@@ -50,6 +52,23 @@ strictTable name body =
         { name
         , ddl =
             Text.intercalate "\n" (("CREATE TABLE " <> name <> " (") : body <> [") STRICT"])
+        , indexes = []
+        }
+
+-- | The table with an index on these columns, named after them as sqlstyle.guide does.
+indexed :: [Text] -> Table -> Table
+indexed columns table =
+    table
+        { indexes =
+            table.indexes
+                <> [ "CREATE INDEX "
+                        <> Text.intercalate "_" (table.name : columns)
+                        <> "_idx ON "
+                        <> table.name
+                        <> " ("
+                        <> Text.intercalate ", " columns
+                        <> ")"
+                   ]
         }
 
 -- | One row to write: its table, and each column with its value.
@@ -81,11 +100,13 @@ enumIn words' =
 spellings :: (Enum a, Bounded a) => (a -> Text) -> Text
 spellings spelling = enumIn (map spelling [minBound .. maxBound])
 
-{- | What the store needs to keep the projections: every projection, and the
-rows of one run computed from its event rows, in seq order. A run whose log
-the fold does not take has none.
+{- | What the store needs to keep the projections: every projection, the
+@CREATE VIEW@ statements of the views over them, each as SQLite stores it
+and made after every table, and the rows of one run computed from its event
+rows, in seq order. A run whose log the fold does not take has none.
 -}
 data Projections = Projections
     { projections :: [Projection]
+    , views :: [Text]
     , refold :: [EventRow] -> [Insert]
     }

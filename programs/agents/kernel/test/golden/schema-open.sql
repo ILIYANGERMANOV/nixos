@@ -463,3 +463,285 @@ CREATE TABLE user_need_blocks (
   FOREIGN KEY (run_id, user_need_id) REFERENCES user_needs (run_id, id),
   FOREIGN KEY (run_id, breakdown_id, task_id) REFERENCES tasks (run_id, breakdown_id, id)
 ) STRICT;
+CREATE TABLE gaps (
+  -- Friction an agent hit with a flow, a skill or state itself.
+
+  -- The run that recorded the gap.
+  run_id          TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the gap event.
+  id              INTEGER NOT NULL,
+  -- Which part of the harness the gap is in.
+  kind            TEXT    NOT NULL
+                  CONSTRAINT gaps_kind_enum CHECK (
+                    kind IN ('kernel', 'prose', 'tool', 'permission', 'ci', 'process', 'other')),
+  -- How much it hurt. blocker: the run could not go on. slowdown: it cost time or tokens. papercut: an annoyance.
+  severity        TEXT    NOT NULL
+                  CONSTRAINT gaps_severity_enum CHECK (severity IN ('blocker', 'slowdown', 'papercut')),
+  -- The step, skill or command the gap is in.
+  area            TEXT    NOT NULL,
+  -- What happened, in the reporter's words.
+  text            TEXT    NOT NULL,
+  -- The role that reported it: the lead's, or the worker whose hand-back held a Gap: line.
+  reporter_role   TEXT    NOT NULL,
+  -- open: nothing done. fix_proposed: a pull request is up. fixed: it merged. wont_fix: closed with a reason.
+  status          TEXT    NOT NULL
+                  CONSTRAINT gaps_status_enum CHECK (status IN ('open', 'fix_proposed', 'fixed', 'wont_fix')),
+  -- The pull request that fixes the gap. Set only when fix_proposed or fixed.
+  fix_pr_url      TEXT,
+  -- Why the gap will not be fixed. Set only when wont_fix.
+  wont_fix_reason TEXT,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),
+  CONSTRAINT gaps_fix_pr_url_iff_fix_proposed_or_fixed CHECK ((fix_pr_url IS NOT NULL) = (status IN ('fix_proposed', 'fixed'))),
+  CONSTRAINT gaps_wont_fix_reason_iff_wont_fix CHECK ((wont_fix_reason IS NOT NULL) = (status = 'wont_fix'))
+) STRICT;
+CREATE TABLE gap_evidence (
+  -- What backs a gap, in the order given: an event of any run, or a URL.
+  -- A registered file is an event too: its artifact event.
+
+  -- The run of the gap.
+  run_id       TEXT    NOT NULL REFERENCES runs (id),
+  -- The gap: gaps.id.
+  gap_id       INTEGER NOT NULL,
+  -- The place of this piece in the gap's evidence list, from 1.
+  ordinal      INTEGER NOT NULL,
+  -- event: an event in the store. url: a web address.
+  kind         TEXT    NOT NULL
+               CONSTRAINT gap_evidence_kind_enum CHECK (kind IN ('event', 'url')),
+  -- The run of the event. Set only when event.
+  -- No foreign key: the reporter typed the reference, and the command checks it.
+  event_run_id TEXT,
+  -- The seq of the event. Set only when event.
+  event_seq    INTEGER,
+  -- The web address. Set only when url.
+  url          TEXT,
+  PRIMARY KEY (run_id, gap_id, ordinal),
+  FOREIGN KEY (run_id, gap_id) REFERENCES gaps (run_id, id),
+  CONSTRAINT gap_evidence_event_run_id_iff_event CHECK ((event_run_id IS NOT NULL) = (kind = 'event')),
+  CONSTRAINT gap_evidence_event_seq_iff_event CHECK ((event_seq IS NOT NULL) = (kind = 'event')),
+  CONSTRAINT gap_evidence_url_iff_url CHECK ((url IS NOT NULL) = (kind = 'url'))
+) STRICT;
+CREATE TABLE notes (
+  -- Free text a lead wants a later session to find, filed under a topic.
+
+  -- The run.
+  run_id TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the note event.
+  id     INTEGER NOT NULL,
+  -- A short label that groups notes, such as live or traps.
+  topic  TEXT    NOT NULL,
+  -- The note itself.
+  text   TEXT    NOT NULL,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq)
+) STRICT;
+CREATE INDEX notes_run_id_topic_idx ON notes (run_id, topic);
+CREATE TABLE artifacts (
+  -- Every file and URL a run registered: its map of context.
+  -- A file's content is in blobs when a row there has the same sha256.
+
+  -- The run.
+  run_id             TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the artifact event.
+  id                 INTEGER NOT NULL,
+  -- What the artifact is for: a file's kind, or a URL's.
+  kind               TEXT    NOT NULL
+                     CONSTRAINT artifacts_kind_enum CHECK (
+                       kind IN ('plan', 'requirements', 'task_list', 'intent', 'brief', 'report', 'notes', 'research', 'review', 'pr_body', 'transcript', 'download', 'other', 'ticket', 'issue', 'pr', 'doc')),
+  -- file: a path on this machine. url: a web address.
+  location_kind      TEXT    NOT NULL
+                     CONSTRAINT artifacts_location_kind_enum CHECK (location_kind IN ('file', 'url')),
+  -- The file's absolute path at registration. Set only when file.
+  path               TEXT,
+  -- SHA-256 of the file as read at registration, 64 lowercase hex. Set only when file.
+  sha256             TEXT,
+  -- The file's size in bytes at registration. Set only when file.
+  size_bytes         INTEGER,
+  -- The web address. Set only when url.
+  url                TEXT,
+  -- The span of the agent that made the artifact. prov:wasGeneratedBy. Optional: the lead or the user made it.
+  span_id            INTEGER,
+  -- The artifact this one was made from. prov:wasDerivedFrom. Optional: most have no source.
+  source_artifact_id INTEGER,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),
+  FOREIGN KEY (run_id, span_id) REFERENCES spans (run_id, id),
+  FOREIGN KEY (run_id, source_artifact_id) REFERENCES artifacts (run_id, id),
+  CONSTRAINT artifacts_path_iff_file CHECK ((path IS NOT NULL) = (location_kind = 'file')),
+  CONSTRAINT artifacts_sha256_iff_file CHECK ((sha256 IS NOT NULL) = (location_kind = 'file')),
+  CONSTRAINT artifacts_size_bytes_iff_file CHECK ((size_bytes IS NOT NULL) = (location_kind = 'file')),
+  CONSTRAINT artifacts_url_iff_url CHECK ((url IS NOT NULL) = (location_kind = 'url')),
+  CONSTRAINT artifacts_source_artifact_id_not_self CHECK (source_artifact_id IS NOT id)
+) STRICT;
+CREATE INDEX artifacts_run_id_path_idx ON artifacts (run_id, path);
+CREATE TABLE handovers (
+  -- A session's note to the next session of the same run. The session is the event's session_id.
+
+  -- The run.
+  run_id  TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the handover event.
+  id      INTEGER NOT NULL,
+  -- Why the session hands over. context: its context is full. user: the user asked. crash: written for a session that died.
+  reason  TEXT    NOT NULL
+          CONSTRAINT handovers_reason_enum CHECK (reason IN ('context', 'user', 'crash')),
+  -- Where the work stands, in the session's words.
+  summary TEXT    NOT NULL,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq)
+) STRICT;
+CREATE TABLE handover_next_steps (
+  -- What the next session should do first, in order.
+
+  -- The run.
+  run_id      TEXT    NOT NULL REFERENCES runs (id),
+  -- The handover: handovers.id.
+  handover_id INTEGER NOT NULL,
+  -- The place of this step in the list, from 1.
+  ordinal     INTEGER NOT NULL,
+  -- One thing to do, ideally a command.
+  next_step   TEXT    NOT NULL,
+  PRIMARY KEY (run_id, handover_id, ordinal),
+  FOREIGN KEY (run_id, handover_id) REFERENCES handovers (run_id, id)
+) STRICT;
+CREATE TABLE stopgaps (
+  -- A fact an agent recorded when no typed command fit, by key, for the run or one of its tasks.
+  -- One row per stopgap in force, at its newest value. An unset one leaves the table;
+  -- the run's log keeps every event. Nothing the kernel decides reads a stopgap.
+
+  -- The run.
+  run_id       TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the stopgap_set event that set this value.
+  id           INTEGER NOT NULL,
+  -- The breakdown of the task the stopgap is for. NULL: the run's own.
+  -- No foreign key to tasks: the log may name a task no breakdown holds.
+  breakdown_id INTEGER,
+  -- The task the stopgap is for. Set only with breakdown_id.
+  task_id      TEXT,
+  -- The key, as OpenTelemetry names attributes, such as deploy.window.
+  key          TEXT    NOT NULL,
+  -- The value: I-JSON (RFC 7493) text.
+  value        TEXT    NOT NULL
+               CONSTRAINT stopgaps_value_json CHECK (json_valid(value)),
+  -- Why it was set.
+  reason       TEXT    NOT NULL,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),
+  CONSTRAINT stopgaps_task_id_iff_breakdown_id CHECK ((task_id IS NOT NULL) = (breakdown_id IS NOT NULL))
+) STRICT;
+CREATE TABLE spans (
+  -- One row per subagent a run's lead spawned: from its brief to its hand-back.
+  -- OpenTelemetry GenAI invoke_agent span. The lead itself has no span.
+  -- NULL in an optional column means the harness did not report it, never 0.
+
+  -- The run. One run is one trace.
+  run_id                   TEXT    NOT NULL REFERENCES runs (id),
+  -- The seq of the span_started event. Not an OpenTelemetry hex span id.
+  id                       INTEGER NOT NULL,
+  -- The span of the agent that spawned this one. Optional: the lead spawned it.
+  parent_span_id           INTEGER,
+  -- gen_ai.operation.name. Always invoke_agent.
+  operation_name           TEXT    NOT NULL
+                           CONSTRAINT spans_operation_name_enum CHECK (operation_name IN ('invoke_agent')),
+  -- The subagent's role, such as researcher or fixer. gen_ai.agent.name.
+  agent_role               TEXT    NOT NULL,
+  -- The harness that ran the agent, such as claude-code or opencode.
+  harness                  TEXT    NOT NULL,
+  -- The id the harness gave this agent. Not unique: a continued agent keeps it in a new span.
+  -- Always NULL for now: no event carries it.
+  harness_agent_id         TEXT,
+  -- gen_ai.provider.name, such as anthropic. Always NULL for now: no event carries it.
+  provider_name            TEXT,
+  -- gen_ai.request.model: the model asked for.
+  request_model            TEXT,
+  -- The time of the span_started event.
+  started_at               TEXT    NOT NULL,
+  -- The time of the span_ended event. NULL: still running, or its end was never seen.
+  ended_at                 TEXT,
+  -- ok: the agent handed back, whatever its token. A blocked or failed hand-back is ok.
+  -- error: it ended with no hand-back, or the harness reported an error. NULL while running.
+  status_code              TEXT
+                           CONSTRAINT spans_status_code_enum CHECK (status_code IN ('ok', 'error')),
+  -- The first word of the agent's hand-back. NULL while running, and when it ended with no hand-back.
+  handback_token           TEXT
+                           CONSTRAINT spans_handback_token_enum CHECK (
+                             handback_token IN ('ready', 'needs_decision', 'await', 'blocked', 'failed')),
+  -- error.type: what kind of error ended the span. Set only when status_code is error.
+  error_type               TEXT,
+  -- gen_ai.usage.input_tokens: all input tokens, cached ones included.
+  input_tokens             INTEGER,
+  -- gen_ai.usage.output_tokens.
+  output_tokens            INTEGER,
+  -- gen_ai.usage.cache_read.input_tokens: the part of input_tokens read from a cache.
+  cache_read_input_tokens  INTEGER,
+  -- gen_ai.usage.cache_write.input_tokens: the part of input_tokens written to a cache.
+  cache_write_input_tokens INTEGER,
+  -- The brief the agent was given, in full.
+  brief                    TEXT    NOT NULL,
+  -- The agent's hand-back text, in full. NULL while running, and when it ended with none.
+  handback                 TEXT,
+  PRIMARY KEY (run_id, id),
+  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),
+  FOREIGN KEY (run_id, parent_span_id) REFERENCES spans (run_id, id),
+  CONSTRAINT spans_parent_span_id_not_self CHECK (parent_span_id IS NOT id),
+  CONSTRAINT spans_status_code_iff_ended CHECK ((status_code IS NOT NULL) = (ended_at IS NOT NULL)),
+  CONSTRAINT spans_error_type_iff_error CHECK ((error_type IS NOT NULL) = (status_code IS 'error')),
+  CONSTRAINT spans_handback_token_only_when_ended CHECK (handback_token IS NULL OR ended_at IS NOT NULL),
+  CONSTRAINT spans_handback_only_when_ended CHECK (handback IS NULL OR ended_at IS NOT NULL)
+) STRICT;
+CREATE VIEW v_sessions AS
+-- One row per harness session of a run, from the event envelope. Events with no session are left out.
+SELECT
+  run_id,                               -- the run
+  session_id,                           -- the harness session
+  min(time) AS started_at,              -- the time of the session's first event in this run
+  max(time) AS last_event_at,           -- the time of its last event in this run
+  count(*) AS event_count,              -- how many events it wrote
+  sum(type = 'handover') AS handover_count,  -- how many handovers it wrote
+  max(CASE WHEN type = 'session_started' THEN data ->> '$.harness' END) AS harness,
+                                        -- the harness, from session_started. NULL: no such event
+  max(CASE WHEN type = 'session_started' THEN data ->> '$.transcript_path' END) AS transcript_path
+                                        -- the session's transcript file, from session_started
+FROM events
+WHERE session_id IS NOT NULL
+GROUP BY run_id, session_id;
+CREATE VIEW v_signals AS
+-- Friction that the log shows by itself: one row per refusal, stop, override, void,
+-- extension and stuck question. Voided lines are included.
+SELECT
+  run_id,                               -- the run
+  seq,                                  -- the event's seq
+  time,                                 -- the event's time
+  session_id,                           -- the session that wrote it, if any
+  CASE type WHEN 'asked' THEN 'stuck' ELSE type END AS signal,
+                                        -- refused, stop, overridden, voided, extend or stuck
+  CASE type
+    WHEN 'refused' THEN data ->> '$.code'
+    WHEN 'stop' THEN data ->> '$.reason'
+    WHEN 'overridden' THEN data ->> '$.to'
+  END AS code,                          -- the refusal code, the stop reason or the state an override went to
+  coalesce(data ->> '$.message', data ->> '$.detail', data ->> '$.reason', data ->> '$.question') AS detail
+                                        -- the words that came with it
+FROM events
+WHERE type IN ('refused', 'stop', 'overridden', 'voided', 'extend')
+   OR (type = 'asked' AND data ->> '$.question_kind' = 'stuck');
+CREATE VIEW v_steps AS
+-- Each step visit with its length and the agent time inside it.
+SELECT
+  step_visits.run_id,                   -- the run
+  step_visits.id AS step_visit_id,      -- the visit
+  step_visits.step,                     -- the flow state
+  step_visits.entered_at,               -- when the run moved in
+  step_visits.left_at,                  -- when it moved on. NULL: the run is here now
+  unixepoch(step_visits.left_at, 'subsec') - unixepoch(step_visits.entered_at, 'subsec') AS duration_seconds,
+                                        -- the visit's length. NULL while open
+  CASE WHEN step_visits.left_at IS NOT NULL THEN coalesce((
+    SELECT sum(
+      unixepoch(min(coalesce(spans.ended_at, step_visits.left_at), step_visits.left_at), 'subsec')
+      - unixepoch(max(spans.started_at, step_visits.entered_at), 'subsec'))
+    FROM spans
+    WHERE spans.run_id = step_visits.run_id
+      AND spans.started_at < step_visits.left_at
+      AND coalesce(spans.ended_at, step_visits.left_at) > step_visits.entered_at
+  ), 0) END AS agent_seconds            -- span time inside the visit, summed over parallel agents:
+                                        -- it can pass duration_seconds. NULL while open
+FROM step_visits;

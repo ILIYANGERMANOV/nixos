@@ -47,7 +47,7 @@ every run. The whole set, as one projection's rows may reference another's.
 A version differing either way rebuilds, so an older kernel rebuilds too.
 -}
 refresh :: Projections -> Connection -> IO ()
-refresh ps conn = void (dueUnderLock conn (due <$> current ps.projections conn))
+refresh ps conn = void (dueUnderLock conn (due <$> current ps conn))
   where
     due = \case
         True -> Nothing
@@ -90,15 +90,15 @@ sqlData = \case
     SqlNull -> SQLNull
 
 -- | Whether the stored projections are these, DDL and versions alike.
-current :: [Projection] -> Connection -> IO Bool
-current projections conn = do
+current :: Projections -> Connection -> IO Bool
+current ps conn = do
     stored <-
         query_ conn "SELECT tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL"
     if Set.fromList [sql | (table, sql) <- stored, table `notElem` permanent]
-        /= Set.fromList (ddls projections)
+        /= Set.fromList (ddls ps)
         then pure False
         else
-            (== Set.fromList [(p.name, fromIntegral p.version) | p <- projections])
+            (== Set.fromList [(p.name, fromIntegral p.version) | p <- ps.projections])
                 . Set.fromList
                 <$> ( query_ conn "SELECT name, version FROM projection_versions" ::
                         IO [(Text, Int64)]
@@ -112,7 +112,7 @@ rebuild ps conn = do
     for_ views $ \view -> execute_ conn (Query ("DROP VIEW " <> quoted view))
     for_ [table | table <- tables, table `notElem` permanent] $ \table ->
         execute_ conn (Query ("DROP TABLE " <> quoted table))
-    for_ (ddls ps.projections) (execute_ conn . Query)
+    for_ (ddls ps) (execute_ conn . Query)
     executeMany
         conn
         "INSERT INTO projection_versions (name, version) VALUES (?, ?)"
@@ -129,9 +129,19 @@ rebuild ps conn = do
                 (Only kind)
     quoted name = "\"" <> Text.replace "\"" "\"\"" name <> "\""
 
--- | Every statement that makes the projections, @projection_versions@ first.
-ddls :: [Projection] -> [Text]
-ddls projections = versionsDdl : [t.ddl | p <- projections, t <- toList p.tables]
+{- | Every statement that makes the projections, @projection_versions@
+first, each table's indexes after it, and the views last, as they read the
+tables.
+-}
+ddls :: Projections -> [Text]
+ddls ps =
+    versionsDdl
+        : [ statement
+          | p <- ps.projections
+          , t <- toList p.tables
+          , statement <- t.ddl : t.indexes
+          ]
+            <> ps.views
 
 tableNames :: [Projection] -> [Text]
 tableNames projections = [t.name | p <- projections, t <- toList p.tables]

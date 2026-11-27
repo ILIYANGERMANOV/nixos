@@ -7,6 +7,7 @@ module Effects.Store.ProjectionSpec (spec) where
 import Concurrently (bothAtOnce)
 import Control.Exception (try)
 import Data.Either (isRight)
+import Data.Field qualified as Field
 import Data.Foldable (for_, toList, traverse_)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -21,6 +22,17 @@ import Data.Projection (
     Table (..),
     Value (..),
  )
+import Data.Projection.Context (
+    ArtifactRow (..),
+    HandoverRow (..),
+    NoteRow (..),
+    StopgapRow (..),
+    artifactInsert,
+    handoverInserts,
+    noteInsert,
+    stopgapInsert,
+ )
+import Data.Projection.Gaps (GapRow (..), evidenceInserts, gapInsert)
 import Data.Projection.Questions (
     AnswerRow (..),
     QuestionRow (..),
@@ -48,6 +60,7 @@ import Data.Projection.Runs (
     runStateInsert,
     stepVisitInsert,
  )
+import Data.Projection.Spans (SpanEnd (..), SpanRow (..), spanInsert)
 import Data.Projection.Tasks (
     BreakdownRow (..),
     ChildRunRow (..),
@@ -85,7 +98,16 @@ import Effects.Store.Projected (Row, inserted, projectionRows)
 import Effects.Store.Projection (insert)
 import Hedgehog (Gen, assert, cover, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Artifact (
+    Artifact (File),
+    FileArtifact (..),
+    FileRef (..),
+    Size (..),
+    sha256Of,
+ )
+import State.Artifact qualified as Artifact
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Step (StateName (..))
 import State.Golden (golden)
@@ -119,42 +141,73 @@ import State.Run.Event (
     Event (
         ActedOn,
         Answered,
+        ArtifactLogged,
         Asked,
         EpicMoved,
         Forwarded,
+        GapMoved,
+        Gapped,
         HandedBack,
+        HandedOver,
         Held,
+        Noted,
         Overridden,
         QuestionParked,
         RuledOn,
+        SessionStarted,
+        SpanEnded,
+        SpanStarted,
         Spawned,
         Started,
+        StopgapSet,
+        StopgapUnset,
         TaskMoved,
         UserNeeded
     ),
+    Handover (..),
+    HandoverReason (Context),
+    Harness (..),
     Need (..),
     Repo (..),
     RunId,
     Said (Ended),
+    Session (..),
+    SessionId (..),
     Source (..),
+    SpanEnding (..),
+    SpanStart (..),
     Stop (..),
     StopReason (..),
     Task (..),
     TaskId (..),
     TaskRef (..),
     TaskState (..),
+    TokenWord (ReadyWord),
     Url (..),
+    Usage (..),
     runIdText,
     stepTook,
+    unreported,
  )
 import State.Run.Event qualified as Event
 import State.Run.Event qualified as Started (Start (..))
 import State.Run.EventGen (
+    absolutePath,
+    bareGap,
     epicNamed,
     fuelSet,
+    genArtifact,
+    genGap,
+    genGapMove,
+    genIJson,
+    genNonBlank,
     genOneLine,
     genProposal,
     genReply,
+    genSpanEnding,
+    genText,
+    genUsage,
+    ijson,
     line,
     lineOf,
     oneLine,
@@ -162,14 +215,24 @@ import State.Run.EventGen (
     runId,
     start,
     started,
+    stopgapKey,
     tasksOf,
     titled,
     uri,
  )
-import State.Run.Fold (Pending (..), RunState (..), Waits (..))
+import State.Run.Fold (
+    Origin (..),
+    Pending (..),
+    RunState (..),
+    Waits (..),
+    Worker (..),
+ )
 import State.Run.Fold qualified as Fold
-import State.Run.Id (Digest (..), EventId (..), EventRef (..))
+import State.Run.Gap (Evidence (..), Gap (..), Tracked (..))
+import State.Run.Gap qualified as Gap
+import State.Run.Id (Digest (..), EventId (..), EventRef (..), SpanId (..))
 import State.Run.RunGen (g, genAccepted, happyPath, plainTask, sha)
+import State.Run.Stopgap (Stopgap (..), StopgapAt (..))
 import State.Step.Fan (Outcome (BreakdownDone), engineers)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -217,6 +280,28 @@ spec = describe "Effects.Store.Projection" $ do
                 dir
                 (`query_` "SELECT sql FROM sqlite_schema WHERE name = 'round_problems'")
                 `shouldReturn` [Only (ddlOf "round_problems")]
+            rowsIn dir `shouldReturn` before
+
+    it
+        "rebuilds every projection at an open after a view's text or an index changed"
+        $ withRun
+        $ \dir before -> do
+            let made =
+                    raw dir $ \c ->
+                        query_
+                            c
+                            "SELECT name, sql FROM sqlite_schema WHERE name IN ('v_steps', 'notes_run_id_topic_idx') ORDER BY name"
+            shipped' <- made :: IO [(Text, Text)]
+            raw dir $ \c ->
+                mapM_
+                    (execute_ c)
+                    [ "DROP VIEW v_steps"
+                    , "CREATE VIEW v_steps AS SELECT 1 AS one"
+                    , "DROP INDEX notes_run_id_topic_idx"
+                    ]
+            opened dir shippedProjections (const (pure ()))
+            made `shouldReturn` shipped'
+            map fst shipped' `shouldBe` ["notes_run_id_topic_idx", "v_steps"]
             rowsIn dir `shouldReturn` before
 
     it "rebuilds every projection at an open whose version differs, up or down" $
@@ -282,6 +367,23 @@ spec = describe "Effects.Store.Projection" $ do
                     execute_ conn "DELETE FROM answers" >> written (answerInsert row)
                 traverse_ (written . userNeedInsert) userNeedRows
                 written (userNeedBlockInsert (UserNeedBlockRow run 1 (TaskRef (TaskId "t0") 1)))
+                for_ gapRows $ \row -> do
+                    execute_ conn "DELETE FROM gap_evidence"
+                    execute_ conn "DELETE FROM gaps"
+                    traverse_ written (gapInsert row : evidenceInserts row)
+                written (noteInsert (NoteRow run 1 "traps" "cold cache"))
+                for_ spanRows $ \row ->
+                    execute_ conn "DELETE FROM spans WHERE id = 3" >> written (spanInsert row)
+                for_ artifactRows $ \row ->
+                    execute_ conn "DELETE FROM artifacts WHERE id = 2"
+                        >> written (artifactInsert row)
+                for_ [minBound .. maxBound] $ \reason -> do
+                    execute_ conn "DELETE FROM handover_next_steps"
+                    execute_ conn "DELETE FROM handovers"
+                    traverse_
+                        written
+                        (handoverInserts (HandoverRow run 1 (Handover reason "s" ("a" :| ["b"]))))
+                traverse_ (written . stopgapInsert) stopgapRows
 
         it
             "spells each task state's status as the log's kind, and each epic's as its stage"
@@ -379,6 +481,113 @@ spec = describe "Effects.Store.Projection" $ do
                     , [Just (SqlInteger 19), Just (SqlText "t3"), Just (SqlText "delivered")]
                     ]
 
+    describe "a run's context, gaps and spans" $ do
+        let rowsOf table =
+                [ columns
+                | (t, columns) <- Set.toList (inserted (Registry.rows contextRun))
+                , t == table
+                ]
+            columnsOf table names' = [map (`Map.lookup` r) names' | r <- rowsOf table]
+
+        it "keeps the artifact an artifact was made from, and the span that made it" $
+            columnsOf "artifacts" ["id", "source_artifact_id", "span_id"]
+                `shouldBe` [ [Just (SqlInteger 5), Just SqlNull, Just (SqlInteger 3)]
+                           , [Just (SqlInteger 6), Just (SqlInteger 5), Just (SqlInteger 4)]
+                           ]
+
+        it
+            "times a span from its start and end lines, its harness's agent and provider unknown (D7)"
+            $ columnsOf
+                "spans"
+                [ "id"
+                , "parent_span_id"
+                , "started_at"
+                , "ended_at"
+                , "status_code"
+                , "harness_agent_id"
+                , "provider_name"
+                ]
+                `shouldBe` [
+                               [ Just (SqlInteger 3)
+                               , Just SqlNull
+                               , at' 3
+                               , at' 7
+                               , Just (SqlText "ok")
+                               , Just SqlNull
+                               , Just SqlNull
+                               ]
+                           ,
+                               [ Just (SqlInteger 4)
+                               , Just (SqlInteger 3)
+                               , at' 4
+                               , at' 8
+                               , Just (SqlText "error")
+                               , Just SqlNull
+                               , Just SqlNull
+                               ]
+                           ]
+
+        it
+            "keeps the stopgaps in force, each by the line that set it, its value and reason (D2)"
+            $ columnsOf "stopgaps" ["id", "breakdown_id", "task_id", "key", "value", "reason"]
+                `shouldBe` [
+                               [ Just (SqlInteger 13)
+                               , Just SqlNull
+                               , Just SqlNull
+                               , Just (SqlText "a.b")
+                               , Just (SqlText "\"y\"")
+                               , Just (SqlText "newer")
+                               ]
+                           ]
+
+        it "stores a stopgap set, and drops its row once unset" $
+            withSystemTempDirectory "state-store" $ \dir -> do
+                let (set, unset) = NonEmpty.splitAt 12 contextRun
+                    stopgaps store =
+                        query_ store.connection "SELECT id, key, value FROM stopgaps ORDER BY id"
+                opened dir shippedProjections $ \store -> do
+                    traverse_ (appended store) set
+                    (stopgaps store :: IO [(Int, Text, Text)])
+                        `shouldReturn` [(11, "a.b", "\"x\""), (12, "deploy.window", "1")]
+                    traverse_ (appended store) unset
+                    (stopgaps store :: IO [(Int, Text, Text)]) `shouldReturn` [(13, "a.b", "\"y\"")]
+
+        it "stores the rows the fold makes, and a rebuild makes them again" $
+            withSystemTempDirectory "state-store" $ \dir -> do
+                incremental <- opened dir shippedProjections $ \store -> do
+                    traverse_ (appended store) contextRun
+                    projectionRows store.connection
+                incremental `shouldBe` inserted (Registry.rows contextRun)
+                raw dir (`execute_` "DELETE FROM projection_versions")
+                rowsIn dir `shouldReturn` incremental
+
+        describe "the views" $ do
+            let viewed :: (SQLite.FromRow r) => SQLite.Query -> IO [r]
+                viewed sql = withSystemTempDirectory "state-store" $ \dir ->
+                    opened dir shippedProjections $ \store -> do
+                        appendedAll store contextRun
+                        query_ store.connection sql
+
+            it "v_steps: a visit's length, and its spans' time inside it summed" $
+                viewed
+                    "SELECT step_visit_id, duration_seconds, agent_seconds FROM v_steps WHERE agent_seconds > 0"
+                    `shouldReturn` [(2 :: Int, 14 :: Double, 8 :: Double)]
+
+            it "v_signals: the override and the stop, each with its code and words" $
+                viewed "SELECT seq, signal, code, detail FROM v_signals ORDER BY seq"
+                    `shouldReturn` [
+                                       ( 16 :: Int
+                                       , "overridden" :: Text
+                                       , Just ("plan" :: Text)
+                                       , Just ("the research is in" :: Text)
+                                       )
+                                   , (17, "stop", Just "blocked", Just "out of options")
+                                   ]
+
+            it "v_sessions: each session's lines, hand-overs and harness" $
+                viewed "SELECT session_id, event_count, handover_count, harness FROM v_sessions"
+                    `shouldReturn` [("s1" :: Text, 3 :: Int, 1 :: Int, Just ("claude-code" :: Text))]
+
     modifyMaxSuccess (const 50) $ do
         it "keeps, after each append, the rows a full rebuild makes" . hedgehog $ do
             logged <- forAll (genAccepted >>= asking)
@@ -386,6 +595,17 @@ spec = describe "Effects.Store.Projection" $ do
             cover 2 "a round with problems" ("round_problems" `elem` tables)
             cover 5 "a ruling" ("rulings" `elem` tables)
             cover 5 "an answer" ("answers" `elem` tables)
+            cover 5 "a gap with evidence" ("gap_evidence" `elem` tables)
+            cover 5 "a note" ("notes" `elem` tables)
+            cover 5 "a hand-over" ("handover_next_steps" `elem` tables)
+            cover 5 "a stopgap in force" ("stopgaps" `elem` tables)
+            cover
+                5
+                "an artifact from an earlier one"
+                (anyColumn "source_artifact_id" logged)
+            cover 5 "an artifact made by a span" (anyColumn "span_id" logged)
+            cover 5 "a span ended" (anyColumn "ended_at" logged)
+            cover 2 "a span under another" (anyColumn "parent_span_id" logged)
             (incremental, rebuilt) <- evalIO . withSystemTempDirectory "state-store" $ \dir -> do
                 incremental <- opened dir shippedProjections $ \store -> do
                     traverse_ (appended store) logged
@@ -406,27 +626,36 @@ spec = describe "Effects.Store.Projection" $ do
                     projectionRows store.connection
             stored === inserted rows
 
-{- | The log of these events with questions put between them: asked,
-retagged, ruled on, forwarded, answered or parked, each where the fold
-takes it, and at times a stop at its end. An event the fold refuses after a
-question ends the log there.
+{- | The log of these events with questions and context put between them.
+A question asked, retagged, ruled on, forwarded, answered or parked; a
+note, an artifact (from an earlier one, by an earlier span), a hand-over, a
+span started or ended, a gap logged or moved, a stopgap set or unset: each
+where the fold takes it, and at times a stop at its end. An event the fold
+refuses after one put between ends the log there.
 -}
 asking :: [Event] -> Gen (NonEmpty Envelope)
 asking events = do
     let first = line 1 started
-    (rest, ended) <- go (replayed (first :| [])) 2 events
+    (rest, ended) <- go (replayed (first :| [])) [first] 2 events
     stop <- Gen.element [[], [Event.Stopped (Stop Blocked "stuck")]]
     pure (first :| rest <> [line (ended + 1) event | ended > 1, event <- stop])
   where
     replayed = either (error . show) id . Fold.replay g
-    go state n pending' = do
-        question <- Gen.frequency [(3, pure Nothing), (1, Just <$> questionOn state n)]
-        case (question, pending') of
+    -- @before@: the lines so far, newest first.
+    go state before n pending' = do
+        between <-
+            Gen.frequency
+                [ (2, pure Nothing)
+                , (1, Just <$> questionOn state n)
+                , (1, Just <$> contextOn state before)
+                ]
+        case (between, pending') of
             (Just event, _)
                 | Right (Fold.Appended next) <- Fold.append g state (line n event) ->
-                    first' (line n event :) <$> go next (n + 1) pending'
+                    first' (line n event :) <$> go next (line n event : before) (n + 1) pending'
             (_, event : rest) -> case Fold.append g state (line n event) of
-                Right (Fold.Appended next) -> first' (line n event :) <$> go next (n + 1) rest
+                Right (Fold.Appended next) ->
+                    first' (line n event :) <$> go next (line n event : before) (n + 1) rest
                 Right Fold.AlreadyLogged -> pure ([], n - 1)
                 Left _ -> pure ([], n - 1)
             (_, []) -> pure ([], n - 1)
@@ -451,6 +680,64 @@ asking events = do
                   , let qid = open.asking.question.qid
                   ]
             )
+    contextOn state before =
+        Gen.choice
+            ( [ Noted <$> genText <*> genText
+              , ArtifactLogged
+                    <$> genArtifact
+                    <*> Gen.maybe (Gen.element (dangling : artifacts))
+                    <*> Gen.maybe (SpanId <$> Gen.element (dangling : spans'))
+              , HandedOver
+                    <$> ( Handover
+                            <$> Gen.enumBounded
+                            <*> genText
+                            <*> Gen.nonEmpty (Range.linear 1 3) genText
+                        )
+              , SpanStarted
+                    <$> ( SpanStart (AgentRole "researcher") (Harness "claude-code")
+                            <$> genText
+                            <*> Gen.maybe (SpanId <$> Gen.element (dangling : spans'))
+                            <*> Gen.maybe genText
+                        )
+              , Gapped <$> genGap
+              , StopgapSet
+                    <$> Gen.element stopgapPool
+                    <*> genIJson
+                    <*> genNonBlank
+              ]
+                <> [ SpanEnded (SpanId open) <$> genSpanEnding <*> genUsage
+                   | open <- take 1 [w.spawnedAt | w <- state.workers, SpanLine <- [w.origin]]
+                   ]
+                <> [ GapMoved gap <$> genGapMove
+                   | (gap, _) <- take 1 (reverse state.gaps)
+                   ]
+                <> [ StopgapUnset place <$> genNonBlank
+                   | place <- take 1 (Map.keys state.stopgaps)
+                   ]
+            )
+      where
+        -- No line of a generated log has this seq: a reference the trace does not hold.
+        dangling = 100000
+        artifacts = [e.seq | e <- before, ArtifactLogged {} <- [e.event]]
+        spans' = [e.seq | e <- before, SpanStarted _ <- [e.event]]
+
+-- | Whether a row the log makes sets this column.
+anyColumn :: Text -> NonEmpty Envelope -> Bool
+anyColumn column logged =
+    or
+        [ value /= SqlNull
+        | row <- Registry.rows logged
+        , (c, value) <- toList row.values
+        , c == column
+        ]
+
+-- | Where the generated stopgaps live: few, so a set often replaces one.
+stopgapPool :: [StopgapAt]
+stopgapPool =
+    [ StopgapAt Nothing (stopgapKey "deploy.window")
+    , StopgapAt (Just (TaskRef (TaskId "t1") 1)) (stopgapKey "deploy.window")
+    , StopgapAt Nothing (stopgapKey "a.b")
+    ]
 
 -- | A question of the log's is pending when its stop ends it.
 stopEnded :: NonEmpty Envelope -> Bool
@@ -468,6 +755,7 @@ at :: Natural -> Projections
 at version =
     Projections
         { projections = [p {version} | p <- shippedProjections.projections]
+        , views = shippedProjections.views
         , refold = shippedProjections.refold
         }
 
@@ -681,8 +969,104 @@ refusals =
         ( "answers_answerer_run_id_iff_parent_run"
         , with "answerer_run_id" (runIdText run) (answerInsert byUser)
         )
+    , ("gaps_kind_enum", with "kind" "vibe" (gapInsert openGap))
+    , ("gaps_severity_enum", with "severity" "mild" (gapInsert openGap))
+    , ("gaps_status_enum", with "status" "lost" (gapInsert openGap))
+    ,
+        ( "gaps_fix_pr_url_iff_fix_proposed_or_fixed"
+        , with "fix_pr_url" "https://example.com/p" (gapInsert openGap)
+        )
+    ,
+        ( "gaps_wont_fix_reason_iff_wont_fix"
+        , with "wont_fix_reason" "no" (gapInsert openGap)
+        )
+    , ("gap_evidence_kind_enum", with "kind" "hearsay" urlEvidence)
+    ,
+        ( "gap_evidence_event_run_id_iff_event"
+        , with "event_run_id" (runIdText run) urlEvidence
+        )
+    ,
+        ( "gap_evidence_event_seq_iff_event"
+        , withValue "event_seq" (SqlInteger 1) urlEvidence
+        )
+    , ("gap_evidence_url_iff_url", with "url" "https://example.com/e" eventEvidence)
+    , ("artifacts_kind_enum", with "kind" "poem" (artifactInsert urlArtifact))
+    ,
+        ( "artifacts_location_kind_enum"
+        , with "location_kind" "cloud" (artifactInsert urlArtifact)
+        )
+    , ("artifacts_path_iff_file", with "path" "/a" (artifactInsert urlArtifact))
+    , ("artifacts_sha256_iff_file", with "sha256" "00" (artifactInsert urlArtifact))
+    ,
+        ( "artifacts_size_bytes_iff_file"
+        , withValue "size_bytes" (SqlInteger 1) (artifactInsert urlArtifact)
+        )
+    ,
+        ( "artifacts_url_iff_url"
+        , with "url" "https://example.com/u" (artifactInsert fileArtifact)
+        )
+    ,
+        ( "artifacts_source_artifact_id_not_self"
+        , withValue "source_artifact_id" (SqlInteger 1) (artifactInsert urlArtifact)
+        )
+    , ("handovers_reason_enum", with "reason" "bored" (handover1 Context))
+    , ("stopgaps_value_json", with "value" "{x" (stopgapInsert runStopgap))
+    ,
+        ( "stopgaps_task_id_iff_breakdown_id"
+        , with "task_id" "t0" (stopgapInsert runStopgap)
+        )
+    ,
+        ( "spans_operation_name_enum"
+        , with "operation_name" "chat" (spanInsert openSpan)
+        )
+    , ("spans_status_code_enum", with "status_code" "meh" (spanInsert okSpan))
+    , ("spans_handback_token_enum", with "handback_token" "maybe" (spanInsert okSpan))
+    ,
+        ( "spans_parent_span_id_not_self"
+        , withValue "parent_span_id" (SqlInteger 1) (spanInsert openSpan)
+        )
+    , ("spans_status_code_iff_ended", with "status_code" "ok" (spanInsert openSpan))
+    , ("spans_error_type_iff_error", with "error_type" "boom" (spanInsert okSpan))
+    ,
+        ( "spans_handback_token_only_when_ended"
+        , with "handback_token" "ready" (spanInsert openSpan)
+        )
+    ,
+        ( "spans_handback_only_when_ended"
+        , with "handback" "READY" (spanInsert openSpan)
+        )
     ]
   where
+    openGap = GapRow run 1 (Tracked (bareGap "a gap") Gap.Open)
+    evidenceOf piece =
+        case evidenceInserts
+            (GapRow run 1 (Tracked (bareGap "a gap") {evidence = [piece]} Gap.Open)) of
+            [row] -> row
+            _ -> error "one piece of evidence is one row"
+    urlEvidence = evidenceOf (OfUrl (uri "https://example.com/e"))
+    eventEvidence = evidenceOf (OfEvent (EventRef run 1))
+    urlArtifact =
+        ArtifactRow
+            run
+            1
+            (Artifact.Url Artifact.Doc (uri "https://example.com/d"))
+            Nothing
+            Nothing
+    fileArtifact = ArtifactRow run 1 (File (FileArtifact Artifact.Plan fileRef)) Nothing Nothing
+    handover1 reason = case handoverInserts (HandoverRow run 1 (Handover reason "s" ("a" :| []))) of
+        row : _ -> row
+        [] -> error "a hand-over is a row"
+    runStopgap =
+        StopgapRow
+            run
+            (StopgapAt Nothing (stopgapKey "a.b"))
+            (Stopgap 1 (ijson "1") (titled "r"))
+    openSpan = spanRow 1 Nothing Nothing
+    okSpan =
+        spanRow
+            1
+            Nothing
+            (Just (SpanEnd epoch (WithHandback ReadyWord "READY") unreported))
     active = runState Active Nothing Balanced
     stopped = runState Stopped (Just (Stop minBound "why")) Balanced
     openEpic =
@@ -814,6 +1198,85 @@ userNeedRows =
         (Need (titled "y") Set.empty (Just (uri "https://example.com/y")))
     ]
 
+-- | A gap of each status, its evidence of both kinds.
+gapRows :: [GapRow]
+gapRows =
+    [ GapRow run 1 (Tracked gap status)
+    | status <-
+        [ Gap.Open
+        , Gap.FixProposed pr
+        , Gap.Closed (Gap.Fixed pr)
+        , Gap.Closed (Gap.WontFix (oneLine "not worth it"))
+        ]
+    ]
+  where
+    pr = uri "https://github.com/o/r/pull/1"
+    gap =
+        (bareGap "a gap")
+            { evidence = [OfEvent (EventRef run 1), OfUrl (uri "https://example.com/e")]
+            }
+
+{- | A span the lead spawned, still running; one under it of each ending,
+with every count and none; all at seq 1 to 3 of the engineer run.
+-}
+spanRows :: [SpanRow]
+spanRows =
+    spanRow 1 Nothing Nothing
+        : spanRow 2 (Just (SpanId 1)) (Just (SpanEnd epoch NoHandback unreported))
+        : [ spanRow
+                3
+                (Just (SpanId 1))
+                (Just (SpanEnd epoch (WithHandback word "said") usage))
+          | word <- [minBound .. maxBound]
+          , usage <- [unreported, Usage (Just 10) (Just 2) (Just 3) (Just 4)]
+          ]
+
+-- | The span of this seq, under this parent, and its end.
+spanRow :: Natural -> Maybe SpanId -> Maybe SpanEnd -> SpanRow
+spanRow n parent =
+    SpanRow
+        run
+        n
+        ( SpanStart
+            (AgentRole "researcher")
+            (Harness "claude-code")
+            "a brief"
+            parent
+            (Just "a-model")
+        )
+        epoch
+
+{- | A file of each kind and a URL of each, at seq 2: the file made from
+seq 1's artifact by span 1, the URL by neither. Span 1 is 'spanRows''.
+-}
+artifactRows :: [ArtifactRow]
+artifactRows =
+    ArtifactRow run 1 (File (FileArtifact Artifact.Plan fileRef)) Nothing Nothing
+        : [ ArtifactRow run 2 (File (FileArtifact kind fileRef)) (Just 1) (Just (SpanId 1))
+          | kind <- [minBound .. maxBound]
+          ]
+            <> [ ArtifactRow
+                    run
+                    2
+                    (Artifact.Url kind (uri "https://example.com/d"))
+                    Nothing
+                    Nothing
+               | kind <- [minBound .. maxBound]
+               ]
+
+fileRef :: FileRef
+fileRef = FileRef (absolutePath "/w/plan.md") (sha256Of "plan") (Size 4)
+
+-- | The run's stopgap, and a task's.
+stopgapRows :: [StopgapRow]
+stopgapRows =
+    [ StopgapRow
+        run
+        place
+        (Stopgap n (ijson "{\"a\":[1,\"x\"]}") (titled "no event fits"))
+    | (n, place) <- zip [1 ..] stopgapPool
+    ]
+
 refusedBy :: Text -> Either SQLError () -> Bool
 refusedBy message = \case
     Left e -> message `Text.isInfixOf` e.sqlErrorDetails
@@ -879,6 +1342,85 @@ tenXRun =
         Asked
             (Asking (Question (q n) kind (oneLine "which way?")) (StateName "engineers") from)
     ruling = Proposal (oneLine "this way") (oneLine "it fits") (oneLine "none")
+
+{- | An engineer run, by the seq of each line: two spans, one under the
+other, each making an artifact, the second from the first; a note, a
+hand-over, a gap moved on, stopgaps set, replaced and unset, a visit left,
+and a stop. Session s1 writes three lines, the hand-over among them.
+-}
+contextRun :: NonEmpty Envelope
+contextRun =
+    NonEmpty.zipWith
+        (\n (session, event) -> (line n event) {session})
+        (1 :| [2 ..])
+        ( (Nothing, started)
+            :| [ (Nothing, fuelSet Balanced)
+               , (Nothing, SpanStarted (spanStart Nothing))
+               , (Nothing, SpanStarted (spanStart (Just (SpanId 3))))
+               ,
+                   ( Nothing
+                   , ArtifactLogged
+                        (File (FileArtifact Artifact.Plan fileRef))
+                        Nothing
+                        (Just (SpanId 3))
+                   )
+               ,
+                   ( Nothing
+                   , ArtifactLogged
+                        (Artifact.Url Artifact.Doc (uri "https://example.com/d"))
+                        (Just 5)
+                        (Just (SpanId 4))
+                   )
+               , (Nothing, SpanEnded (SpanId 3) (WithHandback ReadyWord "READY") unreported)
+               , (Nothing, SpanEnded (SpanId 4) NoHandback unreported)
+               , (s1, SessionStarted (Session (Harness "claude-code") Nothing "startup" Nothing))
+               , (s1, Noted "traps" "cold cache")
+               ,
+                   ( Nothing
+                   , StopgapSet
+                        (StopgapAt Nothing (stopgapKey "a.b"))
+                        (ijson "\"x\"")
+                        (titled "older")
+                   )
+               ,
+                   ( Nothing
+                   , StopgapSet
+                        (StopgapAt Nothing (stopgapKey "deploy.window"))
+                        (ijson "1")
+                        (titled "r")
+                   )
+               ,
+                   ( Nothing
+                   , StopgapSet
+                        (StopgapAt Nothing (stopgapKey "a.b"))
+                        (ijson "\"y\"")
+                        (titled "newer")
+                   )
+               ,
+                   ( Nothing
+                   , StopgapUnset (StopgapAt Nothing (stopgapKey "deploy.window")) (titled "done")
+                   )
+               ,
+                   ( s1
+                   , HandedOver (Handover Context "half done" ("state next" :| ["state resume"]))
+                   )
+               , (Nothing, Overridden (StateName "plan") "the research is in")
+               , (Nothing, Event.Stopped (Stop Blocked "out of options"))
+               ]
+        )
+  where
+    s1 = Just (SessionId "s1")
+    spanStart parent =
+        SpanStart
+            (AgentRole "researcher")
+            (Harness "claude-code")
+            "a brief"
+            parent
+            Nothing
+
+-- | The store's text of the time of 'contextRun''s line at this seq.
+at' :: Natural -> Maybe Value
+at' n = Just (SqlText (Field.encode Field.time (line n started).ts))
 
 -- | The digest of 'tenXRun''s @spawned@ line, a hook's.
 spawnDigest :: Text

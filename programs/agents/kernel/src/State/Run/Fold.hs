@@ -212,8 +212,7 @@ import State.Run.Fan (Breakdown (..), Fan (..), emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Run.Gap (Closure, GapMove, Tracked (..))
 import State.Run.Gap qualified as Gap
-import State.Run.IJson (IJson)
-import State.Run.Stopgap (StopgapAt)
+import State.Run.Stopgap (Stopgap (..), StopgapAt)
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
@@ -297,7 +296,7 @@ data RunState = RunState
     -- ^ The user's instructions in force, by the seq that logged each: one replaced is gone.
     , needs :: Map Natural Need
     -- ^ What the user has yet to do by hand, by the seq that logged each: one done is gone.
-    , stopgaps :: Map StopgapAt IJson
+    , stopgaps :: Map StopgapAt Stopgap
     {- ^ Each stopgap in force, its newest value: the store's @stopgaps@ table.
     Nothing the run decides reads it.
     -}
@@ -829,7 +828,9 @@ applyEvent g state n = \case
     {- No refusal is cleared and nothing joins: what the run decides never
     reads a stopgap, so @state next@ is the same with or without one. A
     stopped run still takes none. -}
-    StopgapSet at value _ -> unlessStopped (Right state {stopgaps = Map.insert at value state.stopgaps})
+    StopgapSet at value reason ->
+        unlessStopped
+            (Right state {stopgaps = Map.insert at (Stopgap n value reason) state.stopgaps})
     StopgapUnset at _ -> unlessStopped (Right state {stopgaps = Map.delete at state.stopgaps})
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)

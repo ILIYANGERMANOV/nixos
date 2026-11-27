@@ -207,6 +207,7 @@ projected :: Upcasts -> Projections
 projected upcasts =
     Projections
         { projections = Registry.projections
+        , views = Registry.views
         , refold =
             either (const []) (maybe [] Registry.rows . nonEmpty . (.events))
                 . loggedOf upcasts

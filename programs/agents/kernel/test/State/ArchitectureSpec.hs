@@ -211,10 +211,14 @@ kernelData =
     , "Data.Payload.Event"
     , "Data.Payload.Upcast"
     , "Data.Projection"
+    , "Data.Projection.Context"
+    , "Data.Projection.Gaps"
     , "Data.Projection.Questions"
     , "Data.Projection.Registry"
     , "Data.Projection.Runs"
+    , "Data.Projection.Spans"
     , "Data.Projection.Tasks"
+    , "Data.Projection.Views"
     ]
 
 -- | The store: the only modules that speak SQL.

@@ -1970,6 +1970,31 @@ spec = describe "the state binary" $ do
                                    , [Just (Number 3), Just "error", Just "no_handback", Nothing, Nothing]
                                    ]
 
+                it "runs each state sql load line the resume packet prints, each returning rows" $ \repo -> do
+                    _ <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+                    _ <-
+                        succeeded =<< hook hookBin repo "spawn" (spawnedAs repo Null "Explore" "e7")
+                    _ <-
+                        succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "Explore" "e7")
+                    _ <-
+                        succeeded
+                            =<< hook
+                                hookBin
+                                repo
+                                "handback"
+                                (reportedBy repo (worker "e7" "Explore") (ready ""))
+                    _ <- succeeded =<< state bin repo ["note", "--topic", "traps", "it's \"cold\""]
+                    for_ ["v1\n", "v2\n"] $ \text -> do
+                        writeFile (repo.work </> "plan $1.md") text
+                        succeeded =<< state bin repo ["artifact", "plan $1.md", "--kind", "plan"]
+                    loads <- mapMaybe sqlLoaded <$> (succeeded =<< state bin repo ["resume"])
+                    counts <-
+                        SQLite.withConnection (storeOf repo) $ \c ->
+                            traverse
+                                (\sql -> length <$> (SQLite.query_ c (SQLite.Query sql) :: IO [[SQLite.SQLData]]))
+                                loads
+                    (length loads, counts) `shouldBe` (3, [1, 2, 1])
+
                 it
                     "log the session of a run its state init made mid-session once, and its transcript at a handover"
                     $ \repo -> do
@@ -2605,6 +2630,21 @@ runOf bin repo =
 {- | The run store's file: the environment's @XDG_STATE_HOME@ is the repo's
 own, never the user's.
 -}
+
+{- | The query of a packet line's @state sql "<query>"@, its shell
+escapes undone: what @state sql@ would be handed.
+-}
+sqlLoaded :: Text -> Maybe Text
+sqlLoaded packetLine = case Text.breakOn "state sql \"" packetLine of
+    (_, "") -> Nothing
+    (_, found) ->
+        unescaped <$> (Text.stripSuffix "\"" =<< Text.stripPrefix "state sql \"" found)
+  where
+    unescaped raw = case Text.breakOn "\\" raw of
+        (done, rest) -> case Text.uncons (Text.drop 1 rest) of
+            Just (c, more) -> done <> Text.singleton c <> unescaped more
+            Nothing -> done
+
 storeOf :: Repo -> FilePath
 storeOf repo = repo.root </> ".local" </> "state" </> "state" </> "kernel-v2.db"
 

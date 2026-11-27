@@ -105,7 +105,7 @@ import State.Run.Gap (
  )
 import State.Run.IJson (ijsonValue)
 import State.Run.Id (TaskRef (..), numberedText)
-import State.Run.Stopgap (StopgapAt (..), stopgapKeyText)
+import State.Run.Stopgap (Stopgap (..), StopgapAt (..), stopgapKeyText)
 import State.Show (jsonText, timeText, tshow)
 import State.Step.Artifact (baseText, epicNameText, nonBlankText)
 
@@ -411,9 +411,9 @@ stopgaps input =
         [ Text.unwords
             [ maybe "run" (taskIdText . (.task)) at.scope
             , stopgapKeyText at.key
-            , jsonText (ijsonValue value)
+            , jsonText (ijsonValue stopgap.value)
             ]
-        | (at, value) <- Map.toList input.state.stopgaps
+        | (at, stopgap) <- Map.toList input.state.stopgaps
         ]
 
 -- | Each topic's count of notes and its newest, newest topic first, with the command that loads its texts.
