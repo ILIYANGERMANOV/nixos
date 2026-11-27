@@ -24,7 +24,10 @@ persist between calls. The default window starts at the previous
 `sed -n '1,/^## sessions$/p' $run/report.md`, then by their index range the
 sections whose headline shows the largest cost (effective tokens or
 minutes), about the top 5. `${CLAUDE_SKILL_DIR}/references/metrics.md` says how to
-read them. Never read a transcript yourself: researchers do.
+read them. Before any transcript, read the run store: `state report runs`,
+`signals`, `gaps` and `waits` (each takes `--since`), then `state sql` on the
+`v_` views for what they leave open. Never read a transcript yourself:
+researchers do.
 
 ## 2. Prime the engineer
 

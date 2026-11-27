@@ -12,7 +12,7 @@ refactors, DRY and large files do not.
 
 - Record only a gap you are certain of. Record it with
   `state record gap --kind <k> --severity <s> "<text>"`, never in a loose
-  file; `state show` lists them.
+  file; `state show` lists a run's, `state report gaps` every run's.
 - A worker writes a hand-back line per gap instead, on its own line after
   line 1: `Gap: <kind> <severity> <text>`.
 - Severity: `blocker` you cannot go on, `slowdown` it cost time,
