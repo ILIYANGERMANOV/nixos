@@ -554,7 +554,7 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
         pytest.param(SESSION_START | {"source": "clear"}, "clear", id="unknown source"),
         pytest.param(
             SESSION_START | {"transcript_path": "p/abc123.jsonl"},
-            "not an absolute transcript path",
+            "not an absolute normalised transcript path",
             id="relative transcript path",
         ),
         pytest.param(

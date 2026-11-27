@@ -82,6 +82,10 @@ agents = st.none() | subagents
 counts = st.integers(min_value=0)
 context_sizes = st.none() | st.builds(ContextSize, counts, st.none() | counts)
 paths = st.text(alphabet="abc/", min_size=1).map(lambda p: Path("/" + p))
+# A transcript path as the kernel takes it: absolute and normalised.
+transcripts = st.lists(st.text(alphabet="abc", min_size=1)).map(
+    lambda parts: Path("/" + "/".join(parts))
+)
 sessions = st.text().map(SessionId)
 events: st.SearchStrategy[Event] = st.one_of(
     st.builds(
@@ -91,7 +95,7 @@ events: st.SearchStrategy[Event] = st.one_of(
         agents,
         st.sampled_from(Source),
         texts.map(Harness),
-        st.none() | paths,
+        st.none() | transcripts,
         st.none() | texts,
     ),
     st.builds(
