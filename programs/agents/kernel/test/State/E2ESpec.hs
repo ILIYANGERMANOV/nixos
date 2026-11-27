@@ -746,6 +746,31 @@ spec = describe "the state binary" $ do
                 )
                 `shouldBe` (2, ["\"type\":\"gap_fixed\"", "\"type\":\"refused\""], True)
 
+        it
+            "fixes a gap of another run from this worktree, logging the move in that run only"
+            $ \repo -> do
+                _ <- drive bin repo []
+                _ <- succeeded =<< state bin repo ["record", "gap", "a gap"]
+                filer <- runOf bin repo
+                w1 <- worktree repo "w1"
+                mover <- startedIn bin w1 ["--notes", repo.root </> "w1-notes"]
+                _ <-
+                    succeeded
+                        =<< state
+                            bin
+                            w1
+                            [ "gap"
+                            , "fixed"
+                            , Text.unpack filer <> ":2"
+                            , "--pr"
+                            , "https://github.com/o/r/pull/3"
+                            ]
+                let fixes run =
+                        length . filter ("\"type\":\"gap_fixed\"" `Text.isInfixOf`)
+                            <$> dumpOf bin repo run
+                moves <- traverse fixes [filer, mover]
+                (filer /= mover, moves) `shouldBe` (True, [1, 0])
+
         it "tells a gap move naming a run the store lacks unknown_gap, logging nothing" $ \repo -> do
             _ <- drive bin repo []
             before <- logLines bin repo

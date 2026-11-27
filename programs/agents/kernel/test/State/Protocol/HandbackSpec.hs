@@ -19,7 +19,7 @@ import State.Run.Event (
     Asker (..),
     Asking (..),
     Commit (..),
-    Event (Asked, HandedBack, Spawned, TaskMoved, Took),
+    Event (Asked, Gapped, HandedBack, Spawned, TaskMoved, Took),
     Picks (..),
     Said (..),
     Sha (..),
@@ -42,6 +42,8 @@ import State.Run.EventGen (
     runId,
  )
 import State.Run.Gap (
+    Gap (..),
+    GapArea (..),
     GapKind (Process, Tool),
     GapLine (..),
     Severity (Blocker, Papercut),
@@ -255,6 +257,21 @@ typing = describe "typeHandback" $ do
                     ]
                     Nothing
                 )
+
+    it
+        "keeps a question's qid when its hand-back names gaps, each met at the step it closes"
+        $ fmap
+            ( \typed' ->
+                ( [asking.question.qid | Asked asking <- typed'.events]
+                , [gap.area | Gapped gap <- typed'.events]
+                )
+            )
+            ( typed
+                atImplement
+                "implementer"
+                "NEEDS_DECISION stuck: two stores\nGap: tool papercut slow grep\nGap: odd words"
+            )
+            `shouldBe` Right ([QId run 7], replicate 2 (GapArea (oneLine "implement")))
 
     describe "a child's hand-back at the fan-out" $ do
         let fromChild = typed atFanOut "engineer"
