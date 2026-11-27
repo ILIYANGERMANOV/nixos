@@ -892,11 +892,10 @@ sessionAgents session =
 {- | An agent ended with no hand-back, logged once: 'AgentEnded' in the child
 run it leads ('ledRun'), when a parent the test takes started it, then in
 that parent the child's stop, when the child is untasked
-('Fold.agentEndedIn'). An agent
-leading no child run, a plain worker or one in a child run, records
-nothing: a return would fake its hand-back. Nor does a child run whose
-@state next@ hands back now: one over, asking up or awaiting made its
-hand-back, or makes it once resumed.
+('Fold.agentEndedIn'). An agent leading no child run, a plain worker or one
+in a child run, records nothing: a return would fake its hand-back. Nor does
+a child run whose @state next@ hands back now: one over, asking up or
+awaiting made its hand-back, or makes it once resumed.
 -}
 agentEnded ::
     (Shell es) =>
@@ -909,7 +908,7 @@ agentEnded steps session under agent =
                 NoRun -> pure ""
                 Ran (Left failure) -> pure (failureText "stop" failure)
                 Ran (Right Nothing) -> pure ""
-                Ran (Right (Just parent)) -> either (failureText "stop") (const "") <$> onLog (returning run) parent
+                Ran (Right (Just parent)) -> either (failureText "stop") (const "") <$> onLog (stopping run) parent
   where
     sessioned stamp = Stamp stamp.ts stamp.head session
     noted = Right . (`Plan` (\_ _ -> mempty))
@@ -927,7 +926,7 @@ agentEnded steps session under agent =
         ByRole {} -> ([], Right Nothing)
         ByUser _ -> ([], Right Nothing)
         ByCaller _ -> ([], Right Nothing)
-    returning child stamp run =
+    stopping child stamp run =
         record
             (sessioned stamp)
             run
