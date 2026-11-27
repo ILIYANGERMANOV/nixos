@@ -1,9 +1,10 @@
 -- | Checks on how the kernel's modules import each other, and the words its files use.
 module State.ArchitectureSpec (spec) where
 
+import Control.Applicative ((<|>))
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Char (toLower)
-import Data.List (isPrefixOf, stripPrefix)
+import Data.List (isPrefixOf, isSuffixOf, stripPrefix)
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -62,6 +63,54 @@ spec = describe "kernel architecture" $ do
                 reached
         [found | found@(_, _ : _) <- effects] `shouldBe` []
 
+    -- The store's layers (#552): Domain (@State.*@) < Data (pure rows and
+    -- their mapping) < @Effects.Store.*@ (IO, SQL only). The store speaks rows:
+    -- it reaches no domain module and no Domain<->row mapping, declares no
+    -- row type, and only it names SQLite.
+    it "lists every Data module the kernel has, so the rules below see each" $ do
+        found <-
+            filter ("Data." `isPrefixOf`) . mapMaybe moduleOf <$> packageFiles "src"
+        Set.fromList found `shouldBe` Set.fromList kernelData
+
+    it "keeps every Data module out of the domain's imports" $ do
+        domain <-
+            filter ("State." `isPrefixOf`) . mapMaybe moduleOf <$> packageFiles "src"
+        found <-
+            traverse (\name -> (name,) . filter (`elem` kernelData) <$> imports name) domain
+        [bad | bad@(_, _ : _) <- found] `shouldBe` []
+
+    it "keeps the domain and the payload mapping out of the store's reach" $ do
+        store <- filter isStore . mapMaybe moduleOf <$> packageFiles "src"
+        reached <- traverse (\name -> (name,) . Set.toList <$> closure name) store
+        [ (name, bad)
+          | (name, modules) <- reached
+          , let bad =
+                    filter (\m -> "State." `isPrefixOf` m || "Data.Payload." `isPrefixOf` m) modules
+          , not (null bad)
+          ]
+            `shouldBe` []
+
+    it "declares no row type in the store" $ do
+        store <- filter isStore . mapMaybe moduleOf <$> packageFiles "src"
+        sources <-
+            traverse (\name -> (name,) . lines <$> readFile (sourceOf name)) store
+        [ (name, declared)
+          | (name, source) <- sources
+          , declared <- source
+          , Just (row : _) <-
+                [words <$> (stripPrefix "data " declared <|> stripPrefix "newtype " declared)]
+          , "Row" `isSuffixOf` row
+          ]
+            `shouldBe` []
+
+    it "names SQLite in the store's modules only" $ do
+        others <- filter (not . isStore) . mapMaybe moduleOf <$> packageFiles "src"
+        found <-
+            traverse
+                (\name -> (name,) . filter ("Database." `isPrefixOf`) <$> imports name)
+                others
+        [bad | bad@(_, _ : _) <- found] `shouldBe` []
+
 -- | Every file under a directory of the package.
 packageFiles :: FilePath -> IO [FilePath]
 packageFiles dir = do
@@ -98,6 +147,7 @@ layers =
     [ ["State.Category.", "State.Step."]
     , ["State.Flow.", "State.Role", "State.Table"]
     , ["State.Run."]
+    , kernelData
     , ["State.Protocol."]
     , ["State.Cli."]
     ]
@@ -130,18 +180,55 @@ kernelImports name = filter isKernel <$> imports name
 
 -- | Every module a kernel module's source imports; the suite runs from the package root.
 imports :: String -> IO [String]
-imports name = mapMaybe imported . lines <$> readFile ("src/" <> map slash name <> ".hs")
+imports name = mapMaybe imported . lines <$> readFile (sourceOf name)
   where
-    slash = \case
-        '.' -> '/'
-        c -> c
     imported line = case words <$> stripPrefix "import " line of
         Just ("qualified" : target : _) -> Just target
         Just (target : _) -> Just target
         _ -> Nothing
 
+-- | A module's source file; the suite runs from the package root.
+sourceOf :: String -> FilePath
+sourceOf name = "src/" <> map slash name <> ".hs"
+  where
+    slash = \case
+        '.' -> '/'
+        c -> c
+
 isKernel :: String -> Bool
-isKernel name = "State." `isPrefixOf` name || isEffects name
+isKernel name = "State." `isPrefixOf` name || isEffects name || name `elem` kernelData
+
+{- | The kernel's own @Data.*@ modules, by name: the prefix alone would take
+a library's, such as @Data.Text@, for the kernel's.
+-}
+kernelData :: [String]
+kernelData =
+    [ "Data.Entity.Blob"
+    , "Data.Entity.Event"
+    , "Data.Entity.Run"
+    , "Data.Field"
+    , "Data.Json"
+    , "Data.Payload.Blob"
+    , "Data.Payload.Event"
+    , "Data.Payload.Upcast"
+    , "Data.Projection"
+    , "Data.Projection.Column"
+    , "Data.Projection.Context"
+    , "Data.Projection.Gaps"
+    , "Data.Projection.Questions"
+    , "Data.Projection.Registry"
+    , "Data.Projection.Runs"
+    , "Data.Projection.Spans"
+    , "Data.Projection.Tasks"
+    , "Data.Projection.Views"
+    , "Data.Report"
+    , "Data.Table"
+    , "Data.Tsv"
+    ]
+
+-- | The store: the only modules that speak SQL.
+isStore :: String -> Bool
+isStore = isPrefixOf "Effects.Store."
 
 -- | The effect shell, one module.
 shell :: String
@@ -166,6 +253,7 @@ isEffect name =
         , "Control.Exception"
         , "GHC.IO"
         , "Data.Text.IO"
+        , "Database."
         ]
 
 -- | The module a source file under @src@ defines.

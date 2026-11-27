@@ -3,8 +3,9 @@
 A hook is a program. It reads one event as JSON on stdin and prints one result
 as JSON on stdout, or nothing, which allows:
 
-    stdin:  {event, tool, input, output, cwd, session, agent: {id, role} | null, source,
-             history, context, skill, running}
+    stdin:  {event, session, cwd, agent: {id, role} | null, harness, transcript_path,
+             tool, call, input, output, source, request_model, history, context,
+             skill, running, usage}
     stdout: beforeTool: {decision: allow | deny, reason, context, updatedInput}
             sessionStart, afterTool, agentStart, promptExpansion: {context}
             agentStop: dropped
@@ -20,6 +21,24 @@ the agent has done so far, so a hook needs no state of its own:
     context: afterTool: {tokens, previous} | null, the tokens of context the
              newest model call sent, and those of the last earlier call that
              ran a tool (null when there is none); null when unknown
+
+Every event names the harness that runs the session (`harness`, its
+backend's own constant: `claude-code`, `opencode`) and, as `null` when its
+harness gives none, the session's transcript file (`transcript_path`, an
+absolute path). A sessionStart also names the model it asked for
+(`request_model`, `null` when none).
+
+A beforeTool or afterTool names its tool call (`call`, the harness's own id of
+it, OpenTelemetry's `gen_ai.tool.call.id`), `null` when the harness gives none:
+a spawn's afterTool shares its beforeTool's. A hand-back's beforeTool and an
+agentStop carry the tokens the agent's own requests used, its subagents' aside
+(`usage`), `null` when unknown and on every other beforeTool:
+
+    usage: {input_tokens?, output_tokens?, cache_read_input_tokens?,
+            cache_write_input_tokens?} | null
+
+`input_tokens` counts the cached ones too. A count the harness does not report
+is left out, never 0.
 
 `agentStart` is a subagent starting, its `agent` never null; `promptExpansion`
 is a typed `/skill` expanding into the prompt, `skill` its name. `agentStop`
@@ -49,7 +68,7 @@ Nix declarations read too; a test holds the enums below to it.
 import json
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from functools import reduce
 from pathlib import Path
@@ -63,6 +82,8 @@ SessionId = NewType("SessionId", str)
 AgentId = NewType("AgentId", str)
 Role = NewType("Role", str)
 HookName = NewType("HookName", str)
+CallId = NewType("CallId", str)
+Harness = NewType("Harness", str)
 SkillName = NewType("SkillName", str)
 
 
@@ -116,25 +137,53 @@ class ContextSize:
 
 
 @dataclass(frozen=True, slots=True)
+class Usage:
+    """The tokens an agent's own requests used; a count not reported is None,
+    never 0. `input` includes the cached tokens."""
+
+    input: int | None = None
+    output: int | None = None
+    cache_read: int | None = None
+    cache_write: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SessionStart:
+    """A session starts. `transcript` is absolute; it and `model` are None when
+    the harness gives none. Every other event names `harness` and `transcript`
+    too."""
+
     session: SessionId
     cwd: Path
     agent: Agent | None
     source: Source
+    harness: Harness
+    transcript: Path | None
+    model: str | None
 
 
 @dataclass(frozen=True, slots=True)
 class BeforeTool:
+    """A tool is about to run. `call` is the harness's id of the call, None
+    when it gives none; `usage` is a hand-back's, None for every other tool."""
+
     session: SessionId
     cwd: Path
     agent: Agent | None
     tool: Tool
     input: JsonObject
     history: tuple[str, ...] = ()
+    harness: Harness = field(kw_only=True)
+    transcript: Path | None = field(default=None, kw_only=True)
+    call: CallId | None = field(default=None, kw_only=True)
+    usage: Usage | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
 class AfterTool:
+    """A tool ran. `call` is the harness's id of the call, None when it gives
+    none."""
+
     session: SessionId
     cwd: Path
     agent: Agent | None
@@ -142,6 +191,9 @@ class AfterTool:
     input: JsonObject
     output: Json
     context: ContextSize | None = None
+    harness: Harness = field(kw_only=True)
+    transcript: Path | None = field(default=None, kw_only=True)
+    call: CallId | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +203,8 @@ class AgentStart:
     session: SessionId
     cwd: Path
     agent: Agent
+    harness: Harness = field(kw_only=True)
+    transcript: Path | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,17 +215,23 @@ class PromptExpansion:
     cwd: Path
     agent: Agent | None
     skill: SkillName
+    harness: Harness = field(kw_only=True)
+    transcript: Path | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
 class AgentStop:
     """An agent stops, the lead when `agent` is None. `running` is the
-    session's background agents still running, maybe the stopping one."""
+    session's background agents still running, maybe the stopping one;
+    `usage` the tokens its own requests used, None when unknown."""
 
     session: SessionId
     cwd: Path
     agent: Agent | None
     running: tuple[AgentId, ...]
+    harness: Harness = field(kw_only=True)
+    transcript: Path | None = field(default=None, kw_only=True)
+    usage: Usage | None = field(default=None, kw_only=True)
 
 
 type Event = (
@@ -411,19 +471,32 @@ def parse_event(text: str) -> Event:
             "session": str(session),
             "cwd": str(cwd),
             "agent": agent,
+            "harness": str(harness),
+            "transcript_path": transcript,
             "source": str(source),
+            "request_model": None | str() as model,
         }:
             return SessionStart(
-                SessionId(session), Path(cwd), parse_agent(agent), Source(source)
+                SessionId(session),
+                Path(cwd),
+                parse_agent(agent),
+                Source(source),
+                Harness(harness),
+                parse_transcript(transcript),
+                model,
             )
         case {
             "event": "beforeTool",
             "session": str(session),
             "cwd": str(cwd),
             "agent": agent,
+            "harness": str(harness),
+            "transcript_path": transcript,
             "tool": str(tool),
+            "call": None | str() as call,
             "input": dict() as tool_input,
             "history": list() as history,
+            "usage": usage,
         }:
             return BeforeTool(
                 SessionId(session),
@@ -432,13 +505,20 @@ def parse_event(text: str) -> Event:
                 Tool(tool),
                 tool_input,
                 tuple(as_str(command) for command in history),
+                harness=Harness(harness),
+                transcript=parse_transcript(transcript),
+                call=None if call is None else CallId(call),
+                usage=parse_usage(usage),
             )
         case {
             "event": "afterTool",
             "session": str(session),
             "cwd": str(cwd),
             "agent": agent,
+            "harness": str(harness),
+            "transcript_path": transcript,
             "tool": str(tool),
+            "call": None | str() as call,
             "input": dict() as tool_input,
             "output": output,
             "context": context,
@@ -451,36 +531,60 @@ def parse_event(text: str) -> Event:
                 tool_input,
                 output,
                 parse_context_size(context),
+                harness=Harness(harness),
+                transcript=parse_transcript(transcript),
+                call=None if call is None else CallId(call),
             )
         case {
             "event": "agentStart",
             "session": str(session),
             "cwd": str(cwd),
             "agent": agent,
+            "harness": str(harness),
+            "transcript_path": transcript,
         }:
-            return AgentStart(SessionId(session), Path(cwd), parse_subagent(agent))
+            return AgentStart(
+                SessionId(session),
+                Path(cwd),
+                parse_subagent(agent),
+                harness=Harness(harness),
+                transcript=parse_transcript(transcript),
+            )
         case {
             "event": "promptExpansion",
             "session": str(session),
             "cwd": str(cwd),
             "agent": agent,
+            "harness": str(harness),
+            "transcript_path": transcript,
             "skill": str(skill),
         }:
             return PromptExpansion(
-                SessionId(session), Path(cwd), parse_agent(agent), SkillName(skill)
+                SessionId(session),
+                Path(cwd),
+                parse_agent(agent),
+                SkillName(skill),
+                harness=Harness(harness),
+                transcript=parse_transcript(transcript),
             )
         case {
             "event": "agentStop",
             "session": str(session),
             "cwd": str(cwd),
             "agent": agent,
+            "harness": str(harness),
+            "transcript_path": transcript,
             "running": list() as running,
+            "usage": usage,
         }:
             return AgentStop(
                 SessionId(session),
                 Path(cwd),
                 parse_agent(agent),
                 tuple(AgentId(as_str(agent_id)) for agent_id in running),
+                harness=Harness(harness),
+                transcript=parse_transcript(transcript),
+                usage=parse_usage(usage),
             )
         case _:
             raise ValueError(
@@ -507,6 +611,60 @@ def parse_subagent(agent: Json) -> Agent:
             raise ValueError(f"not an agent: {agent!r}")
 
 
+def parse_transcript(transcript: Json) -> Path | None:
+    """A session's transcript file: an absolute, normalised path, or None when
+    there is none. The kernel refuses any other, so it is refused here."""
+    match transcript:
+        case None:
+            return None
+        case str() if absolute_normalised(transcript):
+            return Path(transcript)
+        case _:
+            raise ValueError(
+                f"not an absolute normalised transcript path: {transcript!r}"
+            )
+
+
+def absolute_normalised(path: str) -> bool:
+    """What the kernel's `absPath` takes: an absolute path equal to Haskell
+    filepath's `normalise` of it. That collapses `//` and drops a `.` part,
+    but keeps a `..` part and a trailing `/`."""
+    match path.split("/"):
+        case ["", *inner, last]:
+            return all(part not in ("", ".") for part in inner) and last != "."
+        case _:
+            return False
+
+
+USAGE_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_write_input_tokens",
+)
+
+
+def parse_usage(usage: Json) -> Usage | None:
+    """The tokens an agent used: each count a non-negative integer, or left out."""
+    match usage:
+        case None:
+            return None
+        case dict() if set(usage) <= set(USAGE_KEYS):
+            return Usage(*(parse_count(usage.get(key)) for key in USAGE_KEYS))
+        case _:
+            raise ValueError(f"not a usage: {usage!r}")
+
+
+def parse_count(count: Json) -> int | None:
+    match count:
+        case None:
+            return None
+        case int() if not isinstance(count, bool) and count >= 0:
+            return count
+        case _:
+            raise ValueError(f"not a token count: {count!r}")
+
+
 def parse_context_size(context: Json) -> ContextSize | None:
     match context:
         case None:
@@ -523,26 +681,41 @@ def emit_event(event: Event) -> str:
         "session": event.session,
         "cwd": str(event.cwd),
         "agent": emit_agent(event.agent),
+        "harness": event.harness,
+        "transcript_path": None if event.transcript is None else str(event.transcript),
     }
     match event:
         case AgentStart():
             return json.dumps(common)
         case PromptExpansion(skill=skill):
             return json.dumps(common | {"skill": skill})
-        case AgentStop(running=running):
-            return json.dumps(common | {"running": list(running)})
-        case SessionStart(source=source):
-            return json.dumps(common | {"source": source.value})
-        case BeforeTool(tool=tool, input=tool_input, history=history):
+        case AgentStop(running=running, usage=usage):
             return json.dumps(
-                common
-                | {"tool": tool.value, "input": tool_input, "history": list(history)}
+                common | {"running": list(running), "usage": emit_usage(usage)}
             )
-        case AfterTool(tool=tool, input=tool_input, output=output, context=context):
+        case SessionStart(source=source, model=model):
+            return json.dumps(common | {"source": source.value, "request_model": model})
+        case BeforeTool(
+            tool=tool, call=call, input=tool_input, history=history, usage=usage
+        ):
             return json.dumps(
                 common
                 | {
                     "tool": tool.value,
+                    "call": call,
+                    "input": tool_input,
+                    "history": list(history),
+                    "usage": emit_usage(usage),
+                }
+            )
+        case AfterTool(
+            tool=tool, call=call, input=tool_input, output=output, context=context
+        ):
+            return json.dumps(
+                common
+                | {
+                    "tool": tool.value,
+                    "call": call,
                     "input": tool_input,
                     "output": output,
                     "context": emit_context_size(context),
@@ -556,6 +729,19 @@ def emit_agent(agent: Agent | None) -> Json:
             return None
         case Agent(id=agent_id, role=role):
             return {"id": agent_id, "role": role}
+
+
+def emit_usage(usage: Usage | None) -> Json:
+    match usage:
+        case None:
+            return None
+        case Usage():
+            counts = (usage.input, usage.output, usage.cache_read, usage.cache_write)
+            return {
+                key: count
+                for key, count in zip(USAGE_KEYS, counts, strict=True)
+                if count is not None
+            }
 
 
 def emit_context_size(context: ContextSize | None) -> Json:

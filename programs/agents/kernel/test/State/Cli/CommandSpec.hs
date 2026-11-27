@@ -1,15 +1,23 @@
 module State.Cli.CommandSpec (spec) where
 
 import Data.Either (fromLeft, fromRight)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (encodeUtf8)
+import Hedgehog (forAll, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
+import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
-import State.Category.Flow (unqualify)
+import State.Artifact (uriRule)
+import State.Artifact qualified as Artifact
+import State.Category.Flow (scopePath, unqualify)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (Cap (..), OpenGraph (..))
+import State.Category.Graph (Cap (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Meter (someMeterName)
 import State.Category.Path (unrecorded)
 import State.Category.Step (eventText)
@@ -19,10 +27,13 @@ import State.Cli.Command (
     Exit (..),
     Failure (..),
     InitArgs (..),
+    Location (..),
     Origin (..),
     RunCommand (..),
+    Until (..),
     Usage (..),
     anyEvent,
+    argvText,
     explain,
     failureText,
     help,
@@ -33,7 +44,12 @@ import State.Cli.Command (
     unknownEvent,
  )
 import State.Golden (golden)
-import State.Protocol.Record (Recordable (..), Recording (..), recordables)
+import State.Protocol.Record (
+    Recordable (..),
+    Recording (..),
+    recordables,
+    usageOf,
+ )
 import State.Role (drawnDecoders)
 import State.Run.Ask (
     Above (..),
@@ -51,19 +67,40 @@ import State.Run.Event (
     Branch (..),
     Commit (..),
     Event (..),
+    Handover (..),
+    HandoverReason (..),
+    Instruction (..),
+    InstructionKind (..),
     Label (..),
+    Need (..),
     Picks (..),
     RunId,
+    SpanId (..),
     StateName (..),
     Stop (..),
     StopReason (..),
     Target (..),
     TaskId (..),
+    TaskRef (..),
     stepTook,
     tookIn,
+    verbatimText,
  )
-import State.Run.EventGen (fuelSet, runId)
+import State.Run.EventGen (
+    fuelSet,
+    gapText,
+    ijson,
+    oneLine,
+    runId,
+    stopgapKey,
+    titled,
+    uri,
+    verbatim,
+ )
+import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..), RunState (..))
+import State.Run.Gap qualified as Gap
+import State.Run.Id (EventRef (..))
 import State.Run.RunGen (
     g,
     happyPath,
@@ -73,6 +110,7 @@ import State.Run.RunGen (
     securityScope,
     sha,
  )
+import State.Run.Stopgap (StopgapAt (..), stopgapKeyRule)
 import State.Step.Artifact (Shape (..), Url (..), shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeDecoders, outcomeEvent)
@@ -89,6 +127,7 @@ import Test.Hspec (
     shouldBe,
     shouldSatisfy,
  )
+import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Cli.Command" $ do
@@ -105,6 +144,11 @@ spec = describe "State.Cli.Command" $ do
             Right (OnRun (Record (Plain event))) -> Right event
             Right (OnRun (Record (AtHead event))) -> Right (event sha)
             Right _ -> Left "not a record"
+            Left why -> Left why
+        -- The gap @record gap@ drafts, before the run fills in its area and reporter.
+        drafted argv = case parse ("record" : argv) of
+            Right (OnRun (Record (Filing gap))) -> Right gap
+            Right _ -> Left "not a gap"
             Left why -> Left why
         helpOf argv = case parseCommand steps argv of
             Left said -> fromRight "not help" (usage "state" said)
@@ -159,7 +203,51 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` []
 
         it "records a gap with its text, words joined back" $
-            recorded ["gap", "no", "hook", "fact"] `shouldBe` Right (Gapped "no hook fact")
+            drafted ["gap", "no", "hook", "fact"]
+                `shouldBe` Right (Gap.draft (gapText "no hook fact"))
+
+        it "records a gap's kind, severity, area and evidence, the evidence in order" $
+            drafted
+                [ "gap"
+                , "--kind"
+                , "kernel"
+                , "--severity"
+                , "blocker"
+                , "--area"
+                , "fold"
+                , "--evidence"
+                , "r1:4"
+                , "--evidence"
+                , "https://github.com/o/r/issues/2"
+                , "a"
+                , "gap"
+                ]
+                `shouldBe` Right
+                    ( Gap.GapDraft
+                        Gap.Kernel
+                        Gap.Blocker
+                        (Just (Gap.GapArea (oneLine "fold")))
+                        (gapText "a gap")
+                        [ Gap.OfEvent (EventRef (runId "r1") 4)
+                        , Gap.OfUrl (uri "https://github.com/o/r/issues/2")
+                        ]
+                    )
+
+        it "refuses an unknown gap kind or severity" $
+            ( drafted ["gap", "--kind", "nope", "a"]
+            , drafted ["gap", "--severity", "nope", "a"]
+            )
+                `shouldBe` (Left "record gap", Left "record gap")
+
+        it "refuses a gap whose --area is more than one line" $
+            drafted ["gap", "--area", "fold\ntasks: done", "a", "gap"]
+                `shouldBe` Left "record gap"
+
+        it "refuses a gap whose --area is blank" $
+            ( drafted ["gap", "--area", "", "a", "gap"]
+            , drafted ["gap", "--area", "  ", "a", "gap"]
+            )
+                `shouldBe` (Left "record gap", Left "record gap")
 
         it "refuses a gap with no text" $
             recorded ["gap"] `shouldBe` Left "record gap"
@@ -182,12 +270,16 @@ spec = describe "State.Cli.Command" $ do
                 Right (OnRun (RecordUnknown name)) -> name `shouldBe` "security/deploy.done"
                 _ -> expectationFailure "not an unknown event"
 
-        it "reads a plan's path to refuse a plan not written yet" $
-            case parse ["record", "plan.done", "/notes/plan.md"] of
-                Right (OnRun (Record (FromFile path parsed))) ->
-                    (path, parsed "")
-                        `shouldBe` ("/notes/plan.md", Right (stepTook (PlanDone "/notes/plan.md")))
-                _ -> expectationFailure "not a recording read from a file"
+        it
+            "names a plan's path to register it as a plan, its event not read from the file"
+            $ case parse ["record", "plan.done", "/notes/plan.md"] of
+                Right (OnRun (Record (NamesFile kind path event))) ->
+                    (kind, path, event)
+                        `shouldBe` ( Artifact.Plan
+                                   , "/notes/plan.md"
+                                   , stepTook (PlanDone "/notes/plan.md")
+                                   )
+                _ -> expectationFailure "not a recording that names a file"
 
         it "refuses an option the event does not take" $
             recorded ["implement.done", "--row", "R1"]
@@ -226,6 +318,262 @@ spec = describe "State.Cli.Command" $ do
                     (failure.what, failure.fix)
                         `shouldBe` ("record plan.done", "state record plan.done <path>")
                 _ -> expectationFailure "not a refusal"
+
+    describe "the user's rows" $ do
+        let
+            -- Why @record@ refuses these words, if it does.
+            whyOf argv = case parseCommand steps ("record" : argv) of
+                Right (_, Left failure) -> failure.why
+                _ -> "not refused"
+            reason = titled "no typed event holds it"
+            window = StopgapAt Nothing (stopgapKey "deploy.window")
+
+        it "records an instruction of each kind, the user's words as given" $
+            map
+                recorded
+                [ ["instructed", "goal", "Ship it.\nKeep  it small."]
+                , ["instructed", "rule", "no", "new", "verb", "--replaces", "4"]
+                ]
+                `shouldBe` [ Right
+                                ( Instructed
+                                    (Instruction GoalInstruction (verbatim "Ship it.\nKeep  it small."))
+                                    Nothing
+                                )
+                           , Right
+                                (Instructed (Instruction RuleInstruction (verbatim "no new verb")) (Just 4))
+                           ]
+
+        it
+            "refuses an unknown instruction kind, blank words or a --replaces that is no seq"
+            $ map
+                whyOf
+                [ ["instructed", "wish", "x"]
+                , ["instructed", "goal", "  "]
+                , ["instructed", "goal", "x", "--replaces", "four"]
+                ]
+                `shouldBe` [ "no instruction kind wish: one of goal|scope|rule|permission"
+                           , "the user's words"
+                           , "four is no seq: a line's number in the log"
+                           ]
+
+        it
+            "records a need naming the tasks it blocks, a repeat once, by their breakdown"
+            $ case parse
+                [ "record"
+                , "user_needed"
+                , "add"
+                , "the"
+                , "key"
+                , "--blocks"
+                , "t4,t3,t4"
+                , "--url"
+                , "https://github.com/o/r/settings"
+                ] of
+                Right (OnRun (Record (OnTasks ids event))) ->
+                    (ids, event [TaskRef (TaskId "t3") 2, TaskRef (TaskId "t4") 2])
+                        `shouldBe` ( [TaskId "t3", TaskId "t4"]
+                                   , UserNeeded
+                                        ( Need
+                                            (titled "add the key")
+                                            (Set.fromList [TaskRef (TaskId "t3") 2, TaskRef (TaskId "t4") 2])
+                                            (Just (uri "https://github.com/o/r/settings"))
+                                        )
+                                   )
+                _ -> expectationFailure "not a need naming its tasks"
+
+        it "records a need's done in the run of its line, with a note" $
+            case parse ["record", "user_needed", "r7f2:5", "--done", "--note", "added"] of
+                Right (OnRun (Record (NeedDone ref note))) ->
+                    (ref, note) `shouldBe` (EventRef (runId "r7f2") 5, Just (titled "added"))
+                _ -> expectationFailure "not a need done"
+
+        it "refuses a need with a bad url, a blank text, or flags of the other form" $
+            map
+                whyOf
+                [ ["user_needed", "x", "--url", "not a url"]
+                , ["user_needed", " "]
+                , ["user_needed", "x", "--note", "n"]
+                , ["user_needed", "r7f2:5", "--done", "--blocks", "t1"]
+                , ["user_needed", "nope", "--done"]
+                , ["user_needed", "x", "--blocks", "t1,,t2"]
+                ]
+                `shouldBe` [ "not a url is not " <> uriRule
+                           , "what the user must do, one line"
+                           , "--note has no place in a new need"
+                           , "--blocks has no place in a need done"
+                           , "nope is no need: <run:seq>, as state resume prints it"
+                           , "a blocked task's id, as --blocks t3,t4"
+                           ]
+
+        it "records the run's stopgap set or unset" $
+            map
+                recorded
+                [
+                    [ "stopgap"
+                    , "deploy.window"
+                    , "{\"days\": [1, 2]}"
+                    , "--reason"
+                    , "no typed event holds it"
+                    ]
+                , ["stopgap", "deploy.window", "--unset", "--reason", "no typed event holds it"]
+                ]
+                `shouldBe` [ Right (StopgapSet window (ijson "{\"days\":[1,2]}") reason)
+                           , Right (StopgapUnset window reason)
+                           ]
+
+        it "records a task's stopgap by the task's breakdown" $
+            case parse
+                [ "record"
+                , "stopgap"
+                , "deploy.window"
+                , "1"
+                , "--task"
+                , "t1"
+                , "--reason"
+                , "no typed event holds it"
+                ] of
+                Right (OnRun (Record (OnTask task event))) ->
+                    (task, event (TaskRef (TaskId "t1") 2))
+                        `shouldBe` ( TaskId "t1"
+                                   , StopgapSet
+                                        (StopgapAt (Just (TaskRef (TaskId "t1") 2)) (stopgapKey "deploy.window"))
+                                        (ijson "1")
+                                        reason
+                                   )
+                _ -> expectationFailure "not a task's stopgap"
+
+        it "refuses a stopgap with no --reason as a usage error, before any write" $
+            recorded ["stopgap", "deploy.window", "1"]
+                `shouldBe` Left "Missing: --reason <r>"
+
+        it "refuses each bad key and value, saying how to fix it" $
+            map
+                whyOf
+                [ ["stopgap", "Deploy", "1", "--reason", "r"]
+                , ["stopgap", "a.b", "{\"a\": 1, \"a\": 2}", "--reason", "r"]
+                , ["stopgap", "a.b", "9007199254740992", "--reason", "r"]
+                , ["stopgap", "a.b", "\"\\ud800\"", "--reason", "r"]
+                , ["stopgap", "a.b", "\"\\ufdd0\"", "--reason", "r"]
+                , ["stopgap", "a.b", "null", "--reason", "r"]
+                , ["stopgap", "a.b", "\"" <> Text.replicate 1023 "a" <> "\"", "--reason", "r"]
+                , ["stopgap", "a.b", "1", "--unset", "--reason", "r"]
+                ]
+                `shouldBe` [ "Deploy is not " <> stopgapKeyRule
+                           , "an object repeats the key a: keep one"
+                           , "an integer past 2^53-1, which not every JSON reader reads exactly: quote it as a string"
+                           , "the value is no JSON text, or holds a lone surrogate: Cannot decode input: Data.Text.Internal.Encoding.decodeUtf8: Invalid UTF-8 stream"
+                           , "a key or string holds the noncharacter U+FDD0, which I-JSON forbids: drop it"
+                           , "the value is null: to clear the key, state record stopgap <key> --unset --reason <r>"
+                           , "the value takes 1025 octets, past the cap of 1024: keep a stopgap small"
+                           , "the key alone: --unset takes no value"
+                           ]
+
+        it "shows a switch with no value in its row's usage" $
+            [usageOf r | r <- recordables, r.name `elem` ["user_needed", "stopgap"]]
+                `shouldBe` [ "<text> | <run:seq> [--blocks <task>,...] [--url <url>] [--done] [--note <n>]"
+                           , "<key> <json> | <key> [--unset] [--task <id>] --reason <r>"
+                           ]
+
+    describe "context facts" $ do
+        it "takes init's goal word for word, and none without --goal" $
+            ( goalOf <$> parse ["init", "--notes", "/n/", "--goal", "ship  the  --fix"]
+            , goalOf <$> parse ["init", "--notes", "/n/"]
+            )
+                `shouldBe` (Right (Just "ship  the  --fix"), Right Nothing)
+
+        it "refuses a blank init --goal" $
+            goalOf <$> parse ["init", "--notes", "/n/", "--goal", "  "]
+                `shouldBe` Left "--goal"
+
+        it "reads a text that is no absolute URI as a file's path, of a file's kind" $
+            registered (parse ["artifact", "notes/r.md", "--kind", "research"])
+                `shouldBe` Right (AtPath Artifact.Research "notes/r.md", Nothing)
+
+        it "reads an absolute URI as a URL, of a URL's kind" $
+            registered
+                (parse ["artifact", "https://github.com/o/r/issues/7", "--kind", "ticket"])
+                `shouldBe` Right
+                    (AtUrl Artifact.Ticket (uri "https://github.com/o/r/issues/7"), Nothing)
+
+        it "takes other as the kind of a file and of a URL" $
+            map
+                (fmap fst . registered . parse)
+                [ ["artifact", "a.bin", "--kind", "other"]
+                , ["artifact", "https://example.com/a", "--kind", "other"]
+                ]
+                `shouldBe` [ Right (AtPath Artifact.OtherFile "a.bin")
+                           , Right (AtUrl Artifact.OtherUrl (uri "https://example.com/a"))
+                           ]
+
+        it "refuses a kind that does not fit the location, and one of neither" $
+            map
+                (registered . parse)
+                [ ["artifact", "notes.md", "--kind", "ticket"]
+                , ["artifact", "https://github.com/o/r#readme", "--kind", "ticket"]
+                , ["artifact", "https://github.com/o/r", "--kind", "plan"]
+                , ["artifact", "notes.md", "--kind", "idea"]
+                ]
+                `shouldBe` [ Left "notes.md"
+                           , Left "https://github.com/o/r#readme"
+                           , Left "--kind plan"
+                           , Left "no artifact kind idea"
+                           ]
+
+        it "takes the seq an artifact derives from, and refuses one that is no number" $
+            ( snd <$> registered (parse ["artifact", "a.md", "--kind", "plan", "--from", "3"])
+            , registered (parse ["artifact", "a.md", "--kind", "plan", "--from", "three"])
+            )
+                `shouldBe` (Right (Just 3), Left "seq three")
+
+        it
+            "takes the seq of the span that made an artifact, and refuses one that is no number"
+            $ map
+                ( \argv -> case parse (["artifact", "a.md", "--kind", "report"] <> argv) of
+                    Right (Register _ _ by) -> Right by
+                    Right _ -> Left "not a register"
+                    Left why -> Left why
+                )
+                [["--span", "5"], [], ["--span", "five"]]
+                `shouldBe` [Right (Just (SpanId 5)), Right Nothing, Left "seq five"]
+
+        it "names the artifact to show by its run and seq" $
+            ( case parse ["artifact", "show", "r1:4"] of
+                Right (ShowArtifact ref) -> Right (ref.run, ref.seq)
+                Right _ -> Left "not a show"
+                Left why -> Left why
+            , failureWhat (parse ["artifact", "show", "r1"])
+            )
+                `shouldBe` (Right (runId "r1", 4), Just "artifact r1")
+
+        it "takes a note's topic and the rest as its text" $
+            case parse ["note", "--topic", "traps", "the", "cache", "-lies"] of
+                Right (OnRun (NoteOn topic text)) -> (topic, text) `shouldBe` ("traps", "the cache -lies")
+                _ -> expectationFailure "not a note"
+
+        it "takes a handover's next steps in order" $
+            handedOver
+                ( parse
+                    [ "handover"
+                    , "--reason"
+                    , "context"
+                    , "--summary"
+                    , "half done"
+                    , "--next"
+                    , "a"
+                    , "--next"
+                    , "b"
+                    ]
+                )
+                `shouldBe` Right (Handover Context "half done" ("a" :| ["b"]))
+
+        it "refuses a handover with no next step" $
+            handedOver (parse ["handover", "--reason", "context", "--summary", "half done"])
+                `shouldBe` Left "Missing: --next <step>"
+
+        it "refuses a handover reason it does not know" $
+            handedOver
+                (parse ["handover", "--reason", "bored", "--summary", "s", "--next", "a"])
+                `shouldBe` Left "no handover reason bored"
 
     describe "other commands" $ do
         it "takes a question's words as one line, asked by the run itself" $
@@ -370,6 +718,29 @@ spec = describe "State.Cli.Command" $ do
             (fmap dumped . parse <$> [["dump", "r1"], ["dump", "r1:2"]])
                 `shouldBe` [Right (Just (runId "r1")), Left "no run id r1:2"]
 
+        it "takes resume with an optional run id and an --until seq from 1" $
+            map
+                (fmap resumed . parse)
+                [["resume"], ["resume", "r1", "--until", "3"], ["resume", "--until", "0"]]
+                `shouldBe` [ Right (Just (Nothing, Nothing))
+                           , Right (Just (Just (runId "r1"), Just 3))
+                           , Left "--until 0"
+                           ]
+
+        it "takes gap proposed, fixed and wontfix to their moves on the gap named" $
+            map
+                (fmap moved . parse)
+                [ ["gap", "proposed", "r1:4", "--pr", "https://github.com/o/r/pull/8"]
+                , ["gap", "fixed", "r1:4", "--pr", "https://github.com/o/r/pull/8"]
+                , ["gap", "wontfix", "r1:4", "out", "of", "scope"]
+                ]
+                `shouldBe` map
+                    (Right . Just . (EventRef (runId "r1") 4,))
+                    [ Gap.Propose (uri "https://github.com/o/r/pull/8")
+                    , Gap.Close (Gap.Fixed (uri "https://github.com/o/r/pull/8"))
+                    , Gap.Close (Gap.WontFix (oneLine "out of scope"))
+                    ]
+
         it "refuses a notes dir that is relative or holds what a shell reads" $
             map
                 (failureWhat . parse . (["init", "--notes"] <>) . pure)
@@ -447,6 +818,22 @@ spec = describe "State.Cli.Command" $ do
                 [["--parent", "r1", "--task", "t1"], ["--parent", "r1"], ["--task", "t1"]]
                 `shouldBe` replicate 3 (Just "--pr with --parent")
 
+    describe "argv" $ do
+        it "decodes each argument as UTF-8" $
+            argvText
+                ["record", "gap", "\xc3\xa9t\xc3\xa9 \xe2\x9c\x93 \xe6\x97\xa5\xe6\x9c\xac"]
+                `shouldBe` Right ["record", "gap", "été ✓ 日本"]
+
+        it
+            "refuses the first argument that is not UTF-8 by its position from 1, not its bytes"
+            $ argvText ["record", "a\xff\&b", "\xc3"]
+                `shouldBe` Left (Failure BadInput "argument 2" "not UTF-8" "pass each argument as UTF-8")
+
+        it "decodes any text's UTF-8 bytes back to that text" $ hedgehog $ do
+            argv <-
+                forAll (Gen.list (Range.linear 0 5) (Gen.text (Range.linear 0 12) Gen.unicode))
+            argvText (map encodeUtf8 argv) === Right argv
+
     describe "failures" $ do
         it "prints what, why and the fix as the analyzer parses them" $
             failureText "record" (Failure BadInput "fuel" "set once" "state show")
@@ -481,6 +868,17 @@ spec = describe "State.Cli.Command" $ do
         it "fixes a re-review past the cap by the loop's exit alone" $
             (explain g Balanced (runAt picking).at (OutOfBudget (capOf "Re-reviews") 3)).fix
                 `shouldBe` "state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
+
+        it
+            "fixes a breakdown refused while agents work by the in-place edit at its own fan-out"
+            $ ( explain
+                    g
+                    Balanced
+                    (At (Place [] (scopePath "a/b") (StateName "breakdown")))
+                    (FanRefused (Fan.Busy (TaskId "t1" :| [])))
+              ).fix
+                `shouldSatisfy` Text.isPrefixOf
+                    "state override a/b/engineers <why>, then edit the breakdown in place: "
 
         it "explains an extend where no budget asks the user to go on" $
             (explain g Balanced (runAt fueled).at NothingToExtend).fix
@@ -536,7 +934,9 @@ spec = describe "State.Cli.Command" $ do
 
         it "lists every event with no run, fixed by the help" $
             ( \failure ->
-                ( Text.isPrefixOf "the events are gap, research.spawned, " failure.why
+                ( Text.isPrefixOf
+                    "the events are gap, instructed, user_needed, research.spawned, "
+                    failure.why
                 , failure.fix
                 )
             )
@@ -621,6 +1021,29 @@ spec = describe "State.Cli.Command" $ do
     dumped = \case
         Dump run -> Just run
         _ -> Nothing
+    moved :: Command -> Maybe (EventRef, Gap.GapMove)
+    moved = \case
+        MoveGap ref move -> Just (ref, move)
+        _ -> Nothing
+    resumed :: Command -> Maybe (Maybe RunId, Maybe Natural)
+    resumed = \case
+        Resume run k -> Just (run, (.seq) <$> k)
+        _ -> Nothing
+    goalOf :: Command -> Maybe Text
+    goalOf = \case
+        Init args -> verbatimText <$> args.goal
+        _ -> Nothing
+    registered ::
+        Either Text Command -> Either Text (Location FilePath, Maybe Natural)
+    registered = \case
+        Right (Register location from _) -> Right (location, from)
+        Right _ -> Left "not a register"
+        Left why -> Left why
+    handedOver :: Either Text Command -> Either Text Handover
+    handedOver = \case
+        Right (HandOver handover) -> Right handover
+        Right _ -> Left "not a handover"
+        Left why -> Left why
     notesOf :: Command -> Maybe FilePath
     notesOf = \case
         Init args -> Just (shellPathText args.notes)

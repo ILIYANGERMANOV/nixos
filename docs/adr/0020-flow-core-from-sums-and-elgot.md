@@ -88,10 +88,10 @@ fixReReview =
 - **A fork must be awaited.** The graph refuses a `Fork` with any way out
   that passes no `Await` of its group (`NotAwaited`), and one state name
   drawn twice (`SameState`).
-- **One ledger of open children**, keyed by a `ChildId` sum: an agent id
-  for an agent child, a run id for a 10x engineer run. An agent's entry
-  opens at its bind (`worker_spawned`) and closes at its return
-  (`worker_returned`). Meters only count spends.
+- **One ledger of open children**, keyed by a `ChildId` sum: a span id
+  for a subagent, a run id for a 10x engineer run. A subagent's entry
+  opens at its `span_started` and closes at its `span_ended`. Meters only
+  count spends.
 - **Scoped names are the wire identity.** A step inside `Scope "s"`
   records `s/step.outcome`. A scope path is the free monoid on names.
 - **No global enums.** Loops, skips, groups and choices are named by the
@@ -147,3 +147,9 @@ meter). Graph rules are `Clash`es in `GraphSpec` (`NotAwaited`,
 - #379, #392: flows compose from small lawful flows; step meters.
 - #457, #462: the core from sums, cases and Elgot iteration.
 - #478: inline handlers, plain names, `upTo`.
+- #552: [ADR 0023](0023-append-only-event-store-with-rebuilt-projections.md)
+  replaces wire version 4 with a `schema_version` per event type. No log
+  is refused for its age.
+- #577: the ledger keys a subagent by its span. `worker_spawned` and
+  `worker_returned` are gone: no kernel writes them since spans, and only
+  new runs matter, so a log that holds one no longer decodes.

@@ -17,6 +17,7 @@ module State.Run.RunGen (
     breakdownJson,
     taskFileJson,
     childOf,
+    refTo,
     sha,
     commit,
     happyPath,
@@ -37,8 +38,7 @@ module State.Run.RunGen (
     outcomeOf,
 ) where
 
-import Data.Aeson (object, (.=))
-import Data.Aeson qualified as Aeson
+import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, list)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -59,7 +59,7 @@ import State.Category.Flow (
     scopePath,
     unqualify,
  )
-import State.Category.Fuel (Fuel (..), fuelName)
+import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (
     Edge (..),
     LoopAt (..),
@@ -74,7 +74,6 @@ import State.Category.Path (unrecorded)
 import State.Category.Step (
     EventName (..),
     OutcomeName (..),
-    spawnedOutcome,
     stateNameText,
  )
 import State.Category.Ty (NotSum, TyOf (..))
@@ -85,7 +84,6 @@ import State.Flow.Role.Engineer (engineer)
 import State.Flow.Role.TenX (tenX)
 import State.Role (drawnOutcomes)
 import State.Run.Ask (Above (..), Kind (Confirm), QId (..), Question (..))
-import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (
@@ -99,16 +97,16 @@ import State.Run.EventGen (
     start,
     started,
     tasksOf,
+    titled,
  )
 import State.Run.Fold (
     Append (..),
     Refusal,
     RunState (..),
-    Worker (..),
     append,
     replay,
  )
-import State.Step.Artifact (shellPathText)
+import State.Step.Artifact (taskEncoding)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Catalog qualified as Catalog
@@ -196,8 +194,9 @@ plainTask :: Text -> [Text] -> Task
 plainTask name deps =
     Task
         { id = TaskId name
+        , title = titled ("Task " <> name)
         , deps = map TaskId deps
-        , base = Branch "main"
+        , base = OnDefault
         , branch = Branch name
         , fuel = Balanced
         , qa = False
@@ -216,41 +215,25 @@ roundTask name pr = (plainTask name []) {shape = RoundOn (Url pr)}
 
 -- | The breakdown file the 10x writes for these tasks, in this order.
 breakdownJson :: [Task] -> Text
-breakdownJson = decodeUtf8 . LBS.toStrict . Aeson.encode . map taskJson
+breakdownJson = encoded . list taskEncoding
 
--- | The file the 10x writes for @task add@.
+-- | The file the 10x writes for @task add@: a task as the log spells it.
 taskFileJson :: Task -> Text
-taskFileJson = decodeUtf8 . LBS.toStrict . Aeson.encode . taskJson
+taskFileJson = encoded . taskEncoding
 
-taskJson :: Task -> Aeson.Value
-taskJson task =
-    object $
-        [ "id" .= taskIdText task.id
-        , "deps" .= map taskIdText task.deps
-        , "base" .= branchText task.base
-        , "branch" .= branchText task.branch
-        , "fuel" .= fuelName task.fuel
-        , "qa" .= task.qa
-        , "heavy" .= task.heavy
-        , "security" .= map topicText (Set.toList task.security)
-        ]
-            <> case task.shape of
-                OwnPr -> []
-                RoundOn url -> ["pr" .= urlText url]
-            <> case task.plan of
-                ChildConfirms -> []
-                ParentDecided -> ["planDecided" .= True]
-            <> maybe [] (\repo -> ["repo" .= repoText repo]) task.repo
-            <> maybe [] (\path -> ["worktree" .= shellPathText path]) task.worktree
-            <> case task.flow of
-                EngineerFlow -> []
-                TenXFlow -> ["flow" .= ("10x" :: Text)]
-                ArchitectFlow -> ["flow" .= ("architect" :: Text)]
-                ChiefFlow -> ["flow" .= ("chief" :: Text)]
+encoded :: Encoding -> Text
+encoded = decodeUtf8 . LBS.toStrict . encodingToLazyByteString
+
+{- | The task of this id, as an event names it. The fold reads a task event
+by its id alone, so a test of the fold names any breakdown: the seq here.
+The shell's writers name the right one, which their own tests check.
+-}
+refTo :: Text -> TaskRef
+refTo name = TaskRef (TaskId name) 1
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child
-childOf child task = Child (runId child) (Tasked (TaskId task)) (Text.unpack child)
+childOf child task = Child (runId child) (Tasked (refTo task)) (Text.unpack child)
 
 sha :: Sha
 sha = Sha "abc123"
@@ -295,7 +278,8 @@ refined =
 -- | 'refined' as @state next@ walks it, one transition line per event.
 refinedTranscript :: [Text]
 refinedTranscript =
-    [ "plan.done -> skip_refine"
+    [ "artifact -> plan"
+    , "plan.done -> skip_refine"
     , "skip_refine.run -> simplify_plan"
     , "simplify_plan.done -> standards_plan"
     , "standards_plan.done -> align_plan"
@@ -376,26 +360,26 @@ genAcceptedOn own on = do
     go 0 _ _ = pure []
     go k state n = case state.at of
         -- At a fan-out's await, only the 10x's own events, which this draws none of, move the run.
-        At place -> case handBacks place state
-            <> [ (if stays place edge then 5 else 1, tookBy place name)
-               | isNothing (unrecorded on place)
-               , (name, edge) <- outOf place on.edges
-               ] of
-            [] -> pure []
-            choices -> do
-                took <- Gen.frequency choices
-                case appended state n took of
-                    Right (next, m) -> (took <>) <$> bound next m (bindOf took n)
-                    Left _ -> go (k - 1) state n
-              where
-                -- A researcher's spawn is bound to its agent next, as the bind hook logs it.
-                bound next m = \case
-                    Just bind
-                        | Right (Appended after) <- append on next (line m bind) ->
-                            (bind :) <$> go (k - 1) after (m + 1)
-                    _ -> go (k - 1) next m
+        At place -> do
+            took <-
+                Gen.frequency
+                    ( handBack place
+                        : [ (if stays place edge then 5 else 1, tookBy place name)
+                          | isNothing (unrecorded on place)
+                          , (name, edge) <- outOf place on.edges
+                          ]
+                    )
+            case appended state n took of
+                Right (next, m) -> (took <>) <$> go (k - 1) next m
+                Left _ -> go (k - 1) state n
         Out -> pure []
         Graph.Exit -> pure []
+    {- A researcher in the background may hand back wherever the run is, which
+    closes nothing. No span is logged: a span's end names its start's seq, and
+    a generated run stays free of seq references, so a property may splice
+    lines into it (a stopgap, a turn away) and replay it unchanged.
+    -}
+    handBack place = (1, pure [Took place.scope (outcome ResearchHandedBack)])
     -- Each line accepted, in order: the run after them and the next seq; none when one is refused or logged already.
     appended ::
         RunState -> Natural -> [Event] -> Either (Maybe Refusal) (RunState, Natural)
@@ -411,21 +395,6 @@ genAcceptedOn own on = do
             <$> outcomeIn
                 own
                 (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
-    {- A researcher in the background may return wherever the run is; at an
-    await, only it moves the run on. Its hand-back is taken anywhere, before
-    its bind too, and closes nothing.
-    -}
-    handBacks place state =
-        [ (3, pure [WorkerReturned researcher Nothing])
-        | any ((== researcher) . (.role)) state.workers
-        ]
-            <> [(1, pure [Took place.scope (outcome ResearchHandedBack)])]
-    bindOf took n = case took of
-        [Took scope spawn]
-            | (tookEvent scope spawn).outcome == spawnedOutcome ->
-                Just (WorkerSpawned researcher (AgentId ("r" <> Text.pack (show n))))
-        _ -> Nothing
-    researcher = AgentRole "researcher"
     stays place edge = case edge.to of
         At to ->
             all

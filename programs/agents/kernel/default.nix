@@ -48,6 +48,8 @@ let
       base,
       bytestring,
       containers,
+      cryptohash-sha256,
+      direct-sqlite,
       directory,
       effectful,
       filepath,
@@ -56,12 +58,15 @@ let
       hspec-discover,
       hspec-golden,
       hspec-hedgehog,
+      network-uri,
       optparse-applicative,
       process,
+      scientific,
       sqlite-simple,
       temporary,
       text,
       time,
+      unix,
     }:
     mkDerivation {
       pname = "state";
@@ -85,18 +90,22 @@ let
         base
         bytestring
         containers
+        cryptohash-sha256
+        direct-sqlite
         directory
         effectful
         filepath
+        network-uri
         optparse-applicative
         process
+        scientific
         sqlite-simple
         text
         time
+        unix
       ];
       executableHaskellDepends = [
         base
-        text
       ];
       testHaskellDepends = [
         aeson

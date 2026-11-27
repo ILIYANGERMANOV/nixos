@@ -6,7 +6,7 @@ What the agent running a session needs on top of the instructions above.
 
 - Before opening a pull request, or when writing or updating a PR description,
   invoke the `pr-description` skill and follow it. A draft PR whose body is
-  the plan may skip it until hand-over.
+  the plan may skip it until delivery.
 
 ## Asking
 

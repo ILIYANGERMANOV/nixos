@@ -186,7 +186,7 @@ Seven state hooks, each `state-hook <name>`
 
 | Hook | Event | Does | Kernel function | Kind |
 |---|---|---|---|---|
-| `state-resume` | session start | records `Restarted` if agents were lost; prints `state show` and `state next` | `restartOf` | best effort |
+| `state-resume` | session start | records `session_started` (harness, transcript, source, model), and `Restarted` if agents were lost; prints `state show` and `state next` | `sessionOf`, `restartOf` | best effort |
 | `state-spawn` | before a spawn | at a choice, records the spawn, which opens a child (a researcher's `spawned`); prints `state next` and a warning if the spawn is off the advice | `spawnedAt`, `offAdvice` | best effort |
 | `state-handback` | before a hand-back | records the worker's hand-back | `handbackPlan` | best effort |
 | `state-bind` | after a shell or a spawn | binds the agent to its run after `state init`, and a spawned worker | `bindOf` | best effort |

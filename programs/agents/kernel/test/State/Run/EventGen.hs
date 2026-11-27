@@ -1,6 +1,15 @@
 -- | Generators of log lines, and builders of a run's log for the fold's specs.
 module State.Run.EventGen (
     genEnvelope,
+    genInstruction,
+    genStopgapEvent,
+    genStopgapAt,
+    genStopgapKeyText,
+    genJson,
+    genIJson,
+    genObject,
+    stopgapKey,
+    ijson,
     genOutcomeNamed,
     outcomeNames,
     genPicks,
@@ -13,25 +22,54 @@ module State.Run.EventGen (
     genReply,
     genText,
     genOneLine,
+    bareGap,
     genTasks,
     genTaskAt,
     genTaskId,
+    genTaskRef,
+    genDepsEdit,
+    genSeq,
+    titled,
+    verbatim,
+    epicNamed,
+    genEpicName,
+    genEpicMove,
+    genSha,
     genSaid,
     genTaskState,
     tasksOf,
     oneLine,
+    gapText,
     runId,
+    absolutePath,
+    uri,
+    replacing,
     run,
     start,
     started,
     fuelSet,
     genStart,
+    genArtifact,
+    genSpanEnding,
+    genUsage,
+    genGap,
+    genGapMove,
+    genNonBlank,
+    genFileArtifact,
+    genAbsPath,
+    genUri,
+    genRepo,
+    genTime,
     line,
     lineOf,
     hookLine,
     logOf,
 ) where
 
+import Data.Aeson (Object, Value (..), toJSON)
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -46,6 +84,18 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Artifact (
+    AbsPath,
+    Artifact (File),
+    FileArtifact (..),
+    FileRef (..),
+    Size (..),
+    Uri,
+    absPath,
+    parseUri,
+    sha256Of,
+ )
+import State.Artifact qualified as Registry (Artifact (Url))
 import State.Category.FlowGen (genScopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
@@ -62,8 +112,21 @@ import State.Run.Ask (
     parseOneLine,
  )
 import State.Run.Event
-import State.Run.Id (breaksLine, parseEventId)
-import State.Step.Artifact (ShellPath, shellPath)
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapArea (..),
+    GapMove (..),
+    GapText,
+    draft,
+    filed,
+    parseGapText,
+ )
+import State.Run.IJson (IJson, ijsonOf, parseIJson)
+import State.Run.Id (EventRef (..), breaksLine, parseEventId)
+import State.Run.Stopgap (StopgapAt (..), StopgapKey, parseStopgapKey)
+import State.Step.Artifact (ShellPath, parseEpicName, parseNonBlank, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
 import State.Step.Fan (Outcome (..), fanOuts)
@@ -80,11 +143,11 @@ genEnvelope :: Gen Envelope
 genEnvelope =
     Envelope
         <$> Gen.choice [pure Cli, Hook <$> genDigest]
-        <*> Gen.integral (Range.linear 0 100000)
+        <*> Gen.integral (Range.linear 1 100000)
         <*> genTime
         <*> genRunId
         <*> Gen.maybe genSha
-        <*> Gen.maybe (SessionId <$> genText)
+        <*> Gen.maybe (Gen.mapMaybe parseSessionId genText)
         <*> genEvent
 
 genEvent :: Gen Event
@@ -93,38 +156,262 @@ genEvent =
         [ Started <$> genStart
         , Targeted <$> genTarget
         , Extended <$> genText
-        , Gapped <$> genText
+        , Gapped <$> genGap
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
-        , Refused <$> (Note <$> genText <*> genText)
+        , Refused <$> (Note . RefusalCode <$> genText <*> genText <*> genText)
         , Asked <$> (Asking <$> genQuestion <*> (StateName <$> genText) <*> genAsker)
         , RetaggedSecurity <$> genQId
         , RuledOn <$> genQId <*> genProposal
         , Forwarded <$> genQId <*> genAbove
         , Answered <$> genQId <*> genReply <*> genAbove
         , QuestionParked <$> genQId <*> genOneLine
-        , Spawning <$> genTaskId
+        , Spawning <$> genTaskRef
         , Spawned
             <$> ( Child
                     <$> genRunId
-                    <*> Gen.choice [Tasked <$> genTaskId, pure Untasked]
+                    <*> Gen.choice [Tasked <$> genTaskRef, pure Untasked]
                     <*> genPath
                 )
-        , Resumed <$> genRunId
-        , HandedBack <$> genRunId <*> genSaid
-        , TaskMoved <$> genTaskId <*> genTaskState
-        , Held <$> genTaskId <*> (Url <$> genText)
-        , ActedOn <$> genTaskId <*> (Url <$> genText)
-        , TaskAdded <$> (Gen.int (Range.linear 1 6) >>= genTaskAt)
+        , Resumed <$> genRunId <*> Gen.maybe genTaskRef
+        , HandedBack <$> genRunId <*> Gen.maybe genTaskRef <*> genSaid
+        , TaskMoved <$> genTaskRef <*> genTaskState
+        , Held <$> genTaskRef <*> (Url <$> genText)
+        , ActedOn <$> genTaskRef <*> (Url <$> genText)
+        , TaskAdded <$> genSeq <*> (Gen.int (Range.linear 1 6) >>= genTaskAt)
         , pure Restarted
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
-        , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
-        , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
         , AgentEnded . AgentId <$> genText
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo
-        , Voided <$> Gen.integral (Range.linear 0 100000) <*> genText
+        , Voided <$> genIJsonNatural <*> genText
+        , WorktreeMoved <$> genAbsPath <*> Gen.maybe genRepo
+        , ArtifactLogged
+            <$> genArtifact
+            <*> Gen.maybe genIJsonNatural
+            <*> Gen.maybe (SpanId <$> genIJsonNatural)
+        , Noted <$> genText <*> genText
+        , HandedOver
+            <$> ( Handover
+                    <$> Gen.enumBounded
+                    <*> genText
+                    <*> Gen.nonEmpty (Range.linear 1 3) genText
+                )
+        , SessionStarted
+            <$> ( Session
+                    <$> Gen.mapMaybe parseHarness genText
+                    <*> Gen.maybe genAbsPath
+                    <*> genText
+                    <*> Gen.maybe genText
+                )
+        , GapMoved <$> genIJsonNatural <*> genGapMove
+        , SpanStarted
+            <$> ( SpanStart . AgentRole
+                    <$> genText
+                    <*> Gen.mapMaybe parseHarness genText
+                    <*> genText
+                    <*> Gen.maybe (SpanId <$> genIJsonNatural)
+                    <*> Gen.maybe genText
+                )
+        , SpanEnded . SpanId <$> genIJsonNatural <*> genSpanEnding <*> genUsage
+        , EpicMoved <$> genEpicName <*> genEpicMove
+        , TaskHead <$> genTaskRef <*> genSha
+        , TaskBaseChanged
+            <$> genTaskRef
+            <*> (Gen.int (Range.linear 1 6) >>= genBaseAt)
+            <*> genNonBlank
+            <*> genDepsEdit
+        , Instructed <$> genInstruction <*> Gen.maybe genSeq
+        , UserNeeded
+            <$> ( Need
+                    <$> genNonBlank
+                    <*> (Set.fromList <$> Gen.list (Range.linear 0 3) genTaskRef)
+                    <*> Gen.maybe genUri
+                )
+        , UserNeededDone <$> genSeq <*> Gen.maybe genNonBlank
+        , genStopgapEvent
+        ]
+
+-- | An instruction of any kind, its words not blank.
+genInstruction :: Gen Instruction
+genInstruction =
+    Instruction <$> Gen.enumBounded <*> Gen.mapMaybe parseVerbatim genText
+
+-- | A stopgap set or unset, anywhere, with its reason.
+genStopgapEvent :: Gen Event
+genStopgapEvent =
+    Gen.choice
+        [ StopgapSet <$> genStopgapAt <*> genIJson <*> genNonBlank
+        , StopgapUnset <$> genStopgapAt <*> genNonBlank
+        ]
+
+-- | A stopgap's place: the run's or a task's, under any valid key.
+genStopgapAt :: Gen StopgapAt
+genStopgapAt = StopgapAt <$> Gen.maybe genTaskRef <*> genStopgapKey
+
+genStopgapKey :: Gen StopgapKey
+genStopgapKey = Gen.mapMaybe parseStopgapKey genStopgapKeyText
+
+{- | A key OpenTelemetry's naming allows: a letter, then letters and digits,
+then segments each a delimiter and one or more letters and digits.
+-}
+genStopgapKeyText :: Gen Text
+genStopgapKeyText = do
+    first <- Gen.lower
+    rest <- alnums 0
+    segments <-
+        Gen.list (Range.linear 0 3) ((<>) <$> Gen.element [".", "_"] <*> alnums 1)
+    pure (Text.cons first rest <> mconcat segments)
+  where
+    alnums least = Gen.text (Range.linear least 5) (Gen.element (['a' .. 'z'] <> ['0' .. '9']))
+
+-- | Any JSON value, its numbers at the edges of I-JSON's integers.
+genJson :: Gen Value
+genJson = genJsonOf edgeNumbers
+
+-- | Any JSON object, its keys any text.
+genObject :: Gen Object
+genObject = genObjectOf edgeNumbers
+
+-- | Numbers at the edges of I-JSON's integers, and past them.
+edgeNumbers :: Gen Value
+edgeNumbers =
+    Number
+        <$> Gen.element [0, -1, 7, 1.5, 9007199254740991, 9007199254740992, 1e300]
+
+{- | A stopgap's value: I-JSON, its integers within 2^53-1 either way, under
+the cap and not null at the top.
+-}
+genIJson :: Gen IJson
+genIJson =
+    Gen.mapMaybe
+        (either (const Nothing) Just . ijsonOf)
+        ( genJsonOf
+            ( Number
+                <$> Gen.element [0, -1, 7, 1.5, 1e-300, 9007199254740991, -9007199254740991]
+            )
+        )
+
+-- | Any JSON value, its numbers drawn from these.
+genJsonOf :: Gen Value -> Gen Value
+genJsonOf numbers =
+    Gen.recursive
+        Gen.choice
+        [pure Null, Bool <$> Gen.bool, numbers, String <$> genText]
+        [ toJSON <$> Gen.list (Range.linear 0 3) (genJsonOf numbers)
+        , Object <$> genObjectOf numbers
+        ]
+
+genObjectOf :: Gen Value -> Gen Object
+genObjectOf numbers =
+    KeyMap.fromList
+        <$> Gen.list
+            (Range.linear 0 3)
+            ((,) . Key.fromText <$> genText <*> genJsonOf numbers)
+
+-- | Any gap: its evidence of both kinds, none to a few.
+genGap :: Gen Gap
+genGap =
+    Gap
+        <$> Gen.enumBounded
+        <*> Gen.enumBounded
+        <*> (GapArea <$> genOneLine)
+        <*> Gen.mapMaybe parseGapText genText
+        <*> (AgentRole <$> genText)
+        <*> Gen.list (Range.linear 0 3) genEvidence
+
+genEvidence :: Gen Evidence
+genEvidence =
+    Gen.choice
+        [OfEvent <$> (EventRef <$> genRunId <*> genIJsonNatural), OfUrl <$> genUri]
+
+-- | A gap with this text and the defaults, met at plan by the engineer.
+bareGap :: Text -> Gap
+bareGap = filed (GapArea (oneLine "plan")) (AgentRole "engineer") . draft . gapText
+
+-- | Any status event's move: a fix proposed, fixed or not to be fixed.
+genGapMove :: Gen GapMove
+genGapMove =
+    Gen.choice
+        [ Propose <$> genUri
+        , Close . Fixed <$> genUri
+        , Close . WontFix <$> genOneLine
+        ]
+
+-- | Each way a span ends: a hand-back of any token, or none.
+genSpanEnding :: Gen SpanEnding
+genSpanEnding = Gen.choice [WithHandback <$> Gen.enumBounded <*> genText, pure NoHandback]
+
+-- | Token counts, each reported or not, independently.
+genUsage :: Gen Usage
+genUsage =
+    Usage
+        <$> Gen.maybe genIJsonNatural
+        <*> Gen.maybe genIJsonNatural
+        <*> Gen.maybe genIJsonNatural
+        <*> Gen.maybe genIJsonNatural
+
+-- | Any epic move: an open on a repo and branch, a ready with its PR, a merge.
+genEpicMove :: Gen EpicMove
+genEpicMove =
+    Gen.choice
+        [ Opens <$> genRepo <*> (Branch <$> genText)
+        , Readies . Url <$> genText
+        , pure Merges
+        ]
+
+-- | A file artifact of any kind, or a URL's: its location's kinds only.
+genArtifact :: Gen Artifact
+genArtifact =
+    Gen.choice
+        [ File <$> genFileArtifact
+        , Registry.Url <$> Gen.enumBounded <*> genUri
+        ]
+
+-- | A file as registered: any kind, path, digest and I-JSON size.
+genFileArtifact :: Gen FileArtifact
+genFileArtifact =
+    FileArtifact
+        <$> Gen.enumBounded
+        <*> ( FileRef
+                <$> genAbsPath
+                <*> (sha256Of <$> Gen.bytes (Range.linear 0 32))
+                <*> (Size <$> genIJsonNatural)
+            )
+
+-- | An absolute, normalised path: segments of any character but @/@, none @.@.
+genAbsPath :: Gen AbsPath
+genAbsPath =
+    Gen.mapMaybe
+        (absPath . ('/' :) . intercalate "/")
+        ( Gen.list
+            (Range.linear 0 4)
+            ( Gen.filter
+                (/= ".")
+                (Gen.string (Range.linear 1 10) (Gen.filter (/= '/') Gen.unicode))
+            )
+        )
+
+-- | An RFC 3986 absolute URI: a scheme, then unreserved and sub-delimiter characters.
+genUri :: Gen Uri
+genUri =
+    Gen.mapMaybe
+        parseUri
+        ( (\scheme rest -> scheme <> ":" <> rest)
+            <$> Gen.element ["https", "http", "ftp", "urn", "mailto"]
+            <*> Gen.text (Range.linear 0 20) (Gen.element ("aZ09-._~/?:@!$&'()*+,;=" :: String))
+        )
+
+{- | An I-JSON integer (RFC 7493 s2.2), 0 to 2^53-1, its two edges drawn
+often: the log's only payload integer, a voided seq, stays in that range.
+-}
+genIJsonNatural :: Gen Natural
+genIJsonNatural =
+    Gen.frequency
+        [ (1, pure 0)
+        , (1, pure (2 ^ (53 :: Int) - 1))
+        , (8, Gen.integral (Range.linear 0 (2 ^ (53 :: Int) - 1)))
         ]
 
 genPath :: Gen FilePath
@@ -148,6 +435,7 @@ genTaskState =
         , Kept . Url <$> genText
         , Round . Url <$> genText
         , Parked <$> genText <*> Gen.maybe (Url <$> genText)
+        , Delivered . Url <$> genText
         ]
 
 -- | Few ids, so tasks, children and moves name the same ones often.
@@ -156,6 +444,56 @@ genTaskNo = TaskNo <$> Gen.integral (Range.linear 1 50)
 
 genTaskId :: Gen TaskId
 genTaskId = TaskId <$> Gen.element ["t1", "t2", "t3", "t4", "t5"]
+
+genTaskRef :: Gen TaskRef
+genTaskRef = TaskRef <$> genTaskId <*> genSeq
+
+-- | A base change's dependencies: kept, or set to none to a few, any task of ids t1 to t5.
+genDepsEdit :: Gen DepsEdit
+genDepsEdit =
+    Gen.choice
+        [ pure DepsKept
+        , DepsSet . Set.fromList <$> Gen.list (Range.linear 0 3) genTaskId
+        ]
+
+-- | A seq of the log, an I-JSON integer.
+genSeq :: Gen Natural
+genSeq = Gen.integral (Range.linear 1 5000)
+
+-- | A line that is not blank: a word, maybe with spaces around.
+genNonBlank :: Gen NonBlank
+genNonBlank = do
+    word <- Gen.text (Range.linear 1 12) Gen.alphaNum
+    pad <- Gen.element ["", " "]
+    maybe (error "a word is not blank") pure (parseNonBlank (pad <> word <> pad))
+
+-- | A title for a test's task, which is not blank.
+titled :: Text -> NonBlank
+titled = fromMaybe (error "a test's title is not blank") . parseNonBlank
+
+-- | A user's words for a test's instruction, which are not blank.
+verbatim :: Text -> Verbatim
+verbatim = fromMaybe (error "a test's instruction is not blank") . parseVerbatim
+
+-- | An epic name for a test, a slug.
+epicNamed :: Text -> EpicName
+epicNamed = fromMaybe (error "a test's epic name is a slug") . parseEpicName
+
+-- | A base for the task @ti@: the default, an epic, or one of @t1@ to the one before it.
+genBaseAt :: Int -> Gen Base
+genBaseAt i =
+    Gen.choice
+        ( [pure OnDefault, OnEpic <$> genEpicName]
+            <> [ OnTask . TaskId . ("t" <>) . Text.pack . show
+                    <$> Gen.int (Range.linear 1 (i - 1))
+               | i > 1
+               ]
+        )
+
+genEpicName :: Gen EpicName
+genEpicName =
+    Gen.text (Range.linear 1 10) Gen.alphaNum
+        >>= maybe (error "an alphanumeric word is an epic name") pure . parseEpicName
 
 {- | A breakdown of up to five tasks, @t1@ to @tn@, each depending on some
 earlier ones.
@@ -170,8 +508,9 @@ genTasks = do
 genTaskAt :: Int -> Gen Task
 genTaskAt i =
     Task (taskNamed i)
-        <$> Gen.subsequence (map taskNamed [1 .. i - 1])
-        <*> (Branch <$> genText)
+        <$> genNonBlank
+        <*> Gen.subsequence (map taskNamed [1 .. i - 1])
+        <*> genBaseAt i
         <*> (Branch <$> genText)
         <*> Gen.enumBounded
         <*> Gen.bool
@@ -239,6 +578,8 @@ genStart =
             , ByCaller <$> genShape
             ]
         <*> genSet Gen.enumBounded
+        <*> genAbsPath
+        <*> Gen.maybe genRepo
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
 genOutcomeNamed :: EventName -> Maybe (Gen AnyOutcome)
@@ -299,8 +640,9 @@ templates =
                         ( tasksOf
                             ( Task
                                 (TaskId "t1")
+                                (titled "t1")
                                 []
-                                (Branch "")
+                                OnDefault
                                 (Branch "")
                                 Balanced
                                 False
@@ -404,11 +746,16 @@ genPicks =
 genCommit :: Gen Commit
 genCommit = Commit <$> genSha <*> genSet Gen.enumBounded
 
+-- | A git object id: SHA-1's 40 or SHA-256's 64 lowercase hex.
 genSha :: Gen Sha
-genSha = Sha <$> Gen.text (Range.linear 7 40) Gen.hexit
+genSha = Sha <$> (Gen.element [40, 64] >>= genHex)
 
+-- | A hook record's digest: FNV-1a 64's 16 lowercase hex.
 genDigest :: Gen Digest
-genDigest = Digest <$> Gen.text (Range.singleton 64) Gen.hexit
+genDigest = Digest <$> genHex 16
+
+genHex :: Int -> Gen Text
+genHex n = Gen.text (Range.singleton n) (Gen.element ("0123456789abcdef" :: String))
 
 genText :: Gen Text
 genText = Gen.text (Range.linear 0 20) Gen.unicode
@@ -419,13 +766,13 @@ genOneLine = Gen.mapMaybe parseOneLine genText
 genSet :: (Ord a) => Gen a -> Gen (Set a)
 genSet = fmap Set.fromList . Gen.list (Range.linear 0 4)
 
--- | Any instant, to the picosecond.
+-- | Any instant the clock stamps: whole milliseconds, 1968 to 2077.
 genTime :: Gen UTCTime
 genTime =
     UTCTime . ModifiedJulianDay
         <$> Gen.integral (Range.linear 40000 80000)
-        <*> ( picosecondsToDiffTime
-                <$> Gen.integral (Range.linear 0 (86400 * 1000000000000 - 1))
+        <*> ( picosecondsToDiffTime . (* 1000000000)
+                <$> Gen.integral (Range.linear 0 (86400 * 1000 - 1))
             )
 
 -- | Any run id the kernel accepts.
@@ -450,10 +797,20 @@ genQId = QId <$> genRunId <*> Gen.integral (Range.linear 0 1000)
 genQuestion :: Gen Question
 genQuestion = Question <$> genQId <*> Gen.enumBounded <*> genOneLine
 
--- | Any reading: a kind and a choice.
+{- | Any reading: a kind and a choice. Its ruling's basis names no line, as
+the generator knows no log's lines: a basis naming one the run never logged
+is refused ('State.Run.Fold' tests that).
+-}
 genReading :: Gen Reading
 genReading =
-    Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> genProposal, pure PassOn]
+    Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> unlined, pure PassOn]
+  where
+    unlined =
+        Proposal
+            <$> genOneLine
+            <*> genOneLine
+            <*> genOneLine
+            <*> Gen.maybe (Obvious <$> genOneLine)
 
 genProposal :: Gen Proposal
 genProposal = Proposal <$> genOneLine <*> genOneLine <*> genOneLine <*> Gen.maybe genBasis
@@ -471,20 +828,59 @@ genEventId =
         , Gen.mapMaybe (parseEventId . ("h:" <>)) genIdText
         ]
 
+-- | A gap's text the test spells, which must be one line and not blank.
+gapText :: Text -> GapText
+gapText raw = fromMaybe (error ("no gap text: " <> show raw)) (parseGapText raw)
+
 -- | A line the test spells, which must hold no line break.
 oneLine :: Text -> OneLine
 oneLine raw = fromMaybe (error ("not one line: " <> show raw)) (parseOneLine raw)
 
+{- | Errors when @old@ is absent, so a stale pattern fails its test instead of
+quietly checking the unchanged line.
+-}
+replacing :: Text -> (Text, Text) -> Text
+replacing whole (old, new)
+    | old `Text.isInfixOf` whole = Text.replace old new whole
+    | otherwise = error ("replacing: " <> show old <> " is not in " <> show whole)
+
 -- | A run id the test spells, which must be one the kernel accepts.
 runId :: Text -> RunId
 runId raw = fromMaybe (error ("not a run id: " <> show raw)) (parseRunId raw)
+
+-- | A path the test spells, which must be absolute and normalised.
+absolutePath :: FilePath -> AbsPath
+absolutePath raw = fromMaybe (error ("not an absolute path: " <> show raw)) (absPath raw)
+
+-- | A stopgap key the test spells, which must be valid.
+stopgapKey :: Text -> StopgapKey
+stopgapKey raw = fromMaybe (error ("not a stopgap key: " <> show raw)) (parseStopgapKey raw)
+
+-- | A stopgap value the test spells, which must be I-JSON.
+ijson :: Text -> IJson
+ijson raw =
+    either
+        (error . (("not I-JSON: " <> show raw <> " ") <>) . show)
+        id
+        (parseIJson raw)
+
+-- | A URL the test spells, which must be an absolute URI.
+uri :: Text -> Uri
+uri raw = fromMaybe (error ("not a URI: " <> show raw)) (parseUri raw)
 
 run :: RunId
 run = runId "r7f2"
 
 -- | A user's engineer run, in a session that can ask the user.
 start :: Start
-start = Start EngineerFlow "notes" (ByUser OwnPr) (Set.fromList [AskUser, Hooks])
+start =
+    Start
+        EngineerFlow
+        "notes"
+        (ByUser OwnPr)
+        (Set.fromList [AskUser, Hooks])
+        (absolutePath "/work")
+        Nothing
 
 started :: Event
 started = Started start

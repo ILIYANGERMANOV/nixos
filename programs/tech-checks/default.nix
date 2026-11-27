@@ -13,6 +13,8 @@
   # tooling (programs/haskell).
   kernel,
   kernelDev,
+  # The installed `state`, which python-tests builds a real run store with.
+  state,
 }:
 import ./shell.nix { inherit pkgs claude; }
 // import ./ts.nix { inherit pkgs; }
@@ -22,6 +24,7 @@ import ./shell.nix { inherit pkgs claude; }
     claude
     opencode
     guards
+    state
     ;
 }
 // import ./lua.nix { inherit pkgs; }

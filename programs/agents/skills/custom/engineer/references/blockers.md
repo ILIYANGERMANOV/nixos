@@ -93,14 +93,15 @@ new question of that kind.
 
 **Re-plan.** An answer that changes a goal, a decision or an interface, or a
 review-lead's `plan wrong:` line you agree with: `state stop replan <why>`,
-then do what it prints. On `STOP replan`, or resumed after its
-`HANDBACK NEEDS_DECISION plan wrong`, start a new run in a fresh notes
+then do what it prints. On `STOP replan`, or sent on with the answer after
+its `HANDBACK NEEDS_DECISION plan wrong`, start a new run in a fresh notes
 directory, `state init --notes <dir>-replan-<n>`, `<dir>` your first notes
-directory without its trailing `/`, plus the `--parent` and
-`--task`, or the `--child`, of your first `state init` when it had
-them, on
-the same branch and PR, at the same Fuel: Gather for the open question
-only, never re-asking what was just answered, then Propose and confirm. The
+directory without its trailing `/`, plus the `--parent` and `--task`, or the
+`--child`, of your first `state init` when it had them. The stopped run stays
+stopped. Under a parent the new run is the task's next child, so it counts as
+a try. Work on the same branch and PR, at the same Fuel: Gather for the
+open question only, never re-asking what was just answered, then Propose and
+confirm. The
 new plan goes into the PR body; its `Considered options` stay in the plan.
 Existing commits stay and the new plan adds commits on top; its review
 starts again at round 1, so the re-review cap and the stuck guard reset.

@@ -1,0 +1,4 @@
+[
+{"agent_role":"implementer","harness":"claude-code","brief":"Build slice A.\nFuel: Max.","parent_span":3,"request_model":"opus"},
+{"agent_role":"Explore","harness":"opencode","brief":"find the codec"}
+]

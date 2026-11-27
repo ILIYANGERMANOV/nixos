@@ -249,8 +249,8 @@ the lead's model. The roles keep theirs.
 - Your project's `CLAUDE.md` still loads. It stacks with an `AGENTS.md`.
 - Shells it runs get your own config, data and cache dirs back. So `gh` and
   `git` use your login and config.
-- `state` keeps its own `kernel.db`, in
-  `~/.opencode-kategory/state/state/kernel.db`. Sharing one with
+- `state` keeps its own `kernel-v2.db`, in
+  `~/.opencode-kategory/state/state/kernel-v2.db`. Sharing one with
   `claude-kategory` is a follow-up.
 
 ### Permissions
@@ -280,6 +280,10 @@ review pipeline must treat it as code under review. OpenCode can skip it with
   - `opencode debug agent --tool` runs no tool hook.
   - A subagent from an earlier OpenCode run, resumed by its task id, counts
     as a lead.
+  - OpenCode writes no transcript file. A session has no `transcript_path`
+    and no transcript artifact.
+  - A subagent's tokens count only the model calls this OpenCode process
+    saw.
 - **`~/.opencode` is always read.** OpenCode has no switch to turn it off.
 - **A writable `.opencode/` costs an npm install.** OpenCode runs
   `npm install @opencode-ai/plugin` in every config dir it can write: a
@@ -310,8 +314,9 @@ review pipeline must treat it as code under review. OpenCode can skip it with
 >   you cannot afford to expose.
 > - **It stores data locally.**
 >   - The `state` program keeps run logs, questions, answers, decisions and
->     state in a local SQLite database, `~/.local/state/state/kernel.db`
->     (`$XDG_STATE_HOME/state/kernel.db` when set).
+>     state in a local SQLite database, `~/.local/state/state/kernel-v2.db`
+>     (`$XDG_STATE_HOME/state/kernel-v2.db` when set). An older `kernel.db`
+>     beside it stays as it was: `state` no longer opens it.
 >   - Claude Code keeps your login, transcripts, settings and MCP servers in
 >     `~/.claude-kategory`.
 >   - Helper files go in `/tmp`, `~/.10x` and git worktrees inside your

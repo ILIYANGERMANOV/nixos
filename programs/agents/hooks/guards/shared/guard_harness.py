@@ -23,6 +23,7 @@ from agent_hook import (
     BeforeTool,
     ContextSize,
     Deny,
+    Harness,
     JsonObject,
     Note,
     Role,
@@ -41,6 +42,7 @@ BLOCKED: Decision = "deny"
 type Case[T, W = Decision] = tuple[W, str, T]
 
 SESSION = SessionId("s1")
+HARNESS = Harness("claude-code")
 SUBAGENT = Agent(AgentId("a1b2"), Role("implementer"))
 
 
@@ -67,14 +69,31 @@ def tool_event(
 ) -> str:
     """The beforeTool event a guard gets for a call of `tool`."""
     return emit_event(
-        BeforeTool(SESSION, Path(cwd), agent, tool, tool_input, tuple(history))
+        BeforeTool(
+            SESSION,
+            Path(cwd),
+            agent,
+            tool,
+            tool_input,
+            tuple(history),
+            harness=HARNESS,
+        )
     )
 
 
 def after_tool_event(context: ContextSize | None, agent: Agent | None = None) -> str:
     """The afterTool event of a shell call by `agent`, with the context it reports."""
     return emit_event(
-        AfterTool(SESSION, Path("/"), agent, Tool.SHELL, {"command": "ls"}, "", context)
+        AfterTool(
+            SESSION,
+            Path("/"),
+            agent,
+            Tool.SHELL,
+            {"command": "ls"},
+            "",
+            context,
+            harness=HARNESS,
+        )
     )
 
 

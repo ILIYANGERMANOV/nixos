@@ -1,0 +1,8 @@
+[
+{"child":"c1","task":"t1","breakdown":9,"kind":"finished","summary":"READY https://github.com/o/r/pull/7"},
+{"child":"c1","task":"t1","breakdown":9,"kind":"asks_up","qid":"c1:3"},
+{"child":"c1","task":"t1","breakdown":9,"kind":"awaits","on":"ci","summary":"https://github.com/o/r/pull/7"},
+{"child":"c1","task":"t1","breakdown":9,"kind":"awaits","on":"merge","summary":"https://github.com/o/r/pull/7"},
+{"child":"c1","task":"t1","breakdown":9,"kind":"ended","reason":"rounds","detail":"three rounds, still red"},
+{"child":"c1","kind":"finished","summary":"READY https://github.com/o/r/pull/7"}
+]

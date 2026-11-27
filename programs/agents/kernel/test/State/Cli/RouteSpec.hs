@@ -73,6 +73,14 @@ spec = describe "routing a shell command's state calls" $ do
                 ["state show", "state next", "state pending", "state void 3 --why typo"]
                 `shouldBe` [[], ["next"], ["pending"], ["void"]]
 
+        it "routes no need's close, which names its run, but routes a need's record" $
+            map
+                (map (.sub) . calls)
+                [ "state record user_needed 0a1b2c3d:5 --done"
+                , "state record user_needed 'log in to the console'"
+                ]
+                `shouldBe` [[], ["record"]]
+
         it
             "routes nothing it cannot read: a subshell, a substitution, a heredoc, an open quote"
             $ map
@@ -103,13 +111,13 @@ spec = describe "routing a shell command's state calls" $ do
             stateCalls steps "/work" ("cd " <> Text.pack dir <> " && state " <> sub)
                 === [at dir sub ("state " <> sub)]
 
-        it "lets a record and an answer reach a child run, no other call" $
+        it "lets a record, an answer and a stop reach a child run, no other call" $
             map
                 (.reach)
                 ( calls
-                    "state record await_ci.green; state answer q1 postgres; state next; state stop blocked why; state ask --kind Design which"
+                    "state record await_ci.green; state answer q1 postgres; state stop failed why; state next; state ask --kind Design which"
                 )
-                `shouldBe` [OwnOrChildRun, OwnOrChildRun, OwnRun, OwnRun, OwnRun]
+                `shouldBe` [OwnOrChildRun, OwnOrChildRun, OwnOrChildRun, OwnRun, OwnRun]
 
         it "a_single_quoted_directory_reads_back_whole" . hedgehog $ do
             dir <-

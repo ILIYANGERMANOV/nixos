@@ -1,0 +1,7 @@
+[
+{"flow":"engineer","notes_dir":"/notes/r7f2","worktree":"/work/r7f2","repo":"o/r","principal":{"kind":"user","shape":{"kind":"own_pr"}},"interface":["ask_user","await","notify","hooks","background"]},
+{"flow":"architect","notes_dir":"/n","worktree":"/w","principal":{"kind":"caller","shape":{"kind":"round_on","pr_url":"https://github.com/o/r/pull/7"}},"interface":[]},
+{"flow":"10x","notes_dir":"/n","worktree":"/w","principal":{"kind":"parent_run","run":"r7f2","link":{"kind":"task","task":"t1"},"shape":{"kind":"own_pr"},"plan":"child_confirms"},"interface":["await"]},
+{"flow":"engineer","notes_dir":"/n","worktree":"/w","principal":{"kind":"parent_run","run":"r7f2","link":{"kind":"untasked"},"shape":{"kind":"round_on","pr_url":"https://github.com/o/r/pull/7"},"plan":"parent_decided"},"interface":[]},
+{"flow":"chief","notes_dir":"/n","worktree":"/w","principal":{"kind":"parent_run","run":"r7f2","link":{"kind":"direct"},"shape":{"kind":"own_pr"},"plan":"child_confirms"},"interface":[]}
+]

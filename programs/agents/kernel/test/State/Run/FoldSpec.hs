@@ -1,5 +1,6 @@
 module State.Run.FoldSpec (spec) where
 
+import Control.Monad (void)
 import Data.Either (isRight)
 import Data.Foldable (for_)
 import Data.List (inits, intercalate)
@@ -7,6 +8,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -86,12 +88,17 @@ import State.Run.Ask (
 import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (Merge)
 import State.Run.EventGen (
+    absolutePath,
+    bareGap,
     fuelSet,
+    genInstruction,
     genOneLine,
     genProposal,
     genQuestion,
     genReading,
     genReply,
+    genSaid,
+    genTaskState,
     hookLine,
     line,
     lineOf,
@@ -102,10 +109,14 @@ import State.Run.EventGen (
     runId,
     started,
     tasksOf,
+    titled,
+    verbatim,
  )
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
 import State.Run.Fold qualified as Fold
+import State.Run.Gap (Tracked (..))
+import State.Run.Gap qualified as Gap
 import State.Run.RunGen (
     architectGraph,
     chiefGraph,
@@ -119,6 +130,7 @@ import State.Run.RunGen (
     outcomeOf,
     pickOf,
     plainTask,
+    refTo,
     refined,
     researchedIn,
     roundTask,
@@ -193,7 +205,7 @@ spec = describe "State.Run.Fold" $ do
             atName
                 <$> tenXRun
                     ( toEngineers
-                        <> [Spawned child, HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))]
+                        <> [Spawned child, HandedBack (runId "c1") Nothing (AsksUp (QId (runId "c1") 1))]
                     )
                 `shouldBe` Right (Just (StateName "engineers"))
         it "waits at the engineers' await while a task is unsettled" $
@@ -204,8 +216,8 @@ spec = describe "State.Run.Fold" $ do
                 <$> tenXRun
                     ( toEngineers
                         <> [ Spawned child
-                           , TaskMoved (TaskId "t1") (InCi (Url "pr"))
-                           , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
+                           , TaskMoved (refTo "t1") (InCi (Url "pr"))
+                           , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
                            ]
                     )
                 `shouldBe` Right (Just (StateName "engineers"))
@@ -213,95 +225,254 @@ spec = describe "State.Run.Fold" $ do
             atName
                 <$> tenXRun
                     ( toEngineers
-                        <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
+                        <> [Spawned child, HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))]
                     )
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
-            tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")])
-                `shouldBe` Left (NotOneHolder (TaskId "t9") [])
+            tenXRun (toEngineers <> [Held (refTo "t9") (Url "u")])
+                `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
         it "takes a stop at the merge once every task is parked" $ do
             let allParked = Stop Blocked "all tasks parked"
             (.stopped)
                 <$> tenXRun
                     ( toEngineers
-                        <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), Stopped allParked]
+                        <> [TaskMoved (refTo "t1") (Parked "out of scope" Nothing), Stopped allParked]
                     )
                 `shouldBe` Right (Just allParked)
         it "refuses a new breakdown while a child is at work" $
             tenXRun (toEngineers <> [Spawned child] <> rePlan)
                 `shouldBe` Left (FanRefused (Fan.Busy (TaskId "t1" :| [])))
         it "starts a fresh fan-out at a new breakdown once every child handed back" $
-            fmap (.id) . (.tasks) . currentFan
+            fmap (.id) . Fan.tasksOf . currentFan
                 <$> tenXRun
                     ( toEngineers
-                        <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
+                        <> [Spawned child, HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))]
                         <> rePlan
                     )
                 `shouldBe` Right [TaskId "t2"]
         it "adds a task mid-run, one the merge then awaits" $ do
             let fix = plainTask "fix" []
-                withFix = toEngineers <> [TaskAdded fix]
-            fmap (.id) . (.tasks) . currentFan <$> tenXRun withFix
+                withFix = toEngineers <> [TaskAdded 1 fix]
+            fmap (.id) . Fan.tasksOf . currentFan <$> tenXRun withFix
                 `shouldBe` Right [TaskId "t1", TaskId "fix"]
             tenXRun
                 ( withFix
-                    <> [ TaskMoved (TaskId "t1") (Merged (Url "pr"))
-                       , TaskMoved (TaskId "fix") (InReview (Url "fix-pr"))
+                    <> [ TaskMoved (refTo "t1") (Merged (Url "pr"))
+                       , TaskMoved (refTo "fix") (InReview (Url "fix-pr"))
                        , stepTook (MergeDone engineers (Url "pr"))
                        ]
                 )
                 `shouldBe` Left (FanRefused (Fan.Unmerged (TaskId "fix" :| [])))
         it "refuses an added task under an id the fan-out has" $
-            tenXRun (toEngineers <> [TaskAdded (plainTask "t1" [])])
+            tenXRun (toEngineers <> [TaskAdded 1 (plainTask "t1" [])])
                 `shouldBe` Left (FanRefused (Fan.TaskExists (TaskId "t1")))
         it "frees every agent at a restart, so its child waits on the run" $
             fmap (.child.run) . Fan.waiting . currentFan
                 <$> tenXRun (toEngineers <> [Spawned child, Restarted])
                 `shouldBe` Right [runId "c1"]
-
-    describe "a lead's workers" $ do
-        let fixer = AgentRole "fixer"
-            atWork events =
-                map (\worker -> (worker.agent, worker.spawnedAt)) . (.workers)
-                    <$> replay g (logOf (Started start0 :| events))
-            start0 = startOf EngineerFlow (ByUser OwnPr)
-            spawn role agent = WorkerSpawned role (AgentId agent)
         it
-            "holds each worker spawned, by the seq of its spawn, until the one of its id returns"
-            $ atWork
-                [spawn fixer "a1", spawn fixer "a2", WorkerReturned fixer (Just (AgentId "a2"))]
-                `shouldBe` Right [(AgentId "a1", 1)]
-        it "closes the oldest of the role when the return names no id" $
-            atWork
-                [ spawn fixer "a1"
-                , spawn (AgentRole "implementer") "b1"
-                , spawn fixer "a2"
-                , WorkerReturned fixer Nothing
+            "takes a child's hand-back, a merge, a held wake, a spawn and an added task while the run re-plans"
+            $ do
+                let fix = plainTask "fix" []
+                    t1 = TaskId "t1"
+                (\state -> (atName state, map facts (Map.elems state.fans)))
+                    <$> tenXRun
+                        ( toEngineers
+                            <> [ Spawned child
+                               , Overridden (StateName "plan") "re-plan"
+                               , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                               , TaskMoved (refTo "t1") (Merged (Url "pr"))
+                               , Held (refTo "t1") (Url "pull/2")
+                               , TaskAdded 1 fix
+                               , Spawning (refTo "fix")
+                               , Spawned (childOf "c2" "fix")
+                               ]
+                        )
+                    `shouldBe` Right
+                        ( Just (StateName "plan")
+                        ,
+                            [
+                                ( [t1, TaskId "fix"]
+                                , Map.fromList [(t1, Merged (Url "pr"))]
+                                , [(t1, Url "pull/2")]
+                                , [runId "c1", runId "c2"]
+                                )
+                            ]
+                        )
+        it "keeps_every_merge_head_try_and_held_wake_through_any_re_plan" . hedgehog $ do
+            events <- concat <$> forAll (Gen.list (Range.linear 1 30) genReplanning)
+            start <- evalEither (tenXRun toEngineers)
+            let taken now (n, event) = case append tenXGraph now (line n event) of
+                    Right (Appended next) -> next
+                    Right AlreadyLogged -> now
+                    Left _ -> now
+                -- The log so far: started, then the breakdown's two lines.
+                states = scanl taken start (zip [3 ..] events)
+                off state = nameAt state `notElem` map Just ["breakdown", "engineers", "merge"]
+            cover
+                10
+                "a breakdown replaced"
+                (not (all (all (null . (.replaced)) . (.fans)) states))
+            cover 10 "a step off every fan-out's state" (any off states)
+            for_ (zip states (drop 1 states)) $ \(before, after) -> do
+                let (merged, heads, tries, held) = everKept before
+                    (merged', heads', tries', held') = everKept after
+                annotateShow (after.at, after.fans)
+                assert
+                    ( all (`elem` merged') merged
+                        && all (`elem` heads') heads
+                        && Map.isSubmapOfBy (<=) tries tries'
+                        && all (`elem` held') held
+                    )
+        it
+            "refuses a child's hand-back at its fan-out's breakdown: only the await takes it"
+            $ tenXRun
+                ( toEngineers
+                    <> [ Spawned child
+                       , Overridden (StateName "breakdown") "re-plan"
+                       , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                       ]
+                )
+                `shouldSatisfy` \case
+                    Left (NoEdge _ _) -> True
+                    _ -> False
+        it
+            "reopens the fan-out at its merge for a parked task's child resumed or sent an agent, unparked"
+            $ map
+                (fmap (\state -> (atName state, (currentFan state).moves)) . tenXRun)
+                [ toEngineers
+                    <> [ Spawned child
+                       , HandedBack (runId "c1") Nothing (Awaits Ci (oneLine "PR #1"))
+                       , TaskMoved (refTo "t1") (Parked "later" Nothing)
+                       , Resumed (runId "c1") (Just (refTo "t1"))
+                       ]
+                , toEngineers
+                    <> [ TaskMoved (refTo "t1") (Parked "later" Nothing)
+                       , Spawning (refTo "t1")
+                       ]
                 ]
-                `shouldBe` Right [(AgentId "b1", 2), (AgentId "a2", 3)]
-        it "changes nothing at the return of a worker not at work" $
-            atWork
-                [ spawn fixer "a1"
-                , WorkerReturned fixer (Just (AgentId "a9"))
-                , WorkerReturned (AgentRole "implementer") Nothing
-                ]
-                `shouldBe` Right [(AgentId "a1", 1)]
-        it "forgets every worker at a restart" $
-            atWork [spawn fixer "a1", Restarted] `shouldBe` Right []
-        it "forgets a worker whose spawn is voided, so its lead may hand back" $
-            atWork [spawn fixer "a1", spawn fixer "a2", Voided 1 "lost at a crash"]
-                `shouldBe` Right [(AgentId "a2", 2)]
-        it "a_worker_returned_by_its_id_is_at_work_no_more" . hedgehog $ do
-            -- A hook logs each worker's spawn once: ids are distinct.
-            ids <- forAll (Gen.shuffle =<< Gen.subsequence ["a1", "a2", "a3", "a4", "a5"])
-            back <- forAll (Gen.shuffle =<< Gen.subsequence ids)
-            let left =
-                    map fst
-                        <$> atWork
-                            ( map (spawn fixer) ids
-                                <> [WorkerReturned fixer (Just (AgentId agent)) | agent <- back]
+                `shouldBe` replicate 2 (Right (Just (StateName "engineers"), Map.empty))
+        it
+            "refuses a ruling on a Stuck question once its task spent its one retry, but forwards it"
+            $ do
+                let stopped c = HandedBack (runId c) Nothing (Ended (Stop Blocked "no access"))
+                    stuckOn n = Question (QId (runId "r") n) Ask.Stuck (oneLine "retry?")
+                    askedBy c question = Asked (Asking question (StateName "engineers") (ChildRun (runId c)))
+                    retry = Proposal (oneLine "retry") (oneLine "a hint") (oneLine "a child") Nothing
+                    spent =
+                        toEngineers
+                            <> [ Spawned child
+                               , stopped "c1"
+                               , askedBy "c1" (stuckOn 1)
+                               , RuledOn (QId (runId "r") 1) retry
+                               , Spawned (childOf "c2" "t1")
+                               , stopped "c2"
+                               , askedBy "c2" (stuckOn 2)
+                               ]
+                map
+                    (void . tenXRun . (spent <>) . pure)
+                    [RuledOn (QId (runId "r") 2) retry, Forwarded (QId (runId "r") 2) TheUser]
+                    `shouldBe` [Left (NotAllowed (MayNotRule Role.Orchestrator Ask.Stuck)), Right ()]
+        it
+            "reopens the fan-out at its merge for a parked task sent an agent, so its child's init joins"
+            $ atName
+                <$> tenXRun
+                    ( toEngineers
+                        <> [ TaskMoved (refTo "t1") (Parked "later" Nothing)
+                           , Spawning (refTo "t1")
+                           , Spawned child
+                           ]
+                    )
+                `shouldBe` Right (Just (StateName "engineers"))
+        it
+            "keeps the old breakdown's tasks as finished history at a new breakdown, spawning none of them"
+            $ ( \state ->
+                    ( map (facts . Fan.asFan) (foldMap (.replaced) (Map.elems state.fans))
+                    , map (.id) (Fan.spawnable [] (currentFan state))
+                    )
+              )
+                <$> tenXRun
+                    ( toEngineers
+                        <> [ Spawned child
+                           , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                           , TaskMoved (refTo "t1") (Merged (Url "pr"))
+                           , Held (refTo "t1") (Url "pull/2")
+                           ]
+                        <> rePlan
+                    )
+                `shouldBe` Right
+                    (
+                        [
+                            ( [TaskId "t1"]
+                            , Map.fromList [(TaskId "t1", Merged (Url "pr"))]
+                            , [(TaskId "t1", Url "pull/2")]
+                            , [runId "c1"]
                             )
-            fmap (filter (`elem` map AgentId back)) left === Right []
+                        ]
+                    , [TaskId "t2"]
+                    )
+
+    describe "a lead's spans" $ do
+        let fixer = AgentRole "fixer"
+            explorer = AgentRole "Explore"
+            started' role = SpanStarted (SpanStart role (Harness "claude-code") "fix it" Nothing Nothing)
+            ended n = SpanEnded (SpanId n) (WithHandback ReadyWord "READY fixed") unreported
+            afterLog events = replay g (logOf (Started (startOf EngineerFlow (ByUser OwnPr)) :| events))
+            open events =
+                map (\worker -> (worker.role, worker.spawnedAt)) . (.workers)
+                    <$> afterLog events
+        it "opens a span of every role at its start, by the seq of its span_started" $
+            open [started' fixer, started' explorer]
+                `shouldBe` Right [(fixer, 1), (explorer, 2)]
+        it "closes the span its end names, and no other" $
+            open [started' fixer, started' fixer, ended 2] `shouldBe` Right [(fixer, 1)]
+        it "refuses the end of a span ended already" $
+            open [started' fixer, ended 1, ended 1] `shouldBe` Left (SpanNotOpen (SpanId 1))
+        it "refuses the end of a line that starts no span" $
+            open [fuelSet Balanced, ended 1] `shouldBe` Left (SpanNotOpen (SpanId 1))
+        it "forgets every span at a restart, so its end is refused" $
+            open [started' fixer, Restarted, ended 1]
+                `shouldBe` Left (SpanNotOpen (SpanId 1))
+        it "forgets a span whose start is voided, so its lead may hand back" $
+            open [started' fixer, started' fixer, Voided 1 "lost at a crash"]
+                `shouldBe` Right [(fixer, 2)]
+        it "ends by role the oldest span open since the restart, never one before it" $
+            (\state -> returnOf state fixer Nothing NoHandback)
+                <$> afterLog [started' fixer, Restarted, started' fixer]
+                `shouldBe` Right (Just (SpanEnded (SpanId 3) NoHandback unreported))
+        it "ends no span by role for a hand-back naming its agent" $
+            (\state -> returnOf state fixer (Just (AgentId "a1")) NoHandback)
+                <$> afterLog [started' fixer]
+                `shouldBe` Right Nothing
+        it "ends no span for a role not at work" $
+            (\state -> returnOf state explorer Nothing NoHandback)
+                <$> afterLog [started' fixer]
+                `shouldBe` Right Nothing
+        it "ends an open span when asked, and none it does not hold" $
+            ( \state ->
+                ( endSpan state (SpanId 1) NoHandback unreported
+                , endSpan state (SpanId 2) NoHandback unreported
+                )
+            )
+                <$> afterLog [started' fixer, started' fixer, ended 2]
+                `shouldBe` Right (Just (SpanEnded (SpanId 1) NoHandback unreported), Nothing)
+        it "a_span_is_running_or_ended_never_ended_twice" . hedgehog $ do
+            starts <- forAll (Gen.int (Range.linear 1 5))
+            ends <-
+                forAll
+                    ( Gen.list
+                        (Range.linear 0 8)
+                        (Gen.integral (Range.linear 1 (fromIntegral starts)))
+                    )
+            let result = open (replicate starts (started' fixer) <> map ended ends)
+                twice = [n | (i, n) <- zip [0 :: Int ..] ends, n `elem` take i ends]
+            cover 20 "a span ended twice" (not (null twice))
+            cover 20 "every span ended once at most" (null twice)
+            case twice of
+                n : _ -> result === Left (SpanNotOpen (SpanId n))
+                [] ->
+                    result
+                        === Right [(fixer, n) | n <- [1 .. fromIntegral starts], n `notElem` ends]
 
     describe "a child run's agent" $ do
         let endedAfter events =
@@ -315,8 +486,7 @@ spec = describe "State.Run.Fold" $ do
                 `shouldBe` Right Nothing
         it
             "holds none on a log that never ended an agent, as one written before agents ended"
-            $ endedAfter
-                [fuelSet Balanced, WorkerSpawned (AgentRole "implementer") (AgentId "a1")]
+            $ endedAfter [fuelSet Balanced]
                 `shouldBe` Right Nothing
 
     describe "two fan-outs in one flow" $ do
@@ -325,7 +495,7 @@ spec = describe "State.Run.Fold" $ do
             firstDone =
                 [ stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
-                , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
+                , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
                 ]
             bothDone = firstDone
         it "passes the second, empty fan-out by itself" $
@@ -337,18 +507,22 @@ spec = describe "State.Run.Fold" $ do
             (.at)
                 <$> twoFansRun
                     ( bothDone
-                        <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr"))]
+                        <> [ TaskMoved (refTo "t1") (Merged (Url "pr"))
+                           , stepTook (MergeDone engineers (Url "pr"))
+                           ]
                     )
                 `shouldBe` Right Graph.Exit
-        it "refuses a task's move off every fan-out's state" $
-            twoFansRun
-                ( bothDone
-                    <> [ TaskMoved t1 (Merged (Url "pr"))
-                       , stepTook (MergeDone engineers (Url "pr"))
-                       , TaskMoved t1 (Merged (Url "pr"))
-                       ]
-                )
-                `shouldBe` Left (NotOneHolder t1 [])
+        it
+            "takes a task's held wake off every fan-out's state, in the fan-out holding the task"
+            $ fmap (.held) . Map.elems . (.fans)
+                <$> twoFansRun
+                    ( bothDone
+                        <> [ TaskMoved (refTo "t1") (Merged (Url "pr"))
+                           , stepTook (MergeDone engineers (Url "pr"))
+                           , Held (refTo "t1") (Url "pr2")
+                           ]
+                    )
+                `shouldBe` Right [[(t1, Url "pr2")]]
 
     describe "a flow with a scoped copy" $ do
         let securityRun events = replay securityGraph (logOf (started :| events))
@@ -412,13 +586,13 @@ spec = describe "State.Run.Fold" $ do
             settled =
                 [ inA (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
-                , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                , TaskMoved (TaskId "t1") (Merged (Url "pr"))
+                , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
+                , TaskMoved (refTo "t1") (Merged (Url "pr"))
                 , inA (MergeNextRound engineers)
                 , stepTook (PlanDone "plan.md")
                 ]
         it "starts the second copy with none of the first's tasks" $
-            (\state -> (atName state, map (.id) (currentFan state).tasks))
+            (\state -> (atName state, map (.id) (Fan.tasksOf (currentFan state))))
                 <$> copiesRun settled
                 `shouldBe` Right (Just (StateName "b/breakdown"), [])
 
@@ -986,8 +1160,9 @@ spec = describe "State.Run.Fold" $ do
             `shouldBe` Left (NoSingleState (StateName "nowhere"))
 
     questions
+    userFacts
   where
-    note = Note "no edge" "state next"
+    note = Note (RefusalCode "no_edge") "no edge" "state next"
     stop = Stop Blocked "why"
 
 -- | The engineer's gather, past its Fuel step.
@@ -1089,35 +1264,33 @@ then merges their notes.
 gatherBudgets :: Spec
 gatherBudgets = describe "the gather's choice" $ do
     it "asks 20 questions at Balanced, spending no researcher" $
-        replay g (logOf (started :| fuelSet Balanced : spawns 5 <> asks 1 20))
+        replay g (logged Balanced (spawns 5 <> asks 1 20))
             `shouldSatisfy` isRight
 
     it "refuses the question past Balanced's 30" $
-        replay g (logOf (started :| fuelSet Balanced : asks 1 31))
+        replay g (logged Balanced (asks 1 31))
             `shouldSatisfy` outOf "Interview questions" 30
 
     it "takes a Stuck question past the questions, as asking whether to go on" $
         replay
             g
-            ( logOf
-                ( started :| fuelSet Balanced
-                    : interviewed ([askAt i Fact | i <- [1 .. 30]] <> [askAt 31 Ask.Stuck])
-                )
+            ( logged
+                Balanced
+                (interviewed ([askAt i Fact | i <- [1 .. 30]] <> [askAt 31 Ask.Stuck]))
             )
             `shouldSatisfy` isRight
 
     it
         "refuses the interview's pick once its questions are used up, as the advice offers it no more"
-        $ replay g (logOf (started :| fuelSet Balanced : asks 1 30 <> interviewed []))
+        $ replay g (logged Balanced (asks 1 30 <> interviewed []))
             `shouldSatisfy` outOf "Interview questions" 30
 
     it "counts no question asked off the gather" $
         replay
             g
-            ( logOf
-                ( started :| fuelSet Balanced
-                    : enoughIn "gather" <> [askAt i Fact | i <- [1 .. 31]]
-                )
+            ( logged
+                Balanced
+                (enoughIn "gather" <> [askAt i Fact | i <- [1 .. 31]])
             )
             `shouldSatisfy` isRight
 
@@ -1130,28 +1303,28 @@ gatherBudgets = describe "the gather's choice" $ do
                 <> " and refuses the next"
             )
             $ do
-                replay g (logOf (started :| fuelSet fuel : spawns allowed))
+                replay g (logged fuel (spawns allowed))
                     `shouldSatisfy` isRight
-                replay g (logOf (started :| fuelSet fuel : spawns (allowed + 1)))
+                replay g (logged fuel (spawns (allowed + 1)))
                     `shouldSatisfy` outOf "Researchers" (fromIntegral allowed)
 
     it
         "spawns a researcher per group of the plan at Max, as many as the agent counts"
-        $ replay g (logOf (started :| fuelSet Max : spawns 12)) `shouldSatisfy` isRight
+        $ replay g (logged Max (spawns 12)) `shouldSatisfy` isRight
 
     it "takes hand-backs in any order between questions, then leaves by enough" $
         atName
             <$> replay
                 g
-                ( logOf
-                    ( started :| fuelSet Balanced
-                        : spawns 2
-                            <> asks 1 2
-                            <> [handedBack]
-                            <> spawns 1
-                            <> asks 3 1
-                            <> [handedBack, handedBack]
-                            <> enoughIn "gather"
+                ( logged
+                    Balanced
+                    ( spawns 2
+                        <> asks 1 2
+                        <> [handedBack]
+                        <> spawns 1
+                        <> asks 3 1
+                        <> [handedBack, handedBack]
+                        <> enoughIn "gather"
                     )
                 )
             `shouldBe` Right (Just (StateName "plan"))
@@ -1161,10 +1334,9 @@ gatherBudgets = describe "the gather's choice" $ do
         $ atName
             <$> replay
                 g
-                ( logOf
-                    ( started :| fuelSet Balanced
-                        : spawns 1 <> [pickInterview, askAt 1 Fact, handedBack, askAt 2 Fact]
-                    )
+                ( logged
+                    Balanced
+                    (spawns 1 <> [pickInterview, askAt 1 Fact, handedBack, askAt 2 Fact])
                 )
             `shouldBe` Right (Just (StateName "interview"))
 
@@ -1173,16 +1345,14 @@ gatherBudgets = describe "the gather's choice" $ do
         $ do
             let waiting = spawns 2 <> [handedBack, pickEnough]
             map
-                (fmap atName . replay g . logOf . (started :|) . (fuelSet Balanced :))
+                (fmap atName . replay g . logged Balanced)
                 [waiting, waiting <> [handedBack], waiting <> [handedBack, notesDone]]
                 `shouldBe` map (Right . Just . StateName) ["gather/researchers", "gather/notes", "plan"]
 
     it "refuses the notes while a researcher is open" $
         replay
             g
-            ( logOf
-                (started :| fuelSet Balanced : spawns 2 <> [handedBack, pickEnough, notesDone])
-            )
+            (logged Balanced (spawns 2 <> [handedBack, pickEnough, notesDone]))
             `shouldSatisfy` \case
                 Left _ -> True
                 Right _ -> False
@@ -1195,31 +1365,20 @@ gatherBudgets = describe "the gather's choice" $ do
             early <- forAll (Gen.int (Range.linear 0 n))
             interleaved <- forAll (genHandBacks n early 0)
             let gathered events =
-                    (\state -> (state.at, state.rounds, state.meters))
-                        <$> replay g (logOf (started :| fuelSet Balanced : events))
+                    (\state -> (state.at, problems state, state.meters))
+                        <$> replay g (logged Balanced events)
             annotate (show interleaved)
             gathered (interleaved <> [pickEnough] <> replicate (n - early) handedBack)
                 === gathered (spawns n <> [pickEnough] <> replicate n handedBack)
 
     it
-        "takes a researcher's hand-back before its bind, which closes nothing: its return does"
+        "takes a researcher's hand-back before its span starts, which closes nothing: its span's end does"
         $ do
             let early = spawnedIn "gather" <> [stepTook ResearchHandedBack, bind, pickEnough]
             map
-                (fmap atName . replay g . logOf . (started :|) . (fuelSet Balanced :))
+                (fmap atName . replay g . logged Balanced)
                 [early, early <> [handedBack]]
                 `shouldBe` map (Right . Just . StateName) ["gather/researchers", "gather/notes"]
-
-    it
-        "keeps every bound child in the ledger, oldest first, until its own return, whatever comes between"
-        . hedgehog
-        $ do
-            events <- forAll (merged . concat =<< traverse lifetime [1 .. 6])
-            for_ (inits events) $ \prefix -> do
-                state <- evalEither (replay g (logOf (started :| fuelSet Balanced : prefix)))
-                let back = [agent | WorkerReturned _ (Just agent) <- prefix]
-                map (.child) (ledger g state)
-                    === [AgentChild agent | WorkerSpawned _ agent <- prefix, agent `notElem` back]
 
     it
         "completes the researchers' await iff every researcher it waits on returned, whatever the order of other roles' events"
@@ -1232,14 +1391,13 @@ gatherBudgets = describe "the gather's choice" $ do
                         (Range.linear 0 4)
                         (Gen.element [AgentRole "implementer", AgentRole "fixer", AgentRole "refactorer"])
                     )
-            let researchersOpen =
-                    [spawnedIn "gather" <> [WorkerSpawned researcher (agentNo i)] | i <- [1 .. n]]
-                othersOpen = [WorkerSpawned role (agentNo i) | (i, role) <- zip [100 ..] others]
+            let opened = spawns n <> map spanStart others
+                -- Each span by the seq of its start: 0 is the run's start, 1 its Fuel.
+                spans = [(at, start.role) | (at, SpanStarted start) <- zip [2 ..] opened]
             after <-
                 forAll
                     ( merged
-                        ( [[WorkerReturned researcher (Just (agentNo i))] | i <- [1 .. n]]
-                            <> [[WorkerReturned role (Just (agentNo i))] | (i, role) <- zip [100 ..] others]
+                        ( [[SpanEnded (SpanId at) NoHandback unreported] | (at, _) <- spans]
                             <> [[stepTook ResearchHandedBack] | _ <- [1 .. n]]
                         )
                     )
@@ -1248,13 +1406,20 @@ gatherBudgets = describe "the gather's choice" $ do
                     evalEither
                         ( replay
                             g
-                            ( logOf
-                                ( started :| fuelSet Balanced
-                                    : concat researchersOpen <> othersOpen <> [pickEnough] <> prefix
-                                )
+                            ( logged
+                                Balanced
+                                (opened <> [pickEnough] <> prefix)
                             )
                         )
-                let open = n - length [() | WorkerReturned role _ <- prefix, role == researcher]
+                let open =
+                        n
+                            - length
+                                [ ()
+                                | SpanEnded ended _ _ <- prefix
+                                , (at, role) <- spans
+                                , SpanId at == ended
+                                , role == researcher
+                                ]
                 atName state
                     === Just (StateName (if open > 0 then "gather/researchers" else "gather/notes"))
 
@@ -1262,10 +1427,10 @@ gatherBudgets = describe "the gather's choice" $ do
         atName
             <$> replay
                 g
-                ( logOf
-                    ( started :| fuelSet Balanced
-                        : spawns 1
-                            <> [stepTook ResearchHandedBack, stepTook ResearchHandedBack, pickEnough]
+                ( logged
+                    Balanced
+                    ( spawns 1
+                        <> [stepTook ResearchHandedBack, stepTook ResearchHandedBack, pickEnough]
                     )
                 )
             `shouldBe` Right (Just (StateName "gather/researchers"))
@@ -1276,24 +1441,21 @@ gatherBudgets = describe "the gather's choice" $ do
             let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> spawns 5
             replay
                 g
-                (logOf (started :| fuelSet Balanced : extended <> interviewed [askAt 61 Fact]))
+                (logged Balanced (extended <> interviewed [askAt 61 Fact]))
                 `shouldSatisfy` outOf "Interview questions" 30
-            replay g (logOf (started :| fuelSet Balanced : extended <> spawns 1))
+            replay g (logged Balanced (extended <> spawns 1))
                 `shouldSatisfy` outOf "Researchers" 5
             atName
                 <$> replay
                     g
-                    ( logOf
-                        (started :| fuelSet Balanced : extended <> replicate 9 handedBack <> [pickEnough])
-                    )
+                    (logged Balanced (extended <> replicate 9 handedBack <> [pickEnough]))
                 `shouldBe` Right (Just (StateName "gather/researchers"))
             atName
                 <$> replay
                     g
-                    ( logOf
-                        ( started :| fuelSet Balanced
-                            : extended <> replicate 10 handedBack <> enoughIn "gather"
-                        )
+                    ( logged
+                        Balanced
+                        (extended <> replicate 10 handedBack <> enoughIn "gather")
                     )
                 `shouldBe` Right (Just (StateName "plan"))
 
@@ -1309,7 +1471,7 @@ gatherBudgets = describe "the gather's choice" $ do
                         <> [stepTook ConfirmAdjusted]
             replay
                 g
-                (logOf (started :| fuelSet Balanced : adjusted <> asks 31 30 <> spawns 5))
+                (logged Balanced (adjusted <> asks 31 30 <> spawns 5))
                 `shouldSatisfy` isRight
 
     it
@@ -1318,22 +1480,48 @@ gatherBudgets = describe "the gather's choice" $ do
             let at = fuelSet Balanced : take 7 happyPath
             fmap
                 (\state -> (state.at, state.gaps))
-                (replay g (logOf (started :| at <> [Gapped "one", Gapped "two"])))
+                ( replay
+                    g
+                    (logOf (started :| at <> [Gapped (bareGap "one"), Gapped (bareGap "two")]))
+                )
                 `shouldBe` fmap
-                    (\state -> (state.at, [(9, "one"), (10, "two")]))
+                    ( \state ->
+                        ( state.at
+                        , [(9, Tracked (bareGap "one") Gap.Open), (10, Tracked (bareGap "two") Gap.Open)]
+                        )
+                    )
                     (replay g (logOf (started :| at)))
 
     it "refuses extend outside the gather" $
         replay
             g
-            (logOf (started :| fuelSet Balanced : take 13 happyPath <> [Extended "why"]))
+            (logged Balanced (take 13 happyPath <> [Extended "why"]))
             `shouldBe` Left NothingToExtend
   where
-    -- Each spawn bound to its agent, as the bind hook logs it: its entry in the ledger.
+    -- Each spawn starts its span next, as the spawn hook logs it: its entry in the ledger.
     spawns n = concat (replicate n (spawnedIn "gather" <> [bind]))
-    bind = WorkerSpawned researcher (AgentId "r")
-    -- A researcher's return closes its entry: the oldest of its role, as a hand-back by hand names no id.
-    handedBack = WorkerReturned researcher Nothing
+    bind = spanStart researcher
+    spanStart role =
+        SpanStarted (SpanStart role (Harness "claude-code") "research" Nothing Nothing)
+    {- A researcher's return ends its span: the oldest of its role, as a
+    hand-back by hand names no agent id ('returnOf'). Its span is known only
+    once the lines are numbered, so it names seq 0, the run's start, which
+    no span has, and 'logged' names the span.
+    -}
+    handedBack = SpanEnded (SpanId 0) NoHandback unreported
+    -- The run's lines after its Fuel, each return ending the oldest researcher span open.
+    logged fuel events = logOf (started :| fuelSet fuel : returned [] 2 events)
+    returned :: [Natural] -> Natural -> [Event] -> [Event]
+    returned open n = \case
+        [] -> []
+        event : rest -> case event of
+            SpanStarted start
+                | start.role == researcher -> event : returned (open <> [n]) (n + 1) rest
+            SpanEnded (SpanId 0) ending usage
+                | oldest : others <- open ->
+                    SpanEnded (SpanId oldest) ending usage : returned others (n + 1) rest
+            SpanEnded (SpanId ended) _ _ -> event : returned (filter (/= ended) open) (n + 1) rest
+            _ -> event : returned open (n + 1) rest
     researcher = AgentRole "researcher"
     pickInterview = Took mempty (pickOf "gather" "interview")
     pickEnough = Took mempty (pickOf "gather" "enough")
@@ -1347,18 +1535,6 @@ gatherBudgets = describe "the gather's choice" $ do
                 (Question (QId run n) kind (oneLine "a question"))
                 (StateName "interview")
                 Itself
-            )
-    agentNo i = AgentId ("a" <> Text.pack (show (i :: Int)))
-    -- An agent of any role bound, then returned by its id or never, and a hand-back that closes nothing: each its own lane.
-    lifetime i = do
-        role <- Gen.element [researcher, AgentRole "implementer", AgentRole "fixer"]
-        returns <- Gen.bool
-        reports <- Gen.bool
-        pure
-            ( [ WorkerSpawned role (agentNo i)
-                    : [WorkerReturned role (Just (agentNo i)) | returns]
-              ]
-                <> [[stepTook ResearchHandedBack] | reports]
             )
     -- The lanes' events merged in any order, each lane's in its own.
     merged :: [[Event]] -> Gen [Event]
@@ -1621,30 +1797,31 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
             <$> chief
                 ( waiting
                     <> [ Spawned (childOf "c1" "t1")
-                       , HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))
-                       , Resumed (runId "c1")
-                       , TaskMoved t1 (Merged pr)
+                       , HandedBack (runId "c1") Nothing (AsksUp (QId (runId "c1") 1))
+                       , Resumed (runId "c1") Nothing
+                       , TaskMoved (refTo "t1") (Merged pr)
                        ]
                 )
             `shouldBe` Right [True]
 
-    it "refuses a task no request's fan-out holds" $
-        chief (waiting <> [TaskMoved (TaskId "t9") (Merged pr)])
-            `shouldBe` Left (NotOneHolder (TaskId "t9") [])
+    it "refuses a task no fan-out holds" $
+        chief (waiting <> [TaskMoved (refTo "t9") (Merged pr)])
+            `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
 
-    it "refuses a task two requests' fan-outs hold, naming both" $
-        replay
-            scopedFans
-            ( logOf
-                ( Started (startOf ChiefFlow (ByUser OwnPr)) :| within "a" [stepTook broken]
-                    <> [ Suspended (TaskNo 1) (oneLine "a at work")
-                       , Overridden (StateName "b/breakdown") "to b"
-                       ]
-                    <> within "b" [stepTook broken]
-                    <> [Held t1 pr]
+    it "gives a task two requests' fan-outs hold to the latest breakdown's" $
+        fmap (.held) . Map.elems . (.fans)
+            <$> replay
+                scopedFans
+                ( logOf
+                    ( Started (startOf ChiefFlow (ByUser OwnPr)) :| within "a" [stepTook broken]
+                        <> [ Suspended (TaskNo 1) (oneLine "a at work")
+                           , Overridden (StateName "b/breakdown") "to b"
+                           ]
+                        <> within "b" [stepTook broken]
+                        <> [Held (refTo "t1") pr]
+                    )
                 )
-            )
-            `shouldBe` Left (NotOneHolder t1 [TaskNo 1, TaskNo 2])
+            `shouldBe` Right [[], [(t1, pr)]]
   where
     t1 = TaskId "t1"
     pr = Url "https://github.com/o/r/pull/1"
@@ -1705,14 +1882,14 @@ tenXRounds = describe "the 10x's rounds" $ do
     it
         "keeps an engineer's child run in the ledger while it runs or asks up, until it hands back its end"
         $ do
-            let asking = HandedBack (runId "c1") (AsksUp (QId run 1))
+            let asking = HandedBack (runId "c1") Nothing (AsksUp (QId run 1))
                 ledgerAfter events =
                     ledger
                         tenXGraph
                         (tenXAt (plainTask "t1" [] :| []) (Spawned (childOf "c1" "t1") : events))
             map
                 ledgerAfter
-                [[], [asking], [HandedBack (runId "c1") (Finished (oneLine "READY"))]]
+                [[], [asking], [HandedBack (runId "c1") Nothing (Finished (oneLine "READY"))]]
                 `shouldBe` [ [Open (RunChild (runId "c1")) (AgentRole "engineer")]
                            , [Open (RunChild (runId "c1")) (AgentRole "engineer")]
                            , []
@@ -1757,31 +1934,29 @@ tenXRounds = describe "the 10x's rounds" $ do
             `shouldBe` Right (Just (StateName "engineers"))
 
     it "refuses to keep an ordinary task's PR" $
-        tenXRun (toEngineers (plainTask "t1" []) <> [TaskMoved t1 (Kept pr)])
+        tenXRun (toEngineers (plainTask "t1" []) <> [TaskMoved (refTo "t1") (Kept pr)])
             `shouldBe` Left (FanRefused (Fan.NotARound t1))
 
     it "refuses to keep a PR other than the round's own" $
-        tenXRun (toEngineers onPr <> [TaskMoved t1 (Kept (Url "https://pr/2"))])
+        tenXRun
+            (toEngineers onPr <> [TaskMoved (refTo "t1") (Kept (Url "https://pr/2"))])
             `shouldBe` Left (FanRefused (Fan.NotItsRound t1 pr))
 
     it "goes back to the fan-out for a task added at the merge, and spawns it" $ do
-        let added = settled (plainTask "t1" []) (Merged pr) <> [TaskAdded (plainTask "fix" [])]
+        let added = settled (plainTask "t1" []) (Merged pr) <> [TaskAdded 1 (plainTask "fix" [])]
         atName <$> tenXRun added `shouldBe` Right (Just (StateName "engineers"))
         atName <$> tenXRun (added <> [Spawned (childOf "c2" "fix")])
             `shouldBe` Right (Just (StateName "engineers"))
 
-    it "ignores a park of a merged task, keeping its child's question pending" $ do
-        let asks = Question (QId (runId "c1") 1) Design (oneLine "which store?")
-            merged =
-                toEngineers (plainTask "t1" [])
-                    <> [ Spawned (childOf "c1" "t1")
-                       , HandedBack (runId "c1") (AsksUp asks.qid)
-                       , Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1")))
-                       , TaskMoved t1 (Merged pr)
-                       ]
-        map (.asking.question.qid) . (.pending)
-            <$> tenXRun (merged <> [TaskMoved t1 (Parked "out of scope" Nothing)])
-            `shouldBe` Right [asks.qid]
+    it "refuses a park of a merged task" $
+        tenXRun
+            ( toEngineers (plainTask "t1" [])
+                <> [ Spawned (childOf "c1" "t1")
+                   , TaskMoved (refTo "t1") (Merged pr)
+                   , TaskMoved (refTo "t1") (Parked "out of scope" Nothing)
+                   ]
+            )
+            `shouldBe` Left (FanRefused (Fan.TaskMerged t1 pr))
   where
     pr = Url "https://pr/1"
     t1 = TaskId "t1"
@@ -1814,8 +1989,8 @@ tenXRounds = describe "the 10x's rounds" $ do
     settled task moved =
         toEngineers task
             <> [ Spawned (childOf "c1" "t1")
-               , HandedBack (runId "c1") (Finished (oneLine "READY"))
-               , TaskMoved t1 moved
+               , HandedBack (runId "c1") Nothing (Finished (oneLine "READY"))
+               , TaskMoved (refTo "t1") moved
                ]
     -- The first round spends Balanced's 5 researchers and 30 questions, then loops.
     round1 =
@@ -1823,8 +1998,8 @@ tenXRounds = describe "the 10x's rounds" $ do
             <> [stepTook ResearchHandedBack]
             <> planned
             <> [ Spawned (childOf "c1" "t1")
-               , HandedBack (runId "c1") (Finished (oneLine "READY"))
-               , TaskMoved t1 (Kept pr)
+               , HandedBack (runId "c1") Nothing (Finished (oneLine "READY"))
+               , TaskMoved (refTo "t1") (Kept pr)
                , stepTook (MergeNextRound engineers)
                ]
     -- Balanced's 5 researchers, one handed back before the round ends, and 30 questions.
@@ -1976,6 +2151,32 @@ questions = describe "questions" $ do
                 )
             )
             `shouldBe` Left (NotAllowed (NoBasis (q 1)))
+
+    it
+        "refuses a ruling whose basis names no line this run logged, and takes another run's line"
+        $ map
+            ( \basis ->
+                void
+                    ( replay
+                        g
+                        ( NonEmpty.appendList
+                            asked
+                            [line 3 (RuledOn (q 1) (proposal {basis = Just (AnsweredBy basis)}))]
+                        )
+                    )
+            )
+            [ Numbered run 1
+            , Hashed (Digest "d1")
+            , Numbered (runId "p1") 9
+            , Numbered run 9
+            , Hashed (Digest "00000000deadbeef")
+            ]
+            `shouldBe` [ Right ()
+                       , Right ()
+                       , Right ()
+                       , Left (UnknownBasis (q 1) (Numbered run 9))
+                       , Left (UnknownBasis (q 1) (Hashed (Digest "00000000deadbeef")))
+                       ]
 
     it "refuses a forward to another than whoever started the run" $
         replay
@@ -2141,11 +2342,78 @@ questions = describe "questions" $ do
         Asked
             (Asking (Question (q 1) kind (oneLine "a question")) (StateName at) Itself)
     proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
+    -- A question asked on a hook's line, after the run's own lines 0 and 1.
+    asked =
+        line 0 started
+            :| [line 1 (fuelSet Balanced), (line 2 (ask 1 Pick)) {source = Hook (Digest "d1")}]
     parent = ParentRun (runId "p1")
     forwardedTo events = [to | Forwarded _ to <- events]
 
 halt :: Stop
 halt = Stop Blocked "no way on"
+
+-- | The user's instructions in force and the needs owed to the user.
+userFacts :: Spec
+userFacts = describe "the user's instructions and needs" $ do
+    it "keeps every instruction in force, by its seq" . hedgehog $ do
+        told <- forAll (Gen.list (Range.linear 0 6) genInstruction)
+        fmap (.instructions) (replayed [Instructed i Nothing | i <- told])
+            === Right (Map.fromList (zip [1 ..] told))
+
+    it "retires the replaced instruction, keeping the others" . hedgehog $ do
+        told <- forAll (Gen.list (Range.linear 1 6) genInstruction)
+        old <- forAll (Gen.integral (Range.linear 1 (fromIntegral (length told))))
+        newer <- forAll genInstruction
+        before <-
+            evalEither ((.instructions) <$> replayed [Instructed i Nothing | i <- told])
+        after <-
+            evalEither
+                ( (.instructions)
+                    <$> replayed ([Instructed i Nothing | i <- told] <> [Instructed newer (Just old)])
+                )
+        let n = fromIntegral (length told) + 1
+        Map.lookup old after === Nothing
+        Map.lookup n after === Just newer
+        Map.delete n after === Map.delete old before
+
+    it "refuses a replace of an instruction not in force no_active_instruction" $
+        map
+            replayed
+            [ [Instructed goal (Just 1)]
+            , [Instructed goal Nothing, Instructed rule (Just 1), Instructed goal (Just 1)]
+            , [Noted "topic" "text", Instructed goal (Just 1)]
+            ]
+            `shouldBe` [ Left (NoActiveInstruction 1)
+                       , Left (NoActiveInstruction 1)
+                       , Left (NoActiveInstruction 1)
+                       ]
+
+    it "keeps a need open until its done, which closes it" $
+        map
+            (fmap (Map.keys . (.needs)) . replayed)
+            [ [UserNeeded need]
+            , [UserNeeded need, UserNeeded need, UserNeededDone 1 Nothing]
+            ]
+            `shouldBe` [Right [1], Right [2]]
+
+    it "refuses a done of a need not open no_open_need" $
+        map
+            replayed
+            [ [UserNeededDone 1 Nothing]
+            , [UserNeeded need, UserNeededDone 1 Nothing, UserNeededDone 1 Nothing]
+            , [Noted "topic" "text", UserNeededDone 1 Nothing]
+            ]
+            `shouldBe` [Left (NoOpenNeed 1), Left (NoOpenNeed 1), Left (NoOpenNeed 1)]
+
+    it "takes a need's done after the run stopped" $
+        (.needs) <$> replayed [UserNeeded need, Stopped halt, UserNeededDone 1 Nothing]
+            `shouldBe` Right Map.empty
+  where
+    -- A run of these events after its start, at seq 0.
+    replayed events = replay g (logOf (started :| events))
+    goal = Instruction GoalInstruction (verbatim "ship it")
+    rule = Instruction RuleInstruction (verbatim "no new verb")
+    need = Need (titled "add the deploy key") Set.empty Nothing
 
 {- | One fan-out twice, inside scopes @a@ and @b@: each copy is its own
 fan-out, with its own tasks and children.
@@ -2181,6 +2449,84 @@ twoFans =
             )
         )
 
+{- | Events of a 10x re-planning with its children at work: theirs, the
+tasks', a task added, a step moved by hand, a new breakdown once every child
+handed back, a restart.
+-}
+genReplanning :: Gen [Event]
+genReplanning =
+    Gen.frequency
+        [ (2, pure . Spawning . refTo <$> task)
+        , (2, (\c t -> [Spawned (childOf c t)]) <$> child <*> task)
+        , (2, (\c said -> [HandedBack (runId c) Nothing said]) <$> child <*> genSaid)
+        , (2, (\t moved -> [TaskMoved (refTo t) moved]) <$> task <*> genTaskState)
+        , (1, (\t -> [Held (refTo t) (Url "pull/9")]) <$> task)
+        , (1, (\t -> [TaskHead (refTo t) sha]) <$> task)
+        , (1, (\t -> [TaskAdded 1 (plainTask t [])]) <$> Gen.element ["t3", "t4"])
+        ,
+            ( 3
+            , (\to -> [Overridden (StateName to) "re-plan"])
+                <$> Gen.element ["plan", "breakdown", "engineers", "merge"]
+            )
+        ,
+            ( 2
+            , pure
+                ( [HandedBack (runId c) Nothing (Finished (oneLine "PR")) | c <- children]
+                    <> [ Overridden (StateName "breakdown") "re-plan"
+                       , stepTook
+                            (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [plainTask "t2" []])))
+                       ]
+                )
+            )
+        , (1, pure [Restarted])
+        ]
+  where
+    task = Gen.element ["t1", "t2", "t3", "t4"]
+    child = Gen.element children
+    children = ["c1", "c2", "c3", "c4", "c5"]
+
+{- | Every merge, head, try and held wake of each of the run's breakdowns,
+current or replaced, by the breakdown's seq: a merge and a held wake by
+their URL, a head by its task, a try counted.
+-}
+everKept ::
+    RunState ->
+    ( [(Natural, TaskId, Url)]
+    , [(Natural, TaskId)]
+    , Map.Map (Natural, TaskId) Int
+    , [(Natural, TaskId, Url)]
+    )
+everKept state =
+    ( [ (listed.seq, task, url)
+      | (listed, fan) <- each
+      , (task, Merged url) <- Map.toList fan.moves
+      ]
+    , [(listed.seq, task) | (listed, fan) <- each, task <- Map.keys fan.heads]
+    , Map.fromList
+        [ ((listed.seq, task.id), Fan.tries fan task.id)
+        | (listed, fan) <- each
+        , task <- Fan.tasksOf fan
+        ]
+    , [(listed.seq, task, url) | (listed, fan) <- each, (task, url) <- fan.held]
+    )
+  where
+    each =
+        [ (listed, fan)
+        | current <- Map.elems state.fans
+        , fan <- map Fan.asFan current.replaced <> [current]
+        , Just listed <- [fan.breakdown]
+        ]
+
+-- | A fan-out's tasks, their moves, its held wakes and its children, as a caller sees them.
+facts ::
+    Fan.Fan -> ([TaskId], Map.Map TaskId TaskState, [(TaskId, Url)], [RunId])
+facts fan =
+    ( map (.id) (Fan.tasksOf fan)
+    , fan.moves
+    , fan.held
+    , map (.child.run) fan.children
+    )
+
 -- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName
 atName state = case state.at of
@@ -2192,7 +2538,7 @@ atName state = case state.at of
 landing ::
     RunState ->
     ( Node
-    , Map.Map Name (NonEmpty Round)
+    , Map.Map Name (NonEmpty (Set Problem))
     , Map.Map Metered Natural
     , Maybe Fuel
     , [Pending]
@@ -2204,7 +2550,7 @@ landing ::
     )
 landing s =
     ( s.at
-    , s.rounds
+    , problems s
     , s.meters
     , s.fuel
     , s.pending
@@ -2215,9 +2561,15 @@ landing s =
     , s.stopped
     )
 
+{- | Each loop's rounds by their problems: two logs that reach the same
+rounds open them at lines of their own seqs.
+-}
+problems :: RunState -> Map.Map Name (NonEmpty (Set Problem))
+problems s = Map.map (fmap (.found)) s.rounds
+
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
-startOf flow principal = Start flow "notes" principal Set.empty
+startOf flow principal = Start flow "notes" principal Set.empty (absolutePath "/work") Nothing
 
 -- | The chief run a user started, replayed over these lines.
 chief :: [Event] -> Either Fold.Refusal RunState

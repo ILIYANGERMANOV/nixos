@@ -71,11 +71,11 @@ state next:  RUN state record fuel.set <low|balanced|max>
 - The user picked Max. The lead recorded it.
 
 ```json
-{"seq":1,"ts":"12:24:03","type":"started","data":{"flow":"engineer","notes":"...","principal":"user","interface":["ask_user","await","notify","hooks","background"]}}
-{"seq":2,"ts":"12:24:06","type":"asked","data":{"qid":"9387cd01:1","kind":"Confirm","question":"Which Fuel for the harness docs rewrite? A) Balanced (Recommended) B) Max C) Low","step":"fuel","from":"self"}}
-{"seq":3,"ts":"12:24:06","type":"forwarded","data":{"qid":"9387cd01:1","to":"user"}}
-{"seq":4,"ts":"12:24:20","type":"answered","data":{"qid":"9387cd01:1","reply":"chose","answer":"B) Max","by":"user"}}
-{"seq":5,"ts":"12:24:20","type":"fuel.set","data":{"level":"max"}}
+{"seq":1,"time":"12:24:03","type":"started","data":{"flow":"engineer","notes_dir":"...","principal":{"kind":"user","shape":{"kind":"own_pr"}},"interface":["ask_user","await","notify","hooks","background"]}}
+{"seq":2,"time":"12:24:06","type":"asked","data":{"qid":"9387cd01:1","question_kind":"confirm","question":"Which Fuel for the harness docs rewrite? A) Balanced (Recommended) B) Max C) Low","step":"fuel","from":{"kind":"self"}}}
+{"seq":3,"time":"12:24:06","type":"forwarded","data":{"qid":"9387cd01:1","to":{"kind":"user"}}}
+{"seq":4,"time":"12:24:20","type":"answered","data":{"qid":"9387cd01:1","reply":"chose","answer":"B) Max","by":{"kind":"user"}}}
+{"seq":5,"time":"12:24:20","type":"fuel.set","data":{"level":"max"}}
 ```
 
 Read: [GUARDRAILS: Fuel and caps](GUARDRAILS.md#fuel-and-caps),
@@ -90,16 +90,17 @@ state next:  SPAWN researcher background: yes
 
 - Five times, the lead recorded `gather.research` and spawned a researcher.
 - The lead wrote no spawn or hand-back line. The hooks did: their ids
-  start with `h:`.
+  start with `h:`. This run predates spans: a hook now logs
+  `span_started` and `span_ended` ([RUN-LOOP](RUN-LOOP.md#the-loop)).
 - One researcher handed back `NEEDS_DECISION`: should the ADRs be merged?
 
 ```json
-{"seq":6,"ts":"12:24:32","type":"gather.research","data":{}}
-{"seq":7,"ts":"12:24:43","type":"gather/research.spawned","data":{}}
-{"seq":8,"ts":"12:24:43","type":"worker_spawned","data":{"role":"researcher","agent":"..."}}
-{"seq":21,"ts":"12:27:50","type":"gather/research.handed_back","data":{}}
-{"seq":22,"ts":"12:27:50","type":"worker_returned","data":{"role":"researcher","agent":"..."}}
-{"seq":26,"ts":"12:28:46","type":"worker_handed_back","data":{"role":"researcher","line":"NEEDS_DECISION should ADRs 0011-0022 be merged into fewer files? ..."}}
+{"seq":6,"time":"12:24:32","type":"gather.research","data":{}}
+{"seq":7,"time":"12:24:43","type":"gather/research.spawned","data":{}}
+{"seq":8,"time":"12:24:43","type":"span_started","data":{"agent_role":"researcher","harness":"claude-code","brief":"..."}}
+{"seq":21,"time":"12:27:50","type":"gather/research.handed_back","data":{}}
+{"seq":22,"time":"12:27:50","type":"span_ended","data":{"span":8,"status_code":"ok","handback_token":"ready","handback":"..."}}
+{"seq":26,"time":"12:28:46","type":"worker_handed_back","data":{"role":"researcher","line":"NEEDS_DECISION should ADRs 0011-0022 be merged into fewer files? ..."}}
 ```
 
 `state show` lists the hooks that write these lines, and what to do when
@@ -130,11 +131,11 @@ state next:  ASK Scope 9387cd01:2: How should the harness ADRs (0011-0022) be co
 - Each answer is an `answered` event, written by `state answer`.
 
 ```json
-{"seq":32,"ts":"12:30:53","type":"asked","data":{"qid":"9387cd01:2","kind":"Scope","question":"How should the harness ADRs (0011-0022) be consolidated? A) Merge ... (Recommended) B) ... C) ...","step":"gather","from":{"role":"researcher"}}
-{"seq":33,"ts":"12:30:56","type":"forwarded","data":{"qid":"9387cd01:2","to":"user"}}
-{"seq":34,"ts":"12:31:47","type":"answered","data":{"qid":"9387cd01:2","reply":"chose","answer":"A) Merge into a few current ADRs, delete absorbed files, fix links","by":"user"}}
-{"seq":38,"ts":"12:33:30","type":"asked","data":{"qid":"9387cd01:4","kind":"Scope","question":"WALKTHROUGH.md replays a real /chief run. ... A) Rewrite it from this very /engineer run's log ...","step":"gather","from":"self"}}
-{"seq":40,"ts":"12:34:21","type":"answered","data":{"qid":"9387cd01:4","reply":"chose","answer":"A) Rewrite from this /engineer run's log","by":"user"}}
+{"seq":32,"time":"12:30:53","type":"asked","data":{"qid":"9387cd01:2","question_kind":"scope","question":"How should the harness ADRs (0011-0022) be consolidated? A) Merge ... (Recommended) B) ... C) ...","step":"gather","from":{"kind":"subagent","role":"researcher"}}
+{"seq":33,"time":"12:30:56","type":"forwarded","data":{"qid":"9387cd01:2","to":{"kind":"user"}}}
+{"seq":34,"time":"12:31:47","type":"answered","data":{"qid":"9387cd01:2","reply":"chose","answer":"A) Merge into a few current ADRs, delete absorbed files, fix links","by":{"kind":"user"}}}
+{"seq":38,"time":"12:33:30","type":"asked","data":{"qid":"9387cd01:4","question_kind":"scope","question":"WALKTHROUGH.md replays a real /chief run. ... A) Rewrite it from this very /engineer run's log ...","step":"gather","from":{"kind":"self"}}}
+{"seq":40,"time":"12:34:21","type":"answered","data":{"qid":"9387cd01:4","reply":"chose","answer":"A) Rewrite from this /engineer run's log","by":{"kind":"user"}}}
 ```
 
 One record was refused. `state ask` does not move the run to `interview`,
@@ -143,8 +144,8 @@ commands that work; the lead ran one of them. A refusal never moves the
 run.
 
 ```json
-{"seq":41,"ts":"12:34:21","type":"refused","data":{"message":"interview.asked - no such arrow out of gather","fix":"state record gather.enough | state record gather.interview | state record gather.research"}}
-{"seq":42,"ts":"12:34:24","type":"gather.enough","data":{}}
+{"seq":41,"time":"12:34:21","type":"refused","data":{"message":"interview.asked - no such arrow out of gather","fix":"state record gather.enough | state record gather.interview | state record gather.research"}}
+{"seq":42,"time":"12:34:24","type":"gather.enough","data":{}}
 ```
 
 Read: [GUARDRAILS: who answers which question](GUARDRAILS.md#who-answers-which-question),
@@ -163,8 +164,8 @@ state next:  RUN state record plan.done <path>
   `plan.md`: goals, decisions, five slices, tests, acceptance criteria.
 
 ```json
-{"seq":43,"ts":"12:34:48","type":"gather/notes.done","data":{}}
-{"seq":44,"ts":"12:35:18","type":"plan.done","data":{"path":".../plan.md"}}
+{"seq":43,"time":"12:34:48","type":"gather/notes.done","data":{}}
+{"seq":44,"time":"12:35:18","type":"plan.done","data":{"path":".../plan.md"}}
 ```
 
 Read: [FLOWS: engineer](FLOWS.md#engineer).
@@ -185,11 +186,11 @@ state next:  SPAWN reviewer background: yes       (align_plan)
   stands.
 
 ```json
-{"seq":45,"ts":"12:35:18","type":"skip_refine.run","data":{}}
-{"seq":47,"ts":"12:36:33","type":"simplify_plan.done","data":{}}
-{"seq":49,"ts":"12:36:58","type":"refused","data":{"message":"simplify_plan.done - no such arrow out of standards_plan","fix":"state record standards_plan.done"}}
-{"seq":54,"ts":"12:42:47","type":"worker_spawned","data":{"role":"reviewer","agent":"..."}}
-{"seq":55,"ts":"12:44:36","type":"align_plan.done","data":{}}
+{"seq":45,"time":"12:35:18","type":"skip_refine.run","data":{}}
+{"seq":47,"time":"12:36:33","type":"simplify_plan.done","data":{}}
+{"seq":49,"time":"12:36:58","type":"refused","data":{"message":"simplify_plan.done - no such arrow out of standards_plan","fix":"state record standards_plan.done"}}
+{"seq":54,"time":"12:42:47","type":"span_started","data":{"agent_role":"reviewer","harness":"claude-code","brief":"..."}}
+{"seq":55,"time":"12:44:36","type":"align_plan.done","data":{}}
 ```
 
 Read: [FLOWS: where Fuel skips a step](FLOWS.md#where-fuel-skips-a-step),
@@ -208,10 +209,10 @@ state next:  ASK Confirm 9387cd01:5: Build this plan? A) Yes, build it B) No, ad
   `gather`.
 
 ```json
-{"seq":58,"ts":"12:45:18","type":"present.done","data":{}}
-{"seq":59,"ts":"12:45:20","type":"asked","data":{"qid":"9387cd01:5","kind":"Confirm","question":"Build this plan? A) Yes, build it B) No, adjust","step":"confirm","from":"self"}}
-{"seq":61,"ts":"12:49:04","type":"answered","data":{"qid":"9387cd01:5","reply":"chose","answer":"A) Yes, build it","by":"user"}}
-{"seq":62,"ts":"12:49:04","type":"confirm.confirmed","data":{}}
+{"seq":58,"time":"12:45:18","type":"present.done","data":{}}
+{"seq":59,"time":"12:45:20","type":"asked","data":{"qid":"9387cd01:5","question_kind":"confirm","question":"Build this plan? A) Yes, build it B) No, adjust","step":"confirm","from":{"kind":"self"}}}
+{"seq":61,"time":"12:49:04","type":"answered","data":{"qid":"9387cd01:5","reply":"chose","answer":"A) Yes, build it","by":{"kind":"user"}}}
+{"seq":62,"time":"12:49:04","type":"confirm.confirmed","data":{}}
 ```
 
 Read: [GUARDRAILS: who answers which question](GUARDRAILS.md#who-answers-which-question).
@@ -223,11 +224,11 @@ state next:  RUN state record draft.done <url>
 ```
 
 - The lead pushed the plan as one commit and opened draft PR #553.
-- From here each event carries the new `HEAD`; the envelope's `head`
-  field moves from the base to `8884efec`.
+- From here each event carries the new `HEAD`; its `head_sha`
+  column moves from the base to `8884efec`.
 
 ```json
-{"seq":63,"ts":"12:49:22","type":"draft.done","data":{"url":"https://github.com/ILIYANGERMANOV/nixos/pull/553","base":"main","branch":"harness-docs"}}
+{"seq":63,"time":"12:49:22","type":"draft.done","data":{"url":"https://github.com/ILIYANGERMANOV/nixos/pull/553","base":"main","branch":"harness-docs"}}
 ```
 
 Read: [RUN-LOOP: the run store](RUN-LOOP.md#the-run-store).
@@ -256,11 +257,11 @@ SPAWN implementer background: yes
   why. It did this after each of slices 1 to 4.
 
 ```json
-{"seq":64,"ts":"12:49:48","type":"worker_spawned","data":{"role":"implementer","agent":"..."}}
-{"seq":65,"ts":"12:59:21","type":"implement.done","data":{"head":"2ad016fd...","touches":["interface","data-model","auth"]}}
-{"seq":67,"ts":"12:59:23","type":"skip_refactor.run","data":{}}
-{"seq":68,"ts":"12:59:26","type":"overridden","data":{"to":"implement","why":"slice 1 of 5 done; slices 2-5 remain"}}
-{"seq":83,"ts":"13:18:07","type":"overridden","data":{"to":"implement","why":"slice 4 of 5 done; slice 5 remains"}}
+{"seq":64,"time":"12:49:48","type":"span_started","data":{"agent_role":"implementer","harness":"claude-code","brief":"..."}}
+{"seq":65,"time":"12:59:21","type":"implement.done","data":{"head_sha":"2ad016fd...","touches":["interface","data_model","auth"]}}
+{"seq":67,"time":"12:59:23","type":"skip_refactor.run","data":{}}
+{"seq":68,"time":"12:59:26","type":"overridden","data":{"to":"implement","reason":"slice 1 of 5 done; slices 2-5 remain"}}
+{"seq":83,"time":"13:18:07","type":"overridden","data":{"to":"implement","reason":"slice 4 of 5 done; slice 5 remains"}}
 ```
 
 **Binding.** Each agent is bound to its run and that run's worktree. The
@@ -299,15 +300,15 @@ state next:  ASK Scope 9387cd01:6: Refactorer proposals: ... - notify the user, 
   Its `refactor.done` moved the run to `review` again.
 
 ```json
-{"seq":87,"ts":"13:21:18","type":"skip_refactor.run","data":{}}
-{"seq":88,"ts":"13:21:29","type":"worker_spawned","data":{"role":"refactorer","agent":"..."}}
-{"seq":89,"ts":"13:23:59","type":"refactor.done","data":{"head":"88fdef8f..."}}
-{"seq":91,"ts":"13:24:04","type":"asked","data":{"qid":"9387cd01:6","kind":"Scope","question":"Refactorer proposals: law/model tables are repeated in ADRs 0014/0018/0020 and CATEGORY-THEORY; the skill list is repeated in README, KATEGORY and FLOWS. A) In this PR: ... (Recommended) B) Only the law tables C) Leave as is","step":"review","from":"self"}}
-{"seq":92,"ts":"13:24:04","type":"forwarded","data":{"qid":"9387cd01:6","to":"user"}}
-{"seq":93,"ts":"13:39:34","type":"answered","data":{"qid":"9387cd01:6","reply":"chose","answer":"A) Both in this PR: CATEGORY-THEORY owns law/model tables, ADRs link; README owns skill list, KATEGORY and FLOWS link","by":"user"}}
-{"seq":94,"ts":"13:39:34","type":"overridden","data":{"to":"refactor","why":"user chose to apply refactor proposals 1 and 3 in this PR"}}
-{"seq":95,"ts":"13:39:35","type":"worker_spawned","data":{"role":"refactorer","agent":"..."}}
-{"seq":96,"ts":"13:41:14","type":"refactor.done","data":{"head":"3f857497..."}}
+{"seq":87,"time":"13:21:18","type":"skip_refactor.run","data":{}}
+{"seq":88,"time":"13:21:29","type":"span_started","data":{"agent_role":"refactorer","harness":"claude-code","brief":"..."}}
+{"seq":89,"time":"13:23:59","type":"refactor.done","data":{"head_sha":"88fdef8f..."}}
+{"seq":91,"time":"13:24:04","type":"asked","data":{"qid":"9387cd01:6","question_kind":"scope","question":"Refactorer proposals: law/model tables are repeated in ADRs 0014/0018/0020 and CATEGORY-THEORY; the skill list is repeated in README, KATEGORY and FLOWS. A) In this PR: ... (Recommended) B) Only the law tables C) Leave as is","step":"review","from":{"kind":"self"}}}
+{"seq":92,"time":"13:24:04","type":"forwarded","data":{"qid":"9387cd01:6","to":{"kind":"user"}}}
+{"seq":93,"time":"13:39:34","type":"answered","data":{"qid":"9387cd01:6","reply":"chose","answer":"A) Both in this PR: CATEGORY-THEORY owns law/model tables, ADRs link; README owns skill list, KATEGORY and FLOWS link","by":{"kind":"user"}}}
+{"seq":94,"time":"13:39:34","type":"overridden","data":{"to":"refactor","reason":"user chose to apply refactor proposals 1 and 3 in this PR"}}
+{"seq":95,"time":"13:39:35","type":"span_started","data":{"agent_role":"refactorer","harness":"claude-code","brief":"..."}}
+{"seq":96,"time":"13:41:14","type":"refactor.done","data":{"head_sha":"3f857497..."}}
 ```
 
 Read: [FLOWS: where Fuel skips a step](FLOWS.md#where-fuel-skips-a-step),
@@ -334,15 +335,15 @@ state next:  RUN one option below      (picked: state record pick.final)
   no rows, and the run went on to `describe`.
 
 ```json
-{"seq":98,"ts":"13:41:32","type":"worker_spawned","data":{"role":"review-lead","agent":"..."}}
-{"seq":99,"ts":"13:42:45","type":"worker_spawned","data":{"role":"reviewer","agent":"..."}}
-{"seq":117,"ts":"13:45:14","type":"review.rows","data":{"head":"3f857497..."}}
-{"seq":119,"ts":"13:45:23","type":"pick.loop","data":{"rows":["ct-fold-type","ct-ty-target","override-exception","route-child","runloop-fold-law","walkthrough-rereview"],"verdicts":[]}}
-{"seq":120,"ts":"13:45:31","type":"worker_spawned","data":{"role":"fixer","agent":"..."}}
-{"seq":121,"ts":"13:46:21","type":"fix.done","data":{"head":"597f9289...","touches":[]}}
-{"seq":123,"ts":"13:46:31","type":"worker_spawned","data":{"role":"review-lead","agent":"..."}}
-{"seq":124,"ts":"13:47:02","type":"re_review.rows","data":{"head":"597f9289..."}}
-{"seq":126,"ts":"13:47:06","type":"pick.final","data":{"rows":[],"verdicts":[]}}
+{"seq":98,"time":"13:41:32","type":"span_started","data":{"agent_role":"review-lead","harness":"claude-code","brief":"..."}}
+{"seq":99,"time":"13:42:45","type":"span_started","data":{"agent_role":"reviewer","harness":"claude-code","brief":"..."}}
+{"seq":117,"time":"13:45:14","type":"review.rows","data":{"head_sha":"3f857497..."}}
+{"seq":119,"time":"13:45:23","type":"pick.loop","data":{"rows":["ct-fold-type","ct-ty-target","override-exception","route-child","runloop-fold-law","walkthrough-rereview"],"verdicts":[]}}
+{"seq":120,"time":"13:45:31","type":"span_started","data":{"agent_role":"fixer","harness":"claude-code","brief":"..."}}
+{"seq":121,"time":"13:46:21","type":"fix.done","data":{"head_sha":"597f9289...","touches":[]}}
+{"seq":123,"time":"13:46:31","type":"span_started","data":{"agent_role":"review-lead","harness":"claude-code","brief":"..."}}
+{"seq":124,"time":"13:47:02","type":"re_review.rows","data":{"head_sha":"597f9289..."}}
+{"seq":126,"time":"13:47:06","type":"pick.final","data":{"rows":[],"verdicts":[]}}
 ```
 
 The loop is capped by the Fuel, and the stuck rule stops a loop that
@@ -380,9 +381,10 @@ Read: [RUN-LOOP: what `state next` prints](RUN-LOOP.md#what-state-next-prints),
 
 - Source: `state dump 9387cd01`, 127 events up to the describe fixer's
   spawn, and `state show` and `state next` run in the run's worktree.
-- Each event keeps its `seq`, `ts`, `type` and `data`. The envelope (`v`,
-  `id`, `run`, `head`, `session`) is dropped. Times are cut to `HH:MM:SS`,
-  all on 2026-11-25.
+- Each event keeps its `seq`, `time`, `type` and `data`, in today's
+  payload shapes. The other columns (`run_id`, `schema_version`,
+  `session_id`, `head_sha`, `hook_digest`) are dropped. Times are cut to
+  `HH:MM:SS`, all on 2026-11-25.
 - `...` marks a cut value: notes paths, agent ids, long text, full shas.
 - The `state next` lines are rebuilt from the events and the kernel's code,
   except the one in [step 8](#8-implement-five-slices), which is real.

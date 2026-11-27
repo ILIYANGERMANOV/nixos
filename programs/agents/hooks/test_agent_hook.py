@@ -16,11 +16,13 @@ from agent_hook import (
     AgentStop,
     Allow,
     BeforeTool,
+    CallId,
     ContextSize,
     Deny,
     Event,
     EventName,
     EveryTool,
+    Harness,
     Hook,
     HookName,
     Json,
@@ -33,6 +35,7 @@ from agent_hook import (
     SkillName,
     Source,
     Tool,
+    Usage,
     Verdict,
     combine_notes,
     combine_verdicts,
@@ -58,12 +61,35 @@ VOCABULARY = Path(__file__).with_name("vocabulary.json")
 SESSION = SessionId("s1")
 CWD = Path("/work/repo")
 WORKER = Agent(AgentId("a1"), Role("implementer"))
-START = SessionStart(SESSION, CWD, None, Source.RESUME)
-SPAWN = BeforeTool(SESSION, CWD, None, Tool.DELEGATE, {"prompt": "brief"})
-RAN = AfterTool(SESSION, CWD, WORKER, Tool.SHELL, {"command": "ls"}, "a\nb\n")
-STARTED = AgentStart(SESSION, CWD, WORKER)
-TYPED = PromptExpansion(SESSION, CWD, None, SkillName("engineer"))
-STOPPED = AgentStop(SESSION, CWD, WORKER, (AgentId("a1"), AgentId("a2")))
+START = SessionStart(
+    SESSION,
+    CWD,
+    None,
+    Source.RESUME,
+    Harness("claude-code"),
+    Path("/home/u/.claude/projects/p/s1.jsonl"),
+    "claude-opus-5-5",
+)
+CLAUDE = Harness("claude-code")
+TRANSCRIPT = Path("/home/u/.claude/projects/p/s1.jsonl")
+SPAWN = BeforeTool(
+    SESSION, CWD, None, Tool.DELEGATE, {"prompt": "brief"}, harness=CLAUDE
+)
+RAN = AfterTool(
+    SESSION, CWD, WORKER, Tool.SHELL, {"command": "ls"}, "a\nb\n", harness=CLAUDE
+)
+STARTED = AgentStart(SESSION, CWD, WORKER, harness=CLAUDE)
+TYPED = PromptExpansion(SESSION, CWD, None, SkillName("engineer"), harness=CLAUDE)
+STOPPED = AgentStop(
+    SESSION, CWD, WORKER, (AgentId("a1"), AgentId("a2")), harness=CLAUDE
+)
+# The wire's keys every event carries.
+COMMON: dict[str, Json] = {
+    "session": "s1",
+    "cwd": "/work/repo",
+    "harness": "claude-code",
+    "transcript_path": None,
+}
 
 texts = st.text(min_size=1)
 subagents = st.builds(
@@ -73,9 +99,31 @@ agents = st.none() | subagents
 counts = st.integers(min_value=0)
 context_sizes = st.none() | st.builds(ContextSize, counts, st.none() | counts)
 paths = st.text(alphabet="abc/", min_size=1).map(lambda p: Path("/" + p))
+# A transcript path as the kernel takes it: absolute and normalised.
+transcripts = st.lists(st.text(alphabet="abc", min_size=1)).map(
+    lambda parts: Path("/" + "/".join(parts))
+)
 sessions = st.text().map(SessionId)
+harnesses = texts.map(Harness)
+calls = st.none() | st.text().map(CallId)
+usages = st.none() | st.builds(
+    Usage,
+    st.none() | counts,
+    st.none() | counts,
+    st.none() | counts,
+    st.none() | counts,
+)
 events: st.SearchStrategy[Event] = st.one_of(
-    st.builds(SessionStart, sessions, paths, agents, st.sampled_from(Source)),
+    st.builds(
+        SessionStart,
+        sessions,
+        paths,
+        agents,
+        st.sampled_from(Source),
+        harnesses,
+        st.none() | transcripts,
+        st.none() | texts,
+    ),
     st.builds(
         BeforeTool,
         sessions,
@@ -84,6 +132,10 @@ events: st.SearchStrategy[Event] = st.one_of(
         st.sampled_from(Tool),
         json_objects,
         st.lists(st.text()).map(tuple),
+        harness=harnesses,
+        transcript=st.none() | transcripts,
+        call=calls,
+        usage=usages,
     ),
     st.builds(
         AfterTool,
@@ -94,11 +146,36 @@ events: st.SearchStrategy[Event] = st.one_of(
         json_objects,
         json_values,
         context_sizes,
+        harness=harnesses,
+        transcript=st.none() | transcripts,
+        call=calls,
     ),
-    st.builds(AgentStart, sessions, paths, subagents),
-    st.builds(PromptExpansion, sessions, paths, agents, st.text().map(SkillName)),
     st.builds(
-        AgentStop, sessions, paths, agents, st.lists(st.text().map(AgentId)).map(tuple)
+        AgentStart,
+        sessions,
+        paths,
+        subagents,
+        harness=harnesses,
+        transcript=st.none() | transcripts,
+    ),
+    st.builds(
+        PromptExpansion,
+        sessions,
+        paths,
+        agents,
+        st.text().map(SkillName),
+        harness=harnesses,
+        transcript=st.none() | transcripts,
+    ),
+    st.builds(
+        AgentStop,
+        sessions,
+        paths,
+        agents,
+        st.lists(st.text().map(AgentId)).map(tuple),
+        harness=harnesses,
+        transcript=st.none() | transcripts,
+        usage=usages,
     ),
 )
 contexts = st.none() | texts
@@ -139,91 +216,98 @@ def test_an_emitted_event_parses_back_to_itself(event: Event) -> None:
     assert parse_event(emit_event(event)) == event
 
 
+# A wire every event's keys make valid, short of its own.
+ANY: dict[str, Json] = {
+    "session": "s",
+    "cwd": "/",
+    "agent": None,
+    "harness": "claude-code",
+    "transcript_path": None,
+}
+BEFORE_SHELL: dict[str, Json] = ANY | {
+    "event": "beforeTool",
+    "tool": "shell",
+    "call": None,
+    "input": {},
+    "history": [],
+    "usage": None,
+}
+AFTER_SHELL: dict[str, Json] = ANY | {
+    "event": "afterTool",
+    "tool": "shell",
+    "call": None,
+    "input": {},
+    "output": "",
+    "context": None,
+}
+SESSION_START: dict[str, Json] = ANY | {
+    "event": "sessionStart",
+    "source": "startup",
+    "request_model": None,
+}
+AGENT_STOP: dict[str, Json] = ANY | {"event": "agentStop", "running": [], "usage": None}
+
+
+def without(wire: dict[str, Json], key: str) -> Json:
+    return {k: v for k, v in wire.items() if k != key}
+
+
 @pytest.mark.parametrize(
     "wire",
     [
+        pytest.param(ANY | {"event": "beforeLunch"}, id="unknown event"),
+        pytest.param(BEFORE_SHELL | {"tool": "teleport"}, id="unknown tool"),
+        pytest.param(SESSION_START | {"source": "clear"}, id="unknown source"),
         pytest.param(
-            {"event": "beforeLunch", "session": "s", "cwd": "/", "agent": None},
-            id="unknown event",
+            SESSION_START | {"transcript_path": "projects/s.jsonl"},
+            id="relative transcript path",
         ),
         pytest.param(
-            {
-                "event": "beforeTool",
-                "session": "s",
-                "cwd": "/",
-                "agent": None,
-                "tool": "teleport",
-                "input": {},
-                "history": [],
-            },
-            id="unknown tool",
+            BEFORE_SHELL | {"transcript_path": "projects/s.jsonl"},
+            id="relative transcript path off a session start",
         ),
         pytest.param(
-            {
-                "event": "sessionStart",
-                "session": "s",
-                "cwd": "/",
-                "agent": None,
-                "source": "clear",
-            },
-            id="unknown source",
+            without(SESSION_START, "harness"), id="session start with no harness"
         ),
         pytest.param(
-            {
-                "event": "beforeTool",
-                "session": "s",
-                "cwd": "/",
-                "agent": {"id": "a"},
-                "tool": "shell",
-                "input": {},
-                "history": [],
-            },
-            id="agent without a role",
+            without(BEFORE_SHELL, "harness"), id="before a tool with no harness"
         ),
         pytest.param(
-            {"event": "agentStart", "session": "s", "cwd": "/", "agent": None},
-            id="agent start with no agent",
+            without(AGENT_STOP, "transcript_path"),
+            id="agent stop with no transcript key",
+        ),
+        pytest.param(BEFORE_SHELL | {"agent": {"id": "a"}}, id="agent without a role"),
+        pytest.param(ANY | {"event": "agentStart"}, id="agent start with no agent"),
+        pytest.param(
+            ANY | {"event": "promptExpansion"}, id="prompt expansion with no skill"
         ),
         pytest.param(
-            {"event": "promptExpansion", "session": "s", "cwd": "/", "agent": None},
-            id="prompt expansion with no skill",
+            without(AGENT_STOP, "running"), id="agent stop with no running list"
+        ),
+        pytest.param(AGENT_STOP | {"running": [7]}, id="running id not a string"),
+        pytest.param(without(BEFORE_SHELL, "history"), id="no history"),
+        pytest.param(
+            without(BEFORE_SHELL, "call"), id="before a tool with no call key"
+        ),
+        pytest.param(without(AFTER_SHELL, "call"), id="after a tool with no call key"),
+        pytest.param(BEFORE_SHELL | {"call": 7}, id="call not a string"),
+        pytest.param(
+            without(BEFORE_SHELL, "usage"), id="before a tool with no usage key"
+        ),
+        pytest.param(without(AGENT_STOP, "usage"), id="agent stop with no usage key"),
+        pytest.param(
+            AGENT_STOP | {"usage": {"input_tokens": -1}}, id="negative token count"
         ),
         pytest.param(
-            {"event": "agentStop", "session": "s", "cwd": "/", "agent": None},
-            id="agent stop with no running list",
+            AGENT_STOP | {"usage": {"input_tokens": "12k"}},
+            id="token count not a count",
         ),
         pytest.param(
-            {
-                "event": "agentStop",
-                "session": "s",
-                "cwd": "/",
-                "agent": None,
-                "running": [7],
-            },
-            id="running id not a string",
+            AGENT_STOP | {"usage": {"total_tokens": 12}},
+            id="usage with an unknown count",
         ),
         pytest.param(
-            {
-                "event": "beforeTool",
-                "session": "s",
-                "cwd": "/",
-                "agent": None,
-                "tool": "shell",
-                "input": {},
-            },
-            id="no history",
-        ),
-        pytest.param(
-            {
-                "event": "afterTool",
-                "session": "s",
-                "cwd": "/",
-                "agent": None,
-                "tool": "shell",
-                "input": {},
-                "output": "",
-                "context": {"tokens": "150k", "previous": None},
-            },
+            AFTER_SHELL | {"context": {"tokens": "150k", "previous": None}},
             id="context not a count",
         ),
     ],
@@ -234,27 +318,107 @@ def test_an_event_outside_the_contract_is_an_error(wire: Json) -> None:
 
 
 def test_an_event_reads_as_the_wire_names_it() -> None:
-    wire = {
+    wire = COMMON | {
         "event": "afterTool",
         "tool": "shell",
+        "call": "toolu_01",
         "input": {"command": "ls"},
         "output": "a\nb\n",
-        "cwd": "/work/repo",
-        "session": "s1",
         "agent": {"id": "a1", "role": "implementer"},
         "context": {"tokens": 150_000, "previous": None},
     }
 
     assert parse_event(json.dumps(wire)) == replace(
-        RAN, context=ContextSize(150_000, None)
+        RAN, context=ContextSize(150_000, None), call=CallId("toolu_01")
+    )
+
+
+def test_a_hand_back_reads_its_usage_a_count_left_out_staying_unknown() -> None:
+    wire = COMMON | {
+        "event": "beforeTool",
+        "agent": {"id": "a1", "role": "implementer"},
+        "transcript_path": str(TRANSCRIPT),
+        "tool": "handback",
+        "call": "toolu_02",
+        "input": {"message": "READY"},
+        "history": [],
+        "usage": {"input_tokens": 1200, "cache_read_input_tokens": 1000},
+    }
+
+    assert parse_event(json.dumps(wire)) == BeforeTool(
+        SESSION,
+        CWD,
+        WORKER,
+        Tool.HANDBACK,
+        {"message": "READY"},
+        harness=CLAUDE,
+        transcript=TRANSCRIPT,
+        call=CallId("toolu_02"),
+        usage=Usage(input=1200, cache_read=1000),
+    )
+
+
+def test_a_count_left_out_is_left_out_on_the_wire_never_zero() -> None:
+    event = replace(STOPPED, usage=Usage(output=0))
+
+    assert json.loads(emit_event(event))["usage"] == {"output_tokens": 0}
+
+
+def test_a_session_start_reads_as_the_wire_names_it() -> None:
+    wire = COMMON | {
+        "event": "sessionStart",
+        "agent": None,
+        "source": "resume",
+        "transcript_path": "/home/u/.claude/projects/p/s1.jsonl",
+        "request_model": "claude-opus-5-5",
+    }
+
+    assert parse_event(json.dumps(wire)) == START
+
+
+def session_start_at(transcript: str) -> Json:
+    return COMMON | {
+        "event": "sessionStart",
+        "agent": None,
+        "source": "resume",
+        "transcript_path": transcript,
+        "request_model": "claude-opus-5-5",
+    }
+
+
+# The paths the kernel's absPath takes and refuses, as GHC's filepath `normalise` decides.
+@pytest.mark.parametrize("path", ["/a/b", "/a/../b", "/a/b/", "/"])
+def test_a_session_start_takes_a_transcript_path_the_kernel_takes(path: str) -> None:
+    assert parse_event(json.dumps(session_start_at(path))) == replace(
+        START, transcript=Path(path)
+    )
+
+
+@pytest.mark.parametrize("path", ["//a/b", "/a//b", "/a/./b", "/a/b/."])
+def test_a_session_start_refuses_a_transcript_path_the_kernel_refuses(
+    path: str,
+) -> None:
+    with pytest.raises(ValueError):
+        _ = parse_event(json.dumps(session_start_at(path)))
+
+
+def test_a_session_start_with_no_transcript_or_model_reads_none() -> None:
+    wire = COMMON | {
+        "event": "sessionStart",
+        "agent": None,
+        "source": "resume",
+        "harness": "opencode",
+        "request_model": None,
+    }
+
+    assert parse_event(json.dumps(wire)) == replace(
+        START, harness=Harness("opencode"), transcript=None, model=None
     )
 
 
 def test_a_subagent_start_reads_as_the_wire_names_it() -> None:
-    wire = {
+    wire = COMMON | {
         "event": "agentStart",
-        "session": "s1",
-        "cwd": "/work/repo",
         "agent": {"id": "a1", "role": "implementer"},
     }
 
@@ -262,38 +426,31 @@ def test_a_subagent_start_reads_as_the_wire_names_it() -> None:
 
 
 def test_a_typed_skill_reads_as_the_wire_names_it() -> None:
-    wire = {
-        "event": "promptExpansion",
-        "session": "s1",
-        "cwd": "/work/repo",
-        "agent": None,
-        "skill": "engineer",
-    }
+    wire = COMMON | {"event": "promptExpansion", "agent": None, "skill": "engineer"}
 
     assert parse_event(json.dumps(wire)) == TYPED
 
 
 def test_an_agent_stop_reads_as_the_wire_names_it() -> None:
-    wire = {
+    wire = COMMON | {
         "event": "agentStop",
-        "session": "s1",
-        "cwd": "/work/repo",
         "agent": {"id": "a1", "role": "implementer"},
         "running": ["a1", "a2"],
+        "usage": None,
     }
 
     assert parse_event(json.dumps(wire)) == STOPPED
 
 
 def test_a_subagent_its_agent_names_no_role_reads_as_one_with_no_role() -> None:
-    wire = {
+    wire = COMMON | {
         "event": "beforeTool",
         "tool": "shell",
+        "call": None,
         "input": {"command": "ls"},
-        "cwd": "/work/repo",
-        "session": "s1",
         "agent": {"id": "a1", "role": None},
         "history": ["git status"],
+        "usage": None,
     }
 
     assert parse_event(json.dumps(wire)) == BeforeTool(
@@ -303,12 +460,18 @@ def test_a_subagent_its_agent_names_no_role_reads_as_one_with_no_role() -> None:
         Tool.SHELL,
         {"command": "ls"},
         ("git status",),
+        harness=CLAUDE,
     )
 
 
 def test_a_subagent_its_agent_gives_no_id_reads_as_one_with_no_id() -> None:
     event = BeforeTool(
-        SESSION, CWD, Agent(None, Role("implementer")), Tool.SHELL, {"command": "ls"}
+        SESSION,
+        CWD,
+        Agent(None, Role("implementer")),
+        Tool.SHELL,
+        {"command": "ls"},
+        harness=CLAUDE,
     )
 
     assert json.loads(emit_event(event))["agent"] == {"id": None, "role": "implementer"}

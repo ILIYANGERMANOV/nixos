@@ -19,24 +19,38 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as Text
+import State.Artifact (absPath)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (stepName)
 import State.Protocol.Advice (Readiness (..))
-import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), slotOf)
+import State.Protocol.Binding (
+    AgentId (..),
+    Binding (..),
+    Key (..),
+    SpanLink (..),
+    slotOf,
+ )
 import State.Protocol.Hook
 import State.Run.Event (
     AgentRole (..),
     Branch (..),
     DraftPr (..),
     Envelope (..),
-    Event (Restarted, Spawned, Stopped, Voided, WorkerSpawned),
+    Event (Restarted, SpanStarted, Spawned, Stopped, Voided),
+    Harness (..),
+    Session (..),
     SessionId (..),
+    SpanStart (..),
     Stop (..),
     StopReason (..),
     Url (..),
+    Usage (..),
     stepTook,
+    unreported,
  )
 import State.Run.EventGen (line, logOf, run, runId, started)
+import State.Run.Id (SpanId (..))
 import State.Run.RunGen (childOf, commit, loadSteps, plainTask, runAt, tenXAt)
 import State.Step.Build (Outcome (..), Sing (Refactor))
 import State.Step.Review (Outcome (..))
@@ -68,46 +82,82 @@ spec = describe "the hooks" $ do
                 (beforeTool "handback" fixer (object ["message" .= ("READY" :: Text)]))
                 `shouldBe` Right
                     ( BeforeTool
-                        ( Call
-                            (SessionId "s")
-                            "/w"
-                            (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "fixer"))))
-                        )
+                        (called (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "fixer")))))
                         HandbackTool
+                        Nothing
                         (message "READY")
+                        unreported
                     )
 
         it "reads the lead, whose agent is null" $
             parseHookEvent (sessionStart "startup")
-                `shouldBe` Right (SessionStart (Call (SessionId "s") "/w" Nothing) Startup)
+                `shouldBe` Right
+                    (SessionStart (called Nothing) (claudeOpened Startup))
+
+        it "reads an empty session as none" $
+            parseHookEvent (withField "session" "" (sessionStart "startup"))
+                `shouldBe` Right
+                    ( SessionStart
+                        (Call Nothing "/w" Nothing (Harness "claude-code") (absPath transcriptFile))
+                        (claudeOpened Startup)
+                    )
+
+        it "reads a session start that names no transcript or model" $
+            parseHookEvent
+                ( withNull "request_model"
+                    . withNull "transcript_path"
+                    . withField "harness" "opencode"
+                    $ sessionStart "resume"
+                )
+                `shouldBe` Right
+                    ( SessionStart
+                        (Call (Just (SessionId "s")) "/w" Nothing (Harness "opencode") Nothing)
+                        (Opened Resumed Nothing)
+                    )
+
+        it "refuses a session start whose transcript path is not absolute" $
+            parseHookEvent
+                (withField "transcript_path" "p/s.jsonl" (sessionStart "startup"))
+                `shouldSatisfy` isLeft
+
+        it "refuses a session start that names no harness" $
+            parseHookEvent (without "harness" (sessionStart "startup"))
+                `shouldSatisfy` isLeft
+
+        it "refuses a session start whose harness is empty" $
+            parseHookEvent (withField "harness" "" (sessionStart "startup"))
+                `shouldSatisfy` isLeft
+
+        it "keeps the session as its run logs it, its source by the hook's own word" $
+            sessionOf (called Nothing) (claudeOpened Resumed)
+                `shouldBe` Session
+                    { harness = Harness "claude-code"
+                    , transcript = absPath transcriptFile
+                    , trigger = "resume"
+                    , model = Just "claude-opus-5-5"
+                    }
 
         it "reads a subagent's start, by its agent" $
             parseHookEvent (agentStart "engineer")
                 `shouldBe` Right
                     ( AgentStart
-                        ( Call
-                            (SessionId "s")
-                            "/w"
-                            (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "engineer"))))
-                        )
+                        (called (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "engineer")))))
                     )
 
         it "reads a typed prompt's expansion, by the skill it names" $
             parseHookEvent (promptExpansion "10x-engineer")
-                `shouldBe` Right (PromptExpansion (Call (SessionId "s") "/w" Nothing) "10x-engineer")
+                `shouldBe` Right
+                    (PromptExpansion (called Nothing) "10x-engineer")
 
         it "reads an agent's stop, with the agents still running" $
             map parseHookEvent [agentStop fixer ["a1", "b2"], agentStop Null []]
                 `shouldBe` [ Right
                                 ( AgentStop
-                                    ( Call
-                                        (SessionId "s")
-                                        "/w"
-                                        (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "fixer"))))
-                                    )
+                                    (called (Just (Agent (Just (AgentId "a1")) (Just (AgentRole "fixer")))))
                                     [AgentId "a1", AgentId "b2"]
+                                    unreported
                                 )
-                           , Right (AgentStop (Call (SessionId "s") "/w" Nothing) [])
+                           , Right (AgentStop (called Nothing) [] unreported)
                            ]
 
         it "refuses an agent's stop that lists no agents running" $
@@ -133,8 +183,9 @@ spec = describe "the hooks" $ do
             parseHookEvent (encodeObject (afterToolFields "delegate"))
                 `shouldBe` Right
                     ( AfterTool
-                        (Call (SessionId "s") "/w" (Just reviewLead))
+                        (called (Just reviewLead))
                         Delegate
+                        Nothing
                         KeyMap.empty
                         (String "ok")
                     )
@@ -169,39 +220,65 @@ spec = describe "the hooks" $ do
         it "resumes for the lead, and for an agent no flow knows" $
             map
                 ( \agent ->
-                    wants steps ResumeHook (SessionStart (Call (SessionId "s") "/w" agent) Startup)
+                    wants
+                        steps
+                        ResumeHook
+                        (SessionStart (called agent) (claudeOpened Startup))
                 )
                 [Nothing, Just (Agent Nothing (Just (AgentRole "engineer")))]
-                `shouldBe` [ Right (Just (Asks (ResumeRun Startup)))
-                           , Right (Just (Asks (ResumeRun Startup)))
+                `shouldBe` [ Right (Just (Asks (ResumeRun (claudeOpened Startup))))
+                           , Right (Just (Asks (ResumeRun (claudeOpened Startup))))
                            ]
 
-        it "ignores a subagent's spawn" $
-            wants
+        it
+            "starts a subagent's spawn's span, and nothing at one its call does not name in full"
+            $ [ wants
+                    steps
+                    SpawnHook
+                    (BeforeTool (called (Just reviewLead)) Delegate toolCall input unreported)
+              | (toolCall, input) <-
+                    [ (Just spawnCall, spawnInput)
+                    , (Nothing, spawnInput)
+                    , (Just spawnCall, KeyMap.delete "prompt" spawnInput)
+                    ]
+              ]
+                `shouldBe` [ Right (Just (Asks (StartsSpan explored)))
+                           , Right Nothing
+                           , Right Nothing
+                           ]
+
+        it "reads the role the lead spawns, and the span its call starts" $
+            [ wants
                 steps
                 SpawnHook
-                (BeforeTool (Call (SessionId "s") "/w" (Just reviewLead)) Delegate KeyMap.empty)
-                `shouldBe` Right Nothing
+                (BeforeTool (called Nothing) Delegate toolCall input unreported)
+            | (toolCall, input) <-
+                [ (Nothing, KeyMap.fromList [("subagent_type", String "implementer")])
+                , (Just spawnCall, KeyMap.insert "model" "opus" spawnInput)
+                ]
+            ]
+                `shouldBe` [ Right (Just (Asks (SpawnRole (Just (AgentRole "implementer")) Nothing)))
+                           , Right
+                                ( Just
+                                    ( Asks
+                                        ( SpawnRole
+                                            (Just (AgentRole "Explore"))
+                                            (Just (Spawn spawnCall (AgentRole "Explore") "find the hooks" (Just "opus")))
+                                        )
+                                    )
+                                )
+                           ]
 
-        it "reads the role the lead spawns" $
-            wants
-                steps
-                SpawnHook
-                ( BeforeTool
-                    (Call (SessionId "s") "/w" Nothing)
-                    Delegate
-                    (KeyMap.fromList [("subagent_type", String "implementer")])
-                )
-                `shouldBe` Right (Just (Asks (SpawnRole (Just (AgentRole "implementer")))))
-
-        it "records a step runner's hand-back, not a checker's or a child run's" $
+        it "records a step runner's hand-back in its run, any other's in its span alone" $
             [ wants
                 steps
                 HandbackHook
                 ( BeforeTool
-                    (Call (SessionId "s") "/w" (Just agent))
+                    (called (Just agent))
                     HandbackTool
+                    Nothing
                     (message "READY")
+                    tokens
                 )
             | agent <-
                 [ reviewLead
@@ -209,9 +286,10 @@ spec = describe "the hooks" $ do
                 , Agent (Just (AgentId "a3")) (Just (AgentRole "engineer"))
                 ]
             ]
-                `shouldBe` [ Right (Just (Asks (HandedBack "READY" reviewLead (AgentRole "review-lead"))))
-                           , Right Nothing
-                           , Right Nothing
+                `shouldBe` [ Right
+                                (Just (Asks (HandedBack "READY" reviewLead (AgentRole "review-lead") tokens)))
+                           , Right (Just (Asks (SpanHandback "READY" tokens)))
+                           , Right (Just (Asks (SpanHandback "READY" tokens)))
                            ]
 
         it
@@ -219,11 +297,11 @@ spec = describe "the hooks" $ do
             $ [ wants
                     steps
                     StopHook
-                    (AgentStop (Call (SessionId "s") "/w" (Just reviewLead)) [AgentId "a2"])
-              , wants steps StopHook (AgentStop (Call (SessionId "s") "/w" Nothing) [])
+                    (AgentStop (called (Just reviewLead)) [AgentId "a2"] tokens)
+              , wants steps StopHook (AgentStop (called Nothing) [] unreported)
               ]
-                `shouldBe` [ Right (Just (Ends (Stops (AgentKey (AgentId "a2")) [AgentId "a2"])))
-                           , Right (Just (Ends (Stops Main [])))
+                `shouldBe` [ Right (Just (Ends (Stops (AgentKey (AgentId "a2")) [AgentId "a2"] tokens)))
+                           , Right (Just (Ends (Stops Main [] unreported)))
                            ]
 
         it "ends the agent a stop call names, and nothing at another tool" $
@@ -231,8 +309,9 @@ spec = describe "the hooks" $ do
                 steps
                 StopHook
                 ( AfterTool
-                    (Call (SessionId "s") "/w" Nothing)
+                    (called Nothing)
                     tool
+                    Nothing
                     (KeyMap.fromList [("task_id", String "c1")])
                     (object [])
                 )
@@ -241,7 +320,10 @@ spec = describe "the hooks" $ do
                 `shouldBe` [Right (Just (Ends (StopsAgent (AgentId "c1")))), Right Nothing]
 
         it "refuses a hook at an event it is not declared on" $
-            wants steps SpawnHook (SessionStart (Call (SessionId "s") "/w" Nothing) Startup)
+            wants
+                steps
+                SpawnHook
+                (SessionStart (called Nothing) (claudeOpened Startup))
                 `shouldBe` Left "state-hook spawn does not run at sessionStart"
 
     describe "what a call routes" $ do
@@ -250,9 +332,11 @@ spec = describe "the hooks" $ do
                     steps
                     RouteHook
                     ( BeforeTool
-                        (Call (SessionId "s") "/w" agent)
+                        (called agent)
                         tool
+                        Nothing
                         (KeyMap.fromList [("command", String command)])
+                        unreported
                     )
         it "routes any agent's shell command" $
             map (\agent -> shell agent Shell "state next") [Nothing, Just reviewLead]
@@ -268,9 +352,11 @@ spec = describe "the hooks" $ do
                     steps
                     RouteHook
                     ( BeforeTool
-                        (Call (SessionId "s") "/w" Nothing)
+                        (called Nothing)
                         tool
+                        Nothing
                         (KeyMap.fromList [("file_path", String file)])
+                        unreported
                     )
               | (tool, file) <- [(Edit, "a/notes.md"), (Write, "/n/notes.md")]
               ]
@@ -287,21 +373,17 @@ spec = describe "the hooks" $ do
                 wants
                     steps
                     BeginHook
-                    ( AgentStart
-                        ( Call
-                            (SessionId "s")
-                            "/w"
-                            (Just (Agent (Just (AgentId "a1")) (AgentRole <$> role)))
-                        )
-                    )
-            called tool skill =
+                    (AgentStart (called (Just (Agent (Just (AgentId "a1")) (AgentRole <$> role)))))
+            skillCall tool skill =
                 wants
                     steps
                     BeginHook
                     ( BeforeTool
-                        (Call (SessionId "s") "/w" Nothing)
+                        (called Nothing)
                         tool
+                        Nothing
                         (KeyMap.fromList [("skill", String skill)])
+                        unreported
                     )
         it "begins a spawned lead's run, and a step runner's brief" $
             map (startOf . Just) ["engineer", "10x", "implementer", "review-lead"]
@@ -321,17 +403,20 @@ spec = describe "the hooks" $ do
             [ wants
                 steps
                 BeginHook
-                (PromptExpansion (Call (SessionId "s") "/w" Nothing) "engineer")
-            , called Skill "10x-engineer"
+                (PromptExpansion (called Nothing) "engineer")
+            , skillCall Skill "10x-engineer"
             ]
                 `shouldBe` [ Right (Just (Begins (TypedSkill EngineerSkill)))
                            , Right (Just (Begins (CalledSkill TenXSkill)))
                            ]
 
         it "says nothing at another skill, or another tool naming a lead skill" $
-            [ wants steps BeginHook (PromptExpansion (Call (SessionId "s") "/w" Nothing) "qa")
-            , called Skill "refactor"
-            , called Shell "engineer"
+            [ wants
+                steps
+                BeginHook
+                (PromptExpansion (called Nothing) "qa")
+            , skillCall Skill "refactor"
+            , skillCall Shell "engineer"
             ]
                 `shouldBe` replicate 3 (Right Nothing)
 
@@ -341,8 +426,9 @@ spec = describe "the hooks" $ do
                     steps
                     BindHook
                     ( AfterTool
-                        (Call (SessionId "s") "/w" Nothing)
+                        (called Nothing)
                         Shell
+                        Nothing
                         (KeyMap.fromList [("command", String command)])
                         (object ["stdout" .= (stdout :: Text), "stderr" .= ("" :: Text)])
                     )
@@ -351,8 +437,9 @@ spec = describe "the hooks" $ do
                     steps
                     BindHook
                     ( AfterTool
-                        (Call (SessionId "s") "/w" Nothing)
+                        (called Nothing)
                         Delegate
+                        (Just spawnCall)
                         (KeyMap.fromList [("subagent_type", String role)])
                         (object ["status" .= ("completed" :: Text), "agentId" .= ("c1" :: Text)])
                     )
@@ -365,38 +452,59 @@ spec = describe "the hooks" $ do
             $ [ran "cat log" "run 0a1b2c3d /n /wt\n", ran "state init --notes /n" ""]
                 `shouldBe` [Right Nothing, Right Nothing]
 
-        it "binds a worker spawned, not a lead nor an agent no flow knows" $
+        it "links every subagent spawned, binding only a flow's worker" $
             map spawnedOf ["implementer", "engineer", "Explore"]
-                `shouldBe` [ Right (Just (Binds (BindChild (AgentId "c1") (AgentRole "implementer"))))
-                           , Right Nothing
-                           , Right Nothing
+                `shouldBe` [ Right
+                                ( Just
+                                    ( Binds
+                                        (BindSpawned (AgentId "c1") (Just spawnCall) (Just (AgentRole "implementer")))
+                                    )
+                                )
+                           , Right (Just (Binds (BindSpawned (AgentId "c1") (Just spawnCall) Nothing)))
+                           , Right (Just (Binds (BindSpawned (AgentId "c1") (Just spawnCall) Nothing)))
                            ]
 
     describe "where a want goes" $ do
         let worker = AgentKey (AgentId "a2")
             slot = slotOf "/bindings" (SessionId "s") worker
             binding = Binding (runId "0a1b2c3d") "/n" "/wt"
-            handedBack = HandedBack "READY" reviewLead (AgentRole "review-lead")
+            handedBack = HandedBack "READY" reviewLead (AgentRole "review-lead") unreported
+            spanHandback = SpanHandback "READY" unreported
+            link = SpanLink (runId "0a1b2c3d") (SpanId 3)
         it "stashes an unbound worker's hand-back in its slot" $
             case slot of
-                Just at -> delivery handedBack worker slot Nothing `shouldBe` Stash at
+                Just at -> delivery handedBack worker slot Nothing Nothing `shouldBe` Stash at
                 Nothing -> expectationFailure "no slot for the worker"
 
         it "sends a bound worker's hand-back, and the session's own agent's, to the run" $
-            [ delivery handedBack worker slot (Just binding)
-            , delivery handedBack Main slot Nothing
+            [ delivery handedBack worker slot (Just binding) Nothing
+            , delivery handedBack Main slot Nothing Nothing
             ]
                 `shouldBe` [ToRun, ToRun]
 
         it
+            "stashes another subagent's hand-back until its span is linked, not its binding"
+            $ case slot of
+                Just at ->
+                    [ delivery spanHandback worker slot (Just binding) Nothing
+                    , delivery spanHandback worker slot Nothing (Just link)
+                    ]
+                        `shouldBe` [Stash at, ToRun]
+                Nothing -> expectationFailure "no slot for the worker"
+
+        it
             "sends an unbound worker's hand-back with no store to the run, which has none for it"
-            $ delivery handedBack worker Nothing Nothing `shouldBe` ToRun
+            $ delivery handedBack worker Nothing Nothing Nothing `shouldBe` ToRun
 
         it "never stashes a want that is no hand-back" $
-            [ delivery want worker slot Nothing
-            | want <- [ResumeRun Startup, SpawnRole Nothing]
+            [ delivery want worker slot Nothing Nothing
+            | want <-
+                [ ResumeRun (claudeOpened Startup)
+                , SpawnRole Nothing Nothing
+                , StartsSpan explored
+                ]
             ]
-                `shouldBe` [ToRun, ToRun]
+                `shouldBe` [ToRun, ToRun, ToRun]
 
     describe "silence" $ do
         let drafted =
@@ -492,20 +600,33 @@ spec = describe "the hooks" $ do
             map (`logWith` sources) [[], [hooked 1]] `shouldBe` [False, False]
 
     describe "a session start" $ do
-        let atWork = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
+        let childAtWork = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
         it "records a restart when a fresh or resumed session lost an agent at work" $
-            map (`restartOf` atWork) [Startup, Resumed]
+            map (\source -> restartOf steps source childAtWork) [Startup, Resumed]
                 `shouldBe` [Just Restarted, Just Restarted]
 
         it "records nothing after a compaction, which keeps the agents" $
-            restartOf Compact atWork `shouldBe` Nothing
+            restartOf steps Compact childAtWork `shouldBe` Nothing
 
-        it "records a restart when the lead lost a worker at work" $
-            restartOf Startup (runAt [WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
-                `shouldBe` Just Restarted
+        it
+            "records a restart when the lead lost a span of a step runner, and none for another role's"
+            $ map
+                ( \role ->
+                    restartOf
+                        steps
+                        Startup
+                        ( runAt
+                            [ SpanStarted
+                                (SpanStart (AgentRole role) (Harness "claude-code") "b" Nothing Nothing)
+                            ]
+                        )
+                )
+                ["fixer", "Explore"]
+                `shouldBe` [Just Restarted, Nothing]
 
         it "records nothing on a run with no agent at work" $
-            map (`restartOf` runAt []) [Startup, Resumed] `shouldBe` [Nothing, Nothing]
+            map (\source -> restartOf steps source (runAt [])) [Startup, Resumed]
+                `shouldBe` [Nothing, Nothing]
 
     describe "the reply" $ do
         it "names the run a hook's text is about, and says nothing for nothing" $
@@ -521,12 +642,13 @@ spec = describe "the hooks" $ do
                 `shouldBe` ["run 0a1b2c3d: state hook resume: gone\n", "state hook resume: gone\n"]
 
         it "prints nothing with nothing to say" $
-            encodeReply (replyOf (Asks (ResumeRun Startup)) "") `shouldBe` Nothing
+            encodeReply (replyOf (Asks (ResumeRun (claudeOpened Startup))) "")
+                `shouldBe` Nothing
 
         it "tells what a hand-back recorded as context, never rewriting the call" $
             decoded
                 ( replyOf
-                    (Asks (HandedBack "READY" reviewLead (AgentRole "review-lead")))
+                    (Asks (HandedBack "READY" reviewLead (AgentRole "review-lead") unreported))
                     "state: recorded 9 review.rows -> pick\n"
                 )
                 `shouldBe` Right
@@ -537,7 +659,8 @@ spec = describe "the hooks" $ do
                     )
 
         it "never denies: a spawn's error is context" $
-            decoded (toldOf (Asks (SpawnRole Nothing)) "state hook spawn: disk full")
+            decoded
+                (toldOf (Asks (SpawnRole Nothing Nothing)) "state hook spawn: disk full")
                 `shouldBe` Right
                     ( object
                         [ "decision" .= ("allow" :: Text)
@@ -568,8 +691,8 @@ spec = describe "the hooks" $ do
         it "gives sessionStart and afterTool context alone" $
             map
                 (\job -> decoded (replyOf job "state: noted"))
-                [ Asks (ResumeRun Startup)
-                , Binds (BindChild (AgentId "a1") (AgentRole "researcher"))
+                [ Asks (ResumeRun (claudeOpened Startup))
+                , Binds (BindSpawned (AgentId "a1") Nothing (Just (AgentRole "researcher")))
                 ]
                 `shouldBe` replicate 2 (Right (object ["context" .= ("state: noted" :: Text)]))
   where
@@ -584,15 +707,53 @@ reviewLeadJson = object ["id" .= ("a2" :: Text), "role" .= ("review-lead" :: Tex
 reviewLead :: Agent
 reviewLead = Agent (Just (AgentId "a2")) (Just (AgentRole "review-lead"))
 
+-- | A call of session @s@ at @/w@ by this agent, the lead none, in Claude Code.
+called :: Maybe Agent -> Call
+called agent =
+    Call
+        { session = Just (SessionId "s")
+        , cwd = "/w"
+        , agent = agent
+        , harness = Harness "claude-code"
+        , transcript = absPath transcriptFile
+        }
+
+spawnCall :: ToolCallId
+spawnCall = ToolCallId "toolu_1"
+
+-- | A spawn's input naming its role and brief.
+spawnInput :: Object
+spawnInput = KeyMap.fromList [("subagent_type", "Explore"), ("prompt", "find the hooks")]
+
+-- | The span 'spawnInput' starts by 'spawnCall'.
+explored :: Spawn
+explored = Spawn spawnCall (AgentRole "Explore") "find the hooks" Nothing
+
+-- | Tokens an agent reports, the cache writes not.
+tokens :: Usage
+tokens = Usage (Just 1200) (Just 300) (Just 1000) Nothing
+
 message :: Text -> Object
 message text = KeyMap.fromList [("message", String text)]
 
+-- | The lead's Claude Code session starting for this reason.
 sessionStart :: Text -> LBS.ByteString
 sessionStart source =
     encodeObject
         ( common Null
-            <> KeyMap.fromList [("event", "sessionStart"), ("source", String source)]
+            <> KeyMap.fromList
+                [ ("event", "sessionStart")
+                , ("source", String source)
+                , ("request_model", "claude-opus-5-5")
+                ]
         )
+
+-- | What 'sessionStart' tells, for this reason.
+claudeOpened :: StartSource -> Opened
+claudeOpened source = Opened source (Just "claude-opus-5-5")
+
+transcriptFile :: FilePath
+transcriptFile = "/home/u/.claude/projects/p/s.jsonl"
 
 beforeTool :: Text -> Value -> Value -> LBS.ByteString
 beforeTool tool agent input =
@@ -601,8 +762,10 @@ beforeTool tool agent input =
             <> KeyMap.fromList
                 [ ("event", "beforeTool")
                 , ("tool", String tool)
+                , ("call", Null)
                 , ("input", input)
                 , ("history", Array mempty)
+                , ("usage", Null)
                 ]
         )
 
@@ -612,6 +775,7 @@ afterToolFields tool =
         <> KeyMap.fromList
             [ ("event", "afterTool")
             , ("tool", String tool)
+            , ("call", Null)
             , ("input", object [])
             , ("output", String "ok")
             , ("context", Null)
@@ -632,7 +796,8 @@ agentStop :: Value -> [Text] -> LBS.ByteString
 agentStop agent running =
     encodeObject
         ( common agent
-            <> KeyMap.fromList [("event", "agentStop"), ("running", toJSON running)]
+            <> KeyMap.fromList
+                [("event", "agentStop"), ("running", toJSON running), ("usage", Null)]
         )
 
 -- | A subagent of this role starting.
@@ -652,11 +817,27 @@ promptExpansion skill =
         )
 
 common :: Value -> Object
-common agent = KeyMap.fromList [("session", "s"), ("cwd", "/w"), ("agent", agent)]
+common agent =
+    KeyMap.fromList
+        [ ("session", "s")
+        , ("cwd", "/w")
+        , ("agent", agent)
+        , ("harness", "claude-code")
+        , ("transcript_path", String (Text.pack transcriptFile))
+        ]
 
 withField :: Text -> Text -> LBS.ByteString -> LBS.ByteString
-withField key value raw = case eitherDecode raw of
-    Right (Object o) -> encodeObject (KeyMap.insert (Key.fromText key) (String value) o)
+withField key value = edited (KeyMap.insert (Key.fromText key) (String value))
+
+withNull :: Text -> LBS.ByteString -> LBS.ByteString
+withNull key = edited (KeyMap.insert (Key.fromText key) Null)
+
+without :: Text -> LBS.ByteString -> LBS.ByteString
+without key = edited (KeyMap.delete (Key.fromText key))
+
+edited :: (Object -> Object) -> LBS.ByteString -> LBS.ByteString
+edited change raw = case eitherDecode raw of
+    Right (Object o) -> encodeObject (change o)
     _ -> raw
 
 encodeObject :: Object -> LBS.ByteString
@@ -669,25 +850,25 @@ eventOf = \case
     AfterTool {} -> "afterTool"
     AgentStart _ -> "agentStart"
     PromptExpansion _ _ -> "promptExpansion"
-    AgentStop _ _ -> "agentStop"
+    AgentStop {} -> "agentStop"
 
 toolOf :: HookEvent -> Maybe Tool
 toolOf = \case
-    BeforeTool _ tool _ -> Just tool
-    AfterTool _ tool _ _ -> Just tool
+    BeforeTool _ tool _ _ _ -> Just tool
+    AfterTool _ tool _ _ _ -> Just tool
     SessionStart _ _ -> Nothing
     AgentStart _ -> Nothing
     PromptExpansion _ _ -> Nothing
-    AgentStop _ _ -> Nothing
+    AgentStop {} -> Nothing
 
 sourceOf :: HookEvent -> Maybe StartSource
 sourceOf = \case
-    SessionStart _ source -> Just source
+    SessionStart _ opened -> Just opened.source
     BeforeTool {} -> Nothing
     AfterTool {} -> Nothing
     AgentStart _ -> Nothing
     PromptExpansion _ _ -> Nothing
-    AgentStop _ _ -> Nothing
+    AgentStop {} -> Nothing
 
 -- | @vocabulary.json@: each list of names.
 type Vocabulary = Map Text [Text]

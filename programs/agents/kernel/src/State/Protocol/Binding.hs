@@ -5,7 +5,9 @@ is at, so each hook first reads the agent's binding to its run:
 @
 <root>/<session>/main                       the session's own agent
 <root>/<session>/<agent id>                 a subagent
-<root>/<session>/handback-<agent id>.json   a hand-back seen before its agent was bound
+<root>/<session>/handback-<agent id>.json   a hand-back seen before its agent was bound or linked to its span
+<root>/<session>/stop-<agent id>.json       a stop seen before its agent was linked to its span
+<root>/<session>/span-<agent id>            the span of the agent: its run, and its span_started seq
 <root>/<session>/lead-<main|agent id>       the lead skill an agent began (@engineer@)
 <root>/<session>/led-<main|agent id>        the run an agent's own @state init@ bound it to
 @
@@ -28,6 +30,11 @@ module State.Protocol.Binding (
     slotOf,
     bindingFile,
     stashFile,
+    stopFile,
+    SpanLink (..),
+    spanLinkIn,
+    renderSpanLink,
+    spanFile,
     leadFile,
     ledFile,
     sessionDir,
@@ -43,8 +50,9 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Run.Event (SessionId (..))
-import State.Run.Id (AgentId (..), RunId, parseRunId, runIdText)
+import State.Run.Id (AgentId (..), RunId, SpanId (..), parseRunId, runIdText)
 import System.FilePath (equalFilePath, isAbsolute, (</>))
+import Text.Read (readMaybe)
 
 -- | A run, its notes dir and the top of the worktree it is at, both absolute.
 data Binding = Binding {run :: RunId, notes :: FilePath, toplevel :: FilePath}
@@ -78,6 +86,25 @@ parseBinding line = do
 bindingIn :: Text -> Maybe Binding
 bindingIn = listToMaybe . mapMaybe parseBinding . Text.lines
 
+{- | A subagent's span: the run its spawner logged it in, and its id there.
+Apart from its binding: an agent spawned outside a flow has a span but works
+under no run's gates.
+-}
+data SpanLink = SpanLink {run :: RunId, spanId :: SpanId}
+    deriving stock (Eq, Show)
+
+-- | @span <run> <seq>@.
+renderSpanLink :: SpanLink -> Text
+renderSpanLink link =
+    Text.unwords ["span", runIdText link.run, Text.pack (show link.spanId.spanSeq)]
+
+-- | The span link a span file's text holds; any other text holds none.
+spanLinkIn :: Text -> Maybe SpanLink
+spanLinkIn text = case Text.words text of
+    ["span", rawRun, rawSeq] ->
+        SpanLink <$> parseRunId rawRun <*> (SpanId <$> readMaybe (Text.unpack rawSeq))
+    _ -> Nothing
+
 -- | Whose binding: the session's own agent, or a subagent by its id.
 data Key = Main | AgentKey AgentId
     deriving stock (Eq, Show)
@@ -90,9 +117,12 @@ data Slot = Slot {dir :: FilePath, name :: FilePath}
 storeRoot :: Maybe FilePath -> Maybe FilePath -> Maybe FilePath
 storeRoot xdgStateHome home = (</> "bindings") <$> stateHome xdgStateHome home
 
--- | The kernel's run store, one SQLite database ("Effects.Store"), in 'stateHome'.
+{- | The kernel's run store, one SQLite database ("Effects.Store.Connection"),
+in 'stateHome'. @kernel-v2.db@: the store before it, @kernel.db@, is never
+opened.
+-}
 runStore :: Maybe FilePath -> Maybe FilePath -> Maybe FilePath
-runStore xdgStateHome home = (</> "kernel.db") <$> stateHome xdgStateHome home
+runStore xdgStateHome home = (</> "kernel-v2.db") <$> stateHome xdgStateHome home
 
 {- | The kernel's directory, @state@, from @XDG_STATE_HOME@ and @HOME@, as the
 XDG base directory spec reads them: a relative or empty one is unset. No
@@ -131,6 +161,13 @@ bindingFile slot = slot.dir </> slot.name
 stashFile :: Slot -> FilePath
 stashFile slot = slot.dir </> (stashPrefix <> slot.name <> ".json")
 
+stopFile :: Slot -> FilePath
+stopFile slot = slot.dir </> (stopPrefix <> slot.name <> ".json")
+
+-- | The agent's span ('SpanLink'), written by its spawner's hook once it knows the agent's id.
+spanFile :: Slot -> FilePath
+spanFile slot = slot.dir </> (spanPrefix <> slot.name)
+
 -- | Marks a key a lead: holds the lead skill its agent began, so its writes wait for its run. Never removed.
 leadFile :: Slot -> FilePath
 leadFile slot = slot.dir </> (leadPrefix <> slot.name)
@@ -143,9 +180,11 @@ ledFile :: Slot -> FilePath
 ledFile slot = slot.dir </> (ledPrefix <> slot.name)
 
 -- | The session's own agent's slot, and the prefixes of the files beside a slot.
-mainName, stashPrefix, leadPrefix, ledPrefix :: FilePath
+mainName, stashPrefix, stopPrefix, spanPrefix, leadPrefix, ledPrefix :: FilePath
 mainName = "main"
 stashPrefix = "handback-"
+stopPrefix = "stop-"
+spanPrefix = "span-"
 leadPrefix = "lead-"
 ledPrefix = "led-"
 
@@ -159,7 +198,11 @@ slottedAgents names =
     [ AgentId (Text.pack name)
     | name <- names
     , name /= mainName
-    , not (any (`isPrefixOf` name) [stashPrefix, leadPrefix, ledPrefix])
+    , not
+        ( any
+            (`isPrefixOf` name)
+            [stashPrefix, stopPrefix, spanPrefix, leadPrefix, ledPrefix]
+        )
     ]
 
 -- | Whether a binding's worktree still stands: one is removed once its PR merged.

@@ -1,10 +1,13 @@
 module State.Run.FanSpec (spec) where
 
-import Data.Either (fromRight)
-import Data.Foldable (for_)
+import Data.Either (fromRight, isLeft, isRight)
+import Data.Foldable (for_, toList)
+import Data.Graph (graphFromEdges, topSort)
+import Data.List (inits)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Hedgehog (Gen, assert, cover, forAll, (===))
@@ -13,17 +16,22 @@ import Hedgehog.Range qualified as Range
 import State.Run.Ask (QId (..))
 import State.Run.Event
 import State.Run.EventGen (
+    genDepsEdit,
     genSaid,
+    genSha,
     genTaskAt,
     genTaskId,
     genTaskState,
     genTasks,
+    genText,
     oneLine,
     runId,
     tasksOf,
  )
-import State.Run.Fan hiding (merged)
+import State.Run.Fan hiding (merged, tasksOf)
+import State.Run.Fan qualified as Fan (tasksOf)
 import State.Run.RunGen (plainTask)
+import State.Step.Artifact qualified as Artifact (Task (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -34,16 +42,16 @@ spec = describe "State.Run.Fan" $ do
         let picks = spawnable [] fan
             busy =
                 [ task
-                | task <- fan.tasks
+                | task <- Fan.tasksOf fan
                 , Set.member task.id fan.atWork
-                    || Tasked task.id `elem` map (.child.task) (running fan)
+                    || Tasked task.id `elem` map (childTaskId . (.child)) (running fan)
                 ]
         cover 10 "spawns some" (not (null picks))
         for_ picks $ \task -> do
             assert (not (settled fan task.id))
             assert (task.id `notElem` map (.id) busy)
             assert (all (merged fan) task.deps)
-            assert (Tasked task.id `notElem` map ((.task) . fst) (untriaged fan))
+            assert (Tasked task.id `notElem` map (childTaskId . fst) (untriaged fan))
             assert (not (awaitsCi fan task.id))
 
     it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
@@ -77,7 +85,10 @@ spec = describe "State.Run.Fan" $ do
         map (.id) (spawnable [] five)
             `shouldBe` map TaskId ["t1", "t2", "t3", "t4", "t5"]
         length . (.atWork)
-            <$> foldl' (\fan task -> fan >>= spawning [] task.id) (Right five) five.tasks
+            <$> foldl'
+                (\fan task -> fan >>= spawning [] task.id)
+                (Right five)
+                (Fan.tasksOf five)
             `shouldBe` Right 5
 
     it "settles a task whose child finished" $
@@ -178,9 +189,59 @@ spec = describe "State.Run.Fan" $ do
             [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
             `shouldBe` [Right (Just (runId "c1")), Right Nothing]
 
+    it
+        "finds the live child that asked a question in any hand-back, as its answer goes down to it"
+        $ do
+            let first = QId (runId "c1") 1
+                asked =
+                    [ spawned [] (childFor "c1" t1)
+                    , handedBack (runId "c1") (AsksUp first)
+                    , handedBack (runId "c1") (AsksUp (QId (runId "c1") 3))
+                    ]
+            map
+                (fmap (fmap (.child.run) . (`askerOf` first)) . applied)
+                [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
+                `shouldBe` [Right (Just (runId "c1")), Right Nothing]
+
     it "settles a parked task, so the fan-out may leave" $
         (applied [moved t1 (Parked "out of scope" Nothing)] >>= leave)
             `shouldBe` Right ()
+
+    it "runs a parked task again once an agent or a child takes it" $
+        map
+            ( fmap (\fan -> (settled fan t1, allParked fan))
+                . applied
+                . (moved t1 (Parked "later" Nothing) :)
+                . pure
+            )
+            [spawning [] t1, spawned [] (childFor "c1" t1)]
+            `shouldBe` replicate 2 (Right (False, False))
+
+    it "runs a parked task again once its waiting child is resumed" $
+        (\fan -> (settled fan t1, allParked fan, map (.child.run) (running fan)))
+            <$> applied
+                [ spawned [] (childFor "c1" t1)
+                , handedBack (runId "c1") (Awaits Ci (oneLine "PR #1"))
+                , moved t1 (Parked "later" Nothing)
+                , resumed (runId "c1")
+                ]
+            `shouldBe` Right (False, False, [runId "c1"])
+
+    it "respawns a parked task whose last child stopped: parking settled the stop" $
+        map
+            ( fmap (`tries` t1)
+                . applied
+                . ( [ spawned [] (childFor "c1" t1)
+                    , handedBack (runId "c1") (Ended (Stop Blocked "no access"))
+                    , moved t1 (Parked "later" Nothing)
+                    ]
+                        <>
+                  )
+            )
+            [ [spawning [] t1, spawned [] (childFor "c2" t1)]
+            , [spawned [] (childFor "c2" t1)]
+            ]
+            `shouldBe` replicate 2 (Right 2)
 
     it "does not leave while a child runs on a task already in review" $
         ( applied
@@ -226,10 +287,31 @@ spec = describe "State.Run.Fan" $ do
         map (.id) . spawnable [] <$> (reviewed >>= moved t1 (Merged (Url "pr")))
             `shouldBe` Right [t2]
 
-    it "keeps_a_merged_task_merged_ignoring_any_later_move" . hedgehog $ do
+    it "refuses_any_later_move_of_a_merged_task" . hedgehog $ do
         later <- forAll genTaskState
-        let merged' = applied [moved t1 (Merged (Url "pr"))]
-        (merged' >>= moved t1 later) === merged'
+        (applied [moved t1 (Merged (Url "pr"))] >>= moved t1 later)
+            === Left (TaskMerged t1 (Url "pr"))
+
+    it "holds a merged task's same merge already, and no other move" $
+        map
+            (\later -> holds t1 later <$> applied [moved t1 (Merged (Url "pr"))])
+            [ Merged (Url "pr")
+            , Merged (Url "other")
+            , InReview (Url "pr")
+            , Parked "wrong task" Nothing
+            ]
+            `shouldBe` Right True : replicate 3 (Right False)
+
+    it "holds_no_move_of_a_task_not_merged" . hedgehog $ do
+        -- A move taken that leaves the task unmerged.
+        before <-
+            forAll
+                ( Gen.filter
+                    (either (const False) (not . (`merged` t1)) . applied . pure . moved t1)
+                    genTaskState
+                )
+        later <- forAll genTaskState
+        (holds t1 later <$> applied [moved t1 before]) === Right False
 
     it "awaits the merge of a dependency in review" $
         mergesAwaited <$> moved t1 (InReview (Url "pr")) twoTasks `shouldBe` Right [t1]
@@ -252,24 +334,120 @@ spec = describe "State.Run.Fan" $ do
     describe "an added task" $ do
         it "is spawnable at once, its dependencies merged" $
             map (.id) . spawnable []
-                <$> (moved t1 (Merged (Url "pr")) oneTask >>= added (plainTask "fix" ["t1"]))
+                <$> (moved t1 (Merged (Url "pr")) oneTask >>= added 1 (plainTask "fix" ["t1"]))
                 `shouldBe` Right [TaskId "fix"]
 
         it "waits for its dependency's merge as any task" $
             map (.id) . spawnable []
-                <$> (spawning [] t1 oneTask >>= added (plainTask "fix" ["t1"]))
+                <$> (spawning [] t1 oneTask >>= added 1 (plainTask "fix" ["t1"]))
                 `shouldBe` Right []
 
         it "keeps the fan-out open until it settles" $
-            (moved t1 (Merged (Url "pr")) oneTask >>= added (plainTask "fix" []) >>= leave)
+            (moved t1 (Merged (Url "pr")) oneTask >>= added 1 (plainTask "fix" []) >>= leave)
                 `shouldBe` Left (Unsettled (TaskId "fix" :| []))
 
         it "is refused under an id the fan-out has" $
-            added (plainTask "t1" []) oneTask `shouldBe` Left (TaskExists t1)
+            added 1 (plainTask "t1" []) oneTask `shouldBe` Left (TaskExists t1)
 
         it "is refused depending on a task the fan-out lacks" $
-            added (plainTask "fix" ["t9"]) oneTask
+            added 1 (plainTask "fix" ["t9"]) oneTask
                 `shouldBe` Left (UnknownTask (TaskId "t9"))
+
+        it "is refused based on a task the fan-out lacks" $
+            added 1 (plainTask "fix" []) {Artifact.base = OnTask (TaskId "t9")} oneTask
+                `shouldBe` Left (UnknownTask (TaskId "t9"))
+
+        it "joins the breakdown's seq, or with none starts one at its own" $
+            map
+                (fmap (fmap (.seq) . (.breakdown)) . added 7 (plainTask "fix" []))
+                [oneTask, emptyFan]
+                `shouldBe` [Right (Just 1), Right (Just 7)]
+
+    describe "a delivered task" $ do
+        let delivered = moved t1 (Delivered (Url "pr")) twoTasks
+        it "is settled, so the fan-out may leave and its round end" $
+            ( delivered >>= moved t2 (Delivered (Url "pr2")) >>= \fan -> (,) <$> leave fan <*> closed fan
+            )
+                `shouldBe` Right ((), ())
+        it "is not merged: its dependents are not spawned" $
+            map (.id) . spawnable [] <$> delivered `shouldBe` Right []
+        it "awaits no merge" $
+            mergesAwaited <$> delivered `shouldBe` Right []
+        it "names its PR" $
+            (`pullRequest` t1) <$> delivered `shouldBe` Right (Just (Url "pr"))
+
+    describe "a base change" $ do
+        it "replaces the task's base, and only its" $
+            map (.base) . Fan.tasksOf <$> rebased t2 (OnTask t1) DepsKept twoTasks
+                `shouldBe` Right [OnDefault, OnTask t1]
+        it "is refused on a task the breakdown lacks" $
+            rebased (TaskId "t9") OnDefault DepsKept twoTasks
+                `shouldBe` Left (UnknownTask (TaskId "t9"))
+        it "may name a later task of the breakdown" $
+            map (.base) . Fan.tasksOf <$> rebased t1 (OnTask t2) DepsKept independent
+                `shouldBe` Right [OnTask t2, OnDefault]
+        it "keeps the task's dependencies when it names none" $
+            map (.deps) . Fan.tasksOf <$> rebased t2 OnDefault DepsKept twoTasks
+                `shouldBe` Right [[], [t1]]
+        it "sets the task's dependencies, a later task among them" $
+            map (.deps) . Fan.tasksOf
+                <$> rebased t1 OnDefault (DepsSet (Set.fromList [t2])) independent
+                `shouldBe` Right [[t2], []]
+        it "drops every dependency on none, so the task is spawnable at once" $
+            map (.id) . spawnable []
+                <$> rebased t2 OnDefault (DepsSet Set.empty) twoTasks
+                `shouldBe` Right [t1, t2]
+        it "is refused naming a dependency the breakdown lacks, before any cycle" $
+            rebased t1 (OnTask t1) (DepsSet (Set.fromList [TaskId "t9"])) twoTasks
+                `shouldBe` Left (UnknownTask (TaskId "t9"))
+        it "is refused basing the task on itself, a cycle" $
+            rebased t1 (OnTask t1) DepsKept twoTasks `shouldBe` Left (TaskCycle (t1 :| []))
+        it "is refused making the task depend on itself, a cycle" $
+            rebased t1 OnDefault (DepsSet (Set.fromList [t1])) twoTasks
+                `shouldBe` Left (TaskCycle (t1 :| []))
+        it "is refused closing a cycle through another task, naming both" $
+            -- t2 depends on t1: t1 on t2's branch would build on itself.
+            cycleOf (rebased t1 (OnTask t2) DepsKept twoTasks)
+                `shouldBe` Just (Set.fromList [t1, t2])
+        it "stores_no_cycle_whatever_base_and_dependency_edits_come" . hedgehog $ do
+            fan <- forAll (fresh <$> genTasks)
+            rebases <- forAll (Gen.list (Range.linear 0 8) (genRebaseIn (idsOf fan)))
+            let (after, refusals) = foldl' step (fan, []) rebases
+                step (now, refused) (task, base, deps) = case rebased task base deps now of
+                    Right next -> (next, refused)
+                    Left refusal -> (now, refusal : refused)
+            cover 5 "a cycle refused" (any isCycle refusals)
+            cover 5 "a task building on a later one" (anyLater (Fan.tasksOf after))
+            assert (isRight (orderedBy (Fan.tasksOf after)))
+        {- Differential: Data.Graph's topological order, checked by the
+        breakdown's own earlier-only rule, is an oracle independent of the
+        strongly connected components rebased reads. -}
+        it "refuses_an_edit_as_a_cycle_exactly_when_no_order_passes_the_breakdown_check"
+            . hedgehog
+            $ do
+                start <- forAll (fresh <$> genTasks)
+                before <- forAll (Gen.list (Range.linear 0 4) (genRebaseIn (idsOf start)))
+                let fan =
+                        foldl'
+                            (\now (task, base, deps) -> fromRight now (rebased task base deps now))
+                            start
+                            before
+                (task, base, deps) <- forAll (genRebaseIn (idsOf fan))
+                let naive =
+                        [ if found.id == task
+                            then found {Artifact.base = base, Artifact.deps = depsOr found.deps deps}
+                            else found
+                        | found <- Fan.tasksOf fan
+                        ]
+                    verdict = rebased task base deps fan
+                cover 10 "refused as a cycle" (either isCycle (const False) verdict)
+                cover 10 "taken" (isRight verdict)
+                either isCycle (const False) verdict === isLeft (orderedBy naive)
+
+    it "keeps the head a task's branch was last seen at" $
+        Map.lookup t1 . (.heads)
+            <$> (headed t1 (Sha "a") oneTask >>= headed t1 (Sha "b"))
+            `shouldBe` Right (Just (Sha "b"))
 
     describe "a round on a task's PR" $ do
         let finishedInReview =
@@ -319,19 +497,46 @@ spec = describe "State.Run.Fan" $ do
             map (.id) . spawnable [] . restarted <$> spawning [] t1 oneTask
                 `shouldBe` Right [t1]
 
+    it "keeps_every_merge_head_try_and_held_wake_through_any_in_place_edit"
+        . hedgehog
+        $ do
+            fan <- forAll genFan
+            edits <- forAll (Gen.list (Range.linear 0 10) genEdit)
+            let after = foldl' (\now edit -> fromRight now (edited edit now)) fan edits
+                ids = map (.id) (Fan.tasksOf fan)
+                mergedOf now = Map.filterWithKey (\task _ -> merged now task) now.moves
+            cover 10 "an edit taken" (after /= fan)
+            cover 10 "a merge head" (not (Map.null fan.heads))
+            cover 10 "a held wake" (not (null fan.held))
+            (mergedOf after, after.heads, map (tries after) ids, after.held)
+                === (mergedOf fan, fan.heads, map (tries fan) ids, fan.held)
+
     describe "a new breakdown" $ do
-        it "starts a fresh fan-out" $
-            ( spawned [] (childFor "c1" t1) independent
-                >>= handedBack (runId "c1") (Finished (oneLine "PR"))
-                >>= moved t1 (Merged (Url "pr"))
-                >>= broken (tasksOf (plainTask "t3" [] :| []))
-            )
-                `shouldBe` Right (fresh (tasksOf (plainTask "t3" [] :| [])))
+        it "starts a fresh fan-out, the old breakdown kept as it ended" $ do
+            let old =
+                    spawned [] (childFor "c1" t1) independent
+                        >>= handedBack (runId "c1") (Finished (oneLine "PR"))
+                        >>= moved t1 (Merged (Url "pr"))
+                        >>= held t2 (Url "pull/2")
+                        >>= headed t1 (Sha "a")
+                next = old >>= broken 2 (tasksOf (plainTask "t1" [] :| []))
+            ( map (.id) . spawnable [] <$> next
+                , map asFan . (.replaced) <$> next
+                )
+                `shouldBe` (Right [t1], (\ended -> [ended {atWork = Set.empty}]) <$> old)
+
+        it "keeps_each_replaced_breakdown_as_it_ended_oldest_first" . hedgehog $ do
+            old <- forAll genFan
+            tasks <- forAll genTasks
+            let twice = broken 100 tasks old >>= \mid -> (mid,) <$> broken 101 tasks mid
+            cover 10 "replaced twice" (isRight twice)
+            for_ twice $ \(mid, after) ->
+                map asFan after.replaced === [old, mid {replaced = []}]
 
         it "is refused while an agent is at work" $
             ( spawning [] t1 independent
                 >>= spawned [] (childFor "c2" t2)
-                >>= broken (tasksOf (plainTask "t3" [] :| []))
+                >>= broken 1 (tasksOf (plainTask "t3" [] :| []))
             )
                 `shouldBe` Left (Busy (t1 :| [t2]))
 
@@ -343,6 +548,29 @@ spec = describe "State.Run.Fan" $ do
         it "refuses a dependency on a later task, so dependencies never cycle" $
             breakdown (plainTask "t1" ["t2"] :| [plainTask "t2" []])
                 `shouldBe` Left (DependsLater t1 t2)
+
+        it
+            "accepts_a_breakdown_only_if_no_dependency_or_base_names_a_task_not_before_it"
+            . hedgehog
+            $ do
+                tasks <- forAll genLoose
+                let ids = map (.id) (toList tasks)
+                    placed = zip (inits ids) (toList tasks)
+                    earlierOnly =
+                        and
+                            [ task.id `notElem` before
+                                && all (`elem` before) (task.deps <> toList (builtOn task.base))
+                            | (before, task) <- placed
+                            ]
+                    baseLater =
+                        or
+                            [ any (`notElem` before) (builtOn task.base)
+                            | (before, task) <- placed
+                            ]
+                cover 10 "accepted" earlierOnly
+                cover 10 "refused" (not earlierOnly)
+                cover 5 "a base on a task not before it" baseLater
+                isRight (breakdown tasks) === earlierOnly
   where
     settledAfter changes = (`settled` t1) <$> applied changes
     applied = foldl' (>>=) (Right oneTask)
@@ -356,11 +584,11 @@ t1 = TaskId "t1"
 t2 = TaskId "t2"
 
 childFor :: Text.Text -> TaskId -> Child
-childFor child taskId = Child (runId child) (Tasked taskId) "worktree"
+childFor child taskId = Child (runId child) (Tasked (TaskRef taskId 1)) "worktree"
 
--- | A breakdown's fan-out: a first breakdown has no agent at work to refuse it.
+-- | A breakdown's fan-out, logged at seq 1: a first breakdown has no agent at work to refuse it.
 fresh :: Tasks -> Fan
-fresh tasks = either (error . show) id (broken tasks emptyFan)
+fresh tasks = either (error . show) id (broken 1 tasks emptyFan)
 
 -- | The task's PR merged.
 merged :: Fan -> TaskId -> Bool
@@ -371,6 +599,7 @@ merged fan task = case Map.lookup task fan.moves of
     Just (InCi _) -> False
     Just (Kept _) -> False
     Just (Round _) -> False
+    Just (Delivered _) -> False
     Nothing -> False
 
 -- | The task's PR is in CI after its latest child finished: CI is awaited, nothing built again.
@@ -384,7 +613,97 @@ awaitsCi fan task = case ( Map.lookup task fan.moves
 tshow :: Int -> Text.Text
 tshow = Text.pack . show
 
--- | A breakdown, then spawns, hand-backs and moves, each kept only where the fan accepts it.
+{- | A breakdown's tasks as 'genTasks' makes them, or up to four tasks of
+ids @t1@ to @t5@ in any order, each depending on and based on any of them:
+the breakdown decides which may stand.
+-}
+genLoose :: Gen (NonEmpty Task)
+genLoose =
+    Gen.choice [tasksInOrder <$> genTasks, Gen.nonEmpty (Range.linear 1 4) genAny]
+  where
+    genAny = do
+        task <- Gen.int (Range.linear 1 5) >>= genTaskAt
+        deps <- Gen.choice [pure [], Gen.subsequence ids]
+        base <- Gen.choice [pure OnDefault, OnTask <$> Gen.element ids, pure task.base]
+        name <- Gen.element ids
+        pure task {Artifact.id = name, Artifact.deps = deps, Artifact.base = base}
+    ids = map (TaskId . ("t" <>) . Text.pack . show) [1 :: Int .. 5]
+
+{- | An edit of the breakdown in place: a task added, a base changed, a
+task parked to drop it.
+-}
+data Edit = Add Task | Rebase TaskId Base DepsEdit | Drop TaskId
+    deriving stock (Show)
+
+genEdit :: Gen Edit
+genEdit =
+    Gen.choice
+        [ Add <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
+        , genRebase
+        , Drop <$> genTaskId
+        ]
+
+-- | A base change of any task of ids t1 to t5, onto any of them, its dependencies kept or set.
+genRebase :: Gen Edit
+genRebase =
+    Rebase
+        <$> genTaskId
+        <*> Gen.choice [pure OnDefault, OnTask <$> genTaskId]
+        <*> genDepsEdit
+
+-- | A base change naming only these tasks, so none is refused as unknown.
+genRebaseIn :: [TaskId] -> Gen (TaskId, Base, DepsEdit)
+genRebaseIn ids =
+    (,,)
+        <$> Gen.element ids
+        <*> Gen.choice [pure OnDefault, OnTask <$> Gen.element ids]
+        <*> Gen.choice [pure DepsKept, DepsSet . Set.fromList <$> Gen.subsequence ids]
+
+idsOf :: Fan -> [TaskId]
+idsOf = map (.id) . Fan.tasksOf
+
+edited :: Edit -> Fan -> Either Refusal Fan
+edited = \case
+    Add task -> added 1 task
+    Rebase task base deps -> rebased task base deps
+    Drop task -> moved task (Parked "dropped" Nothing)
+
+-- | The tasks of the cycle a base change was refused for, in any order.
+cycleOf :: Either Refusal Fan -> Maybe (Set.Set TaskId)
+cycleOf = \case
+    Left (TaskCycle ring) -> Just (Set.fromList (toList ring))
+    _ -> Nothing
+
+isCycle :: Refusal -> Bool
+isCycle = isJust . cycleOf . Left
+
+{- | The tasks in 'topSort''s order, each after what it builds on, as the
+breakdown's own check takes them: refused when no order can pass it.
+-}
+orderedBy :: [Task] -> Either BreakdownError Tasks
+orderedBy tasks = case NonEmpty.nonEmpty (reverse (map taskAt (topSort graph))) of
+    Just order -> breakdown order
+    Nothing -> error "a fan-out's breakdown has a task"
+  where
+    (graph, vertex, _) =
+        graphFromEdges
+            [(task, task.id, task.deps <> toList (builtOn task.base)) | task <- tasks]
+    taskAt v = let (task, _, _) = vertex v in task
+
+-- | Some task builds on one listed after it, by its base or a dependency.
+anyLater :: [Task] -> Bool
+anyLater tasks =
+    or
+        [ any (`notElem` before) (task.deps <> toList (builtOn task.base))
+        | (before, task) <- zip (inits (map (.id) tasks)) tasks
+        ]
+
+depsOr :: [TaskId] -> DepsEdit -> [TaskId]
+depsOr kept = \case
+    DepsKept -> kept
+    DepsSet deps -> Set.toList deps
+
+-- | A breakdown, then spawns, hand-backs, moves, merge heads and held wakes, each kept only where the fan accepts it.
 genFan :: Gen Fan
 genFan = do
     tasks <- genTasks
@@ -410,8 +729,10 @@ genFan = do
             , (\i _ fan -> Right (triaged (pickChild i fan) fan))
                 <$> Gen.int (Range.linear 0 10)
             , (\i _ fan -> resumed (pickChild i fan) fan) <$> Gen.int (Range.linear 0 10)
-            , (\task _ -> added task) <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
+            , (\task _ -> added 1 task) <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
             , pure (\_ fan -> Right (restarted fan))
+            , (\taskId sha _ -> headed taskId sha) <$> genTaskId <*> genSha
+            , (\taskId url _ -> held taskId (Url url)) <$> genTaskId <*> genText
             ]
     pickChild i fan = case fan.children of
         [] -> runId "none"

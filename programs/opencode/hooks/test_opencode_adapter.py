@@ -19,8 +19,10 @@ from agent_hook import (
     AgentStop,
     Allow,
     BeforeTool,
+    CallId,
     ContextSize,
     Deny,
+    Harness,
     Json,
     JsonObject,
     PromptExpansion,
@@ -30,6 +32,7 @@ from agent_hook import (
     SkillName,
     Source,
     Tool,
+    Usage,
     Verdict,
     emit_event,
     parse_event,
@@ -37,8 +40,14 @@ from agent_hook import (
 from hypothesis import given
 from hypothesis import strategies as st
 from json_strategies import json_objects, json_values
-from opencode_adapter import parse_opencode, parse_tools, verdict_to_opencode
+from opencode_adapter import (
+    HARNESS,
+    parse_opencode,
+    parse_tools,
+    verdict_to_opencode,
+)
 from plugin_envelopes import (
+    CALL,
     CHILD,
     CWD,
     LEAD,
@@ -60,6 +69,7 @@ TOOLS = parse_tools(Path(TOOLS_FILE).read_text())
 
 SESSION = SessionId(LEAD)
 WORKER = Agent(AgentId(CHILD), Role("implementer"))
+CALLED = CallId(CALL)
 
 
 # ---- Envelopes, as the plugin sends them --------------------------------------------
@@ -71,6 +81,7 @@ def message(
     *,
     first: bool = False,
     created: bool = True,
+    spent: JsonObject | None = None,
 ) -> JsonObject:
     return envelope(
         "message",
@@ -79,6 +90,7 @@ def message(
         parts=[*parts],
         agents={CHILD: "implementer"},
         running=[*running],
+        spent={} if spent is None else spent,
     )
 
 
@@ -169,7 +181,7 @@ def test_a_tool_call_takes_its_vendor_free_name_and_claude_shaped_input(
     tool: str, args: JsonObject, neutral: Tool, named: JsonObject
 ) -> None:
     assert parse_opencode(before(tool, args), TOOLS) == BeforeTool(
-        SESSION, CWD, None, neutral, named
+        SESSION, CWD, None, neutral, named, harness=HARNESS, call=CALLED
     )
 
 
@@ -183,6 +195,8 @@ def test_a_shell_call_carries_the_sessions_earlier_commands() -> None:
         Tool.SHELL,
         {"command": "gh run view 7"},
         ("ls", "gh run view 7"),
+        harness=HARNESS,
+        call=CALLED,
     )
 
 
@@ -238,6 +252,8 @@ def test_a_shell_result_is_its_stdout_with_the_context_size() -> None:
             {"command": "state init --task t1"},
             {"stdout": "run 0a1b2c3d /n /w\n"},
             ContextSize(300_500, 298_000),
+            harness=HARNESS,
+            call=CALLED,
         ),
     )
 
@@ -253,6 +269,8 @@ def test_another_tools_result_is_opencodes_own() -> None:
             Tool.OTHER,
             {"pattern": "*"},
             {"title": "t", "output": "a.py", "metadata": {}},
+            harness=HARNESS,
+            call=CALLED,
         ),
     )
 
@@ -267,10 +285,83 @@ def test_a_finished_task_hands_its_last_reply_back_then_stops_then_binds() -> No
     )
 
     assert parse_opencode(payload, TOOLS) == (
-        BeforeTool(SESSION, CWD, WORKER, Tool.HANDBACK, {"message": reply}),
-        AgentStop(SESSION, CWD, WORKER, (AgentId("ses_other"),)),
-        AfterTool(SESSION, CWD, None, Tool.DELEGATE, SPAWN_ARGS, {"agentId": CHILD}),
+        BeforeTool(
+            SESSION, CWD, WORKER, Tool.HANDBACK, {"message": reply}, harness=HARNESS
+        ),
+        AgentStop(SESSION, CWD, WORKER, (AgentId("ses_other"),), harness=HARNESS),
+        AfterTool(
+            SESSION,
+            CWD,
+            None,
+            Tool.DELEGATE,
+            SPAWN_ARGS,
+            {"agentId": CHILD},
+            harness=HARNESS,
+            call=CALLED,
+        ),
     )
+
+
+def test_a_tool_call_and_its_result_name_opencodes_call_id() -> None:
+    called = parse_opencode(before("read", {"filePath": "a"}, call="call_7"), TOOLS)
+    ran = parse_opencode(after("read", {"filePath": "a"}, "x", call="call_7"), TOOLS)
+
+    match called, ran:
+        case BeforeTool(call=before_call), (AfterTool(call=after_call),):
+            assert (before_call, after_call) == (CallId("call_7"), CallId("call_7"))
+        case other:
+            pytest.fail(f"not a call and its result: {other!r}")
+
+
+CHILD_SPENT: JsonObject = {
+    CHILD: call_tokens(100, read=20, write=5, output=30, reasoning=7)
+}
+# Input with the cache read and written; output with the reasoning.
+CHILD_USAGE = Usage(input=125, output=37, cache_read=20, cache_write=5)
+
+
+def test_a_finished_tasks_hand_back_and_stop_carry_the_tokens_its_child_spent() -> None:
+    spent: JsonObject = {**CHILD_SPENT, "ses_other": call_tokens(9_000)}
+    payload = after(
+        "task", SPAWN_ARGS, task_output("completed", "READY abc"), spent=spent
+    )
+
+    match parse_opencode(payload, TOOLS):
+        case (BeforeTool(usage=handed), AgentStop(usage=stopped), AfterTool()):
+            assert (handed, stopped) == (CHILD_USAGE, CHILD_USAGE)
+        case other:
+            pytest.fail(f"not a hand-back, a stop and an afterTool: {other!r}")
+
+
+def test_a_failed_tasks_stop_carries_the_tokens_its_child_spent() -> None:
+    payload = after("task", SPAWN_ARGS, task_output("error", "boom"), spent=CHILD_SPENT)
+
+    match parse_opencode(payload, TOOLS):
+        case (AgentStop(usage=usage), AfterTool()):
+            assert usage == CHILD_USAGE
+        case other:
+            pytest.fail(f"not a stop then an afterTool: {other!r}")
+
+
+def test_a_background_tasks_end_carries_the_tokens_its_child_spent() -> None:
+    text = task_output("completed", "READY abc", "Background task completed: slice 1")
+    parts: list[Json] = [{"type": "text", "synthetic": True, "text": text}]
+
+    match parse_opencode(message(parts=parts, spent=CHILD_SPENT), TOOLS):
+        case (BeforeTool(usage=handed), AgentStop(usage=stopped)):
+            assert (handed, stopped) == (CHILD_USAGE, CHILD_USAGE)
+        case other:
+            pytest.fail(f"not a hand-back then a stop: {other!r}")
+
+
+def test_a_child_the_plugin_saw_no_model_call_of_has_no_usage() -> None:
+    payload = after("task", SPAWN_ARGS, task_output("completed", "READY abc"))
+
+    match parse_opencode(payload, TOOLS):
+        case (BeforeTool(usage=handed), AgentStop(usage=stopped), AfterTool()):
+            assert (handed, stopped) == (None, None)
+        case other:
+            pytest.fail(f"not a hand-back, a stop and an afterTool: {other!r}")
 
 
 def test_a_background_task_started_only_binds() -> None:
@@ -308,12 +399,12 @@ def test_a_task_output_that_is_no_task_block_is_refused() -> None:
 @pytest.mark.parametrize(
     ("created", "source"), [(True, Source.STARTUP), (False, Source.RESUME)]
 )
-def test_the_leads_first_message_starts_the_session_new_or_resumed(
+def test_the_leads_first_message_starts_an_opencode_session_with_no_transcript(
     created: bool,  # noqa: FBT001 - a parameter of the test
     source: Source,
 ) -> None:
     assert parse_opencode(message(first=True, created=created), TOOLS) == (
-        SessionStart(SESSION, CWD, None, source),
+        SessionStart(SESSION, CWD, None, source, Harness("opencode"), None, None),
     )
 
 
@@ -323,7 +414,9 @@ def test_a_child_sessions_first_message_starts_the_agent(
 ) -> None:
     payload = in_child(message(first=True, created=created))
 
-    assert parse_opencode(payload, TOOLS) == (AgentStart(SESSION, CWD, WORKER),)
+    assert parse_opencode(payload, TOOLS) == (
+        AgentStart(SESSION, CWD, WORKER, harness=HARNESS),
+    )
 
 
 def test_a_later_message_starts_nothing() -> None:
@@ -335,8 +428,15 @@ def test_a_background_tasks_end_in_the_parents_message_hands_back_and_stops() ->
     parts: list[Json] = [{"type": "text", "synthetic": True, "text": text}]
 
     assert parse_opencode(message(parts=parts, running=[CHILD]), TOOLS) == (
-        BeforeTool(SESSION, CWD, WORKER, Tool.HANDBACK, {"message": "READY abc"}),
-        AgentStop(SESSION, CWD, WORKER, ()),
+        BeforeTool(
+            SESSION,
+            CWD,
+            WORKER,
+            Tool.HANDBACK,
+            {"message": "READY abc"},
+            harness=HARNESS,
+        ),
+        AgentStop(SESSION, CWD, WORKER, (), harness=HARNESS),
     )
 
 
@@ -354,13 +454,13 @@ def test_any_other_part_of_a_later_message_tells_nothing(part: JsonObject) -> No
 
 def test_a_command_expands_a_skill() -> None:
     assert parse_opencode(envelope("command", command="engineer"), TOOLS) == (
-        PromptExpansion(SESSION, CWD, None, SkillName("engineer")),
+        PromptExpansion(SESSION, CWD, None, SkillName("engineer"), harness=HARNESS),
     )
 
 
 def test_the_root_going_idle_stops_the_lead_with_its_running_children() -> None:
     assert parse_opencode(envelope("idle", running=[CHILD]), TOOLS) == (
-        AgentStop(SESSION, CWD, None, (AgentId(CHILD),)),
+        AgentStop(SESSION, CWD, None, (AgentId(CHILD),), harness=HARNESS),
     )
 
 
@@ -434,7 +534,13 @@ def test_a_patch_of_one_file_is_an_edit_of_it(lines: list[str]) -> None:
     args = patch(*lines)
 
     assert parse_opencode(before("apply_patch", args), TOOLS) == BeforeTool(
-        SESSION, CWD, None, Tool.EDIT, args | {"file_path": "notes.md"}
+        SESSION,
+        CWD,
+        None,
+        Tool.EDIT,
+        args | {"file_path": "notes.md"},
+        harness=HARNESS,
+        call=CALLED,
     )
 
 
@@ -452,7 +558,7 @@ def test_a_patch_of_several_files_or_none_is_an_edit_of_no_one_file(
     args = patch(*lines)
 
     assert parse_opencode(before("apply_patch", args), TOOLS) == BeforeTool(
-        SESSION, CWD, None, Tool.EDIT, args
+        SESSION, CWD, None, Tool.EDIT, args, harness=HARNESS, call=CALLED
     )
 
 
@@ -477,6 +583,13 @@ def test_a_patch_of_several_files_or_none_is_an_edit_of_no_one_file(
         before("bash", {"command": "ls"}) | {"history": [3]},
         after("bash", {"command": "ls"}, "x", [{"input": "many"}]),
         after("bash", {"command": "ls"}, "x", [call_tokens(1) | {"cache": {}}]),
+        after(
+            "task",
+            SPAWN_ARGS,
+            task_output("completed", "READY abc"),
+            spent={CHILD: {"input": 1}},
+        ),
+        before("bash", {"command": "ls"}) | {"callID": None},
     ],
 )
 def test_an_envelope_it_cannot_read_is_refused(payload: Json) -> None:
@@ -521,8 +634,8 @@ def child_caller(child: str, agent: str | None) -> JsonObject:
     return {"sessionID": child, "agent": agent}
 
 
-def task_ran(output: str, running: list[str]) -> JsonObject:
-    return after("task", SPAWN_ARGS, output, (), running)
+def task_ran(output: str, running: list[str], spent: JsonObject) -> JsonObject:
+    return after("task", SPAWN_ARGS, output, (), running, spent=spent)
 
 
 def command(name: str) -> JsonObject:
@@ -538,8 +651,9 @@ def message_of(
     running: list[str],
     first: bool,  # noqa: FBT001 - a builder's field
     created: bool,  # noqa: FBT001 - a builder's field
+    spent: JsonObject,
 ) -> JsonObject:
-    return message(parts, running, first=first, created=created)
+    return message(parts, running, first=first, created=created, spent=spent)
 
 
 def called_by(shape: JsonObject, caller: JsonObject) -> JsonObject:
@@ -547,6 +661,10 @@ def called_by(shape: JsonObject, caller: JsonObject) -> JsonObject:
 
 
 tokens_lists = st.lists(st.builds(call_tokens, counts, counts, counts, counts))
+spents = st.dictionaries(
+    st.sampled_from([CHILD, "ses_other"]),
+    st.builds(call_tokens, counts, counts, counts, counts, counts),
+)
 task_texts = st.builds(
     task_output,
     st.sampled_from(["running", "completed", "error"]),
@@ -562,7 +680,9 @@ callers = st.just(cast("JsonObject", {})) | st.builds(
 well_formed = st.builds(
     called_by,
     st.one_of(
-        st.builds(before, tool_names, json_objects, st.lists(st.text())),
+        st.builds(
+            before, tool_names, json_objects, st.lists(st.text()), call=st.text()
+        ),
         st.builds(
             after,
             tool_names.filter(lambda tool: tool != "task"),
@@ -570,9 +690,12 @@ well_formed = st.builds(
             st.text(),
             tokens_lists,
             st.lists(ids),
+            call=st.text(),
         ),
-        st.builds(task_ran, task_texts, st.lists(ids)),
-        st.builds(message_of, parts, st.lists(ids), st.booleans(), st.booleans()),
+        st.builds(task_ran, task_texts, st.lists(ids), spents),
+        st.builds(
+            message_of, parts, st.lists(ids), st.booleans(), st.booleans(), spents
+        ),
         st.builds(command, st.text()),
         st.builds(idle, st.lists(ids)),
     ),
@@ -620,10 +743,12 @@ FIELDS = [
     "directory",
     "tool",
     "args",
+    "callID",
     "history",
     "output",
     "tokens",
     "running",
+    "spent",
     "first",
     "created",
     "parts",
@@ -706,7 +831,8 @@ def declared(name: str, tools: list[Json] | None, code: str) -> JsonObject:
 
 TELL_TOOL = "import json, sys; e = json.load(sys.stdin); print(json.dumps({'context': e['tool']}))"
 TELL_EVENT = "import json, sys; e = json.load(sys.stdin); print(json.dumps({'context': e['event']}))"
-DENY_WITH_EVENT = "import json, sys; print(json.dumps({'decision': 'deny', 'reason': sys.stdin.read()}))"
+# Denies with the event it read, its harness aside: the one key that tells the backends apart.
+DENY_WITH_EVENT = "import json, sys; e = json.load(sys.stdin); del e['harness']; print(json.dumps({'decision': 'deny', 'reason': json.dumps(e)}))"
 LIMIT = """
 import json, sys
 event = json.load(sys.stdin)
@@ -844,7 +970,7 @@ def test_the_same_call_reaches_the_hooks_and_is_denied_as_in_claude_code(
         "hook_event_name": "PreToolUse",
         "tool_name": claude_call[0],
         "tool_input": claude_call[1],
-        "tool_use_id": "toolu_1",
+        "tool_use_id": CALL,
         **claude_caller,
     }
     payload = before(*opencode_call) | opencode_caller
@@ -855,3 +981,140 @@ def test_the_same_call_reaches_the_hooks_and_is_denied_as_in_claude_code(
     claude_output = cast("dict[str, JsonObject]", json.loads(claude.stdout))
     claude_reason = claude_output["hookSpecificOutput"]["permissionDecisionReason"]
     assert denied == {"deny": claude_reason}
+
+
+# ---- Differential: a spawn's whole life through both adapters ---------------------------
+
+# One real Claude Code run (contract/live.py), as its hooks received it.
+LIVE_RUN = cast(
+    "list[JsonObject]",
+    json.loads(
+        (
+            Path(__file__).parents[2]
+            / "claude-code/hooks/contract/fixtures/live-run.json"
+        ).read_text()
+    )["events"],
+)
+# Appends each event a hook reads to the file its argument names.
+RECORD = "import sys; open(sys.argv[1], 'a').write(sys.stdin.read() + '\\n')"
+
+
+def recorded_event(event: str, **fields: Json) -> JsonObject:
+    return next(
+        payload
+        for payload in LIVE_RUN
+        if payload["hook_event_name"] == event
+        and all(payload.get(key) == value for key, value in fields.items())
+    )
+
+
+def recorder(log: Path) -> JsonObject:
+    hook = declared("record", None, RECORD)
+    hook["command"] = [*cast("list[Json]", hook["command"]), str(log)]
+    return {"beforeTool": [hook], "afterTool": [hook], "agentStop": [hook]}
+
+
+def comparable(line: str) -> JsonObject:
+    """An event as the kernel reads it, but for what differs by harness alone:
+    the harness, the transcript (OpenCode writes none), a spawn's output but
+    for `agentId` (Claude's has its own fields), and a hand-back's call
+    (OpenCode's is no tool call, so it names none)."""
+    event = cast("JsonObject", json.loads(line))
+    del event["harness"], event["transcript_path"]
+    match event:
+        case {"tool": "delegate", "output": {"agentId": child}}:
+            return event | {"output": {"agentId": child}}
+        case {"tool": "handback"}:
+            return {key: value for key, value in event.items() if key != "call"}
+        case _:
+            return event
+
+
+def test_a_foreground_spawn_reaches_the_hooks_as_in_claude_code(tmp_path: Path) -> None:
+    # Claude: the lead's spawn, the child's hand-back and stop, then the
+    # spawn's result, which binds the child; its transcript has two requests.
+    spawn = recorded_event("PreToolUse", tool_name="Agent", agent_id=None)
+    call = cast("str", spawn["tool_use_id"])
+    bind = recorded_event("PostToolUse", tool_use_id=call)
+    child = cast("str", cast("JsonObject", bind["tool_response"])["agentId"])
+    handback = recorded_event(
+        "PreToolUse", tool_name="SubagentHandback", agent_id=child
+    )
+    stop = recorded_event("SubagentStop", agent_id=child)
+    main = tmp_path / "main.jsonl"
+    child_transcript = main.with_suffix("") / "subagents" / f"agent-{child}.jsonl"
+    child_transcript.parent.mkdir(parents=True)
+    requests = [
+        ("msg_1", 2, 5_093, 2_748, 325),
+        ("msg_2", 4, 100, 50, 10),
+    ]
+    _ = child_transcript.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "id": message_id,
+                        "usage": {
+                            "input_tokens": fresh,
+                            "cache_read_input_tokens": read,
+                            "cache_creation_input_tokens": written,
+                            "output_tokens": output,
+                        },
+                        "content": [],
+                    },
+                }
+            )
+            + "\n"
+            for message_id, fresh, read, written, output in requests
+        )
+    )
+    claude_log = tmp_path / "claude.log"
+    for payload in [spawn, handback, stop, bind]:
+        done = run(
+            CLAUDE_ADAPTER,
+            CLAUDE_TOOLS_FILE,
+            tmp_path,
+            recorder(claude_log),
+            payload | {"transcript_path": str(main)},
+        )
+        assert done.returncode == 0, done.stderr
+
+    # OpenCode: the same spawn, and its task's result, which holds the rest.
+    # Derived from the Claude recording, not recorded itself: no real OpenCode
+    # session could be recorded where this was written. It pins that both
+    # adapters agree, not that this is the input OpenCode sends.
+    session = cast("str", spawn["session_id"])
+    lead: JsonObject = {"sessionID": session, "rootID": session}
+    directory = Path(cast("str", spawn["cwd"]))
+    args = renamed_back(cast("JsonObject", spawn["tool_input"]))
+    report = cast("str", cast("JsonObject", handback["tool_input"])["message"])
+    spent = call_tokens(6, read=5_193, write=2_798, output=300, reasoning=35)
+    opencode_log = tmp_path / "opencode.log"
+    for payload in [
+        before("task", args, directory=directory, call=call),
+        after(
+            "task",
+            args,
+            task_output("completed", report, child=child),
+            directory=directory,
+            call=call,
+            spent={child: spent},
+        ),
+    ]:
+        _ = opencode(tmp_path, recorder(opencode_log), payload | lead)
+
+    claude_events = claude_log.read_text().splitlines()
+    opencode_events = opencode_log.read_text().splitlines()
+    assert len(claude_events) == 4
+    assert list(map(comparable, opencode_events)) == list(
+        map(comparable, claude_events)
+    )
+
+
+def renamed_back(claude_input: JsonObject) -> JsonObject:
+    """A spawn's input in OpenCode's names: the adapter renames them back."""
+    return {
+        "background" if key == "run_in_background" else key: value
+        for key, value in claude_input.items()
+    }

@@ -11,7 +11,7 @@ flowchart LR
   A[agent tool call] --> H[hook event]
   H --> D[agent_hook dispatcher]
   D --> S[state-hook]
-  S --> K[(kernel.db)]
+  S --> K[(kernel-v2.db)]
   S --> C[context or deny]
   C --> A
 ```

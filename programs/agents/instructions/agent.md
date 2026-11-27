@@ -29,6 +29,9 @@ gets the Fuel table.
   another worktree has checked out.
 - Hand back in about 250 words, never over 300, unless the invoked skill
   sets its own return format. Detail goes in commits, the PR or a file.
+- Hand back each gap you hit as a `Gap: <kind> <severity> <text>` line
+  after line 1. Kinds: kernel, prose, tool, permission, ci, process, other.
+  Severities: blocker, slowdown, papercut.
 
 ## Checks
 

@@ -12,6 +12,18 @@ git -C <clone> fetch origin
 git -C <clone> worktree add -b <branch> ~/.10x/<run>/worktrees/<task> origin/<base>
 ```
 
+`<base>` is the branch the brief's `Base:` line names:
+
+| `Base:` | `<base>` |
+|---|---|
+| `on_default` | the repo's default branch |
+| `on_epic:<name>` | the epic's branch |
+| `on_task:<id>` | the branch of task `<id>` |
+
+The kernel spawns a task only once its deps merge. So `on_task:<id>` fits a
+stacked task with no dep, once task `<id>`'s branch is pushed. A task with a
+dep takes the base its dep merges into.
+
 A named PR:
 
 ```sh
@@ -20,7 +32,9 @@ git -C <clone> worktree add --track -b "<branch>" ~/.10x/<run>/worktrees/<task> 
 ```
 
 Keep the worktree until the PR merges, since fixers use it too. A retry reuses
-it. A named PR's branch that exists locally: reuse the worktree holding it
+it once the old child's run stopped: a child that died without stopping it
+takes `state stop failed <why>` in the worktree first, or the retry's `state
+init` is refused. A named PR's branch that exists locally: reuse the worktree holding it
 (`git -C <clone> worktree list`), or `worktree add <path> <branch>` if none does.
 
 ## Brief

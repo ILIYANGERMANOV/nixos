@@ -55,10 +55,12 @@ from a higher layer, lowest first:
 | `State/Protocol/` | advice, hand-backs, hooks, the `record` grammar |
 | `State/Cli/` | commands, views, the effect shell |
 
-A run appends its events, version 4 (`State/Run/Codec.hs`), to the kernel's
-run store: one SQLite database, `$XDG_STATE_HOME/state/kernel.db`
-(`Effects/Store.hs`); `state dump <run>` prints them. The `self-improve`
-analyzer reads the events, so a format change updates `analyze.py` too. The step table is `flows/steps.nix`, handed
+A run appends its events to the kernel's run store: one SQLite database,
+`$XDG_STATE_HOME/state/kernel-v2.db`. Each event type has its own
+`schema_version`, stored beside its payload (`State/Run/Codec.hs`). `Data/`
+maps events to rows, and only `Effects/Store/` speaks SQL. `state dump <run>`
+prints the raw rows. The `self-improve` analyzer reads the events, so a
+format change updates `analyze.py` too. The step table is `flows/steps.nix`, handed
 to the kernel as JSON (`State/Table.hs`) and to the roles, whose capabilities
 and skills derive from it (`lib/derive.nix`). Why: the ADR table in
 `docs/harness/ARCHITECTURE.md#the-adrs`.
@@ -107,8 +109,9 @@ eval error. A profile's `hooks` lists module files; `fold` turns them into each
 event's hooks in order. `agent_hook.py` is the neutral contract and the
 dispatcher a backend's adapter calls once per event: deny wins, contexts join,
 rewritten input reaches the next hook. A hook fails open and tells. A backend
-fills `history` and `context` from what the agent did, so a hook keeps no state
-and reads no vendor file. Besides the tool events, `agentStart` (a subagent
+fills `history`, `context` and a subagent's `usage` from what the agent did,
+so a hook keeps no state and reads no vendor file. `call` is the harness's
+tool call id (OpenTelemetry's `gen_ai.tool.call.id`). Besides the tool events, `agentStart` (a subagent
 starts) and `promptExpansion` (a typed `/skill`) only add context, and name no
 tools; `agentStop` (any agent stops, the lead too) names none either, and its
 hooks run for their effect alone: what they print is dropped. The tool

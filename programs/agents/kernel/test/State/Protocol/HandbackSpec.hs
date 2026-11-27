@@ -19,12 +19,11 @@ import State.Run.Event (
     Asker (..),
     Asking (..),
     Commit (..),
-    Event (Asked, HandedBack, Spawned, TaskMoved, Took),
+    Event (Asked, Gapped, HandedBack, Spawned, TaskMoved, Took),
     Picks (..),
     Said (..),
     Sha (..),
     StateName (..),
-    TaskId (..),
     TaskState (..),
     Url (..),
     stepTook,
@@ -33,6 +32,7 @@ import State.Run.Event (
 import State.Run.Event qualified as Event
 import State.Run.EventGen (
     fuelSet,
+    gapText,
     genOneLine,
     genQuestion,
     genRunId,
@@ -40,12 +40,21 @@ import State.Run.EventGen (
     run,
     runId,
  )
+import State.Run.Gap (
+    Gap (..),
+    GapArea (..),
+    GapKind (Process, Tool),
+    GapLine (..),
+    Severity (Blocker, Papercut),
+    gapTextText,
+ )
 import State.Run.RunGen (
     childOf,
     g,
     happyPath,
     loadSteps,
     plainTask,
+    refTo,
     runAt,
     sha,
     tenXAt,
@@ -85,6 +94,16 @@ spec = describe "State.Protocol.Handback" $ do
                     , touches = Just (Set.fromList [Auth, DataModel])
                     }
 
+    it "reads every Gap: line below line 1, list items and indented ones too" $
+        (.gaps)
+            <$> parseHandback
+                "READY done\nGap: tool papercut slow grep\n- Gap: process blocker no runner\n  * Gap: odd words\n"
+            `shouldBe` Right
+                [ WellFormed Tool Papercut (gapText "slow grep")
+                , WellFormed Process Blocker (gapText "no runner")
+                , Malformed (gapText "odd words")
+                ]
+
     it
         "hands a re-plan stop up as a plan found wrong, not as a question asked (law Re-plan)"
         $ stopLine (Event.Stop Event.Replan "no such table")
@@ -99,7 +118,19 @@ spec = describe "State.Protocol.Handback" $ do
 typing :: Spec
 typing = describe "typeHandback" $ do
     steps <- runIO loadSteps
-    let typed at role = typeHandback steps g at (Just sha) (AgentRole role) Nothing . parsed
+    -- The id of the line the hand-back's first event takes.
+    let next = QId run 7
+        typed at role message =
+            typeHandback
+                steps
+                g
+                at
+                (Just sha)
+                next
+                (AgentRole role)
+                Nothing
+                message
+                (parsed message)
 
     it "types an implementer's READY as implement.done at the head, with its areas" $
         typed atImplement "implementer" "READY built\nTouches: auth"
@@ -120,32 +151,43 @@ typing = describe "typeHandback" $ do
             `shouldBe` Right (Typed [stepTook (FixDone (Commit sha Set.empty))] Nothing)
 
     it
-        "says a worker logged at work returned, by its id or else its role, and no other"
+        "ends no span for a hand-back by a known agent, whose span ends through its link"
+        $ (\result -> [ended | ended@Event.SpanEnded {} <- result.events])
+            <$> typeHandback
+                steps
+                g
+                fixing
+                (Just sha)
+                next
+                (AgentRole "fixer")
+                (Just (AgentId "a1"))
+                "READY fixed"
+                (parsed "READY fixed")
+            `shouldBe` Right []
+
+    it
+        "ends the oldest open span of the role by the hand-back's token, with the hand-back in full"
         $ do
-            let fixing =
-                    runAt
-                        ( fuelSet Balanced
-                            : take 16 happyPath
-                                <> map
-                                    (Took mempty)
-                                    [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
-                                <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")]
-                        )
-                returns agent =
-                    drop 1 . (.events)
+            let ending message =
+                    (\result -> [end | Event.SpanEnded _ end _ <- result.events])
                         <$> typeHandback
                             steps
                             g
                             fixing
                             (Just sha)
+                            next
                             (AgentRole "fixer")
-                            agent
-                            (parsed "READY fixed")
-            map returns [Just (AgentId "a1"), Nothing, Just (AgentId "a2")]
-                `shouldBe` [ Right [Event.WorkerReturned (AgentRole "fixer") (Just (AgentId "a1"))]
-                           , Right [Event.WorkerReturned (AgentRole "fixer") Nothing]
-                           , Right []
+                            Nothing
+                            message
+                            (parsed message)
+            map ending ["READY fixed", "BLOCKED no access\nmore"]
+                `shouldBe` [ Right [Event.WithHandback Event.ReadyWord "READY fixed"]
+                           , Right [Event.WithHandback Event.BlockedWord "BLOCKED no access\nmore"]
                            ]
+
+    it "ends a span by a tokenless report, a review-lead's table, as ready" $
+        handbackEnding Nothing "| # | Severity |"
+            `shouldBe` Event.WithHandback Event.ReadyWord "| # | Severity |"
 
     it "refuses a READY from a role that does not run the step" $
         typed atImplement "fixer" "READY fixed" `shouldSatisfy` isLeft
@@ -179,19 +221,26 @@ typing = describe "typeHandback" $ do
         typed (runAt (fuelSet Balanced : take 9 happyPath)) "researcher" findings
             `shouldSatisfy` isLeft
 
-    it "asks a stuck question under the run's next own id" $
+    it "asks a stuck question under the id of the line that asks it" $
         typed atImplement "implementer" "NEEDS_DECISION stuck: the same test fails"
             `shouldBe` Right
                 ( Typed
                     [ Asked
                         ( Asking
-                            (Question (QId run 1) Stuck (oneLine "the same test fails"))
+                            (Question (QId run 7) Stuck (oneLine "the same test fails"))
                             implement
                             (Subagent (AgentRole "implementer"))
                         )
                     ]
                     Nothing
                 )
+
+    it
+        "asks a forked worker's stuck question under its line's id, after the line closing its child"
+        $ fmap
+            (\typed' -> [asking.question.qid | Asked asking <- typed'.events])
+            (typed atGather "researcher" "NEEDS_DECISION stuck: two sources disagree")
+            `shouldBe` Right [QId run 8]
 
     it "asks a typed question as the child run that sent it" $
         typed atImplement "engineer" "NEEDS_DECISION Design c1:2: which store?\nRun: c1"
@@ -221,13 +270,28 @@ typing = describe "typeHandback" $ do
                 ( Typed
                     [ Asked
                         ( Asking
-                            (Question (QId run 1) Stuck (oneLine "two stores"))
+                            (Question (QId run 7) Stuck (oneLine "two stores"))
                             implement
                             (Subagent (AgentRole "implementer"))
                         )
                     ]
                     Nothing
                 )
+
+    it
+        "keeps a question's qid when its hand-back names gaps, each met at the step it closes"
+        $ fmap
+            ( \typed' ->
+                ( [asking.question.qid | Asked asking <- typed'.events]
+                , [gap.area | Gapped gap <- typed'.events]
+                )
+            )
+            ( typed
+                atImplement
+                "implementer"
+                "NEEDS_DECISION stuck: two stores\nGap: tool papercut slow grep\nGap: odd words"
+            )
+            `shouldBe` Right ([QId run 7], replicate 2 (GapArea (oneLine "implement")))
 
     describe "a child's hand-back at the fan-out" $ do
         let fromChild = typed atFanOut "engineer"
@@ -241,19 +305,20 @@ typing = describe "typeHandback" $ do
             fromChild "READY https://pr/1\nRun: c1"
                 `shouldBe` Right
                     ( Typed
-                        [ HandedBack c1 (Finished (oneLine "https://pr/1"))
-                        , TaskMoved (TaskId "t1") (InReview (Url "https://pr/1"))
+                        [ HandedBack c1 (Just (refTo "t1")) (Finished (oneLine "https://pr/1"))
+                        , TaskMoved (refTo "t1") (InReview (Url "https://pr/1"))
                         ]
                         Nothing
                     )
         it "records only the finish of a READY that names no PR" $
             fromChild "READY done\nRun: c1"
-                `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "done"))] Nothing)
+                `shouldBe` Right
+                    (Typed [HandedBack c1 (Just (refTo "t1")) (Finished (oneLine "done"))] Nothing)
         it "records a question as asked up by the child, which joins this run's pending" $
             fromChild "NEEDS_DECISION Design c1:2: which store?\nRun: c1"
                 `shouldBe` Right
                     ( Typed
-                        [ HandedBack c1 (AsksUp (QId c1 2))
+                        [ HandedBack c1 (Just (refTo "t1")) (AsksUp (QId c1 2))
                         , Asked
                             ( Asking
                                 (Question (QId c1 2) Design (oneLine "which store?"))
@@ -269,10 +334,18 @@ typing = describe "typeHandback" $ do
                 [ "AWAIT ci https://pr/1\nRun: c1"
                 , "AWAIT merge https://pr/1 https://pr/2\nRun: c1"
                 ]
-                `shouldBe` [ Right (Typed [HandedBack c1 (Awaits Ci (oneLine "https://pr/1"))] Nothing)
+                `shouldBe` [ Right
+                                ( Typed
+                                    [HandedBack c1 (Just (refTo "t1")) (Awaits Ci (oneLine "https://pr/1"))]
+                                    Nothing
+                                )
                            , Right
                                 ( Typed
-                                    [HandedBack c1 (Awaits Merge (oneLine "https://pr/1 https://pr/2"))]
+                                    [ HandedBack
+                                        c1
+                                        (Just (refTo "t1"))
+                                        (Awaits Merge (oneLine "https://pr/1 https://pr/2"))
+                                    ]
                                     Nothing
                                 )
                            ]
@@ -284,12 +357,17 @@ typing = describe "typeHandback" $ do
                 ]
                 `shouldBe` [ Right
                                 ( Typed
-                                    [HandedBack c1 (Ended (Event.Stop Event.Blocked "no access"))]
+                                    [ HandedBack c1 (Just (refTo "t1")) (Ended (Event.Stop Event.Blocked "no access"))
+                                    ]
                                     (Just (oneLine "BLOCKED no access"))
                                 )
                            , Right
                                 ( Typed
-                                    [HandedBack c1 (Ended (Event.Stop Event.Replan "no such table"))]
+                                    [ HandedBack
+                                        c1
+                                        (Just (refTo "t1"))
+                                        (Ended (Event.Stop Event.Replan "no such table"))
+                                    ]
                                     (Just (oneLine "NEEDS_DECISION plan wrong: no such table"))
                                 )
                            ]
@@ -297,7 +375,11 @@ typing = describe "typeHandback" $ do
             fromChild "BLOCKED out of rounds: three rounds\nRun: c1"
                 `shouldBe` Right
                     ( Typed
-                        [HandedBack c1 (Ended (Event.Stop Event.OutOfRounds "three rounds"))]
+                        [ HandedBack
+                            c1
+                            (Just (refTo "t1"))
+                            (Ended (Event.Stop Event.OutOfRounds "three rounds"))
+                        ]
                         (Just (oneLine "BLOCKED out of rounds: three rounds"))
                     )
         it "refuses a question the child did not ask in its own run" $
@@ -307,14 +389,27 @@ typing = describe "typeHandback" $ do
     findings = "| Concern | Finding | Change | Source | Confidence |"
     atImplement = runAt (fuelSet Balanced : take 13 happyPath)
     atReview = runAt (fuelSet Balanced : take 16 happyPath)
-    atFix =
+    atFix = runAt fixEvents
+    -- At the fix, a fixer at work: its span open.
+    fixing =
         runAt
-            ( fuelSet Balanced
-                : take 16 happyPath
-                    <> map
-                        (Took mempty)
-                        [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
+            ( fixEvents
+                <> [ Event.SpanStarted
+                        ( Event.SpanStart
+                            (AgentRole "fixer")
+                            (Event.Harness "claude-code")
+                            "fix"
+                            Nothing
+                            Nothing
+                        )
+                   ]
             )
+    fixEvents =
+        fuelSet Balanced
+            : take 16 happyPath
+                <> map
+                    (Took mempty)
+                    [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]
     atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
     engineers = StateName "engineers"
@@ -355,7 +450,7 @@ parsed :: Text -> Handback
 parsed = either (error . Text.unpack . refusalText) id . parseHandback
 
 blank :: Maybe Token -> Handback
-blank token = Handback token Nothing Nothing Nothing Nothing
+blank token = Handback token Nothing Nothing Nothing Nothing []
 
 genHandback :: Gen Handback
 genHandback =
@@ -365,6 +460,19 @@ genHandback =
         <*> Gen.maybe genSha
         <*> Gen.maybe genSha
         <*> Gen.maybe (Set.fromList <$> Gen.subsequence [minBound .. maxBound])
+        <*> Gen.list (Range.linear 0 3) genGapLine
+
+-- | A @Gap:@ line of either form: a malformed one's first word is no gap kind.
+genGapLine :: Gen GapLine
+genGapLine =
+    Gen.choice
+        [ WellFormed <$> Gen.enumBounded <*> Gen.enumBounded <*> words'
+        , Malformed . gapText . ("about " <>) . gapTextText <$> words'
+        ]
+  where
+    words' =
+        gapText . Text.unwords
+            <$> Gen.list (Range.linear 1 4) (Gen.text (Range.linear 1 8) Gen.alphaNum)
 
 genToken :: Gen Token
 genToken =

@@ -4,7 +4,9 @@ the events carry, such as "State.Run.Ask", can name a run or an event too.
 module State.Run.Id (
     RunId,
     TaskId (..),
+    TaskRef (..),
     AgentId (..),
+    SpanId (..),
     TaskNo (..),
     taskNoText,
     parseTaskNo,
@@ -12,6 +14,10 @@ module State.Run.Id (
     runIdText,
     numberedText,
     parseNumbered,
+    parseSeq,
+    EventRef (..),
+    eventRefText,
+    parseEventRef,
     EventId (..),
     eventIdText,
     parseEventId,
@@ -29,7 +35,7 @@ import Data.Text.Read (decimal)
 import Data.Word (Word64, Word8)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
-import State.Step.Artifact (TaskId (..))
+import State.Step.Artifact (TaskId (..), breaksLine)
 
 {- | Short and random, set by @init@; one log holds one run. Built only by
 'parseRunId'.
@@ -37,9 +43,20 @@ import State.Step.Artifact (TaskId (..))
 newtype RunId = RunId Text
     deriving stock (Eq, Ord, Show)
 
+{- | A task by its identity across the run: its id within the breakdown
+logged at this seq, the @breakdown.done@ or the @task_added@ that started it.
+A new breakdown may reuse an id.
+-}
+data TaskRef = TaskRef {task :: TaskId, breakdown :: Natural}
+    deriving stock (Eq, Ord, Show)
+
 -- | A subagent's id, as its agent gives it: Claude Code's are hex.
 newtype AgentId = AgentId {agentIdText :: Text}
     deriving stock (Eq, Show)
+
+-- | A span, a subagent of the run's lead: the seq of its @span_started@ line.
+newtype SpanId = SpanId {spanSeq :: Natural}
+    deriving stock (Eq, Ord, Show)
 
 {- | A chief's request, by the order the run opened it: @r1@, @r2@, ...
 Not a 'TaskId', which names a task of a fan-out's breakdown.
@@ -77,12 +94,26 @@ numberedText (RunId run) n = run <> ":" <> Text.pack (show n)
 -- | A run id holds no @:@, so the first one splits the run from the number.
 parseNumbered :: Text -> Maybe (RunId, Natural)
 parseNumbered raw = case Text.breakOn ":" raw of
-    (run, rest) -> (,) <$> parseRunId run <*> (Text.stripPrefix ":" rest >>= number)
-  where
-    number digits = case decimal digits of
-        Right (n, "") -> Just n
-        Right _ -> Nothing
-        Left _ -> Nothing
+    (run, rest) -> (,) <$> parseRunId run <*> (Text.stripPrefix ":" rest >>= parseSeq)
+
+-- | A line's seq in its run's log: digits alone.
+parseSeq :: Text -> Maybe Natural
+parseSeq digits = case decimal digits of
+    Right (n, "") -> Just n
+    Right _ -> Nothing
+    Left _ -> Nothing
+
+{- | A line of any run, by its run and its seq: @<run>:<seq>@, the form
+a CLI record's id takes, as a gap and its evidence name a line.
+-}
+data EventRef = EventRef {run :: RunId, seq :: Natural}
+    deriving stock (Eq, Show)
+
+eventRefText :: EventRef -> Text
+eventRefText ref = numberedText ref.run ref.seq
+
+parseEventRef :: Text -> Maybe EventRef
+parseEventRef = fmap (uncurry EventRef) . parseNumbered
 
 -- | What makes an append idempotent: an id already in the log is not appended again.
 data EventId = Numbered RunId Natural | Hashed Digest
@@ -92,12 +123,13 @@ data EventId = Numbered RunId Natural | Hashed Digest
 newtype Digest = Digest Text
     deriving stock (Eq, Ord, Show)
 
-{- | The digest of these parts: FNV-1a, 64 bits, over their UTF-8 joined by
-NUL, in hex. A dedupe key, no security.
+{- | The digest of these parts: FNV-1a 64 (RFC 9923), over their UTF-8 joined
+by NUL, as 16 lowercase hex digits, zero padded. A dedupe key, no security.
 -}
 digestOf :: [Text] -> Digest
 digestOf =
     Digest
+        . Text.justifyRight 16 '0'
         . Text.pack
         . (`showHex` "")
         . BS.foldl' step 0xcbf29ce484222325
@@ -123,7 +155,3 @@ parseEventId raw = case Text.stripPrefix "h:" raw of
             Just (Hashed (Digest digest))
     Just _ -> Nothing
     Nothing -> uncurry Numbered <$> parseNumbered raw
-
--- | Unicode's mandatory line breaks (UAX #14 classes BK, CR, LF and NL).
-breaksLine :: Char -> Bool
-breaksLine = (`elem` ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'])

@@ -143,3 +143,7 @@ The replay laws and their tests: [CATEGORY-THEORY, Log](../harness/CATEGORY-THEO
 - #459, #461, #466, #468: one SQLite store for linked runs.
 - #411: void and move; runs at any delegation depth.
 - #525: questions as plain text.
+- #552: [ADR 0023](0023-append-only-event-store-with-rebuilt-projections.md)
+  amends the store: three append-only tables in `kernel-v2.db`, a
+  `schema_version` per event type, total decode, and logs that replay
+  forever.

@@ -1,0 +1,4 @@
+[
+{"artifact_kind":"plan","location":{"kind":"file","path":"/notes/r7f2/plan.md","sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","size_bytes":3},"derived_from":4,"span":9},
+{"artifact_kind":"pr","location":{"kind":"url","url":"https://github.com/o/r/pull/7"}}
+]

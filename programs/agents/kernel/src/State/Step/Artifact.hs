@@ -8,17 +8,36 @@ module State.Step.Artifact (
     Picks (..),
     Judgement (..),
     Sha (..),
+    lowerHex,
+    parseSha,
+    shaRule,
     Url (..),
     Branch (..),
     Label (..),
     Requirement (..),
     Check (..),
     TaskId (..),
+    parseTaskId,
+    parseNamesOrNone,
     Task (..),
+    Base (..),
+    builtOn,
+    baseText,
+    parseBase,
+    baseForms,
+    baseTextForms,
+    EpicName,
+    parseEpicName,
+    epicNameText,
+    NonBlank,
+    parseNonBlank,
+    nonBlankText,
+    breaksLine,
     Shape (..),
     Target (..),
     PlanCall (..),
     Repo (..),
+    parseRepo,
     parsePrUrl,
     prUrlRule,
     ShellPath,
@@ -27,6 +46,7 @@ module State.Step.Artifact (
     BreakdownError (..),
     breakdown,
     taskList,
+    tasksInOrder,
     shaText,
     urlText,
     branchText,
@@ -39,7 +59,10 @@ module State.Step.Artifact (
     taskIdText,
     topicText,
     judgementText,
+    judgementName,
     areaText,
+    areaName,
+    planName,
     headData,
     urlData,
     draftData,
@@ -47,6 +70,7 @@ module State.Step.Artifact (
     picksData,
     tasksData,
     taskEncoding,
+    baseData,
     shapeData,
     targetData,
     planData,
@@ -58,6 +82,7 @@ module State.Step.Artifact (
     breakdownOf,
     decodeBreakdown,
     taskOf,
+    baseOf,
     shapeOf,
     targetOf,
     planOf,
@@ -65,13 +90,16 @@ module State.Step.Artifact (
     distinct,
     keyed,
     named,
+    unknownCase,
+    tag,
+    tagged,
 ) where
 
 import Control.Applicative ((<|>))
 import Control.Monad (foldM)
 import Data.Aeson (
     Object,
-    Value,
+    Value (Object, String),
     eitherDecodeStrictText,
     parseJSON,
     withObject,
@@ -79,11 +107,16 @@ import Data.Aeson (
     (.:?),
     (.=),
  )
-import Data.Aeson.Encoding (Encoding, list, pair, pairs)
+import Data.Aeson.Encoding (
+    Encoding,
+    encodingToLazyByteString,
+    list,
+    pair,
+    pairs,
+ )
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
-import Data.Bool (bool)
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -94,6 +127,8 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Lazy qualified as Lazy
+import Data.Text.Lazy.Encoding qualified as Lazy
 import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
 import State.FlowName (FlowName, defaultFlow, flowText, namedFlowText)
 import System.FilePath (isAbsolute)
@@ -118,6 +153,25 @@ data Judgement = Met | NotMet | Unverified
 newtype Sha = Sha Text
     deriving stock (Eq, Show)
 
+-- | The text, when it is lowercase hex of one of these lengths: how the log spells a digest.
+lowerHex :: [Int] -> Text -> Maybe Text
+lowerHex lengths raw
+    | Text.length raw `elem` lengths
+        && Text.all (`elem` ("0123456789abcdef" :: String)) raw =
+        Just raw
+    | otherwise = Nothing
+
+{- | A full git object name: 40 (SHA-1) or 64 (SHA-256) lowercase hex, as
+git's hash-function transition names them. A short one is refused: it may
+name another object once the repo grows.
+-}
+parseSha :: Text -> Maybe Sha
+parseSha = fmap Sha . lowerHex [40, 64]
+
+-- | What 'parseSha' accepts, as a refusal names it.
+shaRule :: Text
+shaRule = "a full commit sha, 40 or 64 lowercase hex characters"
+
 newtype Url = Url Text
     deriving stock (Eq, Show)
 
@@ -141,9 +195,12 @@ newtype TaskId = TaskId Text
 -- | What the engineer run for a task is briefed with.
 data Task = Task
     { id :: TaskId
+    , title :: NonBlank
     , deps :: [TaskId]
-    -- ^ Tasks whose work this one builds on: earlier ones only.
-    , base :: Branch
+    {- ^ Tasks whose work this one builds on: earlier ones in a breakdown's
+    file, any after a base change, never in a cycle.
+    -}
+    , base :: Base
     , branch :: Branch
     , fuel :: Fuel
     , qa :: Bool
@@ -160,6 +217,109 @@ data Task = Task
     -- ^ The flow its child run follows: an engineer's unless the breakdown names another.
     }
     deriving stock (Eq, Show)
+
+{- | What a task's branch starts from: the repo's default branch, an epic's
+branch, or the branch of another task of its breakdown: an earlier one in
+the breakdown's file, any after a base change, never in a cycle.
+-}
+data Base = OnDefault | OnEpic EpicName | OnTask TaskId
+    deriving stock (Eq, Show)
+
+-- | The task the base names, if it names one.
+builtOn :: Base -> Maybe TaskId
+builtOn = \case
+    OnDefault -> Nothing
+    OnEpic _ -> Nothing
+    OnTask task -> Just task
+
+{- | As the CLI and a brief spell it: the payload's @kind@ word, then the
+epic or task it names after a @:@, which no git branch name holds.
+-}
+baseText :: Base -> Text
+baseText = \case
+    OnDefault -> "on_default"
+    OnEpic epic -> "on_epic:" <> epicNameText epic
+    OnTask task -> "on_task:" <> taskIdText task
+
+-- | 'baseText' read back, split at the first @:@.
+parseBase :: Text -> Maybe Base
+parseBase raw = case Text.breakOn ":" raw of
+    ("on_default", "") -> Just OnDefault
+    ("on_epic", name) -> OnEpic <$> (parseEpicName =<< Text.stripPrefix ":" name)
+    ("on_task", task) -> OnTask . TaskId <$> (nonEmpty =<< Text.stripPrefix ":" task)
+    _ -> Nothing
+  where
+    nonEmpty text = if Text.null text then Nothing else Just text
+
+-- | The three bases a refusal names, as 'baseText' spells them: a base change may name any task.
+baseTextForms :: Text
+baseTextForms = baseFormsBy "<task id>" baseText
+
+-- | The three bases a refusal names, as a task file spells them.
+baseForms :: Text
+baseForms =
+    baseFormsBy
+        "<earlier task id>"
+        (Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . baseEncoding)
+
+{- | The three bases, each spelt by the given function: placeholders stand in
+for the epic and the task, the given one, so the epic name skips 'parseEpicName'.
+-}
+baseFormsBy :: Text -> (Base -> Text) -> Text
+baseFormsBy task spell =
+    spell OnDefault
+        <> ", "
+        <> spell (OnEpic (EpicName "<name>"))
+        <> " or "
+        <> spell (OnTask (TaskId task))
+
+{- | An epic of the run, by the name its branch @epic/<name>@ takes: of
+'slugChar's, so a shell line prints it unquoted. Built by 'parseEpicName' alone.
+-}
+newtype EpicName = EpicName Text
+    deriving stock (Eq, Ord, Show)
+
+parseEpicName :: Text -> Maybe EpicName
+parseEpicName raw
+    | not (Text.null raw), Text.all slugChar raw = Just (EpicName raw)
+    | otherwise = Nothing
+
+epicNameText :: EpicName -> Text
+epicNameText (EpicName name) = name
+
+-- | A task id as a flag names one: any text that is not blank.
+parseTaskId :: Text -> Maybe TaskId
+parseTaskId raw
+    | Text.all isSpace raw = Nothing
+    | otherwise = Just (TaskId raw)
+
+{- | A list a flag or a trailer gives: names comma-separated, as POSIX
+guideline 8 has it, or @none@ for no name. Each name is stripped, then
+parsed; a repeat counts once. So a name @none@ is never alone in a list.
+-}
+parseNamesOrNone :: (Ord a) => (Text -> Either e a) -> Text -> Either e (Set a)
+parseNamesOrNone parse raw = case Text.strip raw of
+    "none" -> Right Set.empty
+    names -> Set.fromList <$> traverse (parse . Text.strip) (Text.splitOn "," names)
+
+{- | Text a person writes and reads as one line, such as a task's title: a
+character at least that is no space, and no line break. Built by
+'parseNonBlank' alone.
+-}
+newtype NonBlank = NonBlank Text
+    deriving stock (Eq, Show)
+
+parseNonBlank :: Text -> Maybe NonBlank
+parseNonBlank raw
+    | Text.all isSpace raw || Text.any breaksLine raw = Nothing
+    | otherwise = Just (NonBlank raw)
+
+nonBlankText :: NonBlank -> Text
+nonBlankText (NonBlank text) = text
+
+-- | Unicode's mandatory line breaks (UAX #14 classes BK, CR, LF and NL).
+breaksLine :: Char -> Bool
+breaksLine = (`elem` ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'])
 
 -- | A GitHub repository as @gh@ names it, @OWNER/REPO@.
 data Repo = Repo {owner :: Text, name :: Text}
@@ -251,8 +411,9 @@ data PlanCall = ChildConfirms | ParentDecided
 data Topic = CiTopic | AuthTopic | DatabaseTopic | SecretsTopic
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
-{- | The tasks in order, ids unique, each depending on earlier tasks only, so
-the dependencies are acyclic by construction. Built by 'breakdown' alone.
+{- | The tasks in order, ids unique, each depending on and based on earlier
+tasks only, so the dependencies are acyclic by construction. Built by
+'breakdown' alone.
 -}
 newtype Tasks = Tasks (NonEmpty Task)
     deriving stock (Eq, Show)
@@ -261,19 +422,28 @@ data BreakdownError
     = TaskTwice TaskId
     | -- | The task names a dependency that is not an earlier task.
       DependsLater TaskId TaskId
+    | -- | The task's base names a task that is not an earlier one.
+      BaseLater TaskId TaskId
     deriving stock (Eq, Show)
 
 breakdown :: NonEmpty Task -> Either BreakdownError Tasks
 breakdown tasks = Tasks tasks <$ foldM check [] tasks
   where
     check seen task =
-        case (task.id `elem` seen, filter (`notElem` seen) task.deps) of
-            (True, _) -> Left (TaskTwice task.id)
-            (False, later : _) -> Left (DependsLater task.id later)
-            (False, []) -> Right (task.id : seen)
+        case ( task.id `elem` seen
+             , filter (`notElem` seen) task.deps
+             , filter (`notElem` seen) (toList (builtOn task.base))
+             ) of
+            (True, _, _) -> Left (TaskTwice task.id)
+            (False, later : _, _) -> Left (DependsLater task.id later)
+            (False, [], later : _) -> Left (BaseLater task.id later)
+            (False, [], []) -> Right (task.id : seen)
 
 taskList :: Tasks -> [Task]
-taskList (Tasks tasks) = toList tasks
+taskList = toList . tasksInOrder
+
+tasksInOrder :: Tasks -> NonEmpty Task
+tasksInOrder (Tasks tasks) = tasks
 
 shaText :: Sha -> Text
 shaText (Sha sha) = sha
@@ -301,14 +471,35 @@ judgementText = \case
     NotMet -> "not-met"
     Unverified -> "unverified"
 
+-- | As the log spells it, lowercase snake_case; the CLI's is 'judgementText'.
+judgementName :: Judgement -> Text
+judgementName = \case
+    Met -> "met"
+    NotMet -> "not_met"
+    Unverified -> "unverified"
+
+-- | As the CLI and a hand-back spell it.
 areaText :: Area -> Text
 areaText = \case
     Interface -> "interface"
     DataModel -> "data-model"
     Auth -> "auth"
 
+-- | As the log spells it, lowercase snake_case; the CLI's is 'areaText'.
+areaName :: Area -> Text
+areaName = \case
+    Interface -> "interface"
+    DataModel -> "data_model"
+    Auth -> "auth"
+
+-- | As the log spells it.
+planName :: PlanCall -> Text
+planName = \case
+    ChildConfirms -> "child_confirms"
+    ParentDecided -> "parent_decided"
+
 headData :: Sha -> Series
-headData sha = "head" .= shaText sha
+headData sha = "head_sha" .= shaText sha
 
 urlData :: Url -> Series
 urlData url = "url" .= urlText url
@@ -320,7 +511,7 @@ draftData draft =
         <> "branch" .= branchText draft.branch
 
 commitData :: Commit -> Series
-commitData commit = headData commit.head <> "touches" .= map areaText (Set.toList commit.touches)
+commitData commit = headData commit.head <> "touches" .= map areaName (Set.toList commit.touches)
 
 picksData :: Picks -> Series
 picksData picks =
@@ -328,7 +519,7 @@ picksData picks =
         <> pair "verdicts" (list verdictEncoding (Map.toList picks.verdicts))
   where
     verdictEncoding (Requirement requirement, judgement) =
-        pairs ("requirement" .= requirement <> "outcome" .= judgementText judgement)
+        pairs ("requirement" .= requirement <> "outcome" .= judgementName judgement)
 
 tasksData :: Tasks -> Series
 tasksData tasks = pair "tasks" (list taskEncoding (taskList tasks))
@@ -337,8 +528,9 @@ taskEncoding :: Task -> Encoding
 taskEncoding task =
     pairs $
         "id" .= taskIdText task.id
+            <> "title" .= nonBlankText task.title
             <> "deps" .= map taskIdText task.deps
-            <> "base" .= branchText task.base
+            <> baseData task.base
             <> "branch" .= branchText task.branch
             <> "fuel" .= fuelName task.fuel
             <> "qa" .= task.qa
@@ -350,21 +542,28 @@ taskEncoding task =
             <> maybe mempty (("worktree" .=) . shellPathText) task.worktree
             <> flowData task.flow
 
--- | The default flow is omitted, so a breakdown older than flows encodes as it was written.
+-- | The default flow is omitted: @flow@ is an optional key.
 flowData :: FlowName -> Series
 flowData = maybe mempty ("flow" .=) . namedFlowText
 
--- | Only a decided plan is written, so a breakdown older than it encodes as it was written.
 planData :: PlanCall -> Series
-planData = \case
-    ChildConfirms -> mempty
-    ParentDecided -> "planDecided" .= True
+planData plan = "plan" .= planName plan
 
--- | Only a round names its PR: a log older than rounds reads as own PRs.
+-- | A union under @base@: @{kind: on_default}@, @{kind: on_epic, epic}@ or @{kind: on_task, task}@.
+baseData :: Base -> Series
+baseData = pair "base" . baseEncoding
+
+baseEncoding :: Base -> Encoding
+baseEncoding base = pairs $ case base of
+    OnDefault -> tag "on_default"
+    OnEpic epic -> tag "on_epic" <> "epic" .= epicNameText epic
+    OnTask task -> tag "on_task" <> "task" .= taskIdText task
+
+-- | A union under @shape@: @{kind: own_pr}@ or @{kind: round_on, pr_url}@.
 shapeData :: Shape -> Series
-shapeData = \case
-    OwnPr -> mempty
-    RoundOn url -> "pr" .= urlText url
+shapeData shape = pair "shape" . pairs $ case shape of
+    OwnPr -> tag "own_pr"
+    RoundOn url -> tag "round_on" <> "pr_url" .= urlText url
 
 -- | One key, the target's kind, holding its url or branch.
 targetData :: Target -> Series
@@ -374,7 +573,7 @@ targetData = \case
     OnTicket url -> "ticket" .= urlText url
 
 headOf :: Object -> Parser Sha
-headOf obj = Sha <$> obj .: "head"
+headOf obj = Sha <$> obj .: "head_sha"
 
 urlOf :: Object -> Parser Url
 urlOf obj = Url <$> obj .: "url"
@@ -391,7 +590,7 @@ commitOf obj =
     Commit
         <$> headOf obj
         <*> ( Set.fromList
-                <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaText)))
+                <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaName)))
             )
 
 picksOf :: Object -> Parser Picks
@@ -406,19 +605,20 @@ picksOf obj =
     verdictOf verdict =
         (,) . Requirement
             <$> verdict .: "requirement"
-            <*> (verdict .: "outcome" >>= named "outcome" (parseByName judgementText))
+            <*> (verdict .: "outcome" >>= named "outcome" (parseByName judgementName))
 
--- | A breakdown file: the JSON array @breakdown.done@ logs as its @tasks@.
+-- | A breakdown file: the JSON array of tasks @breakdown.done@ logs, each spelt as the log spells it.
 decodeBreakdown :: Text -> Either Text Tasks
 decodeBreakdown = decodeWith breakdownOf
 
--- | A task file for @task add@: one task, as a breakdown file spells each.
+-- | A task file for @task add@: one task, as the log spells it.
 decodeTask :: Text -> Either Text Task
 decodeTask = decodeWith taskOf
 
 decodeWith :: (Value -> Parser a) -> Text -> Either Text a
 decodeWith parser raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither parser)
 
+-- | A breakdown as the log holds it.
 breakdownOf :: Value -> Parser Tasks
 breakdownOf value = do
     tasks <- parseJSON value >>= traverse taskOf
@@ -428,17 +628,33 @@ breakdownOf value = do
   where
     breakdownErrorText = \case
         TaskTwice (TaskId task) -> "task " <> task <> " is named twice"
-        DependsLater (TaskId task) (TaskId dep) -> "task " <> task <> " depends on " <> dep <> ", which is not an earlier task"
+        DependsLater (TaskId task) (TaskId dep) ->
+            "unknown_task - task "
+                <> task
+                <> " depends on "
+                <> dep
+                <> ", which is not an earlier task"
+        BaseLater (TaskId task) (TaskId base) ->
+            "unknown_task - task "
+                <> task
+                <> " has base "
+                <> base
+                <> ", which is not an earlier task"
 
+-- | A task as the log holds it.
 taskOf :: Value -> Parser Task
 taskOf = withObject "task" taskFieldsOf
 
--- | By name, as a field a later breakdown adds is one more line; an optional one is omitted when absent.
+{- | By name, as a field a later breakdown adds is one more line; an optional
+one is omitted when absent. The ids @add@ and @head@ are refused:
+@state record task add|head@ take that word's place.
+-}
 taskFieldsOf :: Object -> Parser Task
 taskFieldsOf obj = do
-    taskId <- TaskId <$> obj .: "id"
+    taskId <- obj .: "id" >>= taskIdOf
+    title <- obj .: "title" >>= titleOf
     deps <- map TaskId <$> obj .: "deps"
-    base <- Branch <$> obj .: "base"
+    base <- obj .: "base" >>= baseOf
     branch <- Branch <$> obj .: "branch"
     fuel <- obj .: "fuel" >>= named "fuel" parseFuel
     qa <- obj .: "qa"
@@ -457,6 +673,7 @@ taskFieldsOf obj = do
     pure
         Task
             { id = taskId
+            , title
             , deps
             , base
             , branch
@@ -471,14 +688,51 @@ taskFieldsOf obj = do
             , flow
             }
   where
+    taskIdOf raw
+        | raw `elem` ["add", "head"] =
+            fail
+                ( "task id "
+                    <> show raw
+                    <> " is taken by state record task "
+                    <> Text.unpack raw
+                    <> ": name the task otherwise"
+                )
+        | otherwise = pure (TaskId raw)
+    titleOf raw =
+        maybe
+            (fail ("a title is one line, not blank, not " <> show raw))
+            pure
+            (parseNonBlank raw)
     worktreeOf path =
         maybe
             (fail ("a worktree is " <> shellPathRule <> ", not " <> show path))
             pure
             (shellPath path)
 
+{- | A task's base, the union by @kind@. A bare branch name, as a base once
+was, is refused with the three forms: a base names no branch itself.
+-}
+baseOf :: Value -> Parser Base
+baseOf = \case
+    value@(Object _) -> tagged "base" caseOf value
+    String raw -> fail ("a base is " <> forms <> ", not the bare name " <> show raw)
+    _ -> fail ("a base is " <> forms)
+  where
+    forms = Text.unpack baseForms
+    caseOf obj = \case
+        "on_default" -> pure OnDefault
+        "on_epic" -> obj .: "epic" >>= fmap OnEpic . named "epic name" parseEpicName
+        "on_task" -> OnTask . TaskId <$> obj .: "task"
+        other -> unknownCase "base" other
+
 shapeOf :: Object -> Parser Shape
-shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"
+shapeOf obj =
+    obj .: "shape" >>= tagged "shape" caseOf
+  where
+    caseOf shape = \case
+        "own_pr" -> pure OwnPr
+        "round_on" -> RoundOn . Url <$> shape .: "pr_url"
+        other -> unknownCase "shape" other
 
 targetOf :: Object -> Parser Target
 targetOf obj =
@@ -487,7 +741,7 @@ targetOf obj =
         <|> OnTicket . Url <$> obj .: "ticket"
 
 planOf :: Object -> Parser PlanCall
-planOf obj = bool ChildConfirms ParentDecided . fromMaybe False <$> obj .:? "planDecided"
+planOf obj = obj .: "plan" >>= named "plan" (parseByName planName)
 
 {- | A list read as a set, refusing a repeat: a set would keep one copy
 silently, and a log naming one twice is a bug in its writer.
@@ -504,4 +758,16 @@ keyed what entries
     byKey = Map.fromList entries
 
 named :: String -> (Text -> Maybe a) -> Text -> Parser a
-named what parse raw = maybe (fail ("unknown " <> what <> " " <> show raw)) pure (parse raw)
+named what parse raw = maybe (unknownCase what raw) pure (parse raw)
+
+-- | The refusal of a word, or a union's @kind@, that names no case.
+unknownCase :: String -> Text -> Parser a
+unknownCase what raw = fail ("unknown " <> what <> " " <> show raw)
+
+-- | A union's tag, RFC 8927's discriminator: the one key named @kind@.
+tag :: Text -> Series
+tag = ("kind" .=)
+
+-- | The case of a union by its @kind@: each case reads the object's other keys.
+tagged :: String -> (Object -> Text -> Parser a) -> Value -> Parser a
+tagged what caseOf = withObject what (\obj -> obj .: "kind" >>= caseOf obj)

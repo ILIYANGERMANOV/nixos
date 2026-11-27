@@ -348,7 +348,7 @@ as GitHub) count only once they are logged as events.
   `AtCap = Refuse | Stop | Extend`, a branch is a label of a `Sum`. No
   boolean that encodes a state.
 - **Pure core, effect shell.** `fold` decides over plain values.
-  `Effects.Store` and the CLI do the reads and writes.
+  `Effects.Store.*` and the CLI do the reads and writes.
 - **Every law has a test.** Or this file says it is assumed.
 
 ## Laws and tests
@@ -408,6 +408,7 @@ otherwise. Names are the current test names.
 | Total authority | every rung and kind has a rule | `AskSpec` `authority_table_is_total`; `-Wall -Werror` refuses a missed case |
 | Total asks | every question ends answered or stopped | `FoldSpec` `every_ask_ends_answered_or_stopped` |
 | Principal-blind | the advice is the same whoever started the run, up to delivery | `ArchitectureSpec.hs` keeps the principal out of every flow module; `AdviceSpec` `advice_is_equal_under_any_principal_of_one_task_shape_up_to_delivery` |
+| Stopgap-blind | the advice is the same with or without stopgap events: the kernel never reads one | `AdviceSpec` `advice_is_equal_with_or_without_stopgaps` |
 
 ### Fuel
 
@@ -426,9 +427,16 @@ otherwise. Names are the current test names.
 | Idempotent append | a line whose id is already logged changes nothing | `FoldSpec` `append_is_idempotent_by_id`, "logs a hook record fired twice once" |
 | Void | a voided line replays as if never logged | `FoldSpec` `a_void_replays_as_the_line_never_logged` |
 | Total fold | an event with no edge where the run is gets a `Refusal`, never a throw | `FoldSpec` "refuses an event with no edge where the run is"; `-Wall -Werror` refuses a missed case |
-| Dense seq | a run's seqs run densely from 1 | the store throws on a gap or duplicate ([Store.hs][store]) |
-| Round trip | a log line decodes to what was encoded | `Run/CodecSpec.hs` `codec_round_trips` |
-| One writer | only the kernel appends to a run's log | Assumed: only `Effects.Store` inserts events ([Store.hs][store]) |
+| Dense seq | a run's seqs run densely from 1 | the store throws on a gap or duplicate ([Events.hs][store]) |
+| Round trip | an event's row decodes to what was encoded, for every event type | `Data/Payload/EventSpec.hs` `envelope_row_round_trips`, `dump_line_round_trips` (through `state dump`'s line), each labelled by event type |
+| No duplicate key | no object of a payload repeats a key, at any depth (RFC 7493 s2.3) | `EventSpec` `writes_no_duplicate_key`, over aeson's token stream, since a decoded value hides a repeat |
+| Total decode | any row decodes to `Known`, `Retired` or `Unknown`, never a throw; any object under a known type reads as that type's event or `Unknown`; a key more, at any depth, is ignored (RFC 7493 s4.2); an `Unknown` refuses the append, naming its seq and type | `EventSpec` "decode_is_total: any row decodes, its type and data kept when not known", `decodes_any_object_under_its_type`, `ignores_an_extra_key`; `Effects/LogSpec.hs` "refuses an append to a run holding a row it cannot read, naming its seq and type" |
+| Append-only | no stored row is changed or deleted | `Effects/Store/MigrationSpec.hs` "aborts every change to a row with its table's trigger" (UPDATE, DELETE, `INSERT OR REPLACE` and an upsert on each table) |
+| The log only grows | each read of a run's log holds the one before it as a prefix | `LogSpec` "only grows: each decision's log holds the one before it, its seqs dense from 1", over the store and the double |
+| One writer | only the kernel appends to a run's log | Assumed: only `Effects.Store.*` inserts events ([Events.hs][store]) |
+| Blob key | a blob's key is the SHA-256 of its content, so one content is one blob | `State/ArtifactSpec.hs` "keys a blob by the digest of its content"; `LogSpec` "keeps one blob per content, however often a decision carries it", over the store and the double, and "throws on a stored blob whose content does not hash to its key" |
+| Snapshot | every snapshotted file artifact has its blob, and no other does | `ArtifactSpec` "keeps the blob of every file it calls snapshotted, and of no other"; `LogSpec` "stores a decision's blobs with its events, read back by their keys" |
+| Re-snapshot idempotent | re-snapshotting over the newest artifacts, the disk unchanged, adds nothing | `ArtifactSpec` "adds nothing when run again over the newest artifacts, the disk unchanged" |
 
 ### Prof
 
@@ -463,8 +471,8 @@ These are Nix assertions over the real step table, run as the
   `parallel g (f :> h) = parallel g f :> parallel g' h` holds of child
   runs only, and is not tested.
 - **Effect grading.** It describes the types. It is not a tested law.
-- **One writer.** Nothing stops another process writing the database,
-  such as `sqlite3`.
+- **One writer.** Nothing stops another process, such as `sqlite3`,
+  inserting into the database. Its triggers stop an UPDATE or a DELETE.
 - **profile prose.** It is not monotone for split roles, by design.
 
 ## Design records
@@ -518,5 +526,5 @@ the fold).
 [glue]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Category/Graph.hs#L337
 [whole]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Category/Graph.hs#L193
 [graphspec]: ../../programs/agents/kernel/test/State/Category/GraphSpec.hs
-[store]: ../../programs/agents/kernel/src/Effects/Store.hs
+[store]: ../../programs/agents/kernel/src/Effects/Store/Events.hs
 [configcheck]: ../../programs/claude-code/config-check.nix

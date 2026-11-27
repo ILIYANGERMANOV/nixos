@@ -6,7 +6,14 @@ Available options:
   -h,--help                Show this help text
 
 Available commands:
-  gap                      <text>
+  gap                      <text> [--kind
+                           <kernel|prose|tool|permission|ci|process|other>]
+                           [--severity <blocker|slowdown|papercut>] [--area
+                           <area>] [--evidence <run:seq|url>]...
+  instructed               <goal|scope|rule|permission> <verbatim> [--replaces
+                           <seq>]
+  user_needed              <text> | <run:seq> [--blocks <task>,...] [--url
+                           <url>] [--done] [--note <n>]
   research.spawned         no arguments
   research.handed_back     no arguments
   interview.asked          no arguments
@@ -50,8 +57,11 @@ Available commands:
   next.request             no arguments
   next.done                no arguments
   breakdown.done           --tasks <file.json>
-  task                     <id> <ci|review|merged|kept|round> <pr> | add
-                           <task.json> | <id> parked <why> [--pr <url>]
+  task                     <id> <ci|review|merged|kept|round|delivered> <pr> |
+                           add <task.json> | head <id> <sha> | <id> base <base>
+                           --reason <r> [--deps <task>,...|none] | <id> parked
+                           <why> [--pr <url>] [--reason <r>] [--deps
+                           <task>,...|none]
   held                     <task> <url>
   acted                    <task> <url>
   spawning                 <task>
@@ -89,5 +99,17 @@ Available commands:
   discussing.enough        no arguments
   discussing.research      no arguments
   discussing.discuss       no arguments
+  stopgap                  <key> <json> | <key> [--unset] [--task <id>] --reason
+                           <r>
 
-A commit event records HEAD.
+A commit event records HEAD. Record a fact by the first row that fits:
+- user_needed '<text>' the moment the user must act by hand. It tells no one:
+  still ask or hand back. Then user_needed <run:seq> --done once done.
+- instructed <kind> '<words>' for the user's words verbatim. goal: what to
+  build, only when the user changes it; scope: what is in or out; rule: a
+  standing do or don't; permission: what the user allows. --replaces <seq>
+  retires an earlier one.
+- state note --topic <t> '<text>' for prose context.
+- stopgap <key> <json> --reason <r> for a keyed value read back later, only when
+  no typed row fits; stopgap <key> --unset --reason <r> when it ends.
+Never a secret in any row. Single quotes keep the words verbatim in the shell.

@@ -1,0 +1,4 @@
+[
+{"key":"deploy.window","value":{"days":[1,2],"from":"09:00","note":null},"reason":"no typed event holds it"},
+{"key":"review.focus_area","task":"t1","breakdown":9,"value":"x","reason":"the reviewer asked"}
+]

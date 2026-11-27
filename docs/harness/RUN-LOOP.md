@@ -41,6 +41,16 @@ safe:
 - **Subagent steps are recorded by a hook.** When a worker hands back, the
   `state-handback` hook records its outcome. If no line was recorded, the
   lead pipes the hand-back into `state handback <role>`.
+- **Each subagent is a span.** The spawn hook logs `span_started` with the
+  brief in full; the hand-back, or a stop with none, logs `span_ended` with
+  the hand-back text. They follow OpenTelemetry's GenAI agent spans:
+  - The hook contract's `call` is the harness's tool call id
+    (`gen_ai.tool.call.id`). It links a spawn to the agent it started.
+  - `status_code` `ok` deviates: OpenTelemetry leaves a success Unset, and
+    an export maps `ok` to Unset. A `BLOCKED` hand-back is `ok` too: the
+    agent finished.
+  - A span's tokens are its own requests only, never its subagents'.
+    A count the harness does not report is left out, never 0.
 - **Outside facts enter as events.** Before it advises, `state next`
   records what is already decided: the draft PR or its readiness seen on
   GitHub, a skip the Fuel makes, a plan settled by a parent. [`due`][due]
@@ -96,44 +106,85 @@ erDiagram
   runs |o--o{ runs : "parent of"
   runs {
     text id PK
-    text parent FK
+    text parent_run_id FK
     text flow
-    text notes
+    text notes_dir
     text created_at
   }
   events {
-    text run PK
-    integer seq PK
-    text json
-    text at "generated: json ts"
-    text kind "generated: json type"
+    integer position PK
+    text run_id FK
+    integer seq
+    integer schema_version
+    text type
+    text time
+    text session_id
+    text head_sha
+    text hook_digest
+    text data "one JSON object"
+  }
+  blobs {
+    text sha256 PK
+    integer size_bytes
+    blob content
   }
 ```
 
 All runs of a machine user live in one SQLite database,
-`$XDG_STATE_HOME/state/kernel.db` (else `~/.local/state/state/kernel.db`;
-[`runStore`][runstore]).
+`$XDG_STATE_HOME/state/kernel-v2.db` (else
+`~/.local/state/state/kernel-v2.db`; [`runStore`][runstore]). An older
+`kernel.db` beside it is never opened. `events` is the only truth. `runs`
+indexes each run's first event. `blobs` holds file content by sha256
+([ADR 0023](../adr/0023-append-only-event-store-with-rebuilt-projections.md)).
 
 | Property | How | Code |
 |---|---|---|
-| Many readers, one writer | WAL mode; a writer waits up to 5 s for another | [`withStore`][busy] |
-| No two events share a number | each write is `BEGIN IMMEDIATE`: read, decide, append under one lock; a misnumbered batch throws | [`locked`][locked] |
-| Append-only | a line is never edited. A line logged in error gets a `Voided` reversal line; replay drops both | [`unvoided`][unvoided] |
-| Hook records are idempotent | a hook can fire twice; its record is keyed on a hash of the run, agent and message, and a second copy is a no-op | [`Source`][source], [`append`][append] |
-| Parent and child runs | the first event of a run adds its `runs` row with its parent; a 10x's engineers and a chief's delegates are children | [`children`][children] |
-| One wire format | each event is one JSON line, version 4: `v`, `id`, `seq`, `ts`, `run`, `head` (the git sha), `session`, `type`, `data`. Older logs are refused, not guessed at | [`Codec.hs`][codec] |
-| Queries without parsing | `at` and `kind` are generated from each line's `ts` and `type`, so they cannot drift from it | [`migrations`][migrations] |
-| Schema migrations | `PRAGMA user_version` counts the migrations applied | [`migrations`][migrations] |
+| Many readers, one writer | WAL mode; a writer waits up to 5 s for another | [`Connection.hs`][connection] |
+| Our file only | open reads `application_id` and `user_version` before it writes; another app's file or a newer schema is refused | [`Connection.hs`][connection] |
+| No two events share a number | each write is `BEGIN IMMEDIATE`: read, decide, append under one lock; a misnumbered batch throws | [`Events.hs`][events] |
+| Append-only | triggers abort every UPDATE and DELETE on the three tables. A line logged in error gets a `Voided` reversal line; replay drops both | [`appendOnly`][appendonly], [`unvoided`][unvoided] |
+| Hook records are idempotent | a hook can fire twice; its record is keyed on a hash of the run, agent and message (`hook_digest`), and a second copy is a no-op | [`Source`][source], [`append`][append] |
+| Parent and child runs | the first event of a run adds its `runs` row with its parent, in the same transaction; a 10x's engineers and a chief's delegates are children | [`Events.hs`][events] |
+| The envelope is columns | `seq`, `time` (UTC, 3 fraction digits), `session_id`, `head_sha` and `hook_digest` are columns; `data` is the payload, one JSON object | [`Codec.hs`][codec] |
+| Every line stays readable | each event type has its own `schema_version`. A line this binary cannot read decodes to `Unknown`: dump reads it, while append refuses, naming its seq and type | [`Codec.hs`][codec] |
+| Schema migrations | `PRAGMA user_version` counts the migrations applied | [`Migration.hs`][migration] |
 
-To look inside a run:
+To look inside a run, or keep what a fresh agent needs:
 
-| Command | Prints |
+| Command | Does |
 |---|---|
-| `state show` | where the run is and what it holds: step, facts, questions, rulings, gaps |
-| `state dump <run>` | the run's log, one JSON envelope per line, with each `ts` |
-| `state pending` | the questions awaiting an answer |
-| `state tasks` | each request's card and its resume advice |
-| `state render mermaid --flow <f>` | the flow's graph (the flow, not one run's walk through it) |
+| `state show` | prints where the run is and what it holds: step, facts, questions, rulings, gaps |
+| `state dump <run>` | prints the run's raw rows, as JSON Lines: one object per `events` row, every column but `position` (store-internal append order) a key, `data` as stored |
+| `state pending` | prints the questions awaiting an answer |
+| `state tasks` | prints each request's card, then each child run, with resume advice for a stopped one |
+| `state render mermaid --flow <f>` | prints the flow's graph (the flow, not one run's walk through it) |
+| `state init --goal "<goal>"` | logs `started` with the git top as `worktree` and `origin`'s GitHub `owner/name` as `repo`, then the goal word for word as an `instructed` goal |
+| `state move <dir>` | logs `worktree_moved`: the run now lives in that worktree |
+| `state artifact <path\|url> --kind <k> [--span <seq>]` | logs `artifact`, made by that span when `--span` names one. A file's bytes are a snapshot in `blobs` (up to 1 MiB, never a transcript's); a handover and the run's end snapshot each registered file that changed |
+| `state artifact show <run:seq>` | prints an artifact's stored bytes or its URL; exit 3 when its bytes were not stored, 4 when the line is no artifact |
+| `state note --topic <t> "<text>"` | logs `note`, context for a fresh agent |
+| `state handover --reason context\|user\|crash --summary "<s>" --next "<step>"...` | logs `handover`, after a fresh snapshot of each changed file; names each file it could not read |
+| `state epic open <name> --repo <owner/name> --branch <b>`, `state epic ready <name> --pr <url>`, `state epic merged <name>` | logs `epic_opened`, `epic_ready`, `epic_merged`: an epic opens, its final PR opens, it merges. `ready` again names a replacement final PR; `merged` again succeeds, as the goal holds. Every other move is refused |
+| `state record task head <id> <sha>`, `state record task <id> base <base> --reason <r> [--deps <task>,...\|none]`, `state record task <id> delivered <pr>` | logs `task_head`, `task_base_changed` and `task`: the task's branch is at that commit, the task builds on a new base (any task of the breakdown, and on these deps when given; a cycle is refused `task_cycle`), its work is done and its PR is left open for the user |
+| `state record instructed <goal\|scope\|rule\|permission> '<words>' [--replaces <seq>]` | logs `instructed`: the user's instruction word for word; `--replaces` retires an earlier one. `goal` only when the user changes the goal. `state record --help` glosses each kind and says which row holds which fact |
+| `state record user_needed '<text>' [--blocks t3,t4] [--url <u>]`, `state record user_needed <run:seq> --done [--note <n>]` | logs `user_needed` the moment the user must do something by hand, and `user_needed_done` in the need's own run once it is done. It tells no one: still ask or hand back |
+| `state record stopgap <key> <json>\|--unset [--task <id>] --reason <r>` | logs `stopgap_set` or `stopgap_unset`: a keyed value read back later, `--unset` when it ends. Last resort: only when no typed command fits; prose context is a `note`. Never a secret. The value is I-JSON (RFC 7493), at most 1024 bytes; the kernel never reads it |
+| `state resume [<run>] [--until <seq>]` | prints the packet a fresh agent resumes from: goal, the user's instructions, worktree, next steps, owed work (with what the user must do by hand), epics, tasks with their base, PR and head (a replaced breakdown's too, as they stood), questions, decisions, gaps, notes, stopgaps, then a context map of every file, URL, child run and session with the command that loads it. With no run named, the run `STATE_SESSION` is bound to, else the worktree's. The harness's adapter sets `STATE_SESSION` for each shell. `--until <seq>` prints it as it was after that line. A line it cannot read refuses it |
+
+To read every run at once, and never to decide (`state next`, `show`,
+`tasks` and `resume` read the fold):
+
+| Command | Does |
+|---|---|
+| `state report <runs\|steps\|signals\|gaps\|waits> [--since <RFC 3339>] [--run <id>]` | prints a fixed report as TSV, header first: one row per run, step visit, signal, gap, or run and step. `--since` keeps rows at or after that time, by each row's own time: a run's is its last event |
+| `state sql "<select>"` | runs one read-only SELECT on a second, read-only connection and prints its rows as TSV (PostgreSQL COPY text: NULL is `\N`). A write, ATTACH, PRAGMA or recursive CTE is refused as `sql_not_read_only`, a second statement as `sql_not_one_statement` |
+
+The `v_` views are the read API: `v_steps` (each step visit, its length and
+the agent time in it), `v_signals` (each refusal, stop, override, void,
+extension and stuck question) and `v_sessions` (each harness session of a
+run). Query them before the projection tables, whose shape may change.
+`state sql "SELECT sql FROM sqlite_schema"` prints every table and view with
+its column comments.
 
 ## Replay is a fold
 
@@ -182,7 +233,9 @@ from the same state.
   `state next`. A fresh or resumed session has lost the agents the lead had
   at work, so the hook records `Restarted` and the advice sends them again;
   a compacted session lost none and records nothing
-  ([`restartOf`][restartof]).
+  ([`restartOf`][restartof]). The hook finds the run by the session's
+  worktree, so `state init --notes <run dir>` records the same when it binds
+  a new session to the run.
 - **A context past its budget.** The context guard stops the agent
   ([what it says](GUARDRAILS.md#guards)). A subagent's caller spawns a
   fresh one; for a top-level lead, the user runs `/chief resume` in a
@@ -196,9 +249,11 @@ The limits that end a run on purpose are in [GUARDRAILS](GUARDRAILS.md).
 ## Decisions
 
 [ADR 0014](../adr/0014-pure-core-event-sourced-flow.md) (a run is a pure
-fold over an event log in one SQLite store) and
+fold over an event log in one SQLite store),
 [ADR 0016](../adr/0016-hooks-drive-the-state-record.md) (hooks drive the
-record; PR state comes from GitHub). All ADRs:
+record; PR state comes from GitHub) and
+[ADR 0023](../adr/0023-append-only-event-store-with-rebuilt-projections.md)
+(an append-only event store with rebuilt projections). All ADRs:
 [ARCHITECTURE](ARCHITECTURE.md#the-adrs). The flows themselves are in
 [FLOWS](FLOWS.md).
 
@@ -211,14 +266,14 @@ record; PR state comes from GitHub). All ADRs:
 [upto]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Protocol/Advice.hs#L1259
 [tokenword]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Protocol/Handback.hs#L146
 [runstore]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Protocol/Binding.hs#L94
-[busy]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/Effects/Store.hs#L77
-[locked]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/Effects/Store.hs#L112
+[connection]: ../../programs/agents/kernel/src/Effects/Store/Connection.hs
+[events]: ../../programs/agents/kernel/src/Effects/Store/Events.hs
+[migration]: ../../programs/agents/kernel/src/Effects/Store/Migration.hs
+[appendonly]: ../../programs/agents/kernel/src/Data/Table.hs
 [unvoided]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L462
 [source]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Event.hs#L145
 [append]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L495
-[children]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/Effects/Store.hs#L169
 [codec]: ../../programs/agents/kernel/src/State/Run/Codec.hs
-[migrations]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/Effects/Store.hs#L232
 [foldhs]: ../../programs/agents/kernel/src/State/Run/Fold.hs
 [replay]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L434
 [fold]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/programs/agents/kernel/src/State/Run/Fold.hs#L486

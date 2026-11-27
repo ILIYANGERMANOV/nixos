@@ -3,7 +3,10 @@ brief@; and the texts that need no run: a role's brief and how work begins.
 -}
 module State.Cli.View (
     showRun,
+    section,
     pendingLines,
+    answerLine,
+    gapHeadline,
     brief,
     briefSection,
     taskBrief,
@@ -11,15 +14,17 @@ module State.Cli.View (
     beginText,
     cardLines,
     minutesSince,
+    epicRow,
 ) where
 
-import Data.Bifunctor qualified as Bifunctor
 import Data.Bool (bool)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime)
+import Numeric.Natural (Natural)
+import State.Artifact (uriText)
 import State.Category.Flow (qualifyEvent)
 import State.Category.Fuel (fuelLabel)
 import State.Category.Graph (Edge (..), Node (..), OpenGraph (..), Place (..))
@@ -35,7 +40,7 @@ import State.Category.Step (
  )
 import State.Cli.Render qualified as Render
 import State.FlowName (fixedFuel, namedFlowText)
-import State.Protocol.Advice (Facts (..), factLines)
+import State.Protocol.Advice (Facts (..), factLines, taskLine)
 import State.Protocol.Hook (
     Begin (..),
     HookName (HandbackHook, SpawnHook),
@@ -56,23 +61,18 @@ import State.Run.Ask (
     replyText,
     rulingLine,
  )
-import State.Run.Card (
-    Card (..),
-    ResumeAdvice (..),
-    Standing (..),
-    advice,
-    resumeWindow,
- )
+import State.Run.Card (Card (..), Standing (..))
 import State.Run.Codec (
     branchText,
     flowText,
     reasonText,
+    repoText,
     taskIdText,
     topicText,
     urlText,
  )
+import State.Run.Epic (Epic, epicBranch, epicPr, epicRepo, stageName)
 import State.Run.Event (
-    AgentId (..),
     AgentRole (..),
     Asker (..),
     Asking (..),
@@ -89,7 +89,7 @@ import State.Run.Event (
     runIdText,
     taskNoText,
  )
-import State.Run.Fan (Fan (..), tries)
+import State.Run.Fan (Breakdown (..), Fan (..), asFan, tasksOf, tries)
 import State.Run.Fold (
     Answer (..),
     Holder (..),
@@ -101,13 +101,33 @@ import State.Run.Fold (
     fanIn,
     taskHolder,
  )
+import State.Run.Gap (
+    Closure (..),
+    Evidence (..),
+    Gap (..),
+    GapStatus (..),
+    Tracked (..),
+    gapAreaText,
+    gapKindText,
+    gapTextText,
+    severityText,
+ )
+import State.Run.Id (eventRefText)
 import State.Show (tshow)
-import State.Step.Artifact (shellPathText, slugChar)
+import State.Step.Artifact (
+    EpicName,
+    baseText,
+    epicNameText,
+    nonBlankText,
+    shellPathText,
+    slugChar,
+ )
 import State.Step.Catalog (AnyStep (..))
 import State.Table (Row (..), Steps, agentRoles, row, stepsRunBy)
 
-{- | Where the run is and what it carries: step, mode, rounds, questions,
-rulings, gaps; and which hook records which of the flow's events.
+{- | Where the run is and what it carries: step, mode, rounds, tasks,
+the tasks of each breakdown a later one replaced, questions, rulings, gaps;
+and which hook records which of the flow's events.
 -}
 showRun :: Steps -> OpenGraph -> RunState -> Text
 showRun steps g state =
@@ -116,6 +136,14 @@ showRun steps g state =
             <> concat [linkLine parent.link | ByRole parent _ _ <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
             <> factLines g (Facts Nothing Nothing []) state
+            <> concat
+                [ section
+                    ("breakdown " <> tshow listed.seq <> ", replaced:")
+                    (map (taskLine old []) (tasksOf old))
+                | fan <- Map.elems state.fans
+                , old <- map asFan fan.replaced
+                , Just listed <- [old.breakdown]
+                ]
             <> [ "stopped: " <> reasonText stop.reason <> " " <> stop.why
                | Just stop <- [state.stopped]
                ]
@@ -125,24 +153,67 @@ showRun steps g state =
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
             <> section "answered:" (map answerLine state.answers)
-            <> section "gaps:" [tshow n <> " " <> gap | (n, gap) <- state.gaps]
+            <> section "gaps:" [gapShown n tracked | (n, tracked) <- state.gaps]
             <> section "hooks:" (hookLines steps g)
   where
-    answerLine answered =
-        qidText answered.about.qid
-            <> " "
-            <> kindName answered.about.kind
-            <> ": "
-            <> oneLineText answered.about.text
-            <> " - "
-            <> replyText answered.about.kind answered.given
-    section title = \case
-        [] -> []
-        items -> title : map ("  " <>) items
     linkLine = \case
         InFan (Tasked task) -> ["task: " <> taskIdText task]
         InFan Untasked -> ["untasked: the parent handed on its request whole"]
         Direct -> []
+
+{- | A gap by its seq, typed, with where it was met, who saw it, its
+evidence and where its fix stands.
+-}
+gapShown :: Natural -> Tracked -> Text
+gapShown n tracked =
+    tshow n
+        <> " "
+        <> gapHeadline gap
+        <> " (area "
+        <> gapAreaText gap.area
+        <> ", by "
+        <> roleText gap.reporter
+        <> foldMap (", evidence " <>) (nonEmptyWords (map evidenceText gap.evidence))
+        <> "): "
+        <> case tracked.status of
+            Open -> "open"
+            FixProposed pr -> "fix proposed " <> uriText pr
+            Closed (Fixed pr) -> "fixed " <> uriText pr
+            Closed (WontFix why) -> "won't fix: " <> oneLineText why
+  where
+    gap = tracked.gap
+    nonEmptyWords = \case
+        [] -> Nothing
+        evidence -> Just (Text.unwords evidence)
+    evidenceText = \case
+        OfEvent ref -> eventRefText ref
+        OfUrl uri -> uriText uri
+
+-- | A gap's kind, severity and quoted text: how @show@ and @resume@ list it.
+gapHeadline :: Gap -> Text
+gapHeadline gap =
+    Text.unwords
+        [ gapKindText gap.kind
+        , severityText gap.severity
+        , "\"" <> gapTextText gap.text <> "\""
+        ]
+
+-- | A titled section, its items indented under it; none when it has no items.
+section :: Text -> [Text] -> [Text]
+section title = \case
+    [] -> []
+    items -> title : map ("  " <>) items
+
+-- | A forwarded question and the answer that came down.
+answerLine :: Answer -> Text
+answerLine answered =
+    qidText answered.about.qid
+        <> " "
+        <> kindName answered.about.kind
+        <> ": "
+        <> oneLineText answered.about.text
+        <> " - "
+        <> replyText answered.about.kind answered.given
 
 {- | What the hooks record of the flow's events, so no agent records them
 by hand: the spawn and the hand-back of each step a subagent runs as a child
@@ -186,7 +257,7 @@ hookLines steps g = case hooked of
         ]
 
 {- | A request's resume card at this time: where it stands, what was
-decided in it, what it still asks, and how to take it up again.
+decided in it and what it still asks.
 -}
 cardLines :: UTCTime -> Card -> [Text]
 cardLines now card =
@@ -202,7 +273,6 @@ cardLines now card =
                     <> oneLineText q.text
                | q <- card.open
                ]
-            <> ["  " <> adviceLine resume | Just resume <- [advice now card]]
   where
     headline = case card.standing of
         InFocus -> taskNoText card.task <> " in focus at " <> stateNameText card.node
@@ -218,22 +288,6 @@ cardLines now card =
 -- | Whole minutes from then to now: @5m@.
 minutesSince :: UTCTime -> UTCTime -> Text
 minutesSince now at = tshow (floor (diffUTCTime now at / 60) :: Integer) <> "m"
-
-adviceLine :: ResumeAdvice -> Text
-adviceLine = \case
-    ResumeAgent agent ->
-        "resume agent "
-            <> agent.agentIdText
-            <> ": paused under "
-            <> life
-            <> ", its cache is warm (SendMessage)"
-    FreshFromCard -> "fresh agent from card: paused " <> life <> " or more, its cache is cold"
-  where
-    life = minutesSeconds (round resumeWindow)
-
--- | Whole seconds as @4m45s@.
-minutesSeconds :: Integer -> Text
-minutesSeconds total = let (m, s) = total `divMod` 60 in tshow m <> "m" <> tshow s <> "s"
 
 -- | One line per open question, oldest first.
 pendingLines :: RunState -> [Text]
@@ -276,9 +330,9 @@ brief steps g state agent task = case (leads agent, task, fanAt state.at) of
     -- At no fan-out the child takes no task: it names --parent alone.
     (Just flow, Nothing, Nothing) -> Right (untaskedBrief state flow)
     (Just _, Just taskId, _) ->
-        Bifunctor.bimap
-            (const taskId)
-            (\holder -> taskBrief state (fanIn state.fans holder.fan) holder.held)
+        maybe
+            (Left taskId)
+            (\holder -> Right (taskBrief state (fanIn state.fans holder.fan) holder.held))
             (taskHolder state taskId)
     (Nothing, _, _) -> Right (stepBrief steps g state.at agent)
 
@@ -365,8 +419,9 @@ taskBrief state fan found = Text.unlines (taskLines found) <> "\n" <> taskInit
                 (Just (taskIdText found.id))
     taskLines task =
         [ "Task: " <> taskIdText task.id
+        , "Title: " <> nonBlankText task.title
         , "Fuel: " <> fuelLabel task.fuel
-        , "Base: " <> branchText task.base
+        , "Base: " <> baseText task.base
         , "Branch: " <> branchText task.branch
         , "Depends on: " <> listed (map taskIdText task.deps)
         , "QA: " <> yesNo task.qa
@@ -483,3 +538,17 @@ beginText steps run = \case
   where
     skillBegins =
         "state: this skill begins with `state`: `state init ...`, then `state next`.\n"
+
+{- | An epic as a row: its name, repo, branch, stage and its final PR once
+it has one, as the resume packet's @epics@ section lists it.
+-}
+epicRow :: EpicName -> Epic -> Text
+epicRow name epic =
+    Text.unwords
+        ( [ epicNameText name
+          , repoText (epicRepo epic)
+          , branchText (epicBranch epic)
+          , stageName epic
+          ]
+            <> foldMap (pure . urlText) (epicPr epic)
+        )

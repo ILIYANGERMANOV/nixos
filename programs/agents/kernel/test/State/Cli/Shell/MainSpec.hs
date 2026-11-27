@@ -7,11 +7,12 @@ import Data.Foldable (for_)
 import Data.IORef (IORef, modifyIORef', readIORef)
 import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Data.Traversable (for)
-import Hedgehog (evalIO, forAll, (===))
+import Hedgehog (cover, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (Max))
@@ -22,14 +23,23 @@ import State.Protocol.Advice (PrView (..), Readiness (..))
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (eventType)
 import State.Run.Event (
+    Asking (..),
+    Base (..),
     Branch (..),
+    Child (..),
+    ChildTask (..),
     Envelope (..),
+    Event (Asked, HandedBack, Spawned, Spawning, TaskHead, WorktreeMoved),
     FlowName (TenXFlow),
     PlanCall (..),
     Repo (..),
     SessionId (..),
     Task (..),
+    TaskId (..),
+    TaskRef (..),
  )
+import State.Run.EventGen (absolutePath, epicNamed)
+import State.Run.Id (numberedText)
 import State.Run.RunGen (
     breakdownJson,
     loadSteps,
@@ -63,7 +73,7 @@ spec = describe "state over the doubles" $ do
                     ran <- state world ["init", "--notes", "/notes"]
 
                     (ran.code, ran.out, ran.err)
-                        `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work"], [])
+                        `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work", "next: state next"], [])
                     loggedEvents world `shouldReturn` ["started"]
 
             it "resumes the run whichever way its notes dir is spelled" $ \world -> do
@@ -73,8 +83,8 @@ spec = describe "state over the doubles" $ do
                 dotted <- succeeded =<< state world ["init", "--notes", "/./notes"]
 
                 (again, dotted)
-                    `shouldBe` ( ["resumed " <> run, "run " <> run <> " /notes /work"]
-                               , ["resumed " <> run, "run " <> run <> " /notes /work"]
+                    `shouldBe` ( ["resumed " <> run, "run " <> run <> " /notes /work", "next: state next"]
+                               , ["resumed " <> run, "run " <> run <> " /notes /work", "next: state next"]
                                )
 
             it
@@ -143,7 +153,11 @@ spec = describe "state over the doubles" $ do
 
                             events <- loggedEvents fresh
                             (ran.code, ran.out, ran.err, events)
-                                `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work"], [], begun)
+                                `shouldBe` ( 0
+                                           , ["started 00010203", "run 00010203 /notes /work", "next: state next"]
+                                           , []
+                                           , begun
+                                           )
 
             it
                 "refuses an engineer, 10x or architect init over a run no branch of which runs that flow, as before"
@@ -191,7 +205,7 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["init", "--notes", "/other"]
 
                 (ran.code, ran.out)
-                    `shouldBe` (0, ["started 04050607", "run 04050607 /other /work"])
+                    `shouldBe` (0, ["started 04050607", "run 04050607 /other /work", "next: state next"])
 
             it "starts a run over a pointer whose run is gone" $ \world -> do
                 putFile world "/work/.git/state-run" "deadbeef\n"
@@ -207,7 +221,8 @@ spec = describe "state over the doubles" $ do
 
                 refused <- state world ["init", "--notes", "/notes"]
 
-                again `shouldBe` ["resumed " <> run, "run " <> run <> " /notes /work"]
+                again
+                    `shouldBe` ["resumed " <> run, "run " <> run <> " /notes /work", "next: state next"]
                 (refused.code, refused.err)
                     `shouldBe` ( 2
                                ,
@@ -369,7 +384,7 @@ spec = describe "state over the doubles" $ do
             it "names a hand-edited bad line and appends nothing after it" $ \world -> do
                 _ <- drive world []
                 run <- runOf world
-                editLog world (<> ["{\"v\":3,broken"])
+                editLog world appendUnread
                 before' <- logRows world
 
                 for_ [("next", []), ("show", []), ("record", ["fuel.set", "max"])] $ \(sub, args) -> do
@@ -377,22 +392,19 @@ spec = describe "state over the doubles" $ do
                     (bad.code, map (fst . Text.breakOn " - ") bad.err)
                         `shouldBe` ( 2
                                    ,
-                                       [ "state " <> sub <> ": run " <> run <> " event 2 is not read"
-                                       , "fix: state init --notes <a new dir> starts afresh"
+                                       [ "state " <> sub <> ": run " <> run <> " has an event this state cannot read"
+                                       , "fix: upgrade state"
                                        ]
                                    )
                 after <- logRows world
                 after `shouldBe` before'
 
-            it "names the recovery for an older state's log: start fresh" $ \world -> do
+            it "names the recovery for a newer state's log: upgrade state" $ \world -> do
                 _ <- drive world []
                 run <- runOf world
                 editLog
                     world
-                    ( const
-                        [ "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
-                        ]
-                    )
+                    newerStart
 
                 old <- state world ["next"]
 
@@ -401,8 +413,8 @@ spec = describe "state over the doubles" $ do
                                ,
                                    [ "state next: run "
                                         <> run
-                                        <> " event 1 is not read - log version 2, this state reads 4"
-                                   , "fix: state init --notes <a new dir> starts afresh"
+                                        <> " has an event this state cannot read - seq 1, type started (schema_version 2)"
+                                   , "fix: upgrade state"
                                    ]
                                )
 
@@ -452,7 +464,7 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["record", "fuel.set", "max"]
 
                 (ran.code, ran.out, ran.err)
-                    `shouldBe` (0, ["recorded 2 fuel.set -> gather"], [])
+                    `shouldBe` (0, ["recorded 2 fuel.set -> gather", "next: state next"], [])
                 loggedEvents world `shouldReturn` ["started", "fuel.set"]
 
             it
@@ -606,7 +618,7 @@ spec = describe "state over the doubles" $ do
                     succeeded
                         =<< state world ["override", "review", "resume", "after", "a", "crash"]
 
-                moved `shouldBe` ["recorded 2 overridden -> review"]
+                moved `shouldBe` ["recorded 2 overridden -> review", "next: state next"]
                 shown <- succeeded =<< state world ["show"]
                 shown `shouldContain` ["step: review"]
 
@@ -639,7 +651,7 @@ spec = describe "state over the doubles" $ do
                 shown <- succeeded =<< state world ["show"]
 
                 (voided, "step: review" `elem` shown)
-                    `shouldBe` (["recorded 3 voided -> fuel"], False)
+                    `shouldBe` (["recorded 3 voided -> fuel", "next: state next"], False)
 
             it "voids a gap by the seq state show lists it with" $ \world -> do
                 let gapsOf =
@@ -647,7 +659,8 @@ spec = describe "state over the doubles" $ do
                             . takeWhile ("  " `Text.isPrefixOf`)
                             . drop 1
                             . dropWhile (/= "gaps:")
-                    textOf = Text.drop 1 . Text.dropWhile (/= ' ')
+                    -- The quoted text after the seq, kind and severity.
+                    textOf = Text.takeWhile (/= '"') . Text.drop 1 . Text.dropWhile (/= '"')
                 _ <- drive world []
                 _ <- succeeded =<< state world ["record", "gap", "one"]
                 _ <- succeeded =<< state world ["record", "gap", "two"]
@@ -707,11 +720,25 @@ spec = describe "state over the doubles" $ do
                     rebound <- traverse (fileBytes world . (sessionBindings </>)) ["main", "a1"]
 
                     (moved, old.code, take 1 shown)
-                        `shouldBe` (["moved " <> run <> " to /target"], 2, ["run: " <> run <> " (engineer)"])
+                        `shouldBe` ( ["moved " <> run <> " to /target", "next: state next"]
+                                   , 2
+                                   , ["run: " <> run <> " (engineer)"]
+                                   )
                     rebound
                         `shouldBe` [ Just (encodeUtf8 ("run " <> run <> " /notes /target\n"))
                                    , Just "run ffff0000 /elsewhere /work\n"
                                    ]
+
+            it "logs worktree_moved with the new git top and origin's repo" $ \world -> do
+                _ <- startedRun world
+                modifyIORef' world (\w -> w {origin = Just "git@github.com:o/r.git"})
+                addWorktree world "/target"
+
+                _ <- succeeded =<< state world ["move", "/target"]
+
+                events <- logged world
+                map (.event) (take 1 (reverse events))
+                    `shouldBe` [WorktreeMoved (absolutePath "/target") (Just (Repo "o" "r"))]
 
             it
                 "refuses an init in the worktree a run moved from, naming the cd to where it went"
@@ -1017,6 +1044,119 @@ spec = describe "state over the doubles" $ do
                                )
                 loggedEvents world `shouldReturn` before'
 
+        describe "a question's qid" $ do
+            it "numbers the run's own question by the seq of the line that asks it" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+
+                qid <- askedQId world ["--kind", "Pick", "which", "rows?"]
+
+                ownAsked <$> logged world `shouldReturn` [(qid, qid)]
+
+            it "numbers a worker's question the run asks by the seq of its line" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+
+                qid <-
+                    askedQId world ["--kind", "Pick", "--from", "implementer", "which", "rows?"]
+
+                ownAsked <$> logged world `shouldReturn` [(qid, qid)]
+
+            it "numbers a worker's stuck hand-back by the seq of the line asking it" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+
+                _ <-
+                    succeeded
+                        =<< stateIn
+                            world
+                            "NEEDS_DECISION stuck: the same test fails\n"
+                            ["handback", "implementer"]
+
+                map (uncurry (==)) . ownAsked <$> logged world `shouldReturn` [True]
+
+            it
+                "numbers a forked worker's stuck hand-back by the seq of its line, after the line closing its child"
+                $ \world -> do
+                    _ <- drive world ([Record ["fuel.set", "balanced"]] <> take 2 toImplement)
+
+                    _ <-
+                        succeeded
+                            =<< stateIn
+                                world
+                                "NEEDS_DECISION stuck: two sources disagree\n"
+                                ["handback", "researcher"]
+
+                    map (uncurry (==)) . ownAsked <$> logged world `shouldReturn` [True]
+
+            it "refuses a ruling whose basis names no line, logging no ruling" $ \world -> do
+                _ <- drive world ([Record ["fuel.set", "balanced"]] <> init toImplement)
+                qid <- askedQId world ["--kind", "Pick", "which", "rows?"]
+
+                ran <-
+                    state
+                        world
+                        [ "rule"
+                        , qid
+                        , "--answer"
+                        , "all"
+                        , "--why"
+                        , "the user said"
+                        , "--cost"
+                        , "none"
+                        , "--basis"
+                        , "h:00000000deadbeef"
+                        ]
+
+                (ran.code, ran.err)
+                    `shouldBe` ( 2
+                               ,
+                                   [ "state rule: unknown_basis - the basis h:00000000deadbeef names no line this run logged"
+                                   , "fix: state dump, then state rule "
+                                        <> qid
+                                        <> " --answer <a> --why <w> --cost <c> --basis <an event id it prints>|obvious:<why>"
+                                   ]
+                               )
+                filter (== "ruled") <$> loggedEvents world `shouldReturn` []
+
+            it "numbers a retry's question by the seq of the line that asks it" $ \world -> do
+                parent <- tenXAtFanOut world
+                child <- childRun world parent "/child" "t1"
+                atWorktree world "/work"
+                _ <-
+                    succeeded
+                        =<< stateIn
+                            world
+                            ("BLOCKED no access\nRun: " <> encodeUtf8 child)
+                            ["handback", "engineer", "--child", child]
+
+                _ <- succeeded =<< state world ["retry", "t1", "--why", "the token is set now"]
+
+                map (uncurry (==)) . ownAsked <$> logged world `shouldReturn` [True]
+
+            it "numbers_every_own_question_the_kernel_logs_by_the_seq_of_its_line" $ \_ -> hedgehog $ do
+                writes <-
+                    forAll (Gen.list (Range.linear 1 10) (Gen.element [minBound .. maxBound]))
+                asked <- evalIO $ do
+                    world <- newWorld
+                    _ <- drive world ([Record ["fuel.set", "balanced"]] <> take 2 toImplement)
+                    for_ (zip [1 :: Int ..] writes) $ \(i, write) ->
+                        let text = Text.pack (show i)
+                         in case write of
+                                Note -> state world ["note", "--topic", "t", text]
+                                OwnAsk -> state world ["ask", "--kind", "Pick", "q" <> text <> "?"]
+                                AskFrom ->
+                                    state
+                                        world
+                                        ["ask", "--kind", "Pick", "--from", "researcher", "q" <> text <> "?"]
+                                Stuck ->
+                                    stateIn
+                                        world
+                                        (encodeUtf8 ("NEEDS_DECISION stuck: s" <> text <> "\n"))
+                                        ["handback", "researcher"]
+                                Spawn -> state world ["record", "gather/research.spawned"]
+                                Next -> state world ["next"]
+                    ownAsked <$> logged world
+                cover 30 "a question" (not (null asked))
+                map fst asked === map snd asked
+
         describe "the 10x" $ do
             it "spawns the first task, the second waiting on it" $ \world -> do
                 _ <- tenXAtFanOut world
@@ -1051,7 +1191,11 @@ spec = describe "state over the doubles" $ do
                         succeeded
                             =<< state world ["init", "--notes", "/child", "--parent", parent, "--task", "t1"]
 
-                    again `shouldBe` ["resumed " <> child, "run " <> child <> " /child /child-work"]
+                    again
+                        `shouldBe` [ "resumed " <> child
+                                   , "run " <> child <> " /child /child-work"
+                                   , "next: state next"
+                                   ]
                     filter (== "spawned") <$> loggedEvents world `shouldReturn` ["spawned"]
 
             it "starts a child on the flow its parent's fan-out runs" $ \world -> do
@@ -1116,7 +1260,7 @@ spec = describe "state over the doubles" $ do
                         =<< state world ["init", "--notes", "/other", "--parent", parent, "--task", "t2"]
                 unnamedShown <- succeeded =<< state world ["show"]
 
-                map (Text.takeWhile (/= ' ')) named `shouldBe` ["started", "run"]
+                map (Text.takeWhile (/= ' ')) named `shouldBe` ["started", "run", "next:"]
                 map (take 1) [namedShown, unnamedShown]
                     `shouldSatisfy` all (all (" (10x)" `Text.isSuffixOf`))
 
@@ -1180,7 +1324,7 @@ spec = describe "state over the doubles" $ do
                         ]
 
                 (accepted.code, map (Text.takeWhile (/= ' ')) accepted.out)
-                    `shouldBe` (0, ["started", "run"])
+                    `shouldBe` (0, ["started", "run", "next:"])
 
             it "refuses a child for a task the parent's breakdown lacks, logging no spawn" $ \world -> do
                 parent <- tenXAtFanOut world
@@ -1192,7 +1336,7 @@ spec = describe "state over the doubles" $ do
                 (refused.code, refused.err)
                     `shouldBe` ( 2
                                ,
-                                   [ "state init: --task t9 - no request's breakdown has such a task"
+                                   [ "state init: --task t9 - task t9 is not in the breakdown"
                                    , "fix: state brief engineer, in the parent's worktree, prints the init line"
                                    ]
                                )
@@ -1248,9 +1392,8 @@ spec = describe "state over the doubles" $ do
                 "refuses a child's own answer to the question its parent answers, telling it to hand the question back"
                 $ \world -> do
                     parent <- tenXAtFanOut world
-                    child <- childRun world parent "/child" "t1"
-                    let qid = child <> ":1"
-                    _ <- succeeded =<< state world ["ask", "--kind", "Scope", "which", "scope?"]
+                    _ <- childRun world parent "/child" "t1"
+                    qid <- askedQId world ["--kind", "Scope", "which", "scope?"]
                     before' <- loggedEvents world
 
                     own <- state world ["answer", qid, "yes"]
@@ -1271,12 +1414,17 @@ spec = describe "state over the doubles" $ do
             for_
                 [
                     ( ChildConfirms
-                    , ["plan.done -> skip_refine", "skip_refine.run -> simplify_plan"]
+                    ,
+                        [ "artifact -> plan"
+                        , "plan.done -> skip_refine"
+                        , "skip_refine.run -> simplify_plan"
+                        ]
                     )
                 ,
                     ( ParentDecided
                     ,
-                        [ "plan.done -> skip_refine"
+                        [ "artifact -> plan"
+                        , "plan.done -> skip_refine"
                         , "skip_refine.skip -> present"
                         , "present.done -> confirm"
                         , "confirm.confirmed -> draft"
@@ -1321,8 +1469,7 @@ spec = describe "state over the doubles" $ do
                 "writes the top's answer down to every run below, each resuming the next with it"
                 $ \world -> do
                     (_, mid, grand) <- threeLevels world
-                    let qid = grand <> ":1"
-                    climbed world qid
+                    qid <- climbed world
 
                     answered <- succeeded =<< state world ["answer", qid, "postgres"]
                     topNext <- succeeded =<< state world ["next"]
@@ -1344,13 +1491,11 @@ spec = describe "state over the doubles" $ do
                 "tells an answer it could not write down, and a retry lands it once in every run below"
                 $ \world -> do
                     (_, mid, grand) <- threeLevels world
-                    let qid = grand <> ":1"
-                        broken = "{broken"
-                    climbed world qid
-                    editLogIn world grandNotes (<> [broken])
+                    qid <- climbed world
+                    editLogIn world grandNotes appendUnread
 
                     failed <- succeeded =<< state world ["answer", qid, "it's postgres"]
-                    editLogIn world grandNotes (filter (/= broken))
+                    editLogIn world grandNotes lessUnread
                     retried <- succeeded =<< state world ["answer", qid, "it's postgres"]
 
                     drop 1 failed `shouldSatisfy` \case
@@ -1372,13 +1517,12 @@ spec = describe "state over the doubles" $ do
                 "names the cd into the asking child's worktree its binding names, for an answer it could not write down"
                 $ \world -> do
                     (_, mid, grand) <- threeLevels world
-                    let qid = grand <> ":1"
-                    climbed world qid
+                    qid <- climbed world
                     putFile
                         world
                         "/home/.local/state/state/bindings/s1/e1"
                         ("run " <> grand <> " " <> Text.pack grandNotes <> " /grand work\n")
-                    editLogIn world grandNotes (<> ["{broken"])
+                    editLogIn world grandNotes appendUnread
 
                     failed <- succeeded =<< state world ["answer", qid, "postgres"]
 
@@ -1386,9 +1530,8 @@ spec = describe "state over the doubles" $ do
                         `shouldBe` ["fix: cd '/grand work' && state answer " <> qid <> " postgres --by " <> mid]
 
             it "takes the same answer again, appending nothing to any run" $ \world -> do
-                (_, _, grand) <- threeLevels world
-                let qid = grand <> ":1"
-                climbed world qid
+                _ <- threeLevels world
+                qid <- climbed world
                 _ <- succeeded =<< state world ["answer", qid, "postgres"]
 
                 same <- succeeded =<< state world ["answer", qid, "postgres"]
@@ -1397,9 +1540,8 @@ spec = describe "state over the doubles" $ do
                 answersIn world `shouldReturn` [1, 1, 1]
 
             it "refuses another answer to a question it holds an answer to" $ \world -> do
-                (_, _, grand) <- threeLevels world
-                let qid = grand <> ":1"
-                climbed world qid
+                _ <- threeLevels world
+                qid <- climbed world
                 _ <- succeeded =<< state world ["answer", qid, "postgres"]
 
                 other <- state world ["answer", qid, "sqlite"]
@@ -1435,9 +1577,8 @@ spec = describe "state over the doubles" $ do
                 it
                     "writes a grandchild's question, forwarded by the middle run and ruled at the top, down to the grandchild"
                     $ \world -> do
-                        (_, _, grand) <- directLevels world
-                        let qid = grand <> ":1"
-                        _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                        _ <- directLevels world
+                        qid <- askedQId world ["--kind", "Design", "which", "store?"]
                         atWorktree world midWorktree
                         _ <- succeeded =<< state world ["forward", qid]
                         atWorktree world "/work"
@@ -1460,9 +1601,8 @@ spec = describe "state over the doubles" $ do
                 it
                     "answers a child's question in triage with state answer, forwarding and answering in one, down to the grandchild"
                     $ \world -> do
-                        (_, _, grand) <- directLevels world
-                        let qid = grand <> ":1"
-                        _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                        _ <- directLevels world
+                        qid <- askedQId world ["--kind", "Design", "which", "store?"]
                         atWorktree world midWorktree
                         _ <- succeeded =<< state world ["forward", qid]
                         atWorktree world "/work"
@@ -1478,9 +1618,8 @@ spec = describe "state over the doubles" $ do
                 it
                     "parks a child's question from the parent: the grandchild's next says so, the parent goes on, a later answer closes it"
                     $ \world -> do
-                        (_, _, grand) <- directLevels world
-                        let qid = grand <> ":1"
-                        _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                        _ <- directLevels world
+                        qid <- askedQId world ["--kind", "Design", "which", "store?"]
                         atWorktree world midWorktree
                         _ <- succeeded =<< state world ["forward", qid]
                         atWorktree world "/work"
@@ -1504,9 +1643,8 @@ spec = describe "state over the doubles" $ do
                 it
                     "tells a child its parked question stays open until the parent's answer comes down"
                     $ \world -> do
-                        (_, mid, grand) <- directLevels world
-                        let qid = grand <> ":1"
-                        _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                        (_, mid, _) <- directLevels world
+                        qid <- askedQId world ["--kind", "Design", "which", "store?"]
                         atWorktree world midWorktree
                         _ <- succeeded =<< state world ["forward", qid]
                         atWorktree world "/work"
@@ -1537,16 +1675,15 @@ spec = describe "state over the doubles" $ do
                     (asked, ruled) <- evalIO $ do
                         world <- newWorld
                         parent <- startedIn world ["--flow", "10x"]
-                        runs <- for [1 .. children] $ \i -> do
+                        qids <- for [1 .. children] $ \i -> do
                             atWorktree world (directWorktree i)
-                            run <-
+                            _ <-
                                 startedIn world ["--notes", Text.pack (directNotes i), "--parent", parent]
-                            _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
-                            pure run
+                            askedQId world ["--kind", "Design", "which", "store?"]
                         asked <- traverse (loggedIn world . directNotes) [1 .. children]
                         atWorktree world "/work"
-                        for_ [run | (i, run) <- zip [1 ..] runs, i == asker] $ \run ->
-                            succeeded =<< state world ([command, run <> ":1"] <> rest)
+                        for_ [qid | (i, qid) <- zip [1 ..] qids, i == asker] $ \qid ->
+                            succeeded =<< state world ([command, qid] <> rest)
                         ruled <- traverse (loggedIn world . directNotes) [1 .. children]
                         pure (asked, ruled)
                     let others = filter ((/= asker) . fst) . zip [1 ..]
@@ -1586,6 +1723,178 @@ spec = describe "state over the doubles" $ do
 
                 shown `shouldContain` ["task t2: not started, tries 0, held https://pr/2#b"]
 
+            it
+                "names the breakdown's seq on the spawn, the child's spawned and its hand-back"
+                $ \world -> do
+                    parent <- tenXAtFanOut world
+                    _ <- succeeded =<< state world ["record", "spawning", "t1"]
+                    _ <- childRun world parent "/child" "t1"
+                    _ <- state world ["stop", "failed", "no", "access"]
+
+                    envelopes <- logged world
+
+                    let breakdownAt = [e.seq | e <- envelopes, eventType e.event == "breakdown.done"]
+                        refs =
+                            [("spawning" :: Text, ref) | Spawning ref <- map (.event) envelopes]
+                                <> [("spawned", ref) | Spawned (Child _ (Tasked ref) _) <- map (.event) envelopes]
+                                <> [("handed_back", ref) | HandedBack _ (Just ref) _ <- map (.event) envelopes]
+                    [(name, ref.task, Just ref.breakdown) | (name, ref) <- refs]
+                        `shouldBe` [ (name, TaskId "t1", listToMaybe breakdownAt)
+                                   | name <- ["spawning", "spawned", "handed_back"]
+                                   ]
+
+            it
+                "moves an epic along its table, printing its row, and refuses every other move"
+                $ \world -> do
+                    _ <- startedIn world ["--flow", "10x"]
+                    let epic argv = (\ran -> (ran.code, ran.out, ran.err)) <$> state world ("epic" : argv)
+                        refusedWith what why fix = (2, [], ["state epic: " <> what <> " - " <> why, "fix: " <> fix])
+                        row = "epic limits o/r epic/limits "
+                        replacement = prUrl <> "1"
+
+                    ranAll <-
+                        traverse
+                            epic
+                            [ ["ready", "limits", "--pr", prUrl]
+                            , ["open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
+                            , ["open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
+                            , ["merged", "limits"]
+                            , ["ready", "limits", "--pr", prUrl]
+                            , ["ready", "limits", "--pr", replacement]
+                            , ["merged", "limits"]
+                            , ["merged", "limits"]
+                            , ["ready", "limits", "--pr", prUrl]
+                            ]
+
+                    ranAll
+                        `shouldBe` [ refusedWith
+                                        "unknown_epic"
+                                        "the run never opened epic limits"
+                                        "state epic open limits --repo <owner/name> --branch <branch>"
+                                   ,
+                                       ( 0
+                                       , [row <> "open", "next: state record breakdown.done --tasks <file.json>"]
+                                       , []
+                                       )
+                                   , refusedWith "epic_exists" "the run opened epic limits already" "state resume"
+                                   , refusedWith
+                                        "epic_not_ready"
+                                        "epic limits is not ready for review: it is open still"
+                                        "state epic ready limits --pr <url>, once its final PR is open"
+                                   ,
+                                       ( 0
+                                       , [row <> "ready_for_review " <> prUrl, "tasks on it: none", "next: state next"]
+                                       , []
+                                       )
+                                   , -- A replacement final PR, after the first one closed.
+
+                                       ( 0
+                                       ,
+                                           [ row <> "ready_for_review " <> replacement
+                                           , "tasks on it: none"
+                                           , "next: state next"
+                                           ]
+                                       , []
+                                       )
+                                   , (0, [row <> "merged " <> replacement, "next: state next"], [])
+                                   , -- Merged already: the goal holds.
+                                     (0, [row <> "merged " <> replacement, "next: state next"], [])
+                                   , refusedWith
+                                        "epic_not_open"
+                                        "epic limits merged already: a merged epic takes no new final PR"
+                                        "state epic open <new name> --repo <owner/name> --branch <branch>, for a next epic"
+                                   ]
+
+            it
+                "refuses a breakdown on an epic the run never opened, then takes it once opened"
+                $ \world -> do
+                    _ <- startedIn world ["--flow", "10x"]
+                    putFile
+                        world
+                        (notes </> "tasks.json")
+                        (breakdownJson [(plainTask "t1" []) {base = OnEpic (epicNamed "limits")}])
+                    _ <-
+                        succeeded
+                            =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
+                    let breakdown =
+                            state
+                                world
+                                ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]
+
+                    refused <- breakdown
+                    _ <-
+                        succeeded
+                            =<< state
+                                world
+                                ["epic", "open", "limits", "--repo", "o/r", "--branch", "epic/limits"]
+                    taken <- breakdown
+
+                    (refused.code, take 1 refused.err, taken.code)
+                        `shouldBe` (2, ["state record: unknown_epic - the run never opened epic limits"], 0)
+
+            it "records a task's head as its row, and refuses a short sha" $ \world -> do
+                _ <- tenXAtFanOut world
+                let sha = Text.replicate 4 "0123456789"
+
+                ran <- succeeded =<< state world ["record", "task", "head", "t1", sha]
+                short <- state world ["record", "task", "head", "t1", "0123456"]
+                envelopes <- logged world
+
+                ran `shouldBe` ["task t1 head " <> sha, "next: state next"]
+                (short.code, take 1 short.err)
+                    `shouldBe` ( 2
+                               ,
+                                   [ "state record: record task - 0123456 is not a full commit sha, 40 or 64 lowercase hex characters"
+                                   ]
+                               )
+                [ref.task | TaskHead ref _ <- map (.event) envelopes] `shouldBe` [TaskId "t1"]
+
+            it
+                "changes a task's base for its brief, and refuses a base closing a cycle or on no epic"
+                $ \world -> do
+                    _ <- tenXAtFanOut world
+                    let rebase task base = state world ["record", "task", task, "base", base, "--reason", "restack"]
+
+                    changed <- succeeded =<< rebase "t2" "on_task:t1"
+                    brief <- succeeded =<< state world ["brief", "engineer", "--task", "t2"]
+                    refusals <-
+                        traverse
+                            (fmap (\ran -> (ran.code, take 1 ran.err)) . uncurry rebase)
+                            [("t1", "on_task:t2"), ("t1", "on_epic:nope"), ("t9", "on_default")]
+                    unreasoned <- state world ["record", "task", "t1", "base", "on_default"]
+
+                    take 1 changed `shouldSatisfy` all ("task_base_changed" `Text.isInfixOf`)
+                    drop 1 changed `shouldBe` ["next: state next"]
+                    brief `shouldContain` ["Base: on_task:t1"]
+                    refusals
+                        `shouldBe` [
+                                       ( 2
+                                       ,
+                                           [ "state record: task_cycle - tasks t1 t2 would build on each other in a cycle, by their bases and dependencies"
+                                           ]
+                                       )
+                                   , (2, ["state record: unknown_epic - the run never opened epic nope"])
+                                   , (2, ["state record: unknown_task - task t9 is not in the breakdown"])
+                                   ]
+                    (unreasoned.code, take 1 unreasoned.err)
+                        `shouldBe` ( 2
+                                   ,
+                                       [ "state record: record task - a base change says why, as --reason <r>: one line"
+                                       ]
+                                   )
+
+            it "records a task delivered, its PR left open, as its status" $ \world -> do
+                _ <- tenXAtFanOut world
+
+                _ <- succeeded =<< state world ["record", "task", "t1", "delivered", prUrl]
+                shown <- succeeded =<< state world ["show"]
+
+                shown
+                    `shouldSatisfy` any
+                        ( \l ->
+                            "task t1: " `Text.isPrefixOf` l && ("PR delivered " <> prUrl) `Text.isInfixOf` l
+                        )
+
             it "briefs an engineer with its task's fields, then its init line" $ \world -> do
                 run <- tenXAtFanOut world
 
@@ -1593,8 +1902,9 @@ spec = describe "state over the doubles" $ do
 
                 brief
                     `shouldBe` [ "Task: t2"
+                               , "Title: Task t2"
                                , "Fuel: Balanced"
-                               , "Base: main"
+                               , "Base: on_default"
                                , "Branch: t2"
                                , "Depends on: t1"
                                , "QA: no"
@@ -1612,7 +1922,7 @@ spec = describe "state over the doubles" $ do
                         (\role -> succeeded =<< state world ["brief", role, "--task", "t1"])
                         ["engineer", "10x"]
 
-                map (drop 9) briefs
+                map (drop 10) briefs
                     `shouldBe` replicate
                         2
                         ["state init --notes <dir> --flow 10x --parent " <> run <> " --task t1"]
@@ -1630,7 +1940,7 @@ spec = describe "state over the doubles" $ do
 
                 brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
-                drop 9 brief
+                drop 10 brief
                     `shouldBe` [ "cd /wt/t1 && state init --notes /tmp/engineer-o-r-feat-x/ --parent "
                                     <> run
                                     <> " --task t1"
@@ -1650,7 +1960,7 @@ spec = describe "state over the doubles" $ do
 
                     brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
-                    drop 9 brief
+                    drop 10 brief
                         `shouldBe` [ "state init --notes /tmp/engineer-o-r-feat-x-rm--rf---y--z--w/ --parent "
                                         <> run
                                         <> " --task t1"
@@ -1830,15 +2140,32 @@ directWorktree i = "/direct-work-" <> show i
 
 {- | The grandchild asks a Design question, the middle run forwards it, and
 the top forwards it to the user; later calls run in the top's worktree.
+Its qid.
 -}
-climbed :: IORef World -> Text -> IO ()
-climbed world qid = do
-    _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+climbed :: IORef World -> IO Text
+climbed world = do
+    qid <- askedQId world ["--kind", "Design", "which", "store?"]
     atWorktree world midWorktree
     _ <- succeeded =<< state world ["forward", qid]
     atWorktree world "/work"
     _ <- succeeded =<< state world ["forward", qid]
-    pure ()
+    pure qid
+
+{- | Each question of the run's own the log asks: its qid, and the id of the
+line asking it.
+-}
+ownAsked :: [Envelope] -> [(Text, Text)]
+ownAsked envelopes =
+    [ (Ask.qidText qid, numberedText envelope.run envelope.seq)
+    | envelope <- envelopes
+    , Asked asking <- [envelope.event]
+    , let qid@(Ask.QId asker _) = asking.question.qid
+    , asker == envelope.run
+    ]
+
+-- | A write of the run's, as an agent makes it: one that asks a question, or one between.
+data Write = Note | OwnAsk | AskFrom | Stuck | Spawn | Next
+    deriving stock (Bounded, Enum, Show)
 
 -- | How many answers each run's log holds, top first.
 answersIn :: IORef World -> IO [Int]
@@ -1922,6 +2249,7 @@ trivialTranscript =
     [ "fuel.set -> gather"
     , "gather.enough -> gather/notes"
     , "gather/notes.done -> plan"
+    , "artifact -> plan"
     , "plan.done -> skip_refine"
     , "skip_refine.skip -> present"
     , "present.done -> confirm"

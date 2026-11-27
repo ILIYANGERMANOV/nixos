@@ -32,6 +32,27 @@ library
   import:          shared-properties
   hs-source-dirs:  src
   exposed-modules:
+    Data.Entity.Blob
+    Data.Entity.Event
+    Data.Entity.Run
+    Data.Field
+    Data.Json
+    Data.Payload.Blob
+    Data.Payload.Event
+    Data.Payload.Upcast
+    Data.Projection
+    Data.Projection.Column
+    Data.Projection.Context
+    Data.Projection.Gaps
+    Data.Projection.Questions
+    Data.Projection.Registry
+    Data.Projection.Runs
+    Data.Projection.Spans
+    Data.Projection.Tasks
+    Data.Projection.Views
+    Data.Report
+    Data.Table
+    Data.Tsv
     Effects.Clock
     Effects.Console
     Effects.Environment
@@ -40,7 +61,14 @@ library
     Effects.Git
     Effects.Log
     Effects.Random
-    Effects.Store
+    Effects.Store.Connection
+    Effects.Store.EventRows
+    Effects.Store.Events
+    Effects.Store.Migration
+    Effects.Store.Projection
+    Effects.Store.Report
+    Effects.Store.Sql
+    State.Artifact
     State.Category.Effect
     State.Category.Flow
     State.Category.Fuel
@@ -50,8 +78,10 @@ library
     State.Category.Step
     State.Category.Ty
     State.Cli.Command
+    State.Cli.Query
     State.Cli.Render
     State.Cli.Render.Mermaid
+    State.Cli.Resume
     State.Cli.Route
     State.Cli.Shell
     State.Cli.View
@@ -71,10 +101,14 @@ library
     State.Run.Ask
     State.Run.Card
     State.Run.Codec
+    State.Run.Epic
     State.Run.Event
     State.Run.Fan
     State.Run.Fold
+    State.Run.Gap
     State.Run.Id
+    State.Run.IJson
+    State.Run.Stopgap
     State.Show
     State.Step.Artifact
     State.Step.Build
@@ -96,30 +130,31 @@ library
     , aeson
     , bytestring
     , containers
+    , cryptohash-sha256
+    , direct-sqlite
     , directory
     , effectful
     , filepath
+    , network-uri
     , optparse-applicative
     , process
+    , scientific
     , sqlite-simple
     , text
     , time
+    , unix
 
 executable state
   import:         shared-properties
   hs-source-dirs: app/state
   main-is:        Main.hs
-  build-depends:
-    , state
-    , text
+  build-depends:  state
 
 executable state-hook
   import:         shared-properties
   hs-source-dirs: app/state-hook
   main-is:        Main.hs
-  build-depends:
-    , state
-    , text
+  build-depends:  state
 
 test-suite state-test
   import:             shared-properties
@@ -133,6 +168,11 @@ test-suite state-test
   ghc-options:        -threaded
   other-modules:
     Concurrently
+    Data.FieldSpec
+    Data.Payload.EventSpec
+    Data.Payload.Fixtures
+    Data.ReportSpec
+    Data.TsvSpec
     Doubles.Clock
     Doubles.Console
     Doubles.Environment
@@ -144,18 +184,28 @@ test-suite state-test
     Effects.FileSystemSpec
     Effects.LogSpec
     Effects.RandomSpec
+    Effects.Store.Fixtures
+    Effects.Store.MigrationSpec
+    Effects.Store.Projected
+    Effects.Store.ProjectionSpec
+    Effects.Store.ReadSpec
     SpecHook
     State.ArchitectureSpec
+    State.ArtifactSpec
     State.Category.FlowGen
     State.Category.FlowSpec
     State.Category.FuelSpec
     State.Category.GraphSpec
     State.Category.LawsSpec
     State.Category.PathSpec
+    State.Cli.CodeSpec
     State.Cli.CommandSpec
+    State.Cli.QuerySpec
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec
+    State.Cli.ResumeSpec
     State.Cli.RouteSpec
+    State.Cli.Shell.ContextSpec
     State.Cli.Shell.FocusSpec
     State.Cli.Shell.HookSpec
     State.Cli.Shell.MainSpec
@@ -181,11 +231,15 @@ test-suite state-test
     State.Run.AskSpec
     State.Run.CardSpec
     State.Run.CodecSpec
+    State.Run.EpicSpec
     State.Run.EventGen
     State.Run.EventSpec
     State.Run.FanSpec
     State.Run.FoldSpec
+    State.Run.GapSpec
+    State.Run.IJsonSpec
     State.Run.RunGen
+    State.Run.StopgapSpec
     State.TableSpec
 
   build-depends:

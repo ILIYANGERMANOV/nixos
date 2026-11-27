@@ -24,7 +24,27 @@ persist between calls. The default window starts at the previous
 `sed -n '1,/^## sessions$/p' $run/report.md`, then by their index range the
 sections whose headline shows the largest cost (effective tokens or
 minutes), about the top 5. `${CLAUDE_SKILL_DIR}/references/metrics.md` says how to
-read them. Never read a transcript yourself: researchers do.
+read them.
+
+Its `state-log` section reads the run store's projection tables read-only.
+The kernel builds them when it opens the store. When a table or column it
+reads is missing, the analyzer stops with no report and says the store has
+no current projections: run `state sql 'SELECT 1'` once, then rerun the
+analyzer.
+
+Before you brief researchers, read the run store:
+
+- `state report runs|steps|signals|gaps|waits`: one fixed TSV report each.
+  Each takes `--since` and `--run <id>`. `--since` takes an RFC 3339
+  date-time, such as `2026-11-20T00:00:00Z`: the analyzer's window start.
+- `state sql "<select>"` on the views, for what the reports leave open:
+  `v_steps` (step visits), `v_signals` (refusals, stops, overrides) and
+  `v_sessions` (harness sessions). `state sql "SELECT sql FROM sqlite_schema"`
+  prints every table and view with its column comments. The
+  [read API](https://github.com/ILIYANGERMANOV/nixos/blob/main/docs/harness/RUN-LOOP.md#the-run-store)
+  says more.
+
+Never read a transcript yourself: researchers do.
 
 ## 2. Prime the engineer
 
@@ -33,9 +53,10 @@ Write `$run/prompt.md`, the engineer's task:
 - **Goal**: cut the tokens and wall time agents spend without buying quality,
   and spend more where it buys significant quality.
 - **Facts**: each lead from the report with its numbers (section, row, cost
-  in effective tokens or minutes), and each suspected bottleneck to confirm or
-  refute. The report and `metrics.md` paths, and that `metrics.md` holds the
-  transcript layout for researchers.
+  in effective tokens or minutes). Each finding from `state report` or
+  `state sql` with its run id and numbers. Each suspected bottleneck to
+  confirm or refute. The report and `metrics.md` paths, and that `metrics.md`
+  holds the transcript layout for researchers.
 - **Standards**:
   - Numbers, never guesses: a bottleneck is real once transcripts or
     outcomes show its cost or the quality it lost; a refuted suspicion is
@@ -54,7 +75,7 @@ Write `$run/prompt.md`, the engineer's task:
   cwd is its checkout, or the prompt names it) holding the fixes the user
   picks; its body states the before numbers and, where measurable, the after
   numbers. The rest, and fixes in other repos, become follow-up `/engineer`
-  runs, named in the hand-over.
+  runs, named in the delivery.
 
 ## 3. Engineer
 

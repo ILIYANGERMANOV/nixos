@@ -31,7 +31,7 @@ from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
 from enum import Enum
 from functools import cached_property
-from itertools import groupby, pairwise
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, NewType, assert_never, cast, override
 
@@ -2110,7 +2110,7 @@ class Section:
 
 def render(
     window: Window,
-    runs: StateLogs,
+    runs: list[RunLog],
     scope: str,
     split: datetime | None,
     fetch: Fetch | None,
@@ -2957,17 +2957,19 @@ def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:
     ]
 
 
-# --- State event logs --------------------------------------------------------
+# --- State run store ---------------------------------------------------------
 #
 # Each engineer or 10x run appends its steps to the kernel's SQLite run store
-# (programs/agents/kernel/src/Effects/Store.hs): one `events` row per step, its
-# `json` one envelope of version 4 (programs/agents/kernel/src/State/Run/Codec.hs).
-# A 10x re-asks a child's question in its own log under the child's qid, so a
-# question counts once, in the log of the run whose qid it bears.
+# (programs/agents/kernel/src/Effects/Store/). The kernel folds each run's events
+# into projection tables, the store's read API (docs/harness/), and builds them
+# anew whenever it opens a store whose projections are not its own. So this
+# reads those tables, never an event's payload. A read-only open cannot build
+# them: a store whose tables or columns are missing is refused.
+# A 10x holds a child's question too, under the child's identity, so a question
+# counts once, in the run that first asked it.
 
-LOG_VERSION = 4  # the version `read_log` matches on
 REPLAN = "replan"  # the stop reason that ends a run for a new plan
-STUCK = "Stuck"  # the question kind the stuck guard asks
+STUCK = "stuck"  # the question kind the stuck guard asks
 
 
 def default_store() -> Path | None:
@@ -2983,7 +2985,7 @@ def default_store() -> Path | None:
             base = home / ".local" / "state"
         case (None, None):
             return None
-    return base / "state" / "kernel.db"
+    return base / "state" / "kernel-v2.db"
 
 
 def absolute(value: str | None) -> Path | None:
@@ -3002,7 +3004,7 @@ class Question:
 @dataclass(frozen=True)
 class RunStop:
     reason: str
-    why: str
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -3010,99 +3012,97 @@ class RunLog:
     run: str
     start: float
     notes: str
-    questions: list[Question]  # the run's own, not those re-asked for a child
+    questions: list[Question]  # the run's own, not those it holds for a child
     ruled: set[str]  # qids this run ruled on
     answered: set[str]  # qids answered from above, by the user or a parent run
-    stops: list[RunStop]
+    stop: RunStop | None  # a stop ends a run, so it has one at most
 
 
-@dataclass(frozen=True)
-class StateLogs:
-    runs: list[RunLog]
-    older: int  # logs of another version or with an unreadable start, not read
-
-
-def load_logs(store: Path | None) -> StateLogs:
+def load_logs(store: Path | None) -> list[RunLog]:
     """The runs `store` holds; none when there is no store yet."""
     if store is None or not store.exists():
-        return StateLogs([], 0)
-    loaded = [read_log(lines) for lines in read_store(store)]
-    runs = [log for log in loaded if log is not None]
-    return StateLogs(runs, len(loaded) - len(runs))
+        return []
+    try:
+        return read_store(store)
+    except sqlite3.OperationalError as error:
+        match str(error).split(":")[0]:
+            case "no such table" | "no such column":
+                message = f"{store} has no current projections: open it once with a current kernel, e.g. `state sql 'SELECT 1'`, then run this again"
+                raise SystemExit(message) from error
+            case _:
+                raise
 
 
-def read_store(store: Path) -> list[list[dict[str, Json]]]:
-    """Each run's events in order, read-only so the kernel's writes stay its own."""
+def read_store(store: Path) -> list[RunLog]:
+    """Every run from the projections, read-only so the kernel's writes stay its own."""
     with closing(sqlite3.connect(f"{store.as_uri()}?mode=ro", uri=True)) as db:
-        rows = db.execute("SELECT run, json FROM events ORDER BY run, seq").fetchall()
+        runs = cast(
+            "list[tuple[str, str, str, str | None, str | None]]",
+            db.execute("""
+                SELECT r.id, r.created_at, r.notes_dir, s.stop_reason, s.stop_detail
+                FROM runs AS r LEFT JOIN run_states AS s ON s.run_id = r.id
+            """).fetchall(),
+        )
+        # A question's one identity is `<run>:<seq>` of the event that first asked it.
+        questions = cast(
+            "list[tuple[str, str, str, str, str]]",
+            db.execute("""
+                SELECT q.run_id, q.origin_run_id || ':' || q.origin_question_id, q.kind, r.flow || ' ' || q.step, q.text
+                FROM questions AS q JOIN runs AS r ON r.id = q.run_id
+                WHERE q.origin_run_id = q.run_id
+                ORDER BY q.run_id, q.id
+            """).fetchall(),
+        )
+        settled = cast(
+            "list[tuple[str, str, str]]",
+            db.execute("""
+                SELECT 'ruled', d.run_id, q.origin_run_id || ':' || q.origin_question_id FROM rulings AS d
+                JOIN questions AS q ON q.run_id = d.run_id AND q.id = d.question_id
+                UNION ALL
+                SELECT 'answered', d.run_id, q.origin_run_id || ':' || q.origin_question_id FROM answers AS d
+                JOIN questions AS q ON q.run_id = d.run_id AND q.id = d.question_id
+            """).fetchall(),
+        )
+    asked: dict[str, list[Question]] = defaultdict(list)
+    for run, qid, kind, step, text in questions:
+        asked[run].append(Question(qid, kind, step, text))
+    by: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for how, run, qid in settled:
+        by[how, run].add(qid)
     return [
-        [event for _, text in run if isinstance(event := parse_json(text), dict)]
-        for _, run in groupby(cast("list[tuple[str, str]]", rows), key=lambda r: r[0])
+        RunLog(
+            run,
+            datetime.fromisoformat(created).timestamp(),
+            notes,
+            asked[run],
+            by["ruled", run],
+            by["answered", run],
+            stop_of(reason, detail),
+        )
+        for run, created, notes, reason, detail in runs
     ]
 
 
-def read_log(lines: list[dict[str, Json]]) -> RunLog | None:
-    """The run `lines` log, None when the first is not a `LOG_VERSION` start."""
-    match lines:
-        case [
-            {"v": v, "type": "started", "run": str(run), "ts": str(ts)} as first,
-            *rest,
-        ] if v == LOG_VERSION and (start := iso_timestamp(ts)) is not None:
-            started = as_object(first.get("data"))
-            events = [(line.get("type"), as_object(line.get("data"))) for line in rest]
-            flow = text_of(started.get("flow"))
-            return RunLog(
-                run,
-                start,
-                text_of(started.get("notes")),
-                [
-                    question(flow, data)
-                    for kind, data in events
-                    if kind == "asked" and qid_of(data).split(":")[0] == run
-                ],
-                {qid_of(data) for kind, data in events if kind == "ruled"},
-                {qid_of(data) for kind, data in events if kind == "answered"},
-                [
-                    RunStop(text_of(data.get("reason")), text_of(data.get("why")))
-                    for kind, data in events
-                    if kind == "stop"
-                ],
-            )
+def stop_of(reason: str | None, detail: str | None) -> RunStop | None:
+    """The store sets a stop's reason and detail together, and only on a stopped run."""
+    match reason, detail:
+        case str(), str():
+            return RunStop(reason, detail)
         case _:
             return None
 
 
-def iso_timestamp(value: str) -> float | None:
-    """`value` as a POSIX timestamp, None when it is not ISO 8601."""
-    try:
-        return datetime.fromisoformat(value).timestamp()
-    except ValueError:
-        return None
-
-
-def question(flow: str, asked: dict[str, Json]) -> Question:
-    return Question(
-        qid_of(asked),
-        text_of(asked.get("kind")),
-        f"{flow} {text_of(asked.get('step'))}",
-        text_of(asked.get("question")),
-    )
-
-
-def qid_of(data: dict[str, Json]) -> str:
-    """A question's id, `<run>:<n>` for the run that asked it."""
-    return text_of(data.get("qid"))
-
-
-def select_logs(logs: StateLogs, since: float | None, project: str | None) -> StateLogs:
+def select_logs(
+    logs: list[RunLog], since: float | None, project: str | None
+) -> list[RunLog]:
     """Runs started in the window, whose notes path names the project when given."""
     chosen = [
         r
-        for r in logs.runs
+        for r in logs
         if (since is None or r.start >= since)
         and (project is None or project in r.notes)
     ]
-    return StateLogs(sorted(chosen, key=lambda r: r.start), logs.older)
+    return sorted(chosen, key=lambda r: r.start)
 
 
 class Settled(Enum):
@@ -3120,9 +3120,8 @@ def settled(qid: str, ruled: set[str], answered: set[str]) -> Settled:
     return Settled.OPEN
 
 
-def state_log(logs: StateLogs) -> Section:
+def state_log(runs: list[RunLog]) -> Section:
     """Questions per step and how they were settled, stuck rounds and stops."""
-    runs = logs.runs
     ruled = {q for r in runs for q in r.ruled}
     answered = {q for r in runs for q in r.answered}
     asked = [(r, q) for r in runs for q in r.questions]
@@ -3134,13 +3133,16 @@ def state_log(logs: StateLogs) -> Section:
         for step, qs in sorted(by_step.items(), key=lambda kv: -len(kv[1]))
     ]
     stuck = [(r, q) for r, q in asked if q.kind == STUCK]
-    stops: dict[str, list[str]] = defaultdict(list)  # reason: whys
+    stops: dict[str, list[str]] = defaultdict(list)  # reason: details
     for r in runs:
-        for stop in r.stops:
-            stops[stop.reason].append(stop.why)
+        match r.stop:
+            case RunStop(reason, detail):
+                stops[reason].append(detail)
+            case None:
+                pass
     stop_rows = [
-        [reason, str(len(whys)), clip(whys[-1], 80)]
-        for reason, whys in sorted(stops.items(), key=lambda kv: -len(kv[1]))
+        [reason, str(len(details)), clip(details[-1], 80)]
+        for reason, details in sorted(stops.items(), key=lambda kv: -len(kv[1]))
     ]
     stuck_rows = [[r.run, q.step, clip(q.text, 80)] for r, q in stuck[-TOP:]]
     fact = (
@@ -3151,10 +3153,9 @@ def state_log(logs: StateLogs) -> Section:
         "state-log",
         fact,
         [
-            f"logs older than version {LOG_VERSION}, skipped: {logs.older}",
             *table(["step", "asked", "ruled", "answered", "open", "kinds"], step_rows),
             "stops:",
-            *table(["reason", "n", "latest why"], stop_rows),
+            *table(["reason", "n", "latest detail"], stop_rows),
             "stuck rounds, latest:",
             *table(["run", "step", "question"], stuck_rows),
         ],

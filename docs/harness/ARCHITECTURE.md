@@ -67,10 +67,27 @@ IO lives only in the effect shell, [`State/Cli/Shell.hs`][shell], and in
 [`Effects/`][effects]. There are nine effects, each one file with its IO
 interpreter, built on the [`effectful`](https://hackage.haskell.org/package/effectful)
 library: `Clock`, `Console`, `Environment`, `FileSystem`, `Gh`, `Git`,
-`Log`, `Random` and `Store` (the only module that speaks SQL). Tests run
-the shell on in-memory doubles in [`test/Doubles/`][doubles]. The rest is
-pure, and a test holds that too ([IO test][archio]). The run store is one
-SQLite file ([ADR 0014](../adr/0014-pure-core-event-sourced-flow.md)).
+`Log`, `Random` and `Store` (`Effects.Store.*`, the only modules that
+speak SQL). Tests run the shell on in-memory doubles in
+[`test/Doubles/`][doubles]. The rest is pure, and a test holds that too
+([IO test][archio]). The run store is one SQLite file, `kernel-v2.db`
+([ADR 0014](../adr/0014-pure-core-event-sourced-flow.md),
+[ADR 0023](../adr/0023-append-only-event-store-with-rebuilt-projections.md)).
+
+The store has three layers of its own, and the layers test holds them too:
+
+```text
+Domain  <-  Data  <-  Effects/Store
+ pure       pure       IO, SQL only
+```
+
+- `State/` is the domain: the events and states the fold decides on.
+- `Data/` is the database's shape, pure: column codecs (`Field.hs`), the
+  DDL and row types the tables share (`Table.hs`), each permanent table's
+  row type, DDL and insert (`Entity/`), and the mapping between events and
+  rows (`Payload/`).
+- `Effects/Store/` runs SQL on rows: `Connection.hs`, `Migration.hs`,
+  `Events.hs`. It holds no row type and no mapping.
 
 ## The agent compiler
 
@@ -149,7 +166,7 @@ and the tools, skills, operations and prose it needs.
 The one list of the harness's decisions. Some ADRs were merged into a
 later one; each merged number keeps its row and links its old text at the
 last commit that had it. Numbers are never reused: the next new ADR is
-0023.
+0024.
 
 | ADR | Decides |
 |---|---|
@@ -165,6 +182,7 @@ last commit that had it. Numbers are never reused: the next new ADR is
 | [0020](../adr/0020-flow-core-from-sums-and-elgot.md) | the flow core: sums, cases, Elgot-shaped loops and step meters |
 | [0021](../adr/0021-flow-effects.md) | flow effects: Pick, Ask, Focus and Await in a flow's type |
 | [0022][adr0022] | merged into 0014 |
+| [0023](../adr/0023-append-only-event-store-with-rebuilt-projections.md) | an append-only event store with rebuilt projections; total decode |
 
 [adr0012]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/docs/adr/0012-engineer-state-machine.md
 [adr0015]: https://github.com/ILIYANGERMANOV/nixos/blob/1d114af7f556b904900b6aea70b733cabfd3ab32/docs/adr/0015-state-program.md

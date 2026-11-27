@@ -21,6 +21,7 @@ module State.Role (
     Rung (..),
     AgentRole (..),
     role,
+    graphOf,
     roles,
     leads,
     roleText,
@@ -58,6 +59,7 @@ import State.Category.Fuel (
     atFuel,
     parseByName,
  )
+import State.Category.Graph (OpenGraph, graph)
 import State.Category.Step (
     EventName (..),
     SomeStep (..),
@@ -99,6 +101,11 @@ data SomeFlow where
 -- | What the flow ends in.
 flowOut :: SomeFlow -> TyVal
 flowOut (SomeFlow (_ :: Flow s 'Ctx 'Nothing o)) = tyVal @o
+
+-- | Each flow's graph glues, as its test holds: a clash here is a bug.
+graphOf :: FlowName -> OpenGraph
+graphOf flowName = case (role flowName).flow of
+    SomeFlow flow -> either (error . ("the flow does not glue: " <>) . show) id (graph flow)
 
 {- | A named flow's handler, @Handle PickHandler@, removes only its picks: its
 questions stay open, so a flow nested in another (a forked engineer, a

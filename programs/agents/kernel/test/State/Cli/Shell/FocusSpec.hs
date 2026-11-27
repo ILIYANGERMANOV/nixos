@@ -1,17 +1,22 @@
 {- | @state focus@ and @state tasks@ over the doubles, the clock fixed: a
-chief's request switch, its cards and the resume advice (5-minute cache, 15s buffer).
+chief's request switch and its cards.
 -}
 module State.Cli.Shell.FocusSpec (spec) where
 
 import Control.Monad ((<=<))
+import Data.Entity.Event (EventRow (..))
 import Data.IORef (IORef, modifyIORef')
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Data.Time (NominalDiffTime, addUTCTime)
 import State.Cli.Shell.World
-import State.Run.Codec (decodeLine, encodeLine)
-import State.Run.Event (Envelope (..))
+import State.Run.Event (
+    AgentRole (..),
+    Event (SpanStarted),
+    Harness (..),
+    SpanStart (..),
+ )
 import State.Run.RunGen (breakdownJson, plainTask)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, shouldBe)
@@ -20,7 +25,7 @@ spec :: Spec
 spec = describe "a chief's request switch over the doubles" $ before newWorld $ do
     describe "state tasks"
         $ it
-            "prints a waiting request's card, advising its worker resumed at 4 minutes and a fresh agent from the card at 6"
+            "prints a waiting request's card, its pause counted in minutes"
         $ \world -> do
             researching world
 
@@ -35,19 +40,17 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                                [ "notes /notes"
                                , "r2 in focus at fuel"
                                , "r1 paused 4m at architect/fuel: researching the store"
-                               , "  resume agent a7: paused under 4m45s, its cache is warm (SendMessage)"
                                ]
                            ,
                                [ "notes /notes"
                                , "r2 in focus at fuel"
                                , "r1 paused 6m at architect/fuel: researching the store"
-                               , "  fresh agent from card: paused 4m45s or more, its cache is cold"
                                ]
                            )
 
     describe "state focus" $ do
         it
-            "turns back to a waiting request at its node, its card advising by the two logged times"
+            "turns back to a waiting request at its node, its card counting the pause by the two logged times"
             $ \world -> do
                 researching world
                 before' <- succeeded =<< state world ["show"]
@@ -60,7 +63,6 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                 back
                     `shouldBe` [ "recorded 6 focused -> architect/fuel"
                                , "r1 paused 4m at architect/fuel: researching the store"
-                               , "  resume agent a7: paused under 4m45s, its cache is warm (SendMessage)"
                                ]
                 after `shouldBe` before'
 
@@ -357,7 +359,8 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
             advised <- succeeded =<< state world ["next"]
 
             recorded (planned <> advised)
-                `shouldBe` [ "plan.done -> skip_refine"
+                `shouldBe` [ "artifact -> plan"
+                           , "plan.done -> skip_refine"
                            , "skip_refine.skip -> present"
                            , "present.done -> confirm"
                            , "confirm.confirmed -> draft"
@@ -389,30 +392,26 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
   where
     untasked = filter ("untasked" `Text.isPrefixOf`)
 
--- | A chief run whose first request is routed to a child run: at the fork that hands it on.
-delegating :: IORef World -> IO Text
-delegating world = do
-    chief <- startedIn world ["--flow", "chief"]
-    mapM_
-        (succeeded <=< state world)
-        ([["record", "fuel.set", "balanced"], ["record", "route.delegate"]] :: [[Text]])
-    pure chief
-
--- | A child run of the chief that names no task, in 'childWorktree', where later calls run; its id.
-untaskedChild :: IORef World -> Text -> IO Text
-untaskedChild world chief = do
-    atWorktree world childWorktree
-    startedIn world ["--notes", "/child", "--parent", chief]
-
--- | A chief run in its architect request, a researcher @a7@ at work.
+-- | A chief run in its architect request, a researcher at work: its span open.
 researching :: IORef World -> IO ()
 researching world = do
     _ <- startedIn world ["--flow", "chief"]
     mapM_
         (succeeded <=< state world)
         ([["record", "fuel.set", "balanced"], ["record", "route.architect"]] :: [[Text]])
-    _ <- hook world "bind" (spawnResultOf "researcher" "a7")
-    pure ()
+    editLog
+        world
+        ( appendEvent
+            ( SpanStarted
+                ( SpanStart
+                    (AgentRole "researcher")
+                    (Harness "claude-code")
+                    "research"
+                    Nothing
+                    Nothing
+                )
+            )
+        )
 
 -- | A chief run whose first request ran to its end, at @next@.
 finished :: IORef World -> IO ()
@@ -447,13 +446,9 @@ spendRequests world = do
         ] ::
             [[Text]]
 
--- | A logged row moved on by @n@ seqs, its id with it.
-renumbered :: Int -> Text -> Text
-renumbered n row =
-    either
-        (error . show)
-        (\e -> encodeLine e {seq = e.seq + fromIntegral n})
-        (decodeLine row)
+-- | A logged row moved on by @n@ seqs.
+renumbered :: Int -> EventRow -> EventRow
+renumbered n row = row {seq = row.seq + fromIntegral n}
 
 -- | The request in focus runs its route to its end, at @next@.
 finishRequest :: IORef World -> IO ()

@@ -12,13 +12,18 @@ module State.Cli.Shell.World (
     stateIn,
     hook,
     succeeded,
+    askedQId,
     startedRun,
     startedIn,
     putFile,
+    putBytes,
+    removeFile,
     tenXAtFanOut,
     tenXAtFanOutOf,
     tenXAtFanOutBy,
     childRun,
+    delegating,
+    untaskedChild,
     atWorktree,
     addWorktree,
     childWorktree,
@@ -33,14 +38,22 @@ module State.Cli.Shell.World (
     prOn,
     editLog,
     editLogIn,
+    appendUnread,
+    appendSpan,
+    appendEvent,
+    lessUnread,
+    unknownType,
+    newerStart,
     logRows,
     fileBytes,
     prUrl,
     notes,
     sessionStart,
     sessionStartIn,
+    transcriptFile,
     handedBack,
     spawned,
+    spawnedAs,
     agentStarted,
     stateCall,
     editCall,
@@ -63,19 +76,24 @@ module State.Cli.Shell.World (
     gathered,
 ) where
 
+import Control.Monad ((<=<))
 import Data.Aeson (Value (..), encode, object, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Entity.Event (EventRow (..))
+import Data.Entity.Event qualified as Row
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Payload.Event (Decoded (..), decodeRow, eventRow)
+import Data.Payload.Upcast (shipped)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (decodeUtf8Lenient, encodeUtf8)
 import Data.Time (UTCTime (..), fromGregorian)
 import Data.Word (Word8)
 import Doubles.Clock (runClockFixed)
@@ -84,20 +102,34 @@ import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
 import Doubles.Gh (printedPr, runGhScripted)
 import Doubles.Git (Worktree (..), runGitMissing, runGitScripted)
-import Doubles.Log (Runs (..), editRows, rowsOf, runLogInMemory)
+import Doubles.Log (
+    Access (..),
+    Runs,
+    editRows,
+    noRuns,
+    rowsOf,
+    runLogInMemory,
+    withAccess,
+ )
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
+import Effectful.Error.Static (runErrorNoCallStack)
 import Effectful.State.Static.Local (runState)
+import Effects.Store.Connection (OpenRefusal)
 import State.Cli.Shell qualified as Shell
 import State.Protocol.Advice (PrView (..), PullRequest (..), Readiness (..))
-import State.Run.Codec (LogError (..), decodeLine, decodeLines, eventType)
+import State.Run.Codec (eventType)
 import State.Run.Event (
+    AgentRole (..),
     Branch (..),
     DraftPr (..),
     Envelope (..),
     Event (..),
+    Harness (..),
     RunId,
     Sha (..),
+    Source (..),
+    SpanStart (..),
     Start (..),
     Task (..),
     Url (..),
@@ -122,6 +154,8 @@ data World = World
     -- ^ The tops of other worktrees, apart from the one calls run in.
     , gitOnPath :: Bool
     -- ^ Without it every git call throws, as a missing binary's spawn does.
+    , origin :: Maybe Text
+    -- ^ The URL of the remote @origin@, if the repo has one.
     , branch :: Maybe Branch
     , commits :: Int
     , pr :: PrView
@@ -142,10 +176,11 @@ newWorld = do
                     , dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"]
                     , cwd = "/work"
                     }
-            , runs = Runs []
+            , runs = noRuns
             , gitDir = Right "/work/.git"
             , others = []
             , gitOnPath = True
+            , origin = Nothing
             , branch = Just (Branch "feat")
             , commits = 0
             , pr = PrViewFailed "no pull requests found for branch \"feat\"\n"
@@ -155,8 +190,8 @@ newWorld = do
   where
     stepsPath = "/etc/steps.json"
 
--- | One call: its exit code and its output, line by line.
-data Ran = Ran {code :: Int, out :: [Text], err :: [Text]}
+-- | One call: its exit code, its output line by line, and its stdout as written.
+data Ran = Ran {code :: Int, out :: [Text], err :: [Text], stdout :: ByteString}
 
 state :: IORef World -> [Text] -> IO Ran
 state world = stateIn world ""
@@ -174,7 +209,7 @@ run ::
     (forall es. (Shell.Shell es) => Eff es ExitCode) ->
     IO Ran
 run world input program = atomicModifyIORef' world $ \w ->
-    let ((((code, entropy), runs), disk), streams) =
+    let ((opened, disk), streams) =
             runPureEff
                 . runClockFixed w.clock
                 . runConsoleCaptured input
@@ -183,12 +218,19 @@ run world input program = atomicModifyIORef' world $ \w ->
                 . runFileSystemInMemory
                 . runGhScripted w.pr
                 . (if w.gitOnPath then runGitScripted (worktreeOf w) else runGitMissing)
+                . runErrorNoCallStack @OpenRefusal
                 . runState w.runs
-                . runLogInMemory
+                . runLogInMemory shipped
                 . runRandomFixed w.entropy
                 $ program
+        -- The double opens no file, so it refuses none.
+        ((code, entropy), runs) = either (error . show) id opened
      in ( w {entropy, runs, disk}
-        , Ran (exitNumber code) (Text.lines streams.stdout) (Text.lines streams.stderr)
+        , Ran
+            (exitNumber code)
+            (Text.lines (decodeUtf8Lenient streams.stdout))
+            (Text.lines streams.stderr)
+            streams.stdout
         )
   where
     exitNumber = \case
@@ -208,6 +250,7 @@ worktreeOf w =
                 )
             ]
         , others = w.others
+        , origin = w.origin
         }
 
 -- | HEAD after this many commits on @feat@; 0 is @main@'s.
@@ -222,6 +265,13 @@ succeeded ran
         []
             <$ expectationFailure
                 ("exit " <> show ran.code <> ": " <> Text.unpack (Text.unlines ran.err))
+
+-- | @state ask@ with these words, which must succeed: the qid it prints.
+askedQId :: IORef World -> [Text] -> IO Text
+askedQId world argv =
+    (succeeded =<< state world ("ask" : argv)) >>= \case
+        asked : _ | Just qid <- Text.stripPrefix "asked " asked -> pure qid
+        out -> "" <$ expectationFailure ("no asked line: " <> show out)
 
 -- | @init@ in the worktree's notes; the run's id.
 startedRun :: IORef World -> IO Text
@@ -238,7 +288,7 @@ startedIn world argv =
             )
     )
         >>= \case
-            [line, _] | Just runId <- Text.stripPrefix "started " line -> pure runId
+            [line, _, "next: state next"] | Just runId <- Text.stripPrefix "started " line -> pure runId
             other -> fail ("not started: " <> show other)
 
 notes :: FilePath
@@ -246,9 +296,20 @@ notes = "/notes"
 
 -- | A file written outside @state@, as an agent writes the breakdown.
 putFile :: IORef World -> FilePath -> Text -> IO ()
-putFile world path content = modifyIORef' world $ \w ->
+putFile world path = putBytes world path . encodeUtf8
+
+-- | 'putFile' of bytes, in no encoding.
+putBytes :: IORef World -> FilePath -> ByteString -> IO ()
+putBytes world path content = modifyIORef' world $ \w ->
     let disk = w.disk
-     in w {disk = disk {files = Map.insert path (encodeUtf8 content) disk.files}}
+     in w {disk = disk {files = Map.insert path content disk.files}}
+
+-- | A file deleted outside @state@.
+removeFile :: IORef World -> FilePath -> IO ()
+removeFile world path =
+    modifyIORef'
+        world
+        (\w -> w {disk = w.disk {files = Map.delete path w.disk.files}})
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
 @t1@, @t2@ heavy; the run's id.
@@ -284,6 +345,21 @@ childRun world parent dir task = do
     atWorktree world childWorktree
     startedIn world ["--notes", Text.pack dir, "--parent", parent, "--task", task]
 
+-- | A chief run whose first request is routed to a child run: at the fork that hands it on.
+delegating :: IORef World -> IO Text
+delegating world = do
+    chief <- startedIn world ["--flow", "chief"]
+    mapM_
+        (succeeded <=< state world)
+        ([["record", "fuel.set", "balanced"], ["record", "route.delegate"]] :: [[Text]])
+    pure chief
+
+-- | A child run of the chief that names no task, in 'childWorktree', where later calls run; its id.
+untaskedChild :: IORef World -> Text -> IO Text
+untaskedChild world chief = do
+    atWorktree world childWorktree
+    startedIn world ["--notes", "/child", "--parent", chief]
+
 -- | The worktree a child runs in, apart from the parent's at @/work@.
 childWorktree :: FilePath
 childWorktree = "/child-work"
@@ -314,9 +390,18 @@ logged world = loggedIn world notes
 loggedIn :: IORef World -> FilePath -> IO [Envelope]
 loggedIn world dir =
     either
-        (\bad -> [] <$ expectationFailure ("the log does not read: " <> show bad.line))
+        ( \(n, why) ->
+            []
+                <$ expectationFailure
+                    ("the log's row " <> show n <> " does not read: " <> show why)
+        )
         pure
-        . decodeLines
+        . traverse
+            ( \(n, row) -> case decodeRow shipped row of
+                Known e -> Right e
+                other -> Left (n :: Int, other)
+            )
+        . zip [1 ..]
         =<< logRowsIn world dir
 
 -- | The id of the worktree's notes' run.
@@ -345,25 +430,71 @@ prOn :: Text -> Readiness -> PrView
 prOn base = printedPr . PullRequest (DraftPr (Url prUrl) (Branch base) (Branch "feat"))
 
 -- | Edit the log of the worktree's notes' run by hand, row by row, as a store's rows are.
-editLog :: IORef World -> ([Text] -> [Text]) -> IO ()
+editLog :: IORef World -> ([EventRow] -> [EventRow]) -> IO ()
 editLog world = editLogIn world notes
 
 -- | Edit the log of the run started in these notes by hand, row by row.
-editLogIn :: IORef World -> FilePath -> ([Text] -> [Text]) -> IO ()
+editLogIn :: IORef World -> FilePath -> ([EventRow] -> [EventRow]) -> IO ()
 editLogIn world dir edit = modifyIORef' world $ \w ->
     w
         { runs =
             maybe
-                (Runs (rowsOf w.runs))
+                (withAccess Writable w.runs)
                 (\found -> editRows found edit w.runs)
                 (runIn w dir)
         }
 
+{- | The rows and one more after them that this kernel does not read, as
+another kernel could write it: an event type it does not know.
+-}
+appendUnread :: [EventRow] -> [EventRow]
+appendUnread rows =
+    rows
+        <> [ lastRow {Row.seq = lastRow.seq + 1, Row.eventType = unknownType, payload = "{}"}
+           | lastRow <- take 1 (reverse rows)
+           ]
+
+{- | The rows and a @span_started@ of this role after them, as the spawn hook
+logs one: no command writes it.
+-}
+appendSpan :: Text -> [EventRow] -> [EventRow]
+appendSpan role =
+    appendEvent
+        ( SpanStarted
+            ( SpanStart
+                (AgentRole role)
+                (Harness "claude-code")
+                ("brief of " <> role)
+                Nothing
+                Nothing
+            )
+        )
+
+-- | The rows and this event after them, as a hook or an older kernel logs it.
+appendEvent :: Event -> [EventRow] -> [EventRow]
+appendEvent event rows =
+    rows
+        <> [ eventRow e {source = Cli, seq = e.seq + 1, event = event}
+           | lastRow <- take 1 (reverse rows)
+           , Known e <- [decodeRow shipped lastRow]
+           ]
+
+-- | The rows less those 'appendUnread' added.
+lessUnread :: [EventRow] -> [EventRow]
+lessUnread = filter ((/= unknownType) . (.eventType))
+
+unknownType :: Text
+unknownType = "no_such_event"
+
+-- | The run's first row alone, of payload version 2, as a newer kernel could write it.
+newerStart :: [EventRow] -> [EventRow]
+newerStart rows = [row {Row.schemaVersion = 2} | row <- take 1 rows]
+
 -- | The log of the worktree's notes' run as the rows the store holds.
-logRows :: IORef World -> IO [Text]
+logRows :: IORef World -> IO [EventRow]
 logRows world = logRowsIn world notes
 
-logRowsIn :: IORef World -> FilePath -> IO [Text]
+logRowsIn :: IORef World -> FilePath -> IO [EventRow]
 logRowsIn world dir =
     ( \w ->
         maybe [] (\found -> fromMaybe [] (lookup found (rowsOf w.runs))) (runIn w dir)
@@ -376,37 +507,54 @@ runIn w dir =
     listToMaybe
         [ found
         | (found, first : _) <- rowsOf w.runs
-        , Right Envelope {event = Started start} <- [decodeLine first]
+        , Known Envelope {event = Started start} <- [decodeRow shipped first]
         , start.notes == dir
         ]
 
 -- | The run store takes no write from now on, as on a disk failure; it still reads.
 storeDown :: IORef World -> IO ()
-storeDown world = modifyIORef' world (\w -> w {runs = ReadOnly (rowsOf w.runs)})
+storeDown world = modifyIORef' world (\w -> w {runs = withAccess ReadOnly w.runs})
 
 -- | A file's bytes as written, if it exists.
 fileBytes :: IORef World -> FilePath -> IO (Maybe ByteString)
 fileBytes world path = Map.lookup path . (.disk.files) <$> readIORef world
 
--- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's session in the worktree.
+{- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's
+Claude Code session in the worktree, its transcript 'transcriptFile'.
+-}
 hookEvent :: Value -> [Pair] -> LBS.ByteString
 hookEvent = hookEventIn "/work"
 
 hookEventIn :: FilePath -> Value -> [Pair] -> LBS.ByteString
 hookEventIn cwd agent fields =
     encode
-        (object (["session" .= String "s1", "cwd" .= cwd, "agent" .= agent] <> fields))
+        ( object
+            ( [ "session" .= String "s1"
+              , "cwd" .= cwd
+              , "agent" .= agent
+              , "harness" .= String "claude-code"
+              , "transcript_path" .= transcriptFile
+              ]
+                <> fields
+            )
+        )
 
 sessionStart :: LBS.ByteString
 sessionStart = sessionStartIn "/work"
 
--- | The lead's session starting in this directory.
+-- | The lead's fresh Claude Code session starting in this directory, its transcript 'transcriptFile'.
 sessionStartIn :: FilePath -> LBS.ByteString
 sessionStartIn cwd =
     hookEventIn
         cwd
         Null
-        ["event" .= String "sessionStart", "source" .= String "startup"]
+        [ "event" .= String "sessionStart"
+        , "source" .= String "startup"
+        , "request_model" .= Null
+        ]
+
+transcriptFile :: FilePath
+transcriptFile = "/home/u/.claude/projects/p/s1.jsonl"
 
 -- | A subagent of this role hands back @READY@.
 handedBack :: Text -> LBS.ByteString
@@ -415,20 +563,36 @@ handedBack role =
         (object ["id" .= String "a1", "role" .= role])
         [ "event" .= String "beforeTool"
         , "tool" .= String "handback"
+        , "call" .= Null
         , "input" .= object ["message" .= String "READY\nDone.\n"]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
 
--- | The lead spawns a subagent of this role.
+-- | The lead spawns a subagent @a1@ of this role.
 spawned :: Text -> LBS.ByteString
-spawned role =
+spawned role = spawnedAs role "a1"
+
+-- | The lead spawns a subagent of this role that will be this agent, by the call 'spawnCall' names.
+spawnedAs :: Text -> Text -> LBS.ByteString
+spawnedAs role agent =
     hookEvent
         Null
         [ "event" .= String "beforeTool"
         , "tool" .= String "delegate"
-        , "input" .= object ["subagent_type" .= role]
+        , "call" .= spawnCall agent
+        , "input"
+            .= object ["subagent_type" .= role, "prompt" .= ("Work as the " <> role <> ".")]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
+
+{- | The tool call that spawns this agent: its spawn and its result share it.
+Named by the agent, which the harness tells only in the result, so a test
+pairs the two.
+-}
+spawnCall :: Text -> Text
+spawnCall agent = "toolu_" <> agent
 
 -- | A subagent @a1@ of this role starting in the worktree.
 agentStarted :: Text -> LBS.ByteString
@@ -444,8 +608,10 @@ editCall =
         Null
         [ "event" .= String "beforeTool"
         , "tool" .= String "edit"
+        , "call" .= Null
         , "input" .= object ["file_path" .= String "/work/a.hs"]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
 
 -- | The lead about to run this shell command in the worktree.
@@ -455,8 +621,10 @@ stateCall command =
         Null
         [ "event" .= String "beforeTool"
         , "tool" .= String "shell"
+        , "call" .= Null
         , "input" .= object ["command" .= command]
         , "history" .= ([] :: [Text])
+        , "usage" .= Null
         ]
 
 -- | The lead's spawn of a subagent @a1@ of this role, done: its result names the agent.
@@ -477,6 +645,7 @@ spawnResultFrom spawner role agent =
         spawner
         [ "event" .= String "afterTool"
         , "tool" .= String "delegate"
+        , "call" .= spawnCall agent
         , "input" .= object ["subagent_type" .= role]
         , "output"
             .= object
@@ -491,6 +660,7 @@ initRan role agent stdout =
         (object ["id" .= agent, "role" .= role])
         [ "event" .= String "afterTool"
         , "tool" .= String "shell"
+        , "call" .= Null
         , "input" .= object ["command" .= String "state init"]
         , "output" .= object ["stdout" .= stdout, "stderr" .= String ""]
         , "context" .= Null
@@ -505,7 +675,10 @@ leadStop :: [Text] -> LBS.ByteString
 leadStop = stopOf Null
 
 stopOf :: Value -> [Text] -> LBS.ByteString
-stopOf agent running = hookEvent agent ["event" .= String "agentStop", "running" .= running]
+stopOf agent running =
+    hookEvent
+        agent
+        ["event" .= String "agentStop", "running" .= running, "usage" .= Null]
 
 -- | The lead's call stopping the agent of this id, done.
 stopCall :: Text -> LBS.ByteString
@@ -514,6 +687,7 @@ stopCall agent =
         Null
         [ "event" .= String "afterTool"
         , "tool" .= String "stopAgent"
+        , "call" .= Null
         , "input" .= object ["task_id" .= agent]
         , "output" .= object ["message" .= String "stopped"]
         , "context" .= Null

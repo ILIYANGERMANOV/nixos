@@ -1,6 +1,7 @@
 Invalid argument `nope'
 
-Did you mean this?
+Did you mean one of these?
+    note
     move
 
 state - the run of an agent flow, kept in its run store
@@ -31,7 +32,15 @@ Available commands:
   stop                     Stop the run, with a reason and why
   pending                  List the questions awaiting an answer
   focus                    Turn to a waiting request, else a new one
-  tasks                    Print each request's card and resume advice
+  tasks                    Print each request's card and each child run
+  artifact                 Register a file or URL; 'artifact show' prints one
+  note                     Note context for a fresh agent, under a topic
+  epic                     Open an epic, mark it ready for review, or merged
+  handover                 Hand the run over to a fresh agent
+  resume                   Print the packet a fresh agent resumes the run from
+  gap                      Move a gap on: a fix proposed, fixed, or won't fix
+  report                   Print a fixed report over every run, as TSV
+  sql                      Run one read-only SELECT on the run store, as TSV
   help                     Print this help
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck

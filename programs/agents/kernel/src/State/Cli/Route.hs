@@ -51,6 +51,7 @@ import State.Cli.Command (
  )
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
+import State.Protocol.Record (Recording (NeedDone))
 import State.Role (FlowName (..), leads)
 import State.Run.Event (AgentRole, RunId, runIdText)
 import State.Step.Artifact (shellPath)
@@ -62,8 +63,8 @@ data StateCall = StateCall {dir :: FilePath, sub :: Text, written :: Text, reach
     deriving stock (Eq, Show)
 
 {- | The runs a bound agent's call may act in: its own run's only, or a
-child run's too, as a parent records its child's awaited CI or answers its
-question there (#479).
+child run's too, as a parent records its child's awaited CI, answers its
+question or stops its dead run there (#479).
 -}
 data Reach = OwnRun | OwnOrChildRun
     deriving stock (Eq, Show)
@@ -75,7 +76,8 @@ data Target = Target {top :: FilePath, parent :: Maybe RunId}
     deriving stock (Eq, Show)
 
 {- | The calls of a command run in this directory that read a run, in order.
-@init@, @help@, @render@, @show@ and argv @state@ refuses never route.
+@init@, @help@, @render@, @show@, @dump@, @artifact show@, @resume@, @report@, @sql@ and argv @state@
+refuses never route.
 -}
 stateCalls :: Steps -> FilePath -> Text -> [StateCall]
 stateCalls steps cwd command =
@@ -95,13 +97,26 @@ stateCalls steps cwd command =
         Tasks -> True
         -- It names its run and writes nothing, whatever directory it runs in.
         Dump _ -> False
+        ShowArtifact _ -> False
+        -- It names the gap's run, whatever directory it runs in.
+        MoveGap _ _ -> False
+        HandOver _ -> True
+        Register {} -> True
+        -- It writes nothing, whatever run it reads.
+        Resume _ _ -> False
         -- It opens with the run's id, so it reads another run's state safely (#432).
         OnRun ShowRun -> False
+        -- It names the need's run, whatever directory it runs in, as a gap move does.
+        OnRun (Record (NeedDone _ _)) -> False
         OnRun _ -> True
+        -- They read every run and write nothing, whatever directory they run in.
+        Report _ _ -> False
+        Sql _ -> False
 
 {- | Whose run a command may act in. A parent records in its child's run and
-answers its question there, as the child's hand-back prints; every other
-command acts in the agent's own run only.
+answers its question there, as the child's hand-back prints, and stops it
+there when the child died without one; every other command acts in the
+agent's own run only.
 -}
 reachOf :: Command -> Reach
 reachOf = \case
@@ -119,8 +134,10 @@ reachOf = \case
         Forward _ _ -> OwnRun
         Retry _ _ -> OwnRun
         Park _ _ -> OwnRun
-        StopRun _ -> OwnRun
+        StopRun _ -> OwnOrChildRun
         Pending -> OwnRun
+        NoteOn _ _ -> OwnRun
+        MoveEpic _ _ -> OwnRun
     Init _ -> OwnRun
     HandbackOf _ _ -> OwnRun
     Next -> OwnRun
@@ -130,6 +147,13 @@ reachOf = \case
     Dump _ -> OwnRun
     Focus _ _ -> OwnRun
     Tasks -> OwnRun
+    HandOver _ -> OwnRun
+    ShowArtifact _ -> OwnRun
+    MoveGap _ _ -> OwnRun
+    Register {} -> OwnRun
+    Resume _ _ -> OwnRun
+    Report _ _ -> OwnRun
+    Sql _ -> OwnRun
 
 {- | Why a subagent's command is denied: a @state init@ in it starts a user's
 run, which may spawn in the background and ask the user, neither of which a

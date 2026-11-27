@@ -26,6 +26,7 @@ module State.Protocol.Advice (
     deliverPrompt,
     ownAsk,
     factLines,
+    taskLine,
     childBudget,
 ) where
 
@@ -152,7 +153,6 @@ import State.Run.Codec (
     waitingText,
  )
 import State.Run.Event (
-    AgentId (..),
     AgentRole (..),
     Asker (Itself, Subagent),
     Asking (..),
@@ -188,6 +188,7 @@ import State.Run.Fold (
     ScopedFan (..),
     Stuck (..),
     Suspension (..),
+    Triaging (..),
     Waits (..),
     Worker (..),
     askedAt,
@@ -200,16 +201,17 @@ import State.Run.Fold (
     fuelOf,
     given,
     ledger,
-    nextQId,
     nodeName,
     onRound,
     planSettled,
+    recordedPr,
     settledSkips,
     shape,
     stuck,
     stuckExits,
     suspendedAsks,
     targetsAt,
+    triaging,
     usedUp,
     waitsAt,
  )
@@ -314,8 +316,8 @@ data Action
       Spawn AgentRole (Maybe TaskId)
     | -- | A question of the run's own, for @state ask --kind@.
       Ask Kind Text
-    | -- | A pending question this run rules on or forwards.
-      Triage Question
+    | -- | A pending question this run rules on or forwards, or only forwards.
+      Triage Question Triaging
     | -- | A forwarded question, until its answer comes down.
       AwaitAnswer Question
     | -- | The run's own question, parked above it, and why: the run waits until its answer.
@@ -329,7 +331,7 @@ data Action
     | -- | A worker's hand-back line 1, for @state ask --from@ before the run goes on.
       TriageHandback AgentRole OneLine
     | -- | A worker still at work, before the run hands back: its hand-back wakes the run.
-      AwaitWorker AgentRole AgentId
+      AwaitWorker Worker
     | -- | Tasks with an agent at work, none of them waiting on this run.
       AwaitChildren (NonEmpty TaskId)
     | {- | Tasks neither merged nor parked, each with its PR if one was
@@ -502,7 +504,7 @@ advise steps g facts state =
         -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
         (Nothing, _ : _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
         (Nothing, oldest : _) -> plain $ case oldest.waits of
-            ForTriage -> Triage oldest.asking.question
+            ForTriage -> Triage oldest.asking.question (triaging state oldest.asking)
             ForAnswer -> AwaitAnswer oldest.asking.question
             ForLater why -> OnHold oldest.asking.question why
         (Nothing, []) -> case state.untriaged of
@@ -828,7 +830,10 @@ atFan at ended state =
     waiting = Fan.waiting here
     question =
         listToMaybe
-            [Triage p.asking.question | p <- state.pending, p.waits == ForTriage]
+            [ Triage p.asking.question (triaging state p.asking)
+            | p <- state.pending
+            , p.waits == ForTriage
+            ]
     awaitAnswer =
         listToMaybe
             [AwaitAnswer p.asking.question | p <- state.pending, p.waits == ForAnswer]
@@ -905,7 +910,7 @@ atOnce at ended state =
         , triage =
             [ (task, TriageStop child.run (retryable task) stop)
             | (child, stop) <- Fan.untriaged here
-            , Tasked task <- [child.task]
+            , Tasked task <- [Fan.childTaskId child]
             ]
         , record = recordsFinished here
         , resume =
@@ -917,7 +922,7 @@ atOnce at ended state =
             | (qid, kind, answer) <- given state
             , Just c <- [Fan.askedBy here qid]
             , c `elem` waiting
-            , Tasked task <- [c.child.task]
+            , Tasked task <- [Fan.childTaskId c.child]
             ]
                 <> lost
         , spawn =
@@ -976,7 +981,7 @@ recordFinished = fmap snd . listToMaybe . recordsFinished
 recordsFinished :: Fan -> [(TaskId, Action)]
 recordsFinished fan =
     [ (task.id, Run (one (recordTask task) "its child finished: record its PR"))
-    | task <- fan.tasks
+    | task <- Fan.tasksOf fan
     , Fan.unrecorded fan task.id
     ]
 
@@ -1026,7 +1031,7 @@ outputUrl out facts state = case out of
 
 -- | The PR's url as GitHub reports it, else the PR the run recorded.
 prUrl :: Facts -> RunState -> Maybe Url
-prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$> state.drafted
+prUrl facts state = (.draft.url) <$> facts.pr <|> recordedPr state
 
 -- | The record of each of a step's outcomes, exit first, and where it goes.
 recordOutcomes ::
@@ -1069,7 +1074,7 @@ factLines g facts state =
            ]
         <> [ taskLine fan (map (.asking.question.qid) state.pending) task
            | fan <- Map.elems state.fans
-           , task <- fan.tasks
+           , task <- Fan.tasksOf fan
            ]
         -- A chief's parked requests, which next.done would leave suspended unsaid.
         <> [ taskNoText task
@@ -1149,6 +1154,7 @@ taskLine fan open task =
             Kept url -> " " <> urlText url
             Round url -> " " <> urlText url
             Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
+            Delivered url -> " " <> urlText url
 
 {- | The advice held while a worker of the run is still at work and its line
 would hand the run back: a lead hands back only after its workers, as a
@@ -1160,7 +1166,7 @@ heldBy start workers advice = case workers of
     worker : _
         | handsBack (deliver start advice.action) ->
             advice
-                { action = AwaitWorker worker.role worker.agent
+                { action = AwaitWorker worker
                 , more = []
                 , leads = []
                 , facts = stillAtWork worker <> advice.facts
@@ -1171,7 +1177,7 @@ heldBy start workers advice = case workers of
         [ "state handback: "
             <> roleText worker.role
             <> " "
-            <> worker.agent.agentIdText
+            <> workerName worker
             <> " is still at work - its hand-back is not recorded"
         , "fix: wait for it, or state handback "
             <> roleText worker.role
@@ -1179,6 +1185,10 @@ heldBy start workers advice = case workers of
             <> tshow worker.spawnedAt
             <> " \"<why>\" for a lost one"
         ]
+
+-- | A worker as the advice names it: by its span, as a span knows no agent id.
+workerName :: Worker -> Text
+workerName worker = "span " <> tshow worker.spawnedAt
 
 {- | The advice as its first line, for this principal and interface: the only
 place either is read.
@@ -1192,7 +1202,7 @@ deliver start = \case
             <> " background: "
             <> if has Event.Background then "yes" else "no"
     Ask kind what -> "ASK " <> kindName kind <> " " <> what
-    Triage question ->
+    Triage question RulesOrForwards ->
         "RUN state rule "
             <> qidText question.qid
             <> " --answer <a> --why <w> --cost <c>"
@@ -1205,6 +1215,8 @@ deliver start = \case
             <> qidText question.qid
             <> " - "
             <> questionLine question
+    Triage question ForwardsOnly ->
+        "RUN state forward " <> qidText question.qid <> " - " <> questionLine question
     AwaitAnswer question ->
         above
             ("ASK " <> questionLine question <> " - " <> askUserAsText question.qid)
@@ -1217,7 +1229,7 @@ deliver start = \case
             <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task
             <> askFrom (runIdText child) (stopLine stop)
     TriageHandback (AgentRole role) line -> "RUN " <> askFrom role (oneLineText line)
-    AwaitWorker role agent -> await <> " worker " <> roleText role <> " " <> agent.agentIdText
+    AwaitWorker worker -> await <> " worker " <> roleText worker.role <> " " <> workerName worker
     AwaitChildren tasks -> await <> " children " <> Text.unwords (map taskIdText (toList tasks))
     -- Task ids mean nothing above this run: it hands up the PRs.
     AwaitMerge tasks
@@ -1282,17 +1294,20 @@ deliverPrompt start advice
     | otherwise = advice.prompt
 
 {- | The run's own question: the events to record, oldest first, and the line
-saying where it goes. A question the run's row forwards, or one sent to the
-user at once, is forwarded at once, before any answer can come down; one sent
-to the user that the row answers itself is refused.
+saying where it goes. Its @asked@ line comes first, so its qid is that
+line's id. A question the run's row forwards, or one sent to the user at
+once, is forwarded at once, before any answer can come down; one sent to the
+user that the row answers itself is refused.
 -}
 ownAsk ::
     RunState ->
+    -- | The id of the next line, which asks the question.
+    QId ->
     Route ->
     Kind ->
     OneLine ->
     Either Ask.Refusal (Question, [Event], Text)
-ownAsk state how kind text =
+ownAsk state qid how kind text =
     sent
         <$> Ask.route
             how
@@ -1300,7 +1315,7 @@ ownAsk state how kind text =
             (Role.rungAt state.start.flow (askedAt state))
             question
   where
-    question = Question (nextQId state) kind text
+    question = Question qid kind text
     sent delivery = (question, Asked (Asking question (askedAt state) Itself) : forward, line)
       where
         (forward, line) = case delivery of
@@ -1422,14 +1437,14 @@ runOptions = \case
     Run options -> toList options
     Spawn _ _ -> []
     Ask _ _ -> []
-    Triage _ -> []
+    Triage _ _ -> []
     AwaitAnswer _ -> []
     OnHold _ _ -> []
     AwaitOn _ _ -> []
     Resume _ _ -> []
     TriageStop {} -> []
     TriageHandback _ _ -> []
-    AwaitWorker _ _ -> []
+    AwaitWorker _ -> []
     AwaitChildren _ -> []
     AwaitMerge _ -> []
     Stopped _ -> []

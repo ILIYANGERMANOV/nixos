@@ -1,10 +1,12 @@
 {- | The process's standard streams: stdin read whole as bytes, text out on
-stdout and stderr, in the encoding the main sets on their handles.
+stdout and stderr, in the encoding the main sets on their handles, and bytes
+out on stdout as given.
 -}
 module Effects.Console (
     Console (..),
     readStdin,
     out,
+    outBytes,
     err,
     runConsoleIO,
 ) where
@@ -28,6 +30,7 @@ import System.IO (stderr)
 data Console :: Effect where
     ReadStdin :: Console m ByteString
     Out :: Text -> Console m ()
+    OutBytes :: ByteString -> Console m ()
     Err :: Text -> Console m ()
 
 type instance DispatchOf Console = Dynamic
@@ -40,6 +43,10 @@ readStdin = send ReadStdin
 out :: (Console :> es) => Text -> Eff es ()
 out = send . Out
 
+-- | Bytes on stdout, as given: a file's content, in no encoding.
+outBytes :: (Console :> es) => ByteString -> Eff es ()
+outBytes = send . OutBytes
+
 -- | Text on stderr, as given: no newline is added.
 err :: (Console :> es) => Text -> Eff es ()
 err = send . Err
@@ -48,4 +55,5 @@ runConsoleIO :: (IOE :> es) => Eff (Console : es) a -> Eff es a
 runConsoleIO = interpret $ \_ -> \case
     ReadStdin -> liftIO BS.getContents
     Out text -> liftIO (Text.putStr text)
+    OutBytes bytes -> liftIO (BS.putStr bytes)
     Err text -> liftIO (Text.hPutStr stderr text)

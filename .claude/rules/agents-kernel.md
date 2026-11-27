@@ -9,13 +9,17 @@ paths:
 important: make breaking changes confidently when they lead to a better
 long-term design.**
 
-- Old event logs need not replay: a log the current graph refuses is an
-  error, and `state init --notes <a new dir>` starts afresh. No legacy graph
-  fallback and no log migration.
+- Event logs replay forever. Each event carries its own `schema_version`. A
+  new optional key is no bump. A removed, renamed or re-typed key bumps the
+  type's version and adds one total upcaster. A renamed type adds an alias.
+  A line the binary cannot read decodes to `Unknown`: dump, reports and SQL
+  still read it, while append and resume refuse. Never edit or delete a
+  stored event: a void is a new event.
 - Prefer general, category-theory-aligned designs (sums, cases, Elgot
   iteration and their laws) over special-case building blocks. The model,
-  the flow core and its effects are ADRs 0018, 0020 and 0021: the ADR table
-  in `docs/harness/ARCHITECTURE.md#the-adrs` lists them all.
+  the flow core and its effects are ADRs 0018, 0020 and 0021, the event
+  store ADR 0023: the ADR table in `docs/harness/ARCHITECTURE.md#the-adrs`
+  lists them all.
 - Example: `Choice` and `Route` were once constructors, kept partly for log
   and graph compatibility. ADR 0020 dropped them for `choice` and
   `choiceLoop` built from `Case`, `Exit` and `Loop`.

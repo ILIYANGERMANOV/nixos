@@ -18,8 +18,10 @@ from agent_hook import (
     AgentStop,
     Allow,
     BeforeTool,
+    CallId,
     ContextSize,
     Deny,
+    Harness,
     Json,
     JsonObject,
     Note,
@@ -31,18 +33,25 @@ from agent_hook import (
     SkillName,
     Source,
     Tool,
+    Usage,
     Verdict,
     emit_event,
     parse_event,
+    parse_transcript,
 )
 from claude_adapter import (
+    HARNESS,
     TAIL_BYTES,
     ReadLines,
+    Reads,
     note_to_claude,
     parse_claude,
     parse_tools,
+    session_export,
     verdict_to_claude,
 )
+from hypothesis import given
+from hypothesis import strategies as st
 from recorded_events import recorded, recorded_all
 from transcript_fixtures import (
     THINKING,
@@ -141,9 +150,17 @@ MAIN_TRANSCRIPT = Path("/home/u/.claude/projects/p/abc123.jsonl")
 WORKER_TRANSCRIPT = Path("/home/u/.claude/projects/p/abc123/subagents/agent-a1b2.jsonl")
 
 
-def transcripts(by_path: dict[Path, list[JsonObject]]) -> ReadLines:
-    """A fake disk: each path's lines; any other path cannot be read."""
-    return lambda path: [json.dumps(line).encode() for line in by_path.get(path, [])]
+def transcripts(by_path: dict[Path, list[JsonObject]]) -> Reads:
+    """A fake disk: each path's lines, its tail the whole of it; any other
+    path cannot be read."""
+    return on_disk(
+        lambda path: [json.dumps(line).encode() for line in by_path.get(path, [])]
+    )
+
+
+def on_disk(read: ReadLines) -> Reads:
+    """Files small enough that their tail is the whole file."""
+    return Reads(read, read)
 
 
 NO_TRANSCRIPT = transcripts({})
@@ -276,6 +293,18 @@ NO_USAGE: JsonObject = {
             ContextSize(151_000, 150_000),
             id="a call's text line does not hide its tool call",
         ),
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                assistant(
+                    "b",
+                    {"input_tokens": 2_000, "cache_read_input_tokens": 150_000},
+                    bash("t2", "ls"),
+                ),
+            ],
+            ContextSize(152_000, 148_000),
+            id="a call missing a cache count sums the counts it reports",
+        ),
     ],
 )
 def test_the_context_counts_model_calls_that_ran_a_tool(
@@ -288,7 +317,7 @@ def test_the_context_counts_model_calls_that_ran_a_tool(
     def disk(path: Path) -> list[bytes]:
         return raw if path == WORKER_TRANSCRIPT else []
 
-    event = parse_claude(RAN, TOOLS, disk)
+    event = parse_claude(RAN, TOOLS, on_disk(disk))
 
     assert isinstance(event, AfterTool)
     assert event.context == context
@@ -320,10 +349,25 @@ def test_no_transcript_gives_no_context(payload: JsonObject) -> None:
     assert event.context is None
 
 
-def test_a_session_start_reads_its_source() -> None:
+def test_a_session_start_reads_its_source_transcript_and_model() -> None:
     assert parse_claude(SESSION_START, TOOLS, NO_TRANSCRIPT) == SessionStart(
-        SessionId("abc123"), Path("/work/repo"), None, Source.COMPACT
+        SessionId("abc123"),
+        Path("/work/repo"),
+        None,
+        Source.COMPACT,
+        Harness("claude-code"),
+        Path("/home/u/.claude/projects/p/abc123.jsonl"),
+        "claude-opus-5-5",
     )
+
+
+def test_a_session_start_naming_no_model_has_none() -> None:
+    payload = {k: v for k, v in SESSION_START.items() if k != "model"}
+
+    event = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
+
+    assert isinstance(event, SessionStart)
+    assert event.model is None
 
 
 @pytest.mark.parametrize("payload", RECORDED_STARTS)
@@ -337,6 +381,8 @@ def test_a_recorded_subagent_start_is_that_subagent_starting(
             AgentId(cast("str", payload["agent_id"])),
             Role(cast("str", payload["agent_type"])),
         ),
+        harness=HARNESS,
+        transcript=parse_transcript(payload["transcript_path"]),
     )
 
 
@@ -347,6 +393,8 @@ def test_a_recorded_typed_skill_is_its_command_name(payload: JsonObject) -> None
         Path(cast("str", payload["cwd"])),
         None,
         SkillName(cast("str", payload["command_name"])),
+        harness=HARNESS,
+        transcript=parse_transcript(payload["transcript_path"]),
     )
 
 
@@ -391,7 +439,12 @@ def test_a_recorded_stop_is_the_lead_stopping(payload: JsonObject) -> None:
 
 def test_the_leads_stop_has_no_agent_and_its_running_background_agents() -> None:
     assert parse_claude(LEAD_STOP, TOOLS, NO_TRANSCRIPT) == AgentStop(
-        SessionId("abc123"), Path("/work/repo"), None, (AgentId("b1"),)
+        SessionId("abc123"),
+        Path("/work/repo"),
+        None,
+        (AgentId("b1"),),
+        harness=HARNESS,
+        transcript=MAIN_TRANSCRIPT,
     )
 
 
@@ -399,7 +452,12 @@ def test_a_stop_with_no_background_tasks_has_none_running() -> None:
     payload = {k: v for k, v in LEAD_STOP.items() if k != "background_tasks"}
 
     assert parse_claude(payload, TOOLS, NO_TRANSCRIPT) == AgentStop(
-        SessionId("abc123"), Path("/work/repo"), None, ()
+        SessionId("abc123"),
+        Path("/work/repo"),
+        None,
+        (),
+        harness=HARNESS,
+        transcript=MAIN_TRANSCRIPT,
     )
 
 
@@ -435,6 +493,9 @@ def test_a_lead_tool_call_has_no_agent() -> None:
             "prompt": "Fuel: Max",
             "subagent_type": "implementer",
         },
+        harness=HARNESS,
+        transcript=MAIN_TRANSCRIPT,
+        call=CallId("toolu_01"),
     )
 
 
@@ -447,6 +508,9 @@ def test_a_subagent_is_its_id_and_its_type_as_role() -> None:
         Agent(AgentId("a1b2"), Role("implementer")),
         Tool.HANDBACK,
         {"message": "READY commit abc"},
+        harness=HARNESS,
+        transcript=MAIN_TRANSCRIPT,
+        call=CallId("toolu_02"),
     )
 
 
@@ -500,9 +564,9 @@ def test_a_subagent_claude_names_no_id_is_a_subagent_with_no_id() -> None:
     assert event.agent == Agent(None, None)
 
 
-def every_path_holds(lines: list[JsonObject]) -> ReadLines:
+def every_path_holds(lines: list[JsonObject]) -> Reads:
     """A fake disk where any path reads as `lines`."""
-    return lambda _: [json.dumps(line).encode() for line in lines]
+    return on_disk(lambda _: [json.dumps(line).encode() for line in lines])
 
 
 def test_a_subagent_with_no_id_carries_no_history() -> None:
@@ -536,6 +600,11 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
     ("payload", "error"),
     [
         pytest.param(SESSION_START | {"source": "clear"}, "clear", id="unknown source"),
+        pytest.param(
+            SESSION_START | {"transcript_path": "p/abc123.jsonl"},
+            "not an absolute normalised transcript path",
+            id="relative transcript path",
+        ),
         pytest.param(
             COMMON | {"hook_event_name": "Notification"},
             "not a SessionStart",
@@ -571,6 +640,197 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
 def test_a_payload_outside_the_contract_is_an_error(payload: Json, error: str) -> None:
     with pytest.raises(ValueError, match=error):
         _ = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
+
+
+# ---- Tool call ids, token usage and the session's export ---------------------------
+
+
+def call_of(payload: JsonObject) -> CallId | None:
+    match parse_claude(payload, TOOLS, NO_TRANSCRIPT):
+        case BeforeTool(call=call) | AfterTool(call=call):
+            return call
+        case other:
+            pytest.fail(f"no tool event: {other!r}")
+
+
+def test_a_recorded_spawn_and_its_result_name_the_same_call() -> None:
+    spawns = [
+        call_of(payload)
+        for payload in recorded_all("PreToolUse")
+        if payload["tool_name"] == "Agent"
+    ]
+    results = [
+        call_of(payload)
+        for payload in recorded_all("PostToolUse")
+        if payload["tool_name"] == "Agent"
+    ]
+
+    assert None not in spawns
+    assert len(set(spawns)) == len(spawns)
+    assert set(results) == set(spawns)
+
+
+def test_a_call_claude_names_no_id_has_none() -> None:
+    payload = {k: v for k, v in SPAWN.items() if k != "tool_use_id"}
+
+    assert call_of(payload) is None
+
+
+def every_count(fresh: int, read: int, written: int, output: int) -> JsonObject:
+    return {
+        "input_tokens": fresh,
+        "cache_read_input_tokens": read,
+        "cache_creation_input_tokens": written,
+        "output_tokens": output,
+    }
+
+
+def usage_of(payload: JsonObject, disk: Reads) -> Usage | None:
+    match parse_claude(payload, TOOLS, disk):
+        case BeforeTool(usage=usage) | AgentStop(usage=usage):
+            return usage
+        case other:
+            pytest.fail(f"no event with usage: {other!r}")
+
+
+def test_a_hand_back_carries_the_sum_of_its_agents_requests() -> None:
+    disk = transcripts({WORKER_TRANSCRIPT: WORKER_SO_FAR})
+
+    # Each request: input 3, cache read its context less 13, cache write 10.
+    assert usage_of(HANDBACK, disk) == Usage(
+        input=40_000 + 60_000 + 70_000,
+        output=3 * 99,
+        cache_read=39_987 + 59_987 + 69_987,
+        cache_write=3 * 10,
+    )
+
+
+def test_a_request_written_over_several_lines_counts_once_by_its_last() -> None:
+    lines = [
+        assistant("m1", every_count(1, 2, 3, output=5), THINKING),
+        assistant("m1", every_count(1, 2, 3, output=40), bash("t1", "ls")),
+        assistant("m2", every_count(10, 20, 30, output=7), THINKING),
+    ]
+
+    usage = usage_of(HANDBACK, transcripts({WORKER_TRANSCRIPT: lines}))
+
+    assert usage == Usage(input=66, output=47, cache_read=22, cache_write=33)
+
+
+def test_a_count_one_request_does_not_report_is_missing_not_zero() -> None:
+    lines = [
+        assistant("m1", every_count(1, 2, 3, output=5), THINKING),
+        assistant(
+            "m2",
+            {
+                "input_tokens": 10,
+                "cache_creation_input_tokens": 30,
+                "output_tokens": 7,
+            },
+            THINKING,
+        ),
+    ]
+
+    usage = usage_of(HANDBACK, transcripts({WORKER_TRANSCRIPT: lines}))
+
+    assert usage == Usage(input=None, output=12, cache_read=None, cache_write=33)
+
+
+claude_counts = st.none() | st.integers(min_value=0, max_value=10**9)
+
+
+@given(
+    st.lists(
+        st.tuples(claude_counts, claude_counts, claude_counts, claude_counts),
+        min_size=1,
+        max_size=5,
+    )
+)
+def test_a_summed_count_is_present_iff_every_request_reports_it(
+    requests: list[tuple[int | None, int | None, int | None, int | None]],
+) -> None:
+    keys = every_count(0, 0, 0, 0).keys()
+    lines = [
+        assistant(
+            f"m{number}",
+            {key: n for key, n in zip(keys, counts, strict=True) if n is not None},
+            THINKING,
+        )
+        for number, counts in enumerate(requests)
+    ]
+
+    usage = usage_of(HANDBACK, transcripts({WORKER_TRANSCRIPT: lines}))
+
+    assert usage is not None
+    fresh, read, written, output = map(list, zip(*requests, strict=True))
+    for summed, reported in [
+        (usage.output, output),
+        (usage.cache_read, read),
+        (usage.cache_write, written),
+    ]:
+        assert summed == (
+            None if None in reported else sum(cast("list[int]", reported))
+        )
+    assert (usage.input is None) == (None in fresh + read + written)
+
+
+def test_an_agent_whose_transcript_cannot_be_read_has_no_usage() -> None:
+    assert usage_of(HANDBACK, NO_TRANSCRIPT) is None
+
+
+def test_a_nested_spawns_tokens_are_its_own_not_its_parents() -> None:
+    nested = WORKER_TRANSCRIPT.with_name("agent-c3d4.jsonl")
+    disk = transcripts(
+        {
+            WORKER_TRANSCRIPT: model_call("m1", 1_000),
+            nested: model_call("n1", 50_000),
+        }
+    )
+    nested_handback = HANDBACK | {"agent_id": "c3d4", "agent_type": "researcher"}
+
+    assert usage_of(HANDBACK, disk) == Usage(1_000, 99, 987, 10)
+    assert usage_of(nested_handback, disk) == Usage(50_000, 99, 49_987, 10)
+
+
+SUBAGENT_STOP: JsonObject = {
+    **COMMON,
+    **WORKER,
+    "hook_event_name": "SubagentStop",
+    "stop_hook_active": False,
+    "agent_transcript_path": str(WORKER_TRANSCRIPT),
+}
+
+
+def test_a_subagents_stop_carries_its_usage_and_the_leads_none() -> None:
+    disk = transcripts(
+        {
+            WORKER_TRANSCRIPT: model_call("m1", 1_000),
+            MAIN_TRANSCRIPT: model_call("l1", 9_000),
+        }
+    )
+
+    assert usage_of(SUBAGENT_STOP, disk) == Usage(1_000, 99, 987, 10)
+    assert usage_of(LEAD_STOP, disk) is None
+
+
+def test_only_a_hand_back_carries_usage() -> None:
+    disk = transcripts({WORKER_TRANSCRIPT: WORKER_SO_FAR})
+
+    assert usage_of(SHELL_CALL, disk) is None
+
+
+@pytest.mark.parametrize("session", ["abc123", "a b", "it's", "$HOME `ls`", "a\nb"])
+def test_a_shell_sourcing_the_export_hands_its_commands_the_session(
+    session: str,
+) -> None:
+    # printenv runs as a child, so it sees the session only if it is exported.
+    script = session_export(SessionId(session)) + "printenv STATE_SESSION"
+
+    done = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=True
+    )
+
+    assert done.stdout == session + "\n"
 
 
 START_EVENT = parse_claude(SESSION_START, TOOLS, NO_TRANSCRIPT)
@@ -692,7 +952,10 @@ print(json.dumps({"context": event["agent"] is None and "lead spawns" or "worker
 
 
 def adapter(
-    tmp_path: Path, manifest: JsonObject, payload: JsonObject
+    tmp_path: Path,
+    manifest: JsonObject,
+    payload: JsonObject,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     manifest_file = tmp_path / "manifest.json"
     _ = manifest_file.write_text(json.dumps(manifest))
@@ -702,6 +965,7 @@ def adapter(
         capture_output=True,
         text=True,
         check=False,
+        env=None if env is None else os.environ | env,
     )
 
 
@@ -834,6 +1098,35 @@ def test_the_built_adapter_hands_a_subagents_hook_its_recent_shell_commands(
     assert echoed(done) == ["git status", "gh pr checks 7"]
 
 
+def test_the_built_adapter_sums_a_hand_backs_whole_transcript(
+    tmp_path: Path,
+) -> None:
+    worker_transcript = tmp_path / "abc123" / "subagents" / "agent-a1b2.jsonl"
+    write_transcript(worker_transcript, WORKER_SO_FAR, filler=TAIL_BYTES)
+
+    done = adapter(tmp_path, {"beforeTool": [echo("usage")]}, at(tmp_path, HANDBACK))
+
+    # The filler's own request, 1,000 tokens, lies before the last TAIL_BYTES.
+    assert echoed(done) == {
+        "input_tokens": 1_000 + 170_000,
+        "output_tokens": 4 * 99,
+        "cache_read_input_tokens": 987 + 169_961,
+        "cache_write_input_tokens": 4 * 10,
+    }
+
+
+def test_the_built_adapter_exports_the_session_to_claudes_env_file(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "env.sh"
+    _ = env_file.write_text("export A=1\n")
+
+    done = adapter(tmp_path, {}, SESSION_START, {"CLAUDE_ENV_FILE": str(env_file)})
+
+    assert done.returncode == 0, done.stderr
+    assert env_file.read_text() == "export A=1\nexport STATE_SESSION=abc123\n"
+
+
 def test_the_built_adapter_hands_a_hook_the_context_after_any_tool(
     tmp_path: Path,
 ) -> None:
@@ -895,7 +1188,10 @@ def test_the_built_adapter_runs_an_agent_stops_hook_and_lets_the_agent_stop(
         "session": "abc123",
         "cwd": "/work/repo",
         "agent": None,
+        "harness": "claude-code",
+        "transcript_path": "/home/u/.claude/projects/p/abc123.jsonl",
         "running": ["b1"],
+        "usage": None,
     }
 
 

@@ -1,245 +1,77 @@
-{- | The log on the wire: one JSON object per line, version 4.
-
-> {"v":4,"id":"r7f2:12","seq":12,"ts":"...","run":"r7f2","head":"abc123",
->  "session":null,"type":"review.rows","data":{"head":"abc123"}}
-
-A step event's @type@ is its edge's name in the flow's graph. A log the
-Python @state@ wrote (versions 1 and 2, no @v@ on the line) is refused, not
-read: the rewrite breaks it on purpose. So is a version 3 log: version 4
-split the review flow, and no run resumes across it.
+{- | The CLI's and the hand-back protocol's spellings of the run's events:
+an event's type, a stop on the wire, a task's state as @state record task@
+names it, the task and breakdown files, and a span's token counts, which the
+hooks and the log spell alike. The log's payload is "Data.Payload.Event"'s.
 -}
 module State.Run.Codec (
-    version,
-    encodeLine,
-    decodeLine,
-    decodeLog,
-    decodeLines,
-    LineError (..),
-    LogError (..),
     eventType,
     areaText,
     reasonText,
+    handoverReasonText,
     stopToken,
     stopWire,
     parseStopLine,
     judgementText,
     flowText,
-    opText,
     waitingText,
+    tokenWordText,
+    tokenWordName,
     shaText,
     urlText,
     taskIdText,
     branchText,
     repoText,
     taskStateName,
+    taskStateKind,
     taskStateArgs,
     prStates,
     topicText,
     decodeBreakdown,
     decodeTask,
+    ijsonNatural,
+    instructionKindText,
+    usageData,
+    usageOf,
 ) where
 
-import Data.Aeson (
-    Key,
-    Object,
-    Value (..),
-    eitherDecodeStrictText,
-    withObject,
-    (.:),
-    (.:?),
-    (.=),
- )
-import Data.Aeson.Encoding (
-    Encoding,
-    encodingToLazyByteString,
-    null_,
-    pair,
-    pairs,
-    text,
- )
-import Data.Aeson.Types (Parser, Series, parseEither)
-import Data.Bifunctor (first)
-import Data.Functor ((<&>))
+import Data.Aeson (Object, (.:?), (.=))
+import Data.Aeson.Types (Parser, Series)
+
 import Data.List (sortOn)
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
-import Data.Set qualified as Set
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Lazy qualified as Lazy
-import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
-import State.Category.Flow (unqualify)
-import State.Category.Fuel (parseByName)
 import State.Category.Step (eventText)
-import State.Role (drawnDecoders, flowText)
-import State.Run.Ask (
-    Above (..),
-    Basis (..),
-    Kind (Security),
-    OneLine,
-    Proposal (..),
-    QId,
-    Question (..),
-    kindName,
-    oneLineText,
-    parseKind,
-    parseOneLine,
-    parseQId,
-    qidText,
- )
+import State.Role (flowText)
 import State.Run.Event (
-    AgentId (..),
-    AgentRole (..),
-    AnyOutcome,
-    Asker (..),
-    Asking (..),
-    Child (..),
-    ChildTask (..),
-    Envelope (..),
+    EpicMove (..),
     Event (..),
-    EventId (..),
-    Link (..),
-    Note (..),
-    Op (..),
-    Parent (..),
-    Principal (..),
-    Reply (..),
-    RunId,
-    Said (..),
-    SessionId (..),
-    Sha (..),
-    Source (..),
-    Start (..),
-    StateName (..),
+    HandoverReason (..),
+    InstructionKind (..),
     Stop (..),
     StopReason (..),
-    TaskId (..),
-    TaskNo,
     TaskState (..),
-    Url (..),
+    TokenWord (..),
+    Url,
+    Usage (..),
     Waiting (..),
-    eventId,
-    parseRunId,
-    parseTaskNo,
-    runIdText,
-    taskNoText,
     tookEvent,
  )
-import State.Run.Id (eventIdText, parseEventId)
+import State.Run.Gap (Closure (..), GapMove (..))
+import State.Run.IJson (maxIJsonInteger)
 import State.Step.Artifact (
-    Shape (..),
     areaText,
     branchText,
     decodeBreakdown,
     decodeTask,
     judgementText,
-    named,
-    planData,
-    planOf,
     repoText,
     shaText,
-    shapeData,
-    shapeOf,
-    targetData,
-    targetOf,
-    taskEncoding,
     taskIdText,
     topicText,
-    urlData,
-    urlOf,
     urlText,
  )
-import State.Step.Artifact qualified as Artifact
-import State.Step.Catalog (outcomeData, outcomeDecoders)
-
--- | The log version this kernel writes and reads.
-version :: Int
-version = 4
-
--- | Why a line was not read.
-data LineError
-    = -- | Another log version: 1 and 2 are the Python @state@'s, 3 an earlier kernel's.
-      Unsupported Int
-    | Malformed Text
-    deriving stock (Eq, Show)
-
--- | The first line not read, counted from 1.
-data LogError = LogError {line :: Int, why :: LineError}
-    deriving stock (Eq, Show)
-
--- | Every line, or the first that is not read.
-decodeLog :: Text -> Either LogError [Envelope]
-decodeLog = decodeLines . Text.lines
-
--- | Every line, counted from 1, or the first that is not read.
-decodeLines :: [Text] -> Either LogError [Envelope]
-decodeLines = traverse numbered . zip [1 ..]
-  where
-    numbered (n, raw) = first (LogError n) (decodeLine raw)
-
-decodeLine :: Text -> Either LineError Envelope
-decodeLine raw = do
-    obj <- malformed (eitherDecodeStrictText raw)
-    v <- malformed (parseEither lineVersion obj)
-    if v == version
-        then malformed (parseEither envelope obj)
-        else Left (Unsupported v)
-  where
-    malformed = first (Malformed . Text.pack)
-
-{- | Versions 3 and on name it on every line. A Python log names none, but its
-@started@ event carries @version@ from version 2 on.
--}
-lineVersion :: Object -> Parser Int
-lineVersion obj =
-    obj .:? "v" >>= \case
-        Just v -> pure v
-        Nothing -> do
-            event <- obj .:? "event"
-            legacy <- maybe (pure Nothing) (.:? "version") event
-            pure (fromMaybe 1 legacy)
-
--- | One line, without its newline, its keys in the order above.
-encodeLine :: Envelope -> Text
-encodeLine e =
-    Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . pairs $
-        "v" .= version
-            <> "id" .= eventIdText (eventId e)
-            <> "seq" .= e.seq
-            <> "ts" .= e.ts
-            <> "run" .= runIdText e.run
-            <> "head" .= fmap shaText e.head
-            <> "session" .= fmap (\(SessionId session) -> session) e.session
-            <> "type" .= eventType e.event
-            <> pair "data" (pairs (eventData e.event))
-
-envelope :: Object -> Parser Envelope
-envelope obj = do
-    n <- obj .: "seq"
-    run <- obj .: "run" >>= runIdOf
-    source <- obj .: "id" >>= sourceOf run n
-    ts <- obj .: "ts"
-    sha <- fmap Sha <$> obj .: "head"
-    session <- fmap SessionId <$> obj .: "session"
-    kind <- obj .: "type"
-    event <- obj .: "data" >>= withObject "data" (eventOf kind)
-    pure Envelope {source, seq = n, ts, run, head = sha, session, event}
-
--- | The line's own run and seq are the truth, so a CLI id naming others is refused.
-sourceOf :: RunId -> Natural -> Text -> Parser Source
-sourceOf run n raw
-    | raw == eventIdText (Numbered run n) = pure Cli
-    | Just (Hashed digest) <- parseEventId raw = pure (Hook digest)
-    | otherwise =
-        fail
-            ( "id "
-                <> show raw
-                <> " is neither "
-                <> show (eventIdText (Numbered run n))
-                <> " nor h:<hash>"
-            )
 
 eventType :: Event -> Text
 eventType = \case
@@ -259,204 +91,72 @@ eventType = \case
     QuestionParked _ _ -> "parked"
     Spawning _ -> "spawning"
     Spawned _ -> "spawned"
-    Resumed _ -> "resumed"
-    HandedBack _ _ -> "handed_back"
+    Resumed _ _ -> "resumed"
+    HandedBack {} -> "handed_back"
     TaskMoved _ _ -> "task"
     Held _ _ -> "held"
     ActedOn _ _ -> "acted"
-    TaskAdded _ -> "task_added"
+    TaskAdded _ _ -> "task_added"
     Restarted -> "restarted"
     WorkerHandedBack _ _ -> "worker_handed_back"
-    WorkerSpawned _ _ -> "worker_spawned"
-    WorkerReturned _ _ -> "worker_returned"
     AgentEnded _ -> "agent_ended"
     Suspended _ _ -> "suspended"
     Focused _ -> "focused"
     Voided _ _ -> "voided"
+    WorktreeMoved _ _ -> "worktree_moved"
+    ArtifactLogged {} -> "artifact"
+    Noted _ _ -> "note"
+    HandedOver _ -> "handover"
+    SessionStarted _ -> "session_started"
+    GapMoved _ move -> case move of
+        Propose _ -> "gap_fix_proposed"
+        Close (Fixed _) -> "gap_fixed"
+        Close (WontFix _) -> "gap_wont_fix"
+    SpanStarted _ -> "span_started"
+    SpanEnded {} -> "span_ended"
+    EpicMoved _ move -> case move of
+        Opens _ _ -> "epic_opened"
+        Readies _ -> "epic_ready"
+        Merges -> "epic_merged"
+    TaskHead _ _ -> "task_head"
+    TaskBaseChanged {} -> "task_base_changed"
+    Instructed _ _ -> "instructed"
+    UserNeeded _ -> "user_needed"
+    UserNeededDone _ _ -> "user_needed_done"
+    StopgapSet {} -> "stopgap_set"
+    StopgapUnset _ _ -> "stopgap_unset"
 
-eventData :: Event -> Series
-eventData = \case
-    Started start ->
-        "flow" .= flowText start.flow
-            <> "notes" .= start.notes
-            <> pair "principal" (principalEncoding start.principal)
-            <> "interface" .= map opText (Set.toList start.interface)
-    Targeted target -> targetData target
-    Extended why -> "why" .= why
-    Gapped gap -> "text" .= gap
-    Took _ outcome -> outcomeData outcome
-    Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
-    Overridden (StateName to) why -> "to" .= to <> "why" .= why
-    Refused note -> "message" .= note.message <> "fix" .= note.fix
-    Asked Asking {question, step = StateName step, from} ->
-        qidData question.qid
-            <> "kind" .= kindName question.kind
-            <> "question" .= oneLineText question.text
-            <> "step" .= step
-            <> pair "from" (askerEncoding from)
-    -- #360 writes the kind, though it is only ever Security.
-    RetaggedSecurity qid -> qidData qid <> "kind" .= kindName Security
-    RuledOn qid proposal ->
-        qidData qid
-            <> "answer" .= oneLineText proposal.answer
-            <> "why" .= oneLineText proposal.why
-            <> "cost" .= oneLineText proposal.cost
-            <> pair "basis" (maybe null_ basisEncoding proposal.basis)
-    Forwarded qid to -> qidData qid <> pair "to" (aboveEncoding to)
-    Answered qid reply by -> qidData qid <> replyData reply <> pair "by" (aboveEncoding by)
-    QuestionParked qid why -> qidData qid <> "why" .= oneLineText why
-    Spawned child ->
-        "child" .= runIdText child.run
-            <> childTaskData child.task
-            <> "worktree" .= child.worktree
-    Spawning task -> "task" .= taskIdText task
-    Resumed child -> "child" .= runIdText child
-    HandedBack child said -> "child" .= runIdText child <> saidData said
-    TaskMoved task moved -> "task" .= taskIdText task <> taskStateData moved
-    Held task url -> "task" .= taskIdText task <> urlData url
-    ActedOn task url -> "task" .= taskIdText task <> urlData url
-    TaskAdded task -> pair "task" (taskEncoding task)
-    Restarted -> mempty
-    WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
-    WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
-    WorkerReturned (AgentRole role) agent -> "role" .= role <> "agent" .= fmap (.agentIdText) agent
-    AgentEnded agent -> "agent" .= agent.agentIdText
-    Suspended task summary -> "request" .= taskNoText task <> "summary" .= oneLineText summary
-    Focused task -> "request" .= taskNoText task
-    Voided n why -> "seq" .= n <> "why" .= why
-  where
-    qidData qid = "qid" .= qidText qid
+-- | An instruction's kind, as @state record instructed@ and the log spell it.
+instructionKindText :: InstructionKind -> Text
+instructionKindText = \case
+    GoalInstruction -> "goal"
+    ScopeInstruction -> "scope"
+    RuleInstruction -> "rule"
+    PermissionInstruction -> "permission"
 
-eventOf :: Text -> Object -> Parser Event
-eventOf kind obj = case kind of
-    "started" -> Started <$> startOf obj
-    "target" -> Targeted <$> targetOf obj
-    "extend" -> Extended <$> obj .: "why"
-    "gap" -> Gapped <$> obj .: "text"
-    "stop" ->
-        Stopped
-            <$> ( Stop
-                    <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText))
-                    <*> obj .: "why"
-                )
-    "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"
-    "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
-    "asked" -> Asked <$> askingOf obj
-    "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "kind" >>= security)
-    "ruled" ->
-        RuledOn
-            <$> qidOf obj
-            <*> ( Proposal
-                    <$> oneLineAt "answer" obj
-                    <*> oneLineAt "why" obj
-                    <*> oneLineAt "cost" obj
-                    <*> (obj .: "basis" >>= traverse basisOf)
-                )
-    "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
-    "answered" -> Answered <$> qidOf obj <*> replyOf obj <*> (obj .: "by" >>= aboveOf)
-    "parked" -> QuestionParked <$> qidOf obj <*> oneLineAt "why" obj
-    "spawned" ->
-        Spawned
-            <$> ( Child
-                    <$> childOf obj
-                    <*> ( childTaskOf obj
-                            >>= maybe (fail "a spawned child names its task or is untasked") pure
-                        )
-                    <*> obj .: "worktree"
-                )
-    "spawning" -> Spawning <$> taskOf obj
-    "resumed" -> Resumed <$> childOf obj
-    "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
-    "task" -> TaskMoved <$> taskOf obj <*> taskStateOf obj
-    "held" -> Held <$> taskOf obj <*> urlOf obj
-    "acted" -> ActedOn <$> taskOf obj <*> urlOf obj
-    "task_added" -> TaskAdded <$> (obj .: "task" >>= Artifact.taskOf)
-    "restarted" -> pure Restarted
-    "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
-    "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
-    "worker_returned" ->
-        WorkerReturned . AgentRole
-            <$> obj .: "role"
-            <*> (fmap AgentId <$> obj .: "agent")
-    "agent_ended" -> AgentEnded . AgentId <$> obj .: "agent"
-    "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
-    "focused" -> Focused <$> requestOf obj
-    "voided" -> Voided <$> obj .: "seq" <*> obj .: "why"
-    _ -> case Map.lookup step outcomeParsers of
-        Just parser -> Took scope <$> parser obj
-        Nothing -> fail ("unknown event type " <> show kind)
-  where
-    (scope, step) = unqualify kind
+-- | A hand-back token as line 1 opens with it, on the wire (#360).
+tokenWordText :: TokenWord -> Text
+tokenWordText = \case
+    ReadyWord -> "READY"
+    NeedsDecisionWord -> "NEEDS_DECISION"
+    AwaitWord -> "AWAIT"
+    BlockedWord -> "BLOCKED"
+    FailedWord -> "FAILED"
 
-{- | Keyed by the event names the layers give each outcome, so a renamed
-outcome changes the wire with it. A step inside a scope logs its outcome
-under the qualified name, @security/review.rows@.
--}
-outcomeParsers :: Map Text (Object -> Parser AnyOutcome)
-outcomeParsers = Map.fromList (map (first eventText) (outcomeDecoders <> drawnDecoders))
+-- | A hand-back token as the log and @state resume@ spell it: its wire word in lowercase.
+tokenWordName :: TokenWord -> Text
+tokenWordName = Text.toLower . tokenWordText
 
-childOf :: Object -> Parser RunId
-childOf obj = obj .: "child" >>= runIdOf
-
-requestOf :: Object -> Parser TaskNo
-requestOf obj =
-    obj .: "request" >>= \raw -> maybe (fail (show raw <> " is no request, r<n>")) pure (parseTaskNo raw)
-
-taskOf :: Object -> Parser TaskId
-taskOf obj = TaskId <$> obj .: "task"
-
--- | A fan-out's child names its task, or says it has none.
-childTaskData :: ChildTask -> Series
-childTaskData = \case
-    Tasked task -> "task" .= taskIdText task
-    Untasked -> "untasked" .= True
-
--- | A fan-out's child as 'childTaskData' writes it; neither key, no fan-out's child.
-childTaskOf :: Object -> Parser (Maybe ChildTask)
-childTaskOf obj =
-    (,) <$> obj .:? "task" <*> obj .:? "untasked" <&> \case
-        (Just task, _) -> Just (Tasked (TaskId task))
-        (Nothing, Just True) -> Just Untasked
-        (Nothing, _) -> Nothing
-
-{- | #360's @token@, @ref@ and @qid@: the hand-back's line 1 as the child
-sent it, a stop's as 'stopWire' spells it.
--}
-saidData :: Said -> Series
-saidData said = "token" .= token <> "ref" .= ref <> "qid" .= fmap qidText qid <> waits
-  where
-    (token, ref, qid) = case said of
-        Finished summary -> ("READY", Just (oneLineText summary), Nothing)
-        AsksUp asked -> ("NEEDS_DECISION", Nothing, Just asked)
-        Awaits _ on -> ("AWAIT", Just (oneLineText on), Nothing)
-        Ended stop -> let (word, payload) = stopWire stop in (word, Just payload, Nothing)
-    -- Only a merge is named: a log from before merges climbed awaits CI.
-    waits = case said of
-        Awaits Merge _ -> "on" .= waitingText Merge
-        Awaits Ci _ -> mempty
-        Finished _ -> mempty
-        AsksUp _ -> mempty
-        Ended _ -> mempty
-
-saidOf :: Object -> Parser Said
-saidOf obj =
-    obj .: "token" >>= \case
-        "READY" -> Finished <$> oneLineAt "ref" obj
-        "AWAIT" ->
-            Awaits
-                <$> (obj .:? "on" >>= maybe (pure Ci) (named "awaited" (parseByName waitingText)))
-                <*> oneLineAt "ref" obj
-        token ->
-            obj .:? "ref" >>= \case
-                Nothing | token == "NEEDS_DECISION" -> AsksUp <$> qidOf obj
-                ref ->
-                    maybe
-                        (fail ("no hand-back token: " <> show token))
-                        (pure . Ended)
-                        (parseStop token (fromMaybe "" ref))
+-- | A hand-over's reason, as the log and the CLI spell it.
+handoverReasonText :: HandoverReason -> Text
+handoverReasonText = \case
+    Context -> "context"
+    User -> "user"
+    Crash -> "crash"
 
 {- | A stop on the wire (#360): its hand-back token, and the prefix its why
-takes there. The one spelling of a stop, read by the log and the hand-back.
+takes there: the hand-back's spelling of a stop. The log's is
+"Data.Payload.Event"'s @reason@ and @detail@.
 -}
 stopToken :: StopReason -> (Text, Text)
 stopToken = \case
@@ -490,31 +190,7 @@ parseStop token payload =
         , Just why <- [Text.stripPrefix prefix payload]
         ]
 
-taskStateData :: TaskState -> Series
-taskStateData moved = "state" .= taskStateName moved <> "why" .= why <> "pr" .= fmap urlText pr
-  where
-    (why, pr) = case moved of
-        InCi url -> (Nothing, Just url)
-        InReview url -> (Nothing, Just url)
-        Merged url -> (Nothing, Just url)
-        Kept url -> (Nothing, Just url)
-        Round url -> (Nothing, Just url)
-        Parked reason parkedPr -> (Just reason, parkedPr)
-
-taskStateOf :: Object -> Parser TaskState
-taskStateOf obj = do
-    pr <- fmap Url <$> obj .: "pr"
-    name <- obj .: "state"
-    case (lookup name prStates, name) of
-        (Just state, _) ->
-            maybe
-                (fail ("a task in " <> Text.unpack name <> " names its pr"))
-                (pure . state)
-                pr
-        (Nothing, "parked") -> Parked <$> obj .: "why" <*> pure pr
-        (Nothing, other) -> fail ("unknown task state " <> show other)
-
--- | The states that name their PR, by the name 'taskStateName' gives each: @state record task@'s and the log's.
+-- | The states that name their PR, by the name 'taskStateName' gives each: @state record task@'s.
 prStates :: [(Text, Url -> TaskState)]
 prStates =
     [ ("ci", InCi)
@@ -522,6 +198,7 @@ prStates =
     , ("merged", Merged)
     , ("kept", Kept)
     , ("round", Round)
+    , ("delivered", Delivered)
     ]
 
 -- | As @state record task@ names it.
@@ -533,6 +210,20 @@ taskStateName = \case
     Kept _ -> "kept"
     Round _ -> "round"
     Parked _ _ -> "parked"
+    Delivered _ -> "delivered"
+
+{- | A task state as its status (#552's Appendix B section F) and the log's
+@kind@ spell it; @state record task@'s name is 'taskStateName'.
+-}
+taskStateKind :: TaskState -> Text
+taskStateKind = \case
+    InCi _ -> "in_ci"
+    InReview _ -> "in_review"
+    Merged _ -> "merged"
+    Kept _ -> "kept"
+    Round _ -> "round"
+    Parked _ _ -> "parked"
+    Delivered _ -> "delivered"
 
 -- | The arguments @state record task@ takes after the task's id for this state.
 taskStateArgs :: TaskState -> Text
@@ -545,148 +236,7 @@ taskStateArgs moved =
             Kept pr -> [urlText pr]
             Round pr -> [urlText pr]
             Parked why pr -> why : maybe [] (\url -> ["--pr", urlText url]) pr
-
-startOf :: Object -> Parser Start
-startOf obj =
-    Start
-        <$> (obj .: "flow" >>= named "flow" (parseByName flowText))
-        <*> obj .: "notes"
-        <*> (obj .: "principal" >>= principalOf)
-        <*> ( Set.fromList
-                <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText)))
-            )
-
-{- | The user on its own PR is a bare word, as a log older than rounds wrote
-it; the user's round is its PR; a parent run is its id, the task it
-gave a fan-out's child, a round's PR and a decided plan; the caller is the user's form marked
-@caller@.
--}
-principalEncoding :: Principal -> Encoding
-principalEncoding = \case
-    ByUser OwnPr -> text "user"
-    ByUser shape@(RoundOn _) -> pairs (shapeData shape)
-    ByRole parent shape plan ->
-        pairs
-            ( "run" .= runIdText parent.run
-                <> linkData parent.link
-                <> shapeData shape
-                <> planData plan
-            )
-    ByCaller OwnPr -> text "caller"
-    ByCaller shape@(RoundOn _) -> pairs ("caller" .= True <> shapeData shape)
-
-principalOf :: Value -> Parser Principal
-principalOf = \case
-    String "user" -> pure (ByUser OwnPr)
-    String "caller" -> pure (ByCaller OwnPr)
-    Object obj ->
-        (,) <$> obj .:? "run" <*> obj .:? "caller" >>= \case
-            (Just run, _) ->
-                ByRole
-                    <$> (Parent <$> runIdOf run <*> linkOf obj)
-                    <*> shapeOf obj
-                    <*> planOf obj
-            (Nothing, Just True) -> ByCaller . RoundOn . Url <$> obj .: "pr"
-            (Nothing, _) -> ByUser . RoundOn . Url <$> obj .: "pr"
-    other ->
-        fail
-            ( "a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, task?}, not "
-                <> show other
-            )
-
--- | A fan-out's child names its task or its delegation; a direct child, neither.
-linkData :: Link -> Series
-linkData = \case
-    InFan task -> childTaskData task
-    Direct -> mempty
-
-linkOf :: Object -> Parser Link
-linkOf obj = maybe Direct InFan <$> childTaskOf obj
-
-askingOf :: Object -> Parser Asking
-askingOf obj = do
-    qid <- qidOf obj
-    kind <- obj .: "kind" >>= named "kind" parseKind
-    question <- oneLineAt "question" obj
-    step <- StateName <$> obj .: "step"
-    from <- obj .: "from" >>= askerOf
-    pure Asking {question = Question qid kind question, step, from}
-
-qidOf :: Object -> Parser QId
-qidOf obj = obj .: "qid" >>= named "question id" parseQId
-
--- | A retag to any other kind is refused: no event lowers a 'Security' question.
-security :: Text -> Parser ()
-security raw
-    | raw == kindName Security = pure ()
-    | otherwise =
-        fail ("a question is only ever re-tagged as Security, not " <> show raw)
-
--- | The run itself is a bare word; a subagent is its role, a child run its id.
-askerEncoding :: Asker -> Encoding
-askerEncoding = \case
-    Itself -> text "self"
-    Subagent (AgentRole role) -> pairs ("role" .= role)
-    ChildRun run -> pairs ("run" .= runIdText run)
-
-askerOf :: Value -> Parser Asker
-askerOf = \case
-    String "self" -> pure Itself
-    Object obj ->
-        obj .:? "role"
-            >>= maybe (ChildRun <$> (obj .: "run" >>= runIdOf)) (pure . Subagent . AgentRole)
-    other -> fail ("a question is from \"self\", {role} or {run}, not " <> show other)
-
--- | As a principal: the user and the caller are bare words, a parent run is its id.
-aboveEncoding :: Above -> Encoding
-aboveEncoding = \case
-    TheUser -> text "user"
-    ParentRun run -> pairs ("run" .= runIdText run)
-    TheCaller -> text "caller"
-
--- | @"reply": "chose"@ or @"other"@, beside the @answer@ text.
-replyData :: Reply -> Series
-replyData = \case
-    Chose answer -> "reply" .= ("chose" :: Text) <> "answer" .= answer
-    Other answer -> "reply" .= ("other" :: Text) <> "answer" .= answer
-
-replyOf :: Object -> Parser Reply
-replyOf obj =
-    obj .: "reply" >>= \case
-        "chose" -> Chose <$> obj .: "answer"
-        "other" -> Other <$> obj .: "answer"
-        other -> fail ("reply \"chose\" or \"other\", not " <> show (other :: Text))
-
-aboveOf :: Value -> Parser Above
-aboveOf = \case
-    String "user" -> pure TheUser
-    String "caller" -> pure TheCaller
-    Object obj -> ParentRun <$> (obj .: "run" >>= runIdOf)
-    other -> fail ("\"user\", \"caller\" or {run}, not " <> show other)
-
-basisEncoding :: Basis -> Encoding
-basisEncoding = \case
-    AnsweredBy event -> pairs ("event" .= eventIdText event)
-    Obvious why -> pairs ("obvious" .= oneLineText why)
-
-basisOf :: Value -> Parser Basis
-basisOf = withObject "basis" $ \obj ->
-    obj .:? "obvious" >>= \case
-        Just why -> Obvious <$> oneLineOf why
-        Nothing -> AnsweredBy <$> (obj .: "event" >>= named "event id" parseEventId)
-
-oneLineAt :: Key -> Object -> Parser OneLine
-oneLineAt key obj = obj .: key >>= oneLineOf
-
-oneLineOf :: Text -> Parser OneLine
-oneLineOf raw = maybe (fail (show raw <> " holds a line break")) pure (parseOneLine raw)
-
-runIdOf :: Text -> Parser RunId
-runIdOf raw =
-    maybe
-        (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break"))
-        pure
-        (parseRunId raw)
+            Delivered pr -> [urlText pr]
 
 -- | #360's @AWAIT <what> <refs>@: what a run hands up to be waited on.
 waitingText :: Waiting -> Text
@@ -694,17 +244,41 @@ waitingText = \case
     Ci -> "ci"
     Merge -> "merge"
 
-opText :: Op -> Text
-opText = \case
-    AskUser -> "ask_user"
-    Await -> "await"
-    Notify -> "notify"
-    Hooks -> "hooks"
-    Background -> "background"
-
 reasonText :: StopReason -> Text
 reasonText = \case
     Blocked -> "blocked"
     Failed -> "failed"
     Replan -> "replan"
     OutOfRounds -> "rounds"
+
+{- | An I-JSON integer (RFC 7493 s2.2): under 2^53, so every JSON reader
+reads it exactly. One at or above does not fit, so its row reads as
+'Unknown'. The bound is sound for a voided seq: @appendTo@
+("State.Run.Fold") logs a void only of a seq the run already logged, and no
+run logs 2^53 events.
+-}
+ijsonNatural :: Natural -> Parser Natural
+ijsonNatural n
+    | toInteger n <= maxIJsonInteger = pure n
+    | otherwise = fail (show n <> " is no I-JSON integer: it is 2^53 or more")
+
+-- | A span's token counts, GenAI's @gen_ai.usage.*@: a count not reported is left out, never 0.
+usageData :: Usage -> Series
+usageData usage =
+    foldMap ("input_tokens" .=) usage.inputTokens
+        <> foldMap ("output_tokens" .=) usage.outputTokens
+        <> foldMap ("cache_read_input_tokens" .=) usage.cacheReadTokens
+        <> foldMap ("cache_write_input_tokens" .=) usage.cacheWriteTokens
+
+{- | A span's token counts from the hook's @usage@ or the log's payload: a
+count left out is not reported; one that is no I-JSON integer is refused.
+-}
+usageOf :: Object -> Parser Usage
+usageOf obj =
+    Usage
+        <$> count "input_tokens"
+        <*> count "output_tokens"
+        <*> count "cache_read_input_tokens"
+        <*> count "cache_write_input_tokens"
+  where
+    count key = obj .:? key >>= traverse ijsonNatural

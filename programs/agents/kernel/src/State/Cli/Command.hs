@@ -5,7 +5,10 @@ and every failure in the shape the @/self-improve@ analyzer parses:
 -}
 module State.Cli.Command (
     Command (..),
+    Until (seq),
     RunCommand (..),
+    Location (..),
+    locationOf,
     BriefPart (..),
     InitArgs (..),
     Origin (..),
@@ -15,6 +18,7 @@ module State.Cli.Command (
     Failure (..),
     Exit (..),
     Usage (..),
+    argvText,
     parseCommand,
     parseHook,
     optparseText,
@@ -23,7 +27,12 @@ module State.Cli.Command (
     tenXInitFix,
     architectInitFix,
     chiefInitFix,
-    noteOf,
+    CommandRefusal (..),
+    refusedNote,
+    explainRefusal,
+    outsideRunTree,
+    sqlRefused,
+    refusalCode,
     explain,
     unknownEvent,
     anyEvent,
@@ -37,21 +46,43 @@ module State.Cli.Command (
 
 import Control.Applicative (many, optional, some, (<**>), (<|>))
 import Data.Bifunctor (first)
+import Data.ByteString (ByteString)
 import Data.Foldable (toList)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (decodeUtf8')
 import Data.Version (showVersion)
 import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Optparse
-import Options.Applicative.Help.Pretty (pretty, vsep)
+import Options.Applicative.Help.Pretty (fillSep, hang, pretty, vsep)
 import Paths_state (version)
-import State.Category.Flow (ScopePath, qualifyText, unqualify)
-import State.Category.Fuel (Fuel, parseByName)
+import State.Artifact (
+    AbsPath,
+    FileKind,
+    Uri,
+    UrlKind,
+    absPathText,
+    fileKindText,
+    parseUri,
+    uriRule,
+    uriText,
+    urlKindText,
+ )
+import State.Category.Flow (
+    ScopePath,
+    namedState,
+    qualify,
+    qualifyText,
+    unqualify,
+ )
+import State.Category.Fuel (Fuel, choices, parseByName)
 import State.Category.Graph (
     Cap (..),
+    Edge,
     Node (..),
     OpenGraph (..),
     Place (..),
@@ -59,11 +90,20 @@ import State.Category.Graph (
     places,
  )
 import State.Category.Meter (someMeterName)
+import State.Category.Path (unrecorded)
 import State.Category.Step (
     EventName (..),
     eventText,
     handedBackOutcome,
+    spawnedOutcome,
     stateNameText,
+ )
+import State.Cli.Query (
+    Report (..),
+    SqlRefusal (..),
+    Window (..),
+    parseSince,
+    reportName,
  )
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (
@@ -73,8 +113,8 @@ import State.Protocol.Record (
     Option (..),
     Recordable (..),
     Recording (..),
+    baseChangeUsage,
     capRecords,
-    choices,
     extend,
     extendOption,
     recordCommand,
@@ -104,24 +144,31 @@ import State.Run.Ask (
     replyWords,
  )
 import State.Run.Ask qualified as Ask
-import State.Run.Codec (areaText, reasonText)
+import State.Run.Codec (areaText, handoverReasonText, reasonText)
 import State.Run.Codec qualified as Codec
+import State.Run.Epic (EpicMove (..))
+import State.Run.Epic qualified as Epic
 import State.Run.Event (
     AgentRole (..),
     Asker (..),
     Asking (..),
     Child (..),
     FlowName (..),
+    Handover (..),
     Note (..),
+    RefusalCode (..),
     RunId,
+    SpanId (..),
     StateName (..),
     Stop (..),
     Task,
     TaskId (..),
     TaskNo,
     TaskState (Kept),
+    Verbatim,
     parseRunId,
     parseTaskNo,
+    parseVerbatim,
     roleText,
     runIdText,
     taskNoText,
@@ -129,12 +176,25 @@ import State.Run.Event (
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Answer (about, given), Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
-import State.Run.Id (parseEventId)
+import State.Run.Gap (GapMove)
+import State.Run.Gap qualified as Gap
+import State.Run.Id (
+    EventRef,
+    eventIdText,
+    eventRefText,
+    parseEventId,
+    parseEventRef,
+ )
 import State.Show (tshow)
 import State.Step.Artifact (
+    Branch (..),
+    EpicName,
     Shape (..),
     ShellPath,
+    epicNameText,
+    parseEpicName,
     parsePrUrl,
+    parseRepo,
     prUrlRule,
     shellPath,
     shellPathRule,
@@ -161,7 +221,33 @@ data Command
       Focus (Maybe TaskNo) (Maybe OneLine)
     | -- | A card per request of the chief's run, and per child run.
       Tasks
+    | -- | The worktree's run hands over to a fresh agent, its changed files registered again first.
+      HandOver Handover
+    | -- | The artifact a run logged at this seq: its bytes, its URL, or why neither.
+      ShowArtifact EventRef
+    | {- | A file or URL the worktree's run registers, derived from its
+      artifact of this seq, and made by the agent of this span, if any.
+      -}
+      Register (Location FilePath) (Maybe Natural) (Maybe SpanId)
+    | {- | The packet a fresh agent resumes from: of the run named, else the
+      session's or the worktree's, as it was after this line, if one is given.
+      -}
+      Resume (Maybe RunId) (Maybe Until)
+    | {- | The gap logged at this line moves on, in its own run: a fix
+      proposed, fixed, or not to be fixed.
+      -}
+      MoveGap EventRef GapMove
     | OnRun RunCommand
+    | -- | A fixed report over every run, its rows in this window, as TSV.
+      Report Report Window
+    | -- | One read-only SELECT over the run store, its rows as TSV.
+      Sql Text
+
+{- | The packet as it was after the line of this seq (@--until@): a seq
+counts from 1, as the log's first line is its @started@.
+-}
+newtype Until = Until {seq :: Natural}
+    deriving stock (Eq, Show)
 
 -- | A command on the worktree's run, read and written under the log's lock.
 data RunCommand
@@ -188,6 +274,16 @@ data RunCommand
       Park Text OneLine
     | StopRun Stop
     | Pending
+    | -- | A note under its topic, then its text.
+      NoteOn Text Text
+    | -- | An epic of the run opened, made ready for review or merged.
+      MoveEpic EpicName EpicMove
+
+{- | Where an artifact is, with a kind that fits it: a URL, or a file at a
+path, as typed until the shell reads it.
+-}
+data Location path = AtUrl UrlKind Uri | AtPath FileKind path
+    deriving stock (Eq, Show, Functor, Foldable, Traversable)
 
 -- | What of a role's brief to print: all of it, with a child engineer's task, or one step's section.
 data BriefPart = Whole (Maybe TaskId) | Section StateName
@@ -196,7 +292,15 @@ data BriefPart = Whole (Maybe TaskId) | Section StateName
 {- | A child's flow, when not named, is its parent's fan-out's; a top run's
 is 'defaultFlow'.
 -}
-data InitArgs = InitArgs {notes :: ShellPath, flow :: Maybe FlowName, origin :: Origin}
+data InitArgs = InitArgs
+    { notes :: ShellPath
+    , flow :: Maybe FlowName
+    , origin :: Origin
+    , goal :: Maybe Verbatim
+    {- ^ The run's goal, word for word, logged as the user's instructed goal;
+    a resumed run keeps the one it started with.
+    -}
+    }
 
 {- | Who starts the run: the user, on a PR of its own or a round on the one
 @--pr@ names; a parent run, whose task gives the shape; or, with @--child@,
@@ -223,8 +327,11 @@ line naming the command to run instead.
 data Failure = Failure {exit :: Exit, what :: Text, why :: Text, fix :: Text}
     deriving stock (Eq, Show)
 
--- | Exit 2 for bad usage, a bad log line or a refused event; exit 1 for git or disk.
-data Exit = BadInput | Outage
+{- | Exit 2 for bad usage, a bad log line or a refused event; exit 1 for git
+or disk; for @state artifact show@, exit 3 for an artifact whose bytes were
+not stored and exit 4 for a line that is no artifact (#552's Appendix B E).
+-}
+data Exit = BadInput | Outage | NotStored | NotAnArtifact
     deriving stock (Eq, Show)
 
 failureText :: Text -> Failure -> Text
@@ -255,14 +362,29 @@ architectInitFix = "state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --f
 chiefInitFix :: Text
 chiefInitFix = "state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chief"
 
--- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
-noteOf :: Failure -> Note
-noteOf failure = Note (failure.what <> " - " <> failure.why) failure.fix
-
 {- | Help asked for, or argv the grammar rejects: optparse's verdict. Its
 exit code tells the two apart, so the shell, which owns exit codes, renders it.
 -}
 newtype Usage = Usage (Optparse.ParserFailure Optparse.ParserHelp)
+
+{- | argv as the process got it, bytes, decoded as UTF-8 whatever the locale.
+An argument that is not UTF-8 is refused by its position from 1, its bytes
+never echoed: a lossy decode would store words nobody wrote.
+-}
+argvText :: [ByteString] -> Either Failure [Text]
+argvText = traverse decoded . zip [1 :: Natural ..]
+  where
+    decoded (n, raw) =
+        first
+            ( const
+                ( Failure
+                    BadInput
+                    ("argument " <> Text.pack (show n))
+                    "not UTF-8"
+                    "pass each argument as UTF-8"
+                )
+            )
+            (decodeUtf8' raw)
 
 {- | The subcommand, for the failure line, and the command or why it is not
 one; else optparse's help or usage error. No command at all is help.
@@ -364,7 +486,7 @@ commandInfo steps scope =
                 ( Optparse.info
                     (recordEvent scope)
                     ( Optparse.progDesc "Record an event: 'state record --help' lists them"
-                        <> Optparse.footer "A commit event records HEAD."
+                        <> Optparse.footerDoc (Just (vsep (map paragraph recordFooter)))
                     )
                 )
             , sub "handback" "Record a role's hand-back, read from stdin" $
@@ -505,9 +627,195 @@ commandInfo steps scope =
                             "<line>"
                             "where the request in focus stands, once it recorded work"
                         )
-            , sub "tasks" "Print each request's card and resume advice" (pure (Right Tasks))
+            , sub "tasks" "Print each request's card and each child run" (pure (Right Tasks))
+            , Optparse.command
+                "artifact"
+                ( Optparse.info
+                    (artifactShow <|> artifactRegister)
+                    ( Optparse.progDesc
+                        "Register a file or URL; 'artifact show' prints one"
+                    )
+                )
+            , freeText "note" "Note context for a fresh agent, under a topic" $
+                (\topic text -> Right (OnRun (NoteOn topic text)))
+                    <$> textOption "topic" "<t>" "what the note is about"
+                    <*> sentence "<text>"
+            , sub
+                "epic"
+                "Open an epic, mark it ready for review, or merged"
+                (Optparse.hsubparser (epicOpen <> epicReady <> epicMerged))
+            , sub "handover" "Hand the run over to a fresh agent" $
+                ( \reason summary first' rest ->
+                    (\r -> HandOver (Handover r summary (first' :| rest)))
+                        <$> named "handover reason" (parseByName handoverReasonText) reason
+                )
+                    <$> textOption "reason" (choices handoverReasonText) "why the agent hands over"
+                    <*> textOption "summary" "<s>" "where the work stands"
+                    <*> nextStep mempty
+                    <*> many (nextStep Optparse.hidden)
+            , sub "resume" "Print the packet a fresh agent resumes the run from" $
+                (\run k -> Resume <$> traverse runId run <*> traverse untilOf k)
+                    <$> optional (textArgument "<run>")
+                    <*> optional
+                        ( textOption
+                            "until"
+                            "<seq>"
+                            "the packet as it was after the line of this seq"
+                        )
+            , Optparse.command
+                "gap"
+                ( Optparse.info
+                    ( Optparse.hsubparser
+                        ( sub "proposed" "A gap's fix is proposed in a PR" (byPr Gap.Propose)
+                            <> sub "fixed" "A gap is fixed by a PR" (byPr (Gap.Close . Gap.Fixed))
+                            <> freeText
+                                "wontfix"
+                                "A gap is left as it is, saying why"
+                                ( (\raw why -> MoveGap <$> gapAt raw <*> (Gap.Close . Gap.WontFix <$> oneLine why))
+                                    <$> textArgument "<run:seq>"
+                                    <*> sentence "<reason>"
+                                )
+                        )
+                    )
+                    (Optparse.progDesc "Move a gap on: a fix proposed, fixed, or won't fix")
+                )
+            , Optparse.command
+                "report"
+                ( Optparse.info
+                    (Optparse.hsubparser (foldMap reportOf [minBound .. maxBound]))
+                    (Optparse.progDesc "Print a fixed report over every run, as TSV")
+                )
+            , -- A statement may open with a comment's dashes.
+              freeText
+                "sql"
+                "Run one read-only SELECT on the run store, as TSV"
+                (Right . Sql <$> textArgument "<select>")
             , sub "help" "Print this help" (pure (Right Help))
             ]
+    reportOf kind =
+        sub (Text.unpack (reportName kind)) (reportAbout kind) $
+            ( \since run ->
+                Report kind <$> (Window <$> traverse sinceOf since <*> traverse runId run)
+            )
+                <$> optional
+                    ( textOption
+                        "since"
+                        "<time>"
+                        "only rows at or after this RFC 3339 time, by each row's own time"
+                    )
+                <*> optional (textOption "run" "<run>" "only this run's rows")
+    reportAbout = \case
+        RunsReport -> "One row per run: its status, counts, tokens, open gaps and signals"
+        StepsReport -> "Each step visit: its length and the agent time in it (v_steps)"
+        SignalsReport ->
+            "Each refusal, stop, override, void, extension and stuck question (v_signals)"
+        GapsReport -> "Each gap: where its fix stands, and who reported it"
+        WaitsReport -> "Per run and step: visits, time, agent time and time with no agent"
+    sinceOf raw =
+        maybe
+            ( Left
+                ( Failure
+                    BadInput
+                    ("--since " <> raw)
+                    "a time is an RFC 3339 date-time, such as 2026-11-27T09:00:00Z"
+                    "state report runs --since 2026-11-27T09:00:00Z"
+                )
+            )
+            Right
+            (parseSince raw)
+    byPr move =
+        (\raw pr -> MoveGap <$> gapAt raw <*> (move <$> prUri pr))
+            <$> textArgument "<run:seq>"
+            <*> textOption "pr" "<url>" "the PR"
+    gapAt raw =
+        parsedOr
+            ("gap " <> raw)
+            "a gap is named <run:seq>, as state resume prints it"
+            (parseEventRef raw)
+    prUri raw = parsedOr ("--pr " <> raw) uriRule (parseUri raw)
+    artifactShow =
+        Optparse.hsubparser
+            ( Optparse.command
+                "show"
+                ( Optparse.info
+                    (artifactAt <$> textArgument "<run:seq>")
+                    ( Optparse.progDesc
+                        "Print an artifact's stored bytes or its URL; exit 3 when its bytes were not stored, 4 when the line is no artifact"
+                    )
+                )
+            )
+    artifactAt raw =
+        ShowArtifact
+            <$> parsedOr
+                ("artifact " <> raw)
+                "an artifact is named <run:seq>, as state artifact printed it"
+                (parseEventRef raw)
+    artifactRegister =
+        ( \raw kind from by ->
+            Register
+                <$> locationOf raw kind
+                <*> traverse seqOf from
+                <*> traverse (fmap SpanId . seqOf) by
+        )
+            <$> textArgument "<path|url>"
+            <*> textOption
+                "kind"
+                "<kind>"
+                ( Text.unpack
+                    ( "a file's kind, "
+                        <> choices fileKindText
+                        <> ", or a URL's, "
+                        <> choices urlKindText
+                    )
+                )
+            <*> optional
+                (textOption "from" "<seq>" "the seq of the artifact of this run it derives from")
+            <*> optional
+                ( textOption
+                    "span"
+                    "<seq>"
+                    "the seq of the span_started of the agent that made it"
+                )
+    epicOpen =
+        sub "open" "Open an epic: the branch its tasks build on" $
+            ( \name repo branch ->
+                (\epic r -> OnRun (MoveEpic epic (Opens r (Branch branch))))
+                    <$> epicOf name
+                    <*> repoOf repo
+            )
+                <$> textArgument "<name>"
+                <*> textOption "repo" "<owner/name>" "the GitHub repo of the epic's branch"
+                <*> textOption "branch" "<b>" "the epic's branch"
+    epicReady =
+        sub "ready" "An epic's final PR is open for review" $
+            ( \name pr ->
+                (\epic url -> OnRun (MoveEpic epic (Readies url)))
+                    <$> epicOf name
+                    <*> epicPr pr
+            )
+                <$> textArgument "<name>"
+                <*> textOption "pr" "<url>" "the epic's final PR"
+    epicMerged =
+        sub "merged" "An epic's final PR merged" $
+            fmap (OnRun . (`MoveEpic` Merges)) . epicOf <$> textArgument "<name>"
+    epicOf raw =
+        parsedOr
+            ("epic " <> raw)
+            "an epic's name is ASCII letters, digits and ._-"
+            (parseEpicName raw)
+    repoOf raw =
+        parsedOr
+            ("--repo " <> raw)
+            "a repo is <owner>/<name>, as gh names it"
+            (parseRepo raw)
+    epicPr raw = parsedOr ("--pr " <> raw) ("the PR is " <> prUrlRule) (parsePrUrl raw)
+    nextStep hiding =
+        Optparse.strOption
+            ( Optparse.long "next"
+                <> Optparse.metavar "<step>"
+                <> Optparse.help "a next step, once per step"
+                <> hiding
+            )
     footer =
         [ "kinds: " <> choices kindName
         , "stop reasons: " <> choices reasonText
@@ -518,6 +826,20 @@ commandInfo steps scope =
         , "A refusal prints `state <command>: what - why`, then `fix: <command>`."
         , "Run 'state <command> --help' for a command's arguments."
         ]
+    -- The one full statement of which row holds a fact: the skills point here.
+    recordFooter =
+        [ "A commit event records HEAD. Record a fact by the first row that fits:"
+        , "- user_needed '<text>' the moment the user must act by hand. It tells no one: still ask or hand back. Then user_needed <run:seq> --done once done."
+        , "- instructed <kind> '<words>' for the user's words verbatim. goal: what to build, only when the user changes it; scope: what is in or out; rule: a standing do or don't; permission: what the user allows. --replaces <seq> retires an earlier one."
+        , "- state note --topic <t> '<text>' for prose context."
+        , "- stopgap <key> <json> --reason <r> for a keyed value read back later, only when no typed row fits; stopgap <key> --unset --reason <r> when it ends."
+        , "Never a secret in any row. Single quotes keep the words verbatim in the shell."
+        ]
+    -- A bullet's lines after its first hang under its text.
+    paragraph line =
+        hang
+            (if "- " `Text.isPrefixOf` line then 2 else 0)
+            (fillSep (map pretty (Text.words line)))
     anyRole = agentRoles steps <> map (.name) Role.roles
     sub name about parser = Optparse.command name (Optparse.info parser (Optparse.progDesc about))
     -- Its last words are free text, which may start with a dash: an option it does not take is a word.
@@ -533,10 +855,11 @@ commandInfo steps scope =
     basisOf raw = case Text.stripPrefix "obvious:" raw of
         Just why -> Obvious <$> oneLine (Text.strip why)
         Nothing ->
-            maybe
-                (Left (usage ("--basis " <> raw) "an event id such as r7f2:12, or obvious:<why>"))
-                (Right . AnsweredBy)
-                (parseEventId raw)
+            AnsweredBy
+                <$> parsedOr
+                    ("--basis " <> raw)
+                    "an event id such as r7f2:12, or obvious:<why>"
+                    (parseEventId raw)
     above = \case
         "user" -> Right TheUser
         raw -> ParentRun <$> runId raw
@@ -572,6 +895,41 @@ commandInfo steps scope =
                     ("state rule " <> qid <> " --answer \"<a>\" --why \"<w>\" --cost \"<c>\"")
                 )
 
+{- | An artifact's location and kind, as typed: text that is an absolute URI
+is a URL, any other a path. A kind that does not fit the location is
+refused, before anything is read or written.
+-}
+locationOf :: Text -> Text -> Either Failure (Location FilePath)
+locationOf raw kind = case (parseUri raw, parseByName fileKindText kind, parseByName urlKindText kind) of
+    (Just uri, _, Just urlKind) -> Right (AtUrl urlKind uri)
+    (Just _, Just _, Nothing) ->
+        Left
+            ( Failure
+                BadInput
+                ("--kind " <> kind)
+                ("a URL's kind is " <> choices urlKindText)
+                ("state artifact " <> raw <> " --kind <kind>, or ./" <> raw <> " for a file")
+            )
+    (Nothing, Just fileKind, _) -> Right (AtPath fileKind (Text.unpack raw))
+    (Nothing, Nothing, Just _) ->
+        Left
+            ( Failure
+                BadInput
+                raw
+                ("a " <> kind <> " is a URL: " <> uriRule)
+                ("state artifact <url> --kind " <> kind)
+            )
+    (_, Nothing, Nothing) ->
+        Left
+            ( usage
+                ("no artifact kind " <> kind)
+                ( "a file's kind is "
+                    <> choices fileKindText
+                    <> ", a URL's "
+                    <> choices urlKindText
+                )
+            )
+
 initArgs :: Optparse.Parser (Either Failure Command)
 initArgs =
     init'
@@ -587,9 +945,18 @@ initArgs =
                 <> Optparse.help
                     "a subagent's run whose spawner holds no run to link: it hands everything back"
             )
+        <*> optional (textOption "goal" "<goal>" "the run's goal, word for word")
   where
-    init' notesRaw flowRaw parentRaw taskRaw prRaw child = do
+    init' notesRaw flowRaw parentRaw taskRaw prRaw child goalRaw = do
         notes <- notesDir notesRaw
+        goal <-
+            traverse
+                ( parsedOr
+                    "--goal"
+                    "the run's goal is the user's words: one character at least that is no space"
+                    . parseVerbatim
+                )
+                goalRaw
         flow <- traverse flowNamed flowRaw
         let mine = if child then FromCaller else FromUser
         origin <- case (prRaw, parentRaw, taskRaw) of
@@ -607,7 +974,7 @@ initArgs =
                         "--task without --parent"
                         "a child run names its parent's run, and its task at a fan-out"
                     )
-        Right (Init InitArgs {notes, flow, origin})
+        Right (Init InitArgs {notes, flow, origin, goal})
     childWithParent =
         usage
             "--child with --parent"
@@ -649,17 +1016,18 @@ recordEvent scope = Optparse.hsubparser (Optparse.metavar "EVENT" <> foldMap eve
         | Text.null r.positional = pure []
         | otherwise = many (textArgument r.positional)
     flags r = concat <$> traverse flag r.flags
-    flag f =
-        map (f.name,)
-            <$> arity
-                f.arity
-                ( Optparse.strOption
-                    (Optparse.long (Text.unpack f.name) <> Optparse.metavar (Text.unpack f.value))
-                )
-    arity = \case
-        Required -> fmap pure
-        Optional -> fmap toList . optional
-        Repeated -> many
+    flag f = case f.arity of
+        Required -> pure <$> valued f
+        Optional -> toList <$> optional (valued f)
+        Repeated -> many (valued f)
+        -- A switch given is an option with no value, as 'State.Protocol.Record.switched' reads it.
+        Switch ->
+            (\on -> [(f.name, "") | on])
+                <$> Optparse.switch (Optparse.long (Text.unpack f.name))
+    valued f =
+        (f.name,)
+            <$> Optparse.strOption
+                (Optparse.long (Text.unpack f.name) <> Optparse.metavar (Text.unpack f.value))
     -- An event's positionals may be free text, which may start with a dash.
     freeWords r = if Text.null r.positional then mempty else Optparse.forwardOptions
     describe r = if Text.null (usageOf r) then "no arguments" else usageOf r
@@ -692,20 +1060,22 @@ sentence value = Text.unwords <$> some (textArgument value)
 usage :: Text -> Text -> Failure
 usage what why = Failure BadInput what why "state help"
 
+-- | A parse's value, else the usage failure: what is wrong, and why.
+parsedOr :: Text -> Text -> Maybe a -> Either Failure a
+parsedOr what why = maybe (Left (usage what why)) Right
+
 oneLine :: Text -> Either Failure OneLine
 oneLine raw =
-    maybe
-        (Left (usage "a line break" "answers, reasons and questions are one line each"))
-        Right
+    parsedOr
+        "a line break"
+        "answers, reasons and questions are one line each"
         (parseOneLine raw)
 
 named :: Text -> (Text -> Maybe a) -> Text -> Either Failure a
 named what parse raw =
-    maybe
-        ( Left
-            (usage ("no " <> what <> " " <> raw) ("see the " <> what <> "s state help lists"))
-        )
-        Right
+    parsedOr
+        ("no " <> what <> " " <> raw)
+        ("see the " <> what <> "s state help lists")
         (parse raw)
 
 runId :: Text -> Either Failure RunId
@@ -714,17 +1084,25 @@ runId = named "run id" parseRunId
 -- | A line's seq, as @recorded <seq>@ and the log print it.
 seqOf :: Text -> Either Failure Natural
 seqOf raw =
-    maybe
-        (Left (usage ("seq " <> raw) "a seq is a line's number in the log, from 1"))
-        Right
+    parsedOr
+        ("seq " <> raw)
+        "a seq is a line's number in the log, from 1"
         (readMaybe (Text.unpack raw))
+
+-- | An @--until@ seq: a line's, so from 1.
+untilOf :: Text -> Either Failure Until
+untilOf raw =
+    seqOf raw >>= \case
+        0 ->
+            Left (usage ("--until " <> raw) "a seq is a line's number in the log, from 1")
+        n -> Right (Until n)
 
 -- | A kind in any case: the hand-back's @NEEDS_DECISION <Kind>@ alone is spelled exactly.
 kindOf :: Text -> Either Failure Kind
 kindOf raw =
-    maybe
-        (Left (usage ("no kind " <> raw) ("one of " <> choices kindName)))
-        Right
+    parsedOr
+        ("no kind " <> raw)
+        ("one of " <> choices kindName)
         (parseByName (Text.toLower . kindName) (Text.toLower raw))
 
 knownRole :: [AgentRole] -> Text -> Either Failure AgentRole
@@ -749,11 +1127,9 @@ another directory than init did.
 -}
 notesDir :: Text -> Either Failure ShellPath
 notesDir raw =
-    maybe
-        ( Left
-            (usage ("--notes " <> raw) ("the notes dir is " <> Text.pack shellPathRule))
-        )
-        Right
+    parsedOr
+        ("--notes " <> raw)
+        ("the notes dir is " <> Text.pack shellPathRule)
         (shellPath (dropTrailingPathSeparator (normalise (Text.unpack raw))))
 
 blockName :: Block -> Text
@@ -775,6 +1151,79 @@ notStarted =
         "its first line is not started"
         "state init --notes <dir>"
 
+{- | A refusal a command logs as @refused@, or only tells when no run may
+take it: the fold's, or one the command meets before it folds. A parse or
+usage failure is none: it logs nothing and has no code.
+-}
+data CommandRefusal
+    = FoldRefused Refusal
+    | -- | A file the command reads is missing, or may not be read.
+      FileUnreadable AbsPath
+    | -- | Evidence naming a line no run stores: the run, and the seq.
+      UnknownEvent EventRef
+    | {- | A need's close naming a line of a run outside the caller's run
+      tree, the store lacking it too: the line, and the caller's run. Only
+      told, as neither run may take it.
+      -}
+      OutsideRunTree EventRef RunId
+    | -- | A @state sql@ statement not run. Only told, as no run takes it.
+      SqlRefused SqlRefusal
+    deriving stock (Eq, Show)
+
+-- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
+refusedNote :: OpenGraph -> Fuel -> Node -> CommandRefusal -> Note
+refusedNote g fuel at refusal =
+    Note (refusalCode refusal) (failure.what <> " - " <> failure.why) failure.fix
+  where
+    failure = explainRefusal g fuel at refusal
+
+-- | A command's refusal, as the reader acts on it: what, why, and the command to run instead.
+explainRefusal :: OpenGraph -> Fuel -> Node -> CommandRefusal -> Failure
+explainRefusal g fuel at = \case
+    FoldRefused refusal -> explain g fuel at refusal
+    FileUnreadable path ->
+        Failure
+            BadInput
+            ("file_unreadable " <> Text.pack (absPathText path))
+            "it does not exist, or may not be read"
+            "write it first, or name the file at its path"
+    UnknownEvent ref ->
+        Failure
+            BadInput
+            ("event " <> eventRefText ref)
+            "no run in the store has such a line"
+            "name a line state dump <run> prints"
+    OutsideRunTree ref caller -> outsideRunTree ref caller
+    SqlRefused refusal -> sqlRefused refusal
+
+{- | A need's close naming a line outside the caller's run tree, told with
+its code, as no run logs it.
+-}
+outsideRunTree :: EventRef -> RunId -> Failure
+outsideRunTree ref caller =
+    Failure
+        BadInput
+        ((refusalCode (OutsideRunTree ref caller)).codeText <> " " <> eventRefText ref)
+        ("no run of run " <> runIdText caller <> "'s tree has such a line")
+        "state resume lists what is owed to the user as <run:seq>"
+
+-- | A @state sql@ statement not run, told with its code.
+sqlRefused :: SqlRefusal -> Failure
+sqlRefused refusal =
+    Failure BadInput (refusalCode (SqlRefused refusal)).codeText why fix
+  where
+    (why, fix) = case refusal of
+        SqlNotReadOnly ->
+            ( "state sql runs a SELECT only: no write, ATTACH, PRAGMA or WITH RECURSIVE"
+            , "state sql \"SELECT * FROM v_steps\""
+            )
+        SqlNotOneStatement ->
+            ("state sql runs exactly one statement", "state sql \"<one SELECT>\"")
+        SqlError detail ->
+            ( detail
+            , "state sql \"SELECT sql FROM sqlite_schema\" prints every table and view"
+            )
+
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
 run's Fuel would take: a hand-back is never named, as its hand-back records it.
@@ -793,6 +1242,19 @@ explain g fuel at = \case
             "the event"
             ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why)
             "state init --notes <a new dir>"
+    -- A child's event where the run stands at its fan-out's breakdown or merge: its own state takes it.
+    NoEdge _ event
+        | event.outcome `elem` [spawnedOutcome, handedBackOutcome]
+        , Just scoped <- Fold.fanAt at ->
+            refused
+                (eventText event)
+                ( "the run is at "
+                    <> atText at
+                    <> ": a child's spawn and hand-back are taken at "
+                    <> fanState scoped
+                    <> " or off the fan-out"
+                )
+                ("state override " <> fanState scoped <> " <why>, then the child's command again")
     NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText at) records
     NotSkippable _ -> refused "the skip" "this Fuel never skips the block" "state next"
     OutOfBudget cap allowed ->
@@ -874,11 +1336,22 @@ explain g fuel at = \case
             "the answer"
             "only whoever started the run answers it"
             "state answer <qid> <answer>"
+    UnknownBasis qid event ->
+        refused
+            "unknown_basis"
+            ("the basis " <> eventIdText event <> " names no line this run logged")
+            ( "state dump, then "
+                <> rule (qidText qid)
+                <> " --basis <an event id it prints>|obvious:<why>"
+            )
     FanRefused refusal -> case refusal of
         Fan.UnknownTask task ->
             refused
-                ("task " <> Codec.taskIdText task)
-                "the breakdown has no such task"
+                "unknown_task"
+                ( "task "
+                    <> Codec.taskIdText task
+                    <> " is not in the breakdown"
+                )
                 "state show"
         Fan.StillRunning task child ->
             refused
@@ -905,7 +1378,10 @@ explain g fuel at = \case
             refused
                 ("an agent for task " <> Codec.taskIdText task)
                 "one works on it already, until its child hands back"
-                "state next"
+                ( "state next, until it hands back | its child died: state stop failed <why> in the child's worktree, then state retry "
+                    <> Codec.taskIdText task
+                    <> " --why <w>"
+                )
         Fan.StopUntriaged child ->
             refused
                 ("a retry of child " <> runIdText child)
@@ -922,11 +1398,19 @@ explain g fuel at = \case
                 ( "an agent is at work on tasks: "
                     <> Text.unwords (map Codec.taskIdText (toList tasks))
                 )
-                "state next"
+                ( case Fold.fanAt at of
+                    Just scoped ->
+                        "state override "
+                            <> fanState scoped
+                            <> " <why>, then edit the breakdown in place: state record task add <task.json> | state record task <id> parked <why> | state record task "
+                            <> baseChangeUsage
+                    -- Never met: a breakdown is recorded at its fan-out's breakdown state.
+                    Nothing -> "state next"
+                )
         Fan.Unmerged tasks ->
             refused
                 "the round's end"
-                ( "tasks neither merged, kept nor parked: "
+                ( "tasks neither merged, kept, delivered nor parked: "
                     <> Text.unwords (map Codec.taskIdText (toList tasks))
                 )
                 "state next"
@@ -949,25 +1433,32 @@ explain g fuel at = \case
                 ("task " <> Codec.taskIdText task)
                 "the fan-out has a task of that id already"
                 "state show"
+        Fan.TaskMerged task url ->
+            refused
+                "task_merged"
+                ( "task "
+                    <> Codec.taskIdText task
+                    <> " merged already by "
+                    <> Codec.urlText url
+                    <> ": a merged task moves no more"
+                )
+                "state void <the seq of its merged line> <why>, if that merge was recorded on the wrong task"
+        Fan.TaskCycle ring ->
+            refused
+                "task_cycle"
+                ( "tasks "
+                    <> Text.unwords (map Codec.taskIdText (toList ring))
+                    <> " would build on each other in a cycle, by their bases and dependencies"
+                )
+                ( "state show, then state record task "
+                    <> baseChangeUsage
+                    <> " that builds on no task of the cycle"
+                )
     NotAtFan ->
         refused
             "the child's or task's event"
             ("the run is at " <> atText at <> ", no fan-out's state")
             "state show"
-    NotOneHolder task requests -> case requests of
-        [] ->
-            refused
-                ("task " <> Codec.taskIdText task)
-                "no request's breakdown has such a task"
-                "state show"
-        holding ->
-            refused
-                ("task " <> Codec.taskIdText task)
-                ( "requests "
-                    <> Text.unwords (map taskNoText holding)
-                    <> " each have such a task in their breakdown"
-                )
-                "state tasks"
     NotVoidable n ->
         refused
             ("seq " <> tshow n)
@@ -993,18 +1484,81 @@ explain g fuel at = \case
             ("the turn away from " <> taskNoText task)
             "it recorded work: it is suspended first"
             "state focus [<request>] --summary <where it stands>"
+    UnknownGap n ->
+        refused
+            ("gap " <> tshow n)
+            "the run logged no gap at this seq"
+            "state show lists the run's gaps"
+    GapClosed n closure ->
+        refused
+            ("gap " <> tshow n)
+            ( "it closed already, "
+                <> case closure of
+                    Gap.Fixed pr -> "fixed by " <> uriText pr
+                    Gap.WontFix why -> "won't fix: " <> Ask.oneLineText why
+            )
+            "state record gap \"<text>\" --evidence <run:seq of this gap>, if it came back"
     VoidBreaks n refusal ->
         let broken = explain g fuel at refusal
          in refused
                 ("the void of " <> tshow n)
                 ("the log without it does not replay: " <> broken.what <> " - " <> broken.why)
                 "state void <the later line that needs it> <why>, then this one"
+    SpanNotOpen (SpanId n) ->
+        refused
+            ("the end of span " <> tshow n)
+            "the span is not open: it never started, ended already, or a restart lost it"
+            "state show"
+    EpicRefused refusal -> case refusal of
+        Epic.EpicExists epic ->
+            refused
+                "epic_exists"
+                ("the run opened epic " <> epicNameText epic <> " already")
+                "state resume"
+        Epic.EpicNotOpen epic ->
+            refused
+                "epic_not_open"
+                ( "epic "
+                    <> epicNameText epic
+                    <> " merged already: a merged epic takes no new final PR"
+                )
+                "state epic open <new name> --repo <owner/name> --branch <branch>, for a next epic"
+        Epic.EpicNotReady epic ->
+            refused
+                "epic_not_ready"
+                ( "epic "
+                    <> epicNameText epic
+                    <> " is not ready for review: it is open still"
+                )
+                ( "state epic ready "
+                    <> epicNameText epic
+                    <> " --pr <url>, once its final PR is open"
+                )
+        Epic.UnknownEpic epic ->
+            refused
+                "unknown_epic"
+                ("the run never opened epic " <> epicNameText epic)
+                ( "state epic open "
+                    <> epicNameText epic
+                    <> " --repo <owner/name> --branch <branch>"
+                )
+    NoActiveInstruction n ->
+        refused
+            ("the replaced instruction " <> tshow n)
+            "the run logged no instruction in force at this seq: none, or one replaced already"
+            "state resume lists the instructions in force; record it without --replaces if it replaces none"
+    NoOpenNeed n ->
+        refused
+            ("need " <> tshow n)
+            "the run logged no open need at this seq: none, or one done already"
+            "state resume lists what is owed to the user as <run:seq>"
   where
     refused = Failure BadInput
     records = atPlace $ \place -> case [ recordCommand event
-                                       | (event, _) <- shownEdges g place
+                                       | (event, edge) <- shownEdges g place
                                        , fuelTakes fuel place.name event
                                        , event.outcome /= handedBackOutcome
+                                       , recordable g place edge
                                        ] of
         [] -> "state show"
         commands -> Text.intercalate " | " commands
@@ -1013,8 +1567,84 @@ explain g fuel at = \case
         Out -> "state show"
         Exit -> "state show"
     stateNames = map (stateNameText . placeName) (Set.toList (places g))
+    fanState scoped = stateNameText (qualify scoped.scope (namedState scoped.fan))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid
+
+{- | The code of a refusal, by its constructor (#552's Appendix B, Signals).
+A wrapper gives its inner refusal's code; a void that breaks the log is
+@void_breaks@ whatever it breaks. No arm is @_@: a new constructor needs its
+own code before it builds.
+-}
+refusalCode :: CommandRefusal -> RefusalCode
+refusalCode =
+    RefusalCode . \case
+        FoldRefused refusal -> case refusal of
+            NotStarted -> "not_started"
+            StartedTwice -> "started_twice"
+            OtherRun {} -> "other_run"
+            AfterStop {} -> "after_stop"
+            NoEdge {} -> "no_edge"
+            NotSkippable {} -> "not_skippable"
+            OutOfBudget {} -> "out_of_budget"
+            StillOpen {} -> "still_open"
+            NothingToExtend -> "nothing_to_extend"
+            TargetOffFuel -> "target_off_fuel"
+            NoSingleState {} -> "no_single_state"
+            AskedTwice {} -> "asked_twice"
+            NotPending {} -> "not_pending"
+            AlreadyForwarded {} -> "already_forwarded"
+            NotForwarded {} -> "not_forwarded"
+            IsParked {} -> "is_parked"
+            AnsweredOtherwise {} -> "answered_otherwise"
+            NotAllowed inner -> case inner of
+                Ask.MayNotRule {} -> "may_not_rule"
+                Ask.MustAnswer {} -> "must_answer"
+                Ask.NeverAskedOf {} -> "never_asked_of"
+                Ask.NoBasis {} -> "no_basis"
+            NotAbove {} -> "not_above"
+            UnknownBasis {} -> "unknown_basis"
+            FanRefused inner -> case inner of
+                Fan.UnknownTask {} -> "unknown_task"
+                Fan.StillRunning {} -> "still_running"
+                Fan.SpawnedTwice {} -> "spawned_twice"
+                Fan.UnknownChild {} -> "unknown_child"
+                Fan.ChildOver {} -> "child_over"
+                Fan.Unsettled {} -> "unsettled"
+                Fan.AtWork {} -> "at_work"
+                Fan.StopUntriaged {} -> "stop_untriaged"
+                Fan.AwaitsUser {} -> "awaits_user"
+                Fan.Busy {} -> "busy"
+                Fan.Unmerged {} -> "unmerged"
+                Fan.NotARound {} -> "not_a_round"
+                Fan.NotItsRound {} -> "not_its_round"
+                Fan.TaskExists {} -> "task_exists"
+                Fan.TaskMerged {} -> "task_merged"
+                Fan.TaskCycle {} -> "task_cycle"
+            NotAtFan -> "not_at_fan"
+            NotVoidable {} -> "not_voidable"
+            VoidBreaks {} -> "void_breaks"
+            NoFocus -> "no_focus"
+            NotInFocus {} -> "not_in_focus"
+            NotSuspended {} -> "not_suspended"
+            FocusRecorded {} -> "focus_recorded"
+            UnknownGap {} -> "unknown_gap"
+            GapClosed {} -> "gap_closed"
+            SpanNotOpen {} -> "span_not_open"
+            EpicRefused inner -> case inner of
+                Epic.EpicExists {} -> "epic_exists"
+                Epic.EpicNotOpen {} -> "epic_not_open"
+                Epic.EpicNotReady {} -> "epic_not_ready"
+                Epic.UnknownEpic {} -> "unknown_epic"
+            NoActiveInstruction {} -> "no_active_instruction"
+            NoOpenNeed {} -> "no_open_need"
+        FileUnreadable {} -> "file_unreadable"
+        UnknownEvent {} -> "unknown_event"
+        OutsideRunTree {} -> "outside_run_tree"
+        SqlRefused inner -> case inner of
+            SqlNotReadOnly -> "sql_not_read_only"
+            SqlNotOneStatement -> "sql_not_one_statement"
+            SqlError {} -> "sql_error"
 
 -- | Where the run is, by its state's name.
 atText :: Node -> Text
@@ -1054,15 +1684,26 @@ unknownEvent g state name = case Fold.forkingAt g state of
             <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
         At place ->
-            [ (eventText event, recordCommand event)
-            | (event, _) <- shownEdges g place
+            [ (eventText event, commandOf event)
+            | (event, edge) <- shownEdges g place
             , fuelTakes (Fold.fuelOf state) place.name event
+            , recordable g place edge
             ]
         Out -> []
         Exit -> []
+    -- A hand-back is piped in, never recorded by name.
+    commandOf event
+        | event.outcome == handedBackOutcome = "state handback <role>"
+        | otherwise = recordCommand event
     listed = \case
         [] -> "none"
         names -> Text.intercalate ", " names
+
+{- | An edge a command records: not the one a state goes on by with no
+event ('unrecorded'), such as an await's done once every child handed back.
+-}
+recordable :: OpenGraph -> Place -> Edge Node -> Bool
+recordable g place edge = Just edge /= unrecorded g place
 
 -- | An event the grammar lacks, with no run to say where it is: every event, and the help.
 anyEvent :: Text -> Failure
@@ -1093,7 +1734,7 @@ retryOf :: RunState -> TaskId -> Either Failure (Task, Child, Stop)
 retryOf state task = case ( Fan.lookupTask fan task
                           , lookup
                                 (Tasked task)
-                                [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]
+                                [(Fan.childTaskId child, stopped) | stopped@(child, _) <- Fan.untriaged fan]
                           ) of
     (Nothing, _) -> Left (refused "the breakdown has no such task" "state show")
     (Just _, Nothing) -> Left (refused "no stopped child of it awaits triage" "state next")
@@ -1102,16 +1743,19 @@ retryOf state task = case ( Fan.lookupTask fan task
             Left
                 ( refused
                     (tshow (Fan.tries fan task) <> " children tried it, its one retry is spent")
+                    -- A Stuck question with its retry spent is the user's ('Ask.OneRetry'): forwarded, never ruled here.
                     ( "state ask --kind Stuck --from "
                         <> runIdText child.run
-                        <> " <question> | state record task "
+                        <> " <question>, then state forward <qid>, then once it is answered state record spawning "
+                        <> Codec.taskIdText task
+                        <> " | state record task "
                         <> Codec.taskIdText task
                         <> " parked <why>"
                     )
                 )
     (Just found, Just (child, stop)) -> Right (found, child, stop)
   where
-    fan = Fold.currentFan state
+    fan = Fold.taskFan state task
     refused = Failure BadInput ("task " <> Codec.taskIdText task)
 
 {- | A question its asker has not open already, and the run has no answer

@@ -8,7 +8,9 @@
 // XDG_CACHE_HOME away from the user's for OpenCode itself, and saved the
 // user's own as one JSON object in the variable below. Every shell OpenCode
 // runs gets them back, so gh and git read the user's config. XDG_STATE_HOME
-// stays moved: `state` keeps OpenCode's own run store.
+// stays moved: `state` keeps OpenCode's own run store. STATE_SESSION names
+// the session as the hooks do, by its root: so `state` stamps what an agent
+// records with it.
 //
 // The profile's hooks: each OpenCode hook below runs agent-hook-opencode
 // (hooks/opencode_adapter.py) with one envelope on stdin, and does what it
@@ -17,13 +19,13 @@
 // session's events, in the next request's system prompt. The adapter owns
 // every mapping to the neutral contract. This file keeps only what an
 // envelope needs from earlier calls: each session's parent and agent, whether
-// it was created and has had a message, its bash commands, its last model
-// calls' tokens, the background children running, and the context waiting for
-// its place.
+// it was created and has had a message, its bash commands, its model calls'
+// tokens, the background children running, and the context waiting for its
+// place.
 //
 // The adapter runs synchronously, with the user's XDG dirs as a shell gets
 // them and XDG_STATE_HOME moved, so the hooks' `state` shares the shells'
-// kernel.db. One that fails lets the call go on, with a note saying so.
+// run store. One that fails lets the call go on, with a note saying so.
 //
 // Known gaps, as docs/KATEGORY.md says:
 // - No agent can stop another: OpenCode has no such tool.
@@ -53,8 +55,9 @@ const shellTools = new Set("@shellTools@".split(" "));
 // looks back at the last few.
 const historyLength = 50;
 
-// The model calls whose tokens an envelope carries. The newest may still be
-// streaming, with none counted yet: the adapter needs the two before it.
+// The model calls whose tokens an envelope carries for the context. The newest
+// may still be streaming, with none counted yet: the adapter needs the two
+// before it.
 const callsKept = 3;
 
 export const Kategory = async ({ directory }) => {
@@ -63,7 +66,8 @@ export const Kategory = async ({ directory }) => {
   const sessions = new Map();
   // id -> its bash commands, oldest first.
   const commands = new Map();
-  // id -> [{message, tokens}]: its last model calls' tokens, oldest first.
+  // id -> Map(message -> tokens): each of its model calls' newest tokens,
+  // oldest call first. OpenCode updates a call's message as it streams.
   const calls = new Map();
   // The background children started and not yet idle.
   const running = new Set();
@@ -85,6 +89,16 @@ export const Kategory = async ({ directory }) => {
     const root = rootOf(sessions, sessionID);
     return [...running].filter((child) => rootOf(sessions, child) === root);
   };
+  // {child: tokens}: what each child of the session spent on its own model
+  // calls, its own children's aside.
+  const spentUnder = (sessionID) =>
+    Object.fromEntries(
+      [...sessions]
+        .filter(
+          ([id, session]) => session.parentID === sessionID && calls.has(id),
+        )
+        .map(([id]) => [id, summed([...calls.get(id).values()])]),
+    );
   const queue = (sessionID, context) => {
     if (context !== undefined) {
       queued.set(sessionID, [...(queued.get(sessionID) ?? []), context]);
@@ -92,14 +106,18 @@ export const Kategory = async ({ directory }) => {
   };
 
   return {
-    "shell.env": async (_input, output) => {
+    "shell.env": async ({ sessionID }, output) => {
       Object.assign(output.env, userXdg);
+      if (sessionID !== undefined) {
+        output.env.STATE_SESSION = rootOf(sessions, sessionID);
+      }
     },
 
     "tool.execute.before": async ({ tool, sessionID, callID }, output) => {
       const said = ask(sessionID, "before", {
         tool,
         args: output.args,
+        callID,
         history: commands.get(sessionID) ?? [],
       });
       if (shellTools.has(tool)) {
@@ -129,9 +147,11 @@ export const Kategory = async ({ directory }) => {
       const said = ask(sessionID, "after", {
         tool,
         args,
+        callID,
         output,
-        tokens: (calls.get(sessionID) ?? []).map((call) => call.tokens),
+        tokens: [...(calls.get(sessionID)?.values() ?? [])].slice(-callsKept),
         running: runningUnder(sessionID),
+        spent: spentUnder(sessionID),
       });
       const notes = [held.get(callID), said.context].filter(
         (note) => note !== undefined,
@@ -155,6 +175,7 @@ export const Kategory = async ({ directory }) => {
         parts: output.parts,
         agents: agentsOf(sessions),
         running: runningUnder(sessionID),
+        spent: spentUnder(sessionID),
       });
       queue(sessionID, said.context);
     },
@@ -188,7 +209,10 @@ export const Kategory = async ({ directory }) => {
           if (info.tokens !== undefined) {
             calls.set(
               info.sessionID,
-              updated(calls.get(info.sessionID) ?? [], info.id, info.tokens),
+              (calls.get(info.sessionID) ?? new Map()).set(
+                info.id,
+                info.tokens,
+              ),
             );
           }
           break;
@@ -246,12 +270,18 @@ function replaceKeys(target, source) {
   Object.assign(target, source);
 }
 
-// A session's model calls with one call's newest tokens. OpenCode updates a
-// call's message as it streams, so a message replaces its own tokens.
-function updated(known, message, tokens) {
-  return known.some((call) => call.message === message)
-    ? known.map((call) =>
-        call.message === message ? { message, tokens } : call,
-      )
-    : [...known, { message, tokens }].slice(-callsKept);
+// Model calls' tokens, summed count by count, in OpenCode's own shape.
+function summed(tokens) {
+  return tokens.reduce(
+    (sum, call) => ({
+      input: sum.input + call.input,
+      output: sum.output + call.output,
+      reasoning: sum.reasoning + call.reasoning,
+      cache: {
+        read: sum.cache.read + call.cache.read,
+        write: sum.cache.write + call.cache.write,
+      },
+    }),
+    { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  );
 }
