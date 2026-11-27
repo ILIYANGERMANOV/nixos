@@ -304,7 +304,8 @@ held wakes carry on:
 - Add: `state record task add <task.json>`.
 - Drop: `state record task <id> parked <why>`.
 - Restack or change deps: `state record task <id> base <base> --reason <r>
-  [--deps <t>,...|none]`. The base may name any task. `--deps` replaces the
+  [--deps <t>,...|none]`, `<base>` as `on_default`, `on_epic:<name>` or
+  `on_task:<task>`. The base may name any task. `--deps` replaces the
   deps; `none` clears them. A cycle is refused `task_cycle`.
 
 A new `breakdown.done` is only for a real next round (Next round), once no
@@ -430,8 +431,9 @@ A child that died without a hand-back: `state stop failed <why>` in its
 worktree records its stop here, then `state retry` as above. It counts as a
 try. A lost session is none: its child keeps its run (Resume).
 
-A child's `plan wrong` stop (its `NEEDS_DECISION plan wrong: <q>`) takes
-no `state retry`: `state ask --kind <K> --from <run> "<q>"`, rule or forward
+A child's `plan wrong` stop (its `NEEDS_DECISION plan wrong: <q>`) asks a
+question: of the two options `state next` prints, take `state ask`, not
+`state retry`. `state ask --kind <K> --from <run> "<q>"`, rule or forward
 it as Triage says, then `state record spawning <id>`. Send the child on with
 the answer, or a fresh engineer with its spawn prompt: its Re-plan starts a
 new run in the same worktree, which counts as a try.

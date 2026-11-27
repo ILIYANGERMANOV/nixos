@@ -111,13 +111,13 @@ spec = describe "routing a shell command's state calls" $ do
             stateCalls steps "/work" ("cd " <> Text.pack dir <> " && state " <> sub)
                 === [at dir sub ("state " <> sub)]
 
-        it "lets a record and an answer reach a child run, no other call" $
+        it "lets a record, an answer and a stop reach a child run, no other call" $
             map
                 (.reach)
                 ( calls
-                    "state record await_ci.green; state answer q1 postgres; state next; state stop blocked why; state ask --kind Design which"
+                    "state record await_ci.green; state answer q1 postgres; state stop failed why; state next; state ask --kind Design which"
                 )
-                `shouldBe` [OwnOrChildRun, OwnOrChildRun, OwnRun, OwnRun, OwnRun]
+                `shouldBe` [OwnOrChildRun, OwnOrChildRun, OwnOrChildRun, OwnRun, OwnRun]
 
         it "a_single_quoted_directory_reads_back_whole" . hedgehog $ do
             dir <-
