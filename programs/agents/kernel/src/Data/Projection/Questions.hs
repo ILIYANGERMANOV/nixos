@@ -32,6 +32,7 @@ import Data.Projection (
     Projection (..),
     Table,
     Value (..),
+    enumLiteral,
     integer,
     nullable,
     spellings,
@@ -417,9 +418,15 @@ questions =
         , "  PRIMARY KEY (run_id, id),"
         , "  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),"
         , "  FOREIGN KEY (origin_run_id, origin_question_id) REFERENCES events (run_id, seq),"
-        , "  CONSTRAINT questions_asker_role_iff_subagent CHECK ((asker_role IS NOT NULL) = (asker_kind = 'subagent')),"
-        , "  CONSTRAINT questions_asker_run_id_iff_child_run CHECK ((asker_run_id IS NOT NULL) = (asker_kind = 'child_run')),"
-        , "  CONSTRAINT questions_parked_reason_iff_parked CHECK ((parked_reason IS NOT NULL) = (status = 'parked'))"
+        , "  CONSTRAINT questions_asker_role_iff_subagent CHECK ((asker_role IS NOT NULL) = (asker_kind = "
+            <> enumLiteral (askerKindName SubagentAsker)
+            <> ")),"
+        , "  CONSTRAINT questions_asker_run_id_iff_child_run CHECK ((asker_run_id IS NOT NULL) = (asker_kind = "
+            <> enumLiteral (askerKindName ChildRunAsker)
+            <> ")),"
+        , "  CONSTRAINT questions_parked_reason_iff_parked CHECK ((parked_reason IS NOT NULL) = (status = "
+            <> enumLiteral (questionStatusName ParkedStatus)
+            <> "))"
         ]
 
 rulings :: Table
@@ -453,9 +460,15 @@ rulings =
         , "  basis_reason    TEXT,"
         , "  PRIMARY KEY (run_id, question_id),"
         , "  FOREIGN KEY (run_id, question_id) REFERENCES questions (run_id, id),"
-        , "  CONSTRAINT rulings_basis_event_run_id_only_event CHECK (basis_event_run_id IS NULL OR basis_kind = 'event'),"
-        , "  CONSTRAINT rulings_basis_event_seq_only_event CHECK (basis_event_seq IS NULL OR basis_kind = 'event'),"
-        , "  CONSTRAINT rulings_basis_reason_iff_obvious CHECK ((basis_reason IS NOT NULL) = (basis_kind = 'obvious'))"
+        , "  CONSTRAINT rulings_basis_event_run_id_only_event CHECK (basis_event_run_id IS NULL OR basis_kind = "
+            <> enumLiteral (basisKindName EventBasis)
+            <> "),"
+        , "  CONSTRAINT rulings_basis_event_seq_only_event CHECK (basis_event_seq IS NULL OR basis_kind = "
+            <> enumLiteral (basisKindName EventBasis)
+            <> "),"
+        , "  CONSTRAINT rulings_basis_reason_iff_obvious CHECK ((basis_reason IS NOT NULL) = (basis_kind = "
+            <> enumLiteral (basisKindName ObviousBasis)
+            <> "))"
         ]
 
 answers :: Table
@@ -484,7 +497,9 @@ answers =
         , "  answerer_run_id TEXT    REFERENCES runs (id),"
         , "  PRIMARY KEY (run_id, question_id),"
         , "  FOREIGN KEY (run_id, question_id) REFERENCES questions (run_id, id),"
-        , "  CONSTRAINT answers_answerer_run_id_iff_parent_run CHECK ((answerer_run_id IS NOT NULL) = (answerer_kind = 'parent_run'))"
+        , "  CONSTRAINT answers_answerer_run_id_iff_parent_run CHECK ((answerer_run_id IS NOT NULL) = (answerer_kind = "
+            <> enumLiteral (answererKindName ParentRunAnswerer)
+            <> "))"
         ]
 
 userNeeds :: Table

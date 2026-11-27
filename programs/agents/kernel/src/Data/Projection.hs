@@ -18,6 +18,7 @@ module Data.Projection (
     integer,
     nullable,
     enumIn,
+    enumLiteral,
     spellings,
     Projections (..),
 ) where
@@ -110,10 +111,13 @@ nullable = maybe SqlNull
 a string literal, its quotes doubled.
 -}
 enumIn :: [Text] -> Text
-enumIn words' =
-    "(" <> Text.intercalate ", " [quoted s | s <- words'] <> ")"
-  where
-    quoted s = "'" <> Text.replace "'" "''" s <> "'"
+enumIn words' = "(" <> Text.intercalate ", " (map enumLiteral words') <> ")"
+
+{- | One enum spelling as a SQL string literal, its quotes doubled: the value
+a conditional @CHECK@ compares a kind or a status to.
+-}
+enumLiteral :: Text -> Text
+enumLiteral s = "'" <> Text.replace "'" "''" s <> "'"
 
 -- | An enum's spellings, from its DB spelling function: a CHECK's list.
 spellings :: (Enum a, Bounded a) => (a -> Text) -> Text

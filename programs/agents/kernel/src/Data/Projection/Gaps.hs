@@ -20,6 +20,7 @@ import Data.Projection (
     Table,
     Value (..),
     enumIn,
+    enumLiteral,
     integer,
     nullable,
     spellings,
@@ -174,7 +175,9 @@ gaps =
         , "  CONSTRAINT gaps_fix_pr_url_iff_fix_proposed_or_fixed CHECK ((fix_pr_url IS NOT NULL) = (status IN "
             <> enumIn (map gapStatusName [FixProposedCase, FixedCase])
             <> ")),"
-        , "  CONSTRAINT gaps_wont_fix_reason_iff_wont_fix CHECK ((wont_fix_reason IS NOT NULL) = (status = 'wont_fix'))"
+        , "  CONSTRAINT gaps_wont_fix_reason_iff_wont_fix CHECK ((wont_fix_reason IS NOT NULL) = (status = "
+            <> enumLiteral (gapStatusName WontFixCase)
+            <> "))"
         ]
 
 gapEvidence :: Table
@@ -204,7 +207,13 @@ gapEvidence =
         , "  url          TEXT,"
         , "  PRIMARY KEY (run_id, gap_id, ordinal),"
         , "  FOREIGN KEY (run_id, gap_id) REFERENCES gaps (run_id, id),"
-        , "  CONSTRAINT gap_evidence_event_run_id_iff_event CHECK ((event_run_id IS NOT NULL) = (kind = 'event')),"
-        , "  CONSTRAINT gap_evidence_event_seq_iff_event CHECK ((event_seq IS NOT NULL) = (kind = 'event')),"
-        , "  CONSTRAINT gap_evidence_url_iff_url CHECK ((url IS NOT NULL) = (kind = 'url'))"
+        , "  CONSTRAINT gap_evidence_event_run_id_iff_event CHECK ((event_run_id IS NOT NULL) = (kind = "
+            <> enumLiteral (evidenceKindName EventEvidence)
+            <> ")),"
+        , "  CONSTRAINT gap_evidence_event_seq_iff_event CHECK ((event_seq IS NOT NULL) = (kind = "
+            <> enumLiteral (evidenceKindName EventEvidence)
+            <> ")),"
+        , "  CONSTRAINT gap_evidence_url_iff_url CHECK ((url IS NOT NULL) = (kind = "
+            <> enumLiteral (evidenceKindName UrlEvidence)
+            <> "))"
         ]

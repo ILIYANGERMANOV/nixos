@@ -27,6 +27,7 @@ import Data.Projection (
     Projection (..),
     Table,
     Value (..),
+    enumLiteral,
     integer,
     nullable,
     spellings,
@@ -334,8 +335,12 @@ runStates =
         , "  head_branch TEXT,"
         , "  -- The ticket the run wrote. Optional: most runs write none."
         , "  ticket_url  TEXT,"
-        , "  CONSTRAINT run_states_stop_reason_iff_stopped CHECK ((stop_reason IS NOT NULL) = (status = 'stopped')),"
-        , "  CONSTRAINT run_states_stop_detail_iff_stopped CHECK ((stop_detail IS NOT NULL) = (status = 'stopped'))"
+        , "  CONSTRAINT run_states_stop_reason_iff_stopped CHECK ((stop_reason IS NOT NULL) = (status = "
+            <> enumLiteral (statusName StoppedCase)
+            <> ")),"
+        , "  CONSTRAINT run_states_stop_detail_iff_stopped CHECK ((stop_detail IS NOT NULL) = (status = "
+            <> enumLiteral (statusName StoppedCase)
+            <> "))"
         ]
 
 stepVisits :: Table

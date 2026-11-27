@@ -37,6 +37,7 @@ import Data.Projection (
     Table,
     Value (..),
     enumIn,
+    enumLiteral,
     integer,
     nullable,
     spellings,
@@ -533,10 +534,16 @@ tasks =
         , "  FOREIGN KEY (run_id, breakdown_id) REFERENCES breakdowns (run_id, id),"
         , "  FOREIGN KEY (run_id, base_epic_name) REFERENCES epics (run_id, name),"
         , "  FOREIGN KEY (run_id, breakdown_id, base_task_id) REFERENCES tasks (run_id, breakdown_id, id),"
-        , "  CONSTRAINT tasks_base_epic_name_iff_on_epic CHECK ((base_epic_name IS NOT NULL) = (base_kind = 'on_epic')),"
-        , "  CONSTRAINT tasks_base_task_id_iff_on_task CHECK ((base_task_id IS NOT NULL) = (base_kind = 'on_task')),"
+        , "  CONSTRAINT tasks_base_epic_name_iff_on_epic CHECK ((base_epic_name IS NOT NULL) = (base_kind = "
+            <> enumLiteral (baseKindName OnEpicKind)
+            <> ")),"
+        , "  CONSTRAINT tasks_base_task_id_iff_on_task CHECK ((base_task_id IS NOT NULL) = (base_kind = "
+            <> enumLiteral (baseKindName OnTaskKind)
+            <> ")),"
         , "  CONSTRAINT tasks_base_task_id_not_self CHECK (base_task_id IS NOT id),"
-        , "  CONSTRAINT tasks_parked_reason_iff_parked CHECK ((parked_reason IS NOT NULL) = (status = 'parked')),"
+        , "  CONSTRAINT tasks_parked_reason_iff_parked CHECK ((parked_reason IS NOT NULL) = (status = "
+            <> enumLiteral (taskStatusName ParkedStatus)
+            <> ")),"
         , "  CONSTRAINT tasks_pr_url_required_by_status CHECK ("
         , "    status NOT IN "
             <> enumIn

@@ -30,6 +30,7 @@ import Data.Projection (
     Table,
     Value (..),
     enumIn,
+    enumLiteral,
     indexed,
     integer,
     nullable,
@@ -259,10 +260,18 @@ artifacts =
             , "  FOREIGN KEY (run_id, id) REFERENCES events (run_id, seq),"
             , "  FOREIGN KEY (run_id, span_id) REFERENCES spans (run_id, id),"
             , "  FOREIGN KEY (run_id, source_artifact_id) REFERENCES artifacts (run_id, id),"
-            , "  CONSTRAINT artifacts_path_iff_file CHECK ((path IS NOT NULL) = (location_kind = 'file')),"
-            , "  CONSTRAINT artifacts_sha256_iff_file CHECK ((sha256 IS NOT NULL) = (location_kind = 'file')),"
-            , "  CONSTRAINT artifacts_size_bytes_iff_file CHECK ((size_bytes IS NOT NULL) = (location_kind = 'file')),"
-            , "  CONSTRAINT artifacts_url_iff_url CHECK ((url IS NOT NULL) = (location_kind = 'url')),"
+            , "  CONSTRAINT artifacts_path_iff_file CHECK ((path IS NOT NULL) = (location_kind = "
+                <> enumLiteral (locationKindName FileLocation)
+                <> ")),"
+            , "  CONSTRAINT artifacts_sha256_iff_file CHECK ((sha256 IS NOT NULL) = (location_kind = "
+                <> enumLiteral (locationKindName FileLocation)
+                <> ")),"
+            , "  CONSTRAINT artifacts_size_bytes_iff_file CHECK ((size_bytes IS NOT NULL) = (location_kind = "
+                <> enumLiteral (locationKindName FileLocation)
+                <> ")),"
+            , "  CONSTRAINT artifacts_url_iff_url CHECK ((url IS NOT NULL) = (location_kind = "
+                <> enumLiteral (locationKindName UrlLocation)
+                <> ")),"
             , "  CONSTRAINT artifacts_source_artifact_id_not_self CHECK (source_artifact_id IS NOT id)"
             ]
   where
