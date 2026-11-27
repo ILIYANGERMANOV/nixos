@@ -86,8 +86,11 @@ import State.Run.Ask (
 import State.Run.Codec (
     eventType,
     handoverReasonText,
+    ijsonNatural,
     reasonText,
     tokenWordName,
+    usageData,
+    usageOf,
     waitingText,
  )
 import State.Run.Event (
@@ -125,7 +128,6 @@ import State.Run.Event (
     TaskNo,
     TaskState (..),
     Url (..),
-    Usage (..),
     parseHarness,
     parseRunId,
     parseTaskNo,
@@ -508,17 +510,6 @@ taskStateKind = \case
     Round _ -> "round"
     Parked _ _ -> "parked"
 
-{- | An I-JSON integer (RFC 7493 s2.2): under 2^53, so every JSON reader
-reads it exactly. One at or above does not fit, so its row reads as
-'Unknown'. The bound is sound for a voided seq: @appendTo@
-("State.Run.Fold") logs a void only of a seq the run already logged, and no
-run logs 2^53 events.
--}
-ijsonNatural :: Natural -> Parser Natural
-ijsonNatural n
-    | n < 2 ^ (53 :: Int) = pure n
-    | otherwise = fail (show n <> " is no I-JSON integer: it is 2^53 or more")
-
 spanIdOf :: Natural -> Parser SpanId
 spanIdOf n = SpanId <$> ijsonNatural n
 
@@ -558,24 +549,6 @@ endingOf obj =
         (obj .:? key :: Parser (Maybe Value)) >>= \case
             Nothing -> pure ()
             Just _ -> fail (show key <> " has no place beside this status_code")
-
--- | A span's token counts, GenAI's @gen_ai.usage.*@: a count not reported is left out, never 0.
-usageData :: Usage -> Series
-usageData usage =
-    foldMap ("input_tokens" .=) usage.inputTokens
-        <> foldMap ("output_tokens" .=) usage.outputTokens
-        <> foldMap ("cache_read_input_tokens" .=) usage.cacheReadTokens
-        <> foldMap ("cache_write_input_tokens" .=) usage.cacheWriteTokens
-
-usageOf :: Object -> Parser Usage
-usageOf obj =
-    Usage
-        <$> count "input_tokens"
-        <*> count "output_tokens"
-        <*> count "cache_read_input_tokens"
-        <*> count "cache_write_input_tokens"
-  where
-    count key = obj .:? key >>= traverse ijsonNatural
 
 -- | A stop, and a child's hand-back that ended so: its reason and its detail.
 stopData :: Stop -> Series

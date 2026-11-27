@@ -16,6 +16,7 @@ import State.Run.Ask qualified as Ask
 import State.Run.Event (
     RefusalCode (..),
     RunId,
+    SpanId (..),
     StateName (..),
     Stop (..),
     StopReason (..),
@@ -116,6 +117,7 @@ samples =
         , FocusRecorded (TaskNo 1)
         , UnknownGap 5
         , GapClosed 5 (Gap.WontFix (oneLine "out of scope"))
+        , SpanNotOpen (SpanId 6)
         ]
     cap = case Map.elems g.caps of
         first : _ -> first

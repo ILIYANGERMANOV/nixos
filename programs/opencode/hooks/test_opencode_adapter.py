@@ -1081,6 +1081,9 @@ def test_a_foreground_spawn_reaches_the_hooks_as_in_claude_code(tmp_path: Path) 
         assert done.returncode == 0, done.stderr
 
     # OpenCode: the same spawn, and its task's result, which holds the rest.
+    # Derived from the Claude recording, not recorded itself: no real OpenCode
+    # session could be recorded where this was written. It pins that both
+    # adapters agree, not that this is the input OpenCode sends.
     session = cast("str", spawn["session_id"])
     lead: JsonObject = {"sessionID": session, "rootID": session}
     directory = Path(cast("str", spawn["cwd"]))

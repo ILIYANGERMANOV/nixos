@@ -346,10 +346,12 @@ class ToolUse:
 @dataclass(frozen=True, slots=True)
 class ModelLine:
     """One content block of a model call: the transcript writes each block as
-    its own line, every one with the call's usage: each count it reports."""
+    its own line, every one with the call's usage: each count it reports.
+    `context` is the context it sent from the counts it reports, 0 with none."""
 
     message_id: str | None
     usage: Usage
+    context: int
     tool_uses: list[ToolUse]
 
 
@@ -458,9 +460,7 @@ def context_size(lines: list[ModelLine]) -> ContextSize | None:
     ran_tool: set[str] = set()
     for line in reversed(lines):
         match line:
-            case ModelLine(str() as message_id, Usage(input=int(tokens)), uses) if (
-                tokens > 0
-            ):
+            case ModelLine(str() as message_id, _, tokens, uses) if tokens > 0:
                 _ = sizes.setdefault(message_id, tokens)
                 if uses:
                     ran_tool.add(message_id)
@@ -486,6 +486,7 @@ def parse_model_line(line: bytes) -> ModelLine | None:
             return ModelLine(
                 message_id if isinstance(message_id, str) else None,
                 request_usage(message.get("usage")),
+                context_tokens(message.get("usage")),
                 [
                     use
                     for block in as_blocks(message.get("content"))
@@ -518,6 +519,25 @@ def request_usage(usage: Json) -> Usage:
             return Usage(sent, claude_count(counts, "output_tokens"), read, written)
         case _:
             return Usage()
+
+
+def context_tokens(usage: Json) -> int:
+    """All the context a call sent, from the counts it reports: fresh input
+    plus what the cache read and wrote. Unlike a span's `input`, a call that
+    leaves a count out still sizes its context: the guard needs one."""
+    match usage:
+        case dict() as counts:
+            return sum(
+                tokens
+                for key in (
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                )
+                if (tokens := claude_count(counts, key)) is not None
+            )
+        case _:
+            return 0
 
 
 def claude_count(counts: JsonObject, key: str) -> int | None:

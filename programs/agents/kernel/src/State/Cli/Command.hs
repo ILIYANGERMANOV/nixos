@@ -1347,6 +1347,7 @@ refusalCode =
             FocusRecorded {} -> "focus_recorded"
             UnknownGap {} -> "unknown_gap"
             GapClosed {} -> "gap_closed"
+            SpanNotOpen {} -> "span_not_open"
         FileUnreadable {} -> "file_unreadable"
         UnknownEvent {} -> "unknown_event"
 

@@ -293,6 +293,18 @@ NO_USAGE: JsonObject = {
             ContextSize(151_000, 150_000),
             id="a call's text line does not hide its tool call",
         ),
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                assistant(
+                    "b",
+                    {"input_tokens": 2_000, "cache_read_input_tokens": 150_000},
+                    bash("t2", "ls"),
+                ),
+            ],
+            ContextSize(152_000, 148_000),
+            id="a call missing a cache count sums the counts it reports",
+        ),
     ],
 )
 def test_the_context_counts_model_calls_that_ran_a_tool(

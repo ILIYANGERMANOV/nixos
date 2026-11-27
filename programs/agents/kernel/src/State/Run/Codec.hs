@@ -1,7 +1,7 @@
 {- | The CLI's and the hand-back protocol's spellings of the run's events:
 an event's type, a stop on the wire, a task's state as @state record task@
-names it, and the task and breakdown files. The log's payload is
-"Data.Payload.Event"'s.
+names it, the task and breakdown files, and a span's token counts, which the
+hooks and the log spell alike. The log's payload is "Data.Payload.Event"'s.
 -}
 module State.Run.Codec (
     eventType,
@@ -27,12 +27,19 @@ module State.Run.Codec (
     topicText,
     decodeBreakdown,
     decodeTask,
+    ijsonNatural,
+    usageData,
+    usageOf,
 ) where
+
+import Data.Aeson (Object, (.:?), (.=))
+import Data.Aeson.Types (Parser, Series)
 
 import Data.List (sortOn)
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Numeric.Natural (Natural)
 import State.Category.Step (eventText)
 import State.Role (flowText)
 import State.Run.Event (
@@ -43,6 +50,7 @@ import State.Run.Event (
     TaskState (..),
     TokenWord (..),
     Url,
+    Usage (..),
     Waiting (..),
     tookEvent,
  )
@@ -204,3 +212,35 @@ reasonText = \case
     Failed -> "failed"
     Replan -> "replan"
     OutOfRounds -> "rounds"
+
+{- | An I-JSON integer (RFC 7493 s2.2): under 2^53, so every JSON reader
+reads it exactly. One at or above does not fit, so its row reads as
+'Unknown'. The bound is sound for a voided seq: @appendTo@
+("State.Run.Fold") logs a void only of a seq the run already logged, and no
+run logs 2^53 events.
+-}
+ijsonNatural :: Natural -> Parser Natural
+ijsonNatural n
+    | n < 2 ^ (53 :: Int) = pure n
+    | otherwise = fail (show n <> " is no I-JSON integer: it is 2^53 or more")
+
+-- | A span's token counts, GenAI's @gen_ai.usage.*@: a count not reported is left out, never 0.
+usageData :: Usage -> Series
+usageData usage =
+    foldMap ("input_tokens" .=) usage.inputTokens
+        <> foldMap ("output_tokens" .=) usage.outputTokens
+        <> foldMap ("cache_read_input_tokens" .=) usage.cacheReadTokens
+        <> foldMap ("cache_write_input_tokens" .=) usage.cacheWriteTokens
+
+{- | A span's token counts from the hook's @usage@ or the log's payload: a
+count left out is not reported; one that is no I-JSON integer is refused.
+-}
+usageOf :: Object -> Parser Usage
+usageOf obj =
+    Usage
+        <$> count "input_tokens"
+        <*> count "output_tokens"
+        <*> count "cache_read_input_tokens"
+        <*> count "cache_write_input_tokens"
+  where
+    count key = obj .:? key >>= traverse ijsonNatural

@@ -44,5 +44,6 @@ not_suspended
 focus_recorded
 unknown_gap
 gap_closed
+span_not_open
 file_unreadable
 unknown_event

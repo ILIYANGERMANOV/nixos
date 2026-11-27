@@ -91,7 +91,6 @@ import Data.Aeson (
     object,
     withObject,
     (.:),
-    (.:?),
     (.=),
  )
 import Data.Aeson.Key qualified as Key
@@ -118,6 +117,7 @@ import State.Protocol.Binding (
     bindingIn,
  )
 import State.Role (leads)
+import State.Run.Codec (usageOf)
 import State.Run.Event (
     AgentRole (..),
     Branch,
@@ -319,7 +319,7 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
                     <$> tool o
                     <*> toolCall o
                     <*> o .: "input"
-                    <*> (o .: "usage" >>= maybe (pure unreported) usageOf)
+                    <*> usage o
             "afterTool" -> do
                 _ <- o .: "context" :: Parser Value
                 AfterTool call <$> tool o <*> toolCall o <*> o .: "input" <*> o .: "output"
@@ -328,7 +328,7 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
             "agentStop" ->
                 AgentStop call . map AgentId
                     <$> o .: "running"
-                    <*> (o .: "usage" >>= maybe (pure unreported) usageOf)
+                    <*> usage o
             other ->
                 fail
                     ( "no event "
@@ -338,17 +338,8 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
   where
     tool o = o .: "tool" >>= named "tool" toolName
     toolCall o = fmap ToolCallId <$> o .: "call"
-    -- A count left out is not reported, never 0; one not a count is refused.
-    usageOf =
-        withObject
-            "usage"
-            ( \u ->
-                Usage
-                    <$> u .:? "input_tokens"
-                    <*> u .:? "output_tokens"
-                    <*> u .:? "cache_read_input_tokens"
-                    <*> u .:? "cache_write_input_tokens"
-            )
+    -- A usage left out, or a count left out of it, is not reported, never 0.
+    usage o = o .: "usage" >>= maybe (pure unreported) (withObject "usage" usageOf)
     agentOf = \case
         Null -> pure Nothing
         value ->
