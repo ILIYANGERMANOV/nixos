@@ -23,6 +23,7 @@ module State.Step.Artifact (
     baseText,
     parseBase,
     baseForms,
+    baseTextForms,
     EpicName,
     parseEpicName,
     epicNameText,
@@ -237,6 +238,17 @@ parseBase raw = case Text.breakOn ":" raw of
     _ -> Nothing
   where
     nonEmpty text = if Text.null text then Nothing else Just text
+
+{- | The three bases a refusal names, as 'baseText' spells them: placeholders
+stand in for the epic and task, so the epic name skips 'parseEpicName'.
+-}
+baseTextForms :: Text
+baseTextForms =
+    baseText OnDefault
+        <> ", "
+        <> baseText (OnEpic (EpicName "<name>"))
+        <> " or "
+        <> baseText (OnTask (TaskId "<earlier task id>"))
 
 -- | The three bases a refusal names, as a task file spells them.
 baseForms :: Text
@@ -585,8 +597,18 @@ breakdownWith calls value = do
   where
     breakdownErrorText = \case
         TaskTwice (TaskId task) -> "task " <> task <> " is named twice"
-        DependsLater (TaskId task) (TaskId dep) -> "task " <> task <> " depends on " <> dep <> ", which is not an earlier task"
-        BaseLater (TaskId task) (TaskId base) -> "task " <> task <> " has base " <> base <> ", which is not an earlier task"
+        DependsLater (TaskId task) (TaskId dep) ->
+            "unknown_task - task "
+                <> task
+                <> " depends on "
+                <> dep
+                <> ", which is not an earlier task"
+        BaseLater (TaskId task) (TaskId base) ->
+            "unknown_task - task "
+                <> task
+                <> " has base "
+                <> base
+                <> ", which is not an earlier task"
 
 -- | A task as the log holds it.
 taskOf :: Value -> Parser Task

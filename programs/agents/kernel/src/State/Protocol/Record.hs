@@ -82,6 +82,7 @@ import State.Run.Gap (
 import State.Run.Gap qualified as Gap
 import State.Run.Id (parseEventRef)
 import State.Step.Artifact (
+    baseTextForms,
     parseBase,
     parseNonBlank,
     parsePrUrl,
@@ -351,7 +352,7 @@ recordables =
                 $ Recordable
                     "task"
                     ( "<id> <"
-                        <> Text.intercalate "|" (map fst Codec.prStates)
+                        <> prStateNames
                         <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> | <id> parked <why>"
                     )
                     [Flag "pr" "<url>" Optional, Flag "reason" "<r>" Optional]
@@ -366,7 +367,7 @@ recordables =
                         base <-
                             maybe
                                 ( Left
-                                    (raw <> " is no base: on_default, on_epic:<name> or on_task:<earlier task id>")
+                                    (raw <> " is no base: " <> baseTextForms)
                                 )
                                 Right
                                 (parseBase raw)
@@ -391,7 +392,10 @@ recordables =
                         Right (AddsTask (Text.unpack path) (fmap (flip TaskAdded) . Codec.decodeTask))
                     _ ->
                         Left
-                            "the task, then ci, review, merged, kept, round or delivered and its PR, base and its base, or parked and why; or add and a task file, or head, the task and its sha"
+                            ( "the task, then "
+                                <> prStateNames
+                                <> " and its PR, base and its base, or parked and why; or add and a task file, or head, the task and its sha"
+                            )
            , named "held" "<task> <url>" $ \case
                 [task, link] -> Right (OnTask (TaskId task) (`Held` Url link))
                 _ -> Left "the task and the url"
@@ -435,6 +439,7 @@ recordables =
     stay name usageText build = named name usageText (fmap Plain . build)
     named name usageText build = atRoot (Recordable name usageText [] (build . (.positional)))
     moving task = OnTask (TaskId task) . flip TaskMoved
+    prStateNames = Text.intercalate "|" (map fst Codec.prStates)
     outcome event = Recordable (eventText event)
     nothing done = outcome (Catalog.outcomeEvent (Catalog.outcome done)) "" [] $ \a -> case a.positional of
         [] -> Right (Plain (tookIn a.scope done))

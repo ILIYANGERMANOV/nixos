@@ -57,7 +57,8 @@ spec = describe "State.Run.Codec" $ do
             ]
             `shouldBe` [ Left "Error in $: a breakdown has a task at least"
                        , Left "Error in $: task t1 is named twice"
-                       , Left "Error in $: task t1 depends on t2, which is not an earlier task"
+                       , Left
+                            "Error in $: unknown_task - task t1 depends on t2, which is not an earlier task"
                        ]
 
     it "reads a task file as a breakdown spells each task" $
@@ -193,8 +194,10 @@ spec = describe "State.Run.Codec" $ do
                 [ [(plainTask "t1" []) {base = OnTask (TaskId "t2")}, plainTask "t2" []]
                 , [(plainTask "t1" []) {base = OnTask (TaskId "t1")}]
                 ]
-                `shouldBe` [ Left "Error in $: task t1 has base t2, which is not an earlier task"
-                           , Left "Error in $: task t1 has base t1, which is not an earlier task"
+                `shouldBe` [ Left
+                                "Error in $: unknown_task - task t1 has base t2, which is not an earlier task"
+                           , Left
+                                "Error in $: unknown_task - task t1 has base t1, which is not an earlier task"
                            ]
 
 -- | A task whose child runs the 10x flow.
