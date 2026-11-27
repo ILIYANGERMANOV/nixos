@@ -165,8 +165,10 @@ import State.Run.Event (
     TaskId (..),
     TaskNo,
     TaskState (Kept),
+    Verbatim,
     parseRunId,
     parseTaskNo,
+    parseVerbatim,
     roleText,
     runIdText,
     taskNoText,
@@ -294,8 +296,10 @@ data InitArgs = InitArgs
     { notes :: ShellPath
     , flow :: Maybe FlowName
     , origin :: Origin
-    , goal :: Maybe Text
-    -- ^ The run's goal, word for word; a resumed run keeps the one it started with.
+    , goal :: Maybe Verbatim
+    {- ^ The run's goal, word for word, logged as the user's instructed goal;
+    a resumed run keeps the one it started with.
+    -}
     }
 
 {- | Who starts the run: the user, on a PR of its own or a round on the one
@@ -943,8 +947,16 @@ initArgs =
             )
         <*> optional (textOption "goal" "<goal>" "the run's goal, word for word")
   where
-    init' notesRaw flowRaw parentRaw taskRaw prRaw child goal = do
+    init' notesRaw flowRaw parentRaw taskRaw prRaw child goalRaw = do
         notes <- notesDir notesRaw
+        goal <-
+            traverse
+                ( parsedOr
+                    "--goal"
+                    "the run's goal is the user's words: one character at least that is no space"
+                    . parseVerbatim
+                )
+                goalRaw
         flow <- traverse flowNamed flowRaw
         let mine = if child then FromCaller else FromUser
         origin <- case (prRaw, parentRaw, taskRaw) of

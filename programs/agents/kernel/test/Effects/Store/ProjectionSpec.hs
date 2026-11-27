@@ -195,6 +195,7 @@ import State.Run.EventGen (
     tasksOf,
     titled,
     uri,
+    verbatim,
  )
 import State.Run.Fold (
     RunState (..),
@@ -468,6 +469,28 @@ spec = describe "Effects.Store.Projection" $ do
                     , [Just (SqlInteger 5), Just (SqlText "t2"), Just (SqlText "planned")]
                     , [Just (SqlInteger 19), Just (SqlText "t3"), Just (SqlText "delivered")]
                     ]
+
+    it "reads a run's goal from its newest instructed goal in force" $
+        [ Map.lookup "goal" columns
+        | ("run_states", columns) <-
+            Set.toList
+                ( inserted
+                    ( Registry.rows
+                        ( NonEmpty.zipWith
+                            line
+                            (1 :| [2 ..])
+                            ( started
+                                :| [ instructed Event.GoalInstruction "ship it" Nothing
+                                   , instructed Event.GoalInstruction "ship it today" Nothing
+                                   , instructed Event.RuleInstruction "no new verb" Nothing
+                                   , instructed Event.GoalInstruction "ship it now" (Just 3)
+                                   ]
+                            )
+                        )
+                    )
+                )
+        ]
+            `shouldBe` [Just (SqlText "ship it now")]
 
     describe "a run's context, gaps and spans" $ do
         let rowsOf table =
@@ -1206,3 +1229,7 @@ c1 = runId "c1aa"
 
 childRun :: NonEmpty Envelope
 childRun = lineOf c1 1 started :| []
+
+-- | The user's instruction of this kind, in these words, retiring the one at this seq if named.
+instructed :: Event.InstructionKind -> Text -> Maybe Natural -> Event
+instructed kind words' = Event.Instructed (Event.Instruction kind (verbatim words'))

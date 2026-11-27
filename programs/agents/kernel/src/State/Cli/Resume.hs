@@ -63,6 +63,7 @@ import State.Run.Event (
     Handover (..),
     Harness (..),
     Instruction (..),
+    InstructionKind (GoalInstruction),
     Need (..),
     RunId,
     Said (..),
@@ -95,6 +96,7 @@ import State.Run.Fold (
     Waits (..),
     askedAt,
     fuelOf,
+    goalOf,
     recordedPr,
     unvoided,
  )
@@ -187,10 +189,11 @@ header input =
         (Nothing, Exit) -> "finished"
 
 goal :: Input -> [Text]
-goal input = ["goal: " <> text | Just text <- [input.state.start.goal]]
+goal input = ["goal: " <> verbatimText text | Just text <- [goalOf input.state]]
 
-{- | The user's instructions in force, newest first, each in the user's own
-words, by the bare seq @--replaces@ takes.
+{- | The user's instructions in force but the goals, newest first, each in
+the user's own words, by the bare seq @--replaces@ takes. The goal line
+already says the goal: the newest goal is the one in force.
 -}
 instructions :: Input -> [Text]
 instructions input =
@@ -204,7 +207,11 @@ instructions input =
         | (n, instruction) <- active
         ]
   where
-    active = Map.toDescList input.state.instructions
+    active =
+        [ (n, instruction)
+        | (n, instruction) <- Map.toDescList input.state.instructions
+        , instruction.kind /= GoalInstruction
+        ]
 
 place :: Input -> [Text]
 place input =

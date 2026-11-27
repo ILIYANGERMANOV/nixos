@@ -38,7 +38,6 @@ spec = do
                                 "notes"
                                 (ByUser OwnPr)
                                 Set.empty
-                                Nothing
                                 (absolutePath "/work")
                                 Nothing
                             )

@@ -158,7 +158,7 @@ To look inside a run, or keep what a fresh agent needs:
 | `state pending` | prints the questions awaiting an answer |
 | `state tasks` | prints each request's card, then each child run, with resume advice for a stopped one |
 | `state render mermaid --flow <f>` | prints the flow's graph (the flow, not one run's walk through it) |
-| `state init --goal "<goal>"` | logs `started` with the goal word for word, the git top as `worktree` and `origin`'s GitHub `owner/name` as `repo` |
+| `state init --goal "<goal>"` | logs `started` with the git top as `worktree` and `origin`'s GitHub `owner/name` as `repo`, then the goal word for word as an `instructed` goal |
 | `state move <dir>` | logs `worktree_moved`: the run now lives in that worktree |
 | `state artifact <path\|url> --kind <k> [--span <seq>]` | logs `artifact`, made by that span when `--span` names one. A file's bytes are a snapshot in `blobs` (up to 1 MiB, never a transcript's); a handover and the run's end snapshot each registered file that changed |
 | `state artifact show <run:seq>` | prints an artifact's stored bytes or its URL; exit 3 when its bytes were not stored, 4 when the line is no artifact |

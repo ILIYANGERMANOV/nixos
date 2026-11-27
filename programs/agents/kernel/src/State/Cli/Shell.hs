@@ -284,6 +284,8 @@ import State.Run.Event (
     Event (..),
     FlowName (..),
     Handover,
+    Instruction (..),
+    InstructionKind (GoalInstruction),
     NonBlank,
     Note (..),
     RefusalCode (..),
@@ -3079,13 +3081,18 @@ initRun gd args = do
                                 , notes = notes
                                 , principal
                                 , interface = interfaceOf principal
-                                , goal = args.goal
                                 , worktree
                                 , repo
                                 }
-                        -- The run starts at its root's Fuel step: a Fuel given takes it at once.
+                        -- The goal is the user's first instruction. The run starts at
+                        -- its root's Fuel step: a Fuel given takes it at once.
                         begun =
-                            Started start : [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
+                            concat
+                                [ [Started start]
+                                , [ Instructed (Instruction GoalInstruction text) Nothing | text <- toList args.goal
+                                  ]
+                                , [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
+                                ]
                     Log.locked fresh $ \case
                         Right Log.Logged {rows = 0} -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
                         -- Eight random hex digits may meet a run of the same id.

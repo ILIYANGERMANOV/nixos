@@ -364,11 +364,6 @@ data Start = Start
     , notes :: FilePath
     , principal :: Principal
     , interface :: Set Op
-    , goal :: Maybe Text
-    {- ^ The run's goal, word for word. Optional, unlike #552's Appendix B:
-    its body says every new flag is optional, so a run started with none
-    leaves the key out.
-    -}
     , worktree :: AbsPath
     -- ^ The git top of the directory @init@ ran in.
     , repo :: Maybe Repo

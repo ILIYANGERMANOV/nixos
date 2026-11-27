@@ -33,6 +33,7 @@ import State.Cli.Shell.World (
     logged,
     loggedEvents,
     newWorld,
+    notes,
     putBytes,
     putFile,
     removeFile,
@@ -49,11 +50,14 @@ import State.Protocol.Advice (Readiness (..))
 import State.Run.Event (
     Envelope (..),
     Event (..),
+    Instruction (..),
+    InstructionKind (..),
     Note (..),
     RefusalCode (..),
     Repo (..),
     SpanId (..),
     Start (..),
+    verbatimText,
  )
 import Test.Hspec (
     Spec,
@@ -69,17 +73,26 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = describe "state's context facts over the doubles" . before newWorld $ do
     describe "init" $ do
-        it "logs the goal word for word, the git top as worktree and origin's repo" $ \world -> do
-            modifyIORef' world (\w -> w {origin = Just "git@github.com:o/r.git"})
-            _ <- startedIn world ["--goal", "ship  the fix"]
-            starts <- startsOf world
-            starts
-                `shouldBe` [(Just "ship  the fix", "/work", Just (Repo "o" "r"))]
+        it
+            "logs the goal word for word as the user's instructed goal, the git top as worktree and origin's repo"
+            $ \world -> do
+                modifyIORef' world (\w -> w {origin = Just "git@github.com:o/r.git"})
+                _ <- startedIn world ["--goal", "ship  the fix"]
+                (,) <$> startsOf world <*> goalsOf world
+                    `shouldReturn` ([("/work", Just (Repo "o" "r"))], [(2, "ship  the fix")])
 
-        it "leaves goal and repo out with no --goal and no GitHub origin" $ \world -> do
+        it "logs no goal and no repo with no --goal and no GitHub origin" $ \world -> do
             modifyIORef' world (\w -> w {origin = Just "https://gitlab.com/o/r"})
             _ <- startedRun world
-            startsOf world `shouldReturn` [(Nothing, "/work", Nothing)]
+            (,) <$> startsOf world <*> goalsOf world
+                `shouldReturn` ([("/work", Nothing)], [])
+
+        it "keeps the goal a run started with when init resumes it with another" $ \world -> do
+            _ <- startedIn world ["--goal", "first"]
+            _ <-
+                succeeded
+                    =<< state world ["init", "--notes", Text.pack notes, "--goal", "second"]
+            goalsOf world `shouldReturn` [(2, "first")]
 
     describe "artifact" $ do
         it
@@ -406,12 +419,23 @@ handover world =
 digest :: Text -> Text
 digest = sha256Text . sha256Of . encodeUtf8
 
--- | Each start's goal, worktree and repo.
-startsOf :: IORef World -> IO [(Maybe Text, FilePath, Maybe Repo)]
+-- | Each start's worktree and repo.
+startsOf :: IORef World -> IO [(FilePath, Maybe Repo)]
 startsOf world =
     ( \lines' ->
-        [ (start.goal, absPathText start.worktree, start.repo)
+        [ (absPathText start.worktree, start.repo)
         | Started start <- map (.event) lines'
+        ]
+    )
+        <$> logged world
+
+-- | Each goal the user instructed, by its seq.
+goalsOf :: IORef World -> IO [(Natural, Text)]
+goalsOf world =
+    ( \lines' ->
+        [ (line.seq, verbatimText text)
+        | line <- lines'
+        , Instructed (Instruction GoalInstruction text) Nothing <- [line.event]
         ]
     )
         <$> logged world

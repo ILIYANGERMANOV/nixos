@@ -53,6 +53,7 @@ module State.Run.Fold (
     append,
     appendTo,
     fuelOf,
+    goalOf,
     targetsAt,
     OnTarget (..),
     shape,
@@ -184,7 +185,8 @@ import State.Run.Event (
     EpicName,
     Event (..),
     EventId (..),
-    Instruction,
+    Instruction (..),
+    InstructionKind (GoalInstruction),
     Judgement (..),
     Label,
     Need,
@@ -209,6 +211,7 @@ import State.Run.Event (
     TaskState (Delivered, InCi, InReview, Kept, Merged, Parked),
     Url,
     Usage,
+    Verbatim,
     eventId,
     taskNoText,
     tookEvent,
@@ -2037,6 +2040,14 @@ shipped = \case
 -- | Balanced until recorded, as a brief with no @Fuel@ line reads.
 fuelOf :: RunState -> Fuel
 fuelOf state = fromMaybe Balanced state.fuel
+
+-- | The run's goal: the newest instructed goal in force, word for word, if any.
+goalOf :: RunState -> Maybe Verbatim
+goalOf state =
+    listToMaybe
+        [ text
+        | (_, Instruction GoalInstruction text) <- Map.toDescList state.instructions
+        ]
 
 -- | A loop making no progress: these problems were in both of its last two rounds.
 data Stuck = Stuck {loop :: Name, same :: Set Problem}

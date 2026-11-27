@@ -52,15 +52,16 @@ import State.Run.Event (
     Label (..),
     Requirement (..),
     RunId,
-    Start (..),
     Stop (..),
     placeOf,
+    verbatimText,
  )
 import State.Run.Fold (
     Problem (..),
     Round (..),
     RunState (..),
     fuelOf,
+    goalOf,
     nodeName,
     over,
     recordedPr,
@@ -70,7 +71,7 @@ projection :: Projection
 projection =
     Projection
         { name = "runs"
-        , version = 1
+        , version = 2
         , tables = runStates :| [stepVisits, loopRounds, roundProblems]
         }
 
@@ -167,7 +168,7 @@ runStateRow trace =
         , status
         , step = stateNameText (nodeName state.at)
         , fuel = fuelOf state
-        , goal = state.start.goal
+        , goal = verbatimText <$> goalOf state
         , worktree = Text.pack (absPathText worktree)
         , repo = repoText <$> repo
         , prUrl = urlText <$> recordedPr state
@@ -326,7 +327,7 @@ runStates =
         , "              CONSTRAINT run_states_fuel_enum CHECK (fuel IN "
             <> spellings fuelName
             <> "),"
-        , "  -- The user's goal, word for word, from the started event. Optional: a run started with none has none."
+        , "  -- The user's goal, word for word: the newest instructed goal in force. Optional: a run told none has none."
         , "  goal        TEXT,"
         , "  -- The git worktree the run works in: an absolute path. The latest worktree_moved event wins."
         , "  worktree    TEXT NOT NULL,"

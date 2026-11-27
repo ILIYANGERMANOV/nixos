@@ -186,7 +186,6 @@ spec = describe "State.Protocol.Advice" $ do
                                             "notes"
                                             (ByUser OwnPr)
                                             Set.empty
-                                            Nothing
                                             (absolutePath "/work")
                                             Nothing
                                         )
@@ -218,7 +217,6 @@ spec = describe "State.Protocol.Advice" $ do
                                     "notes"
                                     (ByUser OwnPr)
                                     Set.empty
-                                    Nothing
                                     (absolutePath "/work")
                                     Nothing
                                 )

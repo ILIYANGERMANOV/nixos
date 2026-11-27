@@ -84,6 +84,7 @@ import State.Run.Event (
     TaskRef (..),
     stepTook,
     tookIn,
+    verbatimText,
  )
 import State.Run.EventGen (
     fuelSet,
@@ -479,6 +480,10 @@ spec = describe "State.Cli.Command" $ do
             , goalOf <$> parse ["init", "--notes", "/n/"]
             )
                 `shouldBe` (Right (Just "ship  the  --fix"), Right Nothing)
+
+        it "refuses a blank init --goal" $
+            goalOf <$> parse ["init", "--notes", "/n/", "--goal", "  "]
+                `shouldBe` Left "--goal"
 
         it "reads a text that is no absolute URI as a file's path, of a file's kind" $
             registered (parse ["artifact", "notes/r.md", "--kind", "research"])
@@ -1026,7 +1031,7 @@ spec = describe "State.Cli.Command" $ do
         _ -> Nothing
     goalOf :: Command -> Maybe Text
     goalOf = \case
-        Init args -> args.goal
+        Init args -> verbatimText <$> args.goal
         _ -> Nothing
     registered ::
         Either Text Command -> Either Text (Location FilePath, Maybe Natural)

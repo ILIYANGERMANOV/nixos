@@ -1,44 +1,43 @@
-resume run 00010203 (10x), active at engineers: 1 sessions, 35 events, last handover 00010203:33 (context)
-goal: Ship the resume packet
-instructions (2, newest first):
-  26 rule "never push \"main\"\nask first"
-  25 goal "ship the packet today"
+resume run 00010203 (10x), active at engineers: 1 sessions, 36 events, last handover 00010203:34 (context)
+goal: ship the packet today
+instructions (1, newest first):
+  27 rule "never push \"main\"\nask first"
 worktree: /work2   repo: o/r   fuel: balanced
 pr: none yet   notes dir: /notes
-next (handover 00010203:33):
+next (handover 00010203:34):
   1. merge t1
   2. spawn t2
 owed to the user:
   - merge epic limits (ready_for_review, https://github.com/o/r/pull/40)
-  - do 00010203:27 "rotate the deploy key" blocks t2 at https://github.com/o/r/settings/keys
-  - answer 00010203:22
+  - do 00010203:28 "rotate the deploy key" blocks t2 at https://github.com/o/r/settings/keys
+  - answer 00010203:23
 epics:
   limits o/r epic/limits ready_for_review https://github.com/o/r/pull/40
-tasks (breakdown 00010203:5, in breakdown order):
+tasks (breakdown 00010203:6, in breakdown order):
   id  status     at_work  base            pr                             head     child run
   t1  in_review  no       on_default      https://github.com/o/r/pull/3  0123456  04050607
   t2  planned    no       on_epic:limits  -                              -        -          after t1
 open questions (2):
-  00010203:22 Scope forwarded from this run: ship t2 too?
-  00010203:19 Design to triage from this run: which store?
+  00010203:23 Scope forwarded from this run: ship t2 too?
+  00010203:20 Design to triage from this run: which store?
 decisions (1, newest first):
-  Ruling 00010203:20 Pick: zod - already used - none
-notes by topic: live 1 (last 00010203:18), traps 1 (last 00010203:17)
+  Ruling 00010203:21 Pick: zod - already used - none
+notes by topic: live 1 (last 00010203:19), traps 1 (last 00010203:18)
   load: state sql "select text from notes where run_id = '00010203' and topic = 'live'"
   load: state sql "select text from notes where run_id = '00010203' and topic = 'traps'"
 stopgaps (2, never read by the kernel):
-  00010203:30 run deploy.region "eu" - no typed row
-  00010203:31 t2 cache.ttl 30 - no typed row
+  00010203:31 run deploy.region "eu" - no typed row
+  00010203:32 t2 cache.ttl 30 - no typed row
 
 context map (load on demand, or in a subagent):
   files
-    task_list 00010203:4 /notes/tasks.json sha256:67d7de1c752e65ac6f4c8b7cc3ca37fe8a6f8a8abc7d467445f29ba1baf356b3 385 bytes stored
-      load: state artifact show 00010203:4
-    plan 00010203:15 /work/plan.md sha256:81db67b6a5702b9b68f0016f061c409bf3fb16d062fc854d1b424bb4e9c28c56 3 bytes stored
-      load: state artifact show 00010203:15
+    task_list 00010203:5 /notes/tasks.json sha256:67d7de1c752e65ac6f4c8b7cc3ca37fe8a6f8a8abc7d467445f29ba1baf356b3 385 bytes stored
+      load: state artifact show 00010203:5
+    plan 00010203:16 /work/plan.md sha256:81db67b6a5702b9b68f0016f061c409bf3fb16d062fc854d1b424bb4e9c28c56 3 bytes stored
+      load: state artifact show 00010203:16
       older: 1  load: state sql "select id, sha256, size_bytes from artifacts where run_id = '00010203' and path = '/work/plan.md' order by id"
   urls
-    ticket 00010203:16 https://github.com/o/r/issues/7
+    ticket 00010203:17 https://github.com/o/r/issues/7
   child runs
     04050607 t1 finished ready notes dir /child
       load: state resume 04050607

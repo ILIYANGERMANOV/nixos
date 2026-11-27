@@ -578,7 +578,6 @@ genStart =
             , ByCaller <$> genShape
             ]
         <*> genSet Gen.enumBounded
-        <*> Gen.maybe genText
         <*> genAbsPath
         <*> Gen.maybe genRepo
 
@@ -880,7 +879,6 @@ start =
         "notes"
         (ByUser OwnPr)
         (Set.fromList [AskUser, Hooks])
-        Nothing
         (absolutePath "/work")
         Nothing
 

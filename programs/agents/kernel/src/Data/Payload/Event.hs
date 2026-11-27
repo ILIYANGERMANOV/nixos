@@ -321,7 +321,6 @@ eventData = \case
     Started start ->
         "flow" .= flowText start.flow
             <> "notes_dir" .= start.notes
-            <> foldMap ("goal" .=) start.goal
             <> "worktree" .= absPathText start.worktree
             <> repoData start.repo
             <> pair "principal" (principalEncoding start.principal)
@@ -754,7 +753,6 @@ startOf obj =
         <*> ( Set.fromList
                 <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText)))
             )
-        <*> obj .:? "goal"
         <*> (obj .: "worktree" >>= pathOf)
         <*> repoOf obj
 
