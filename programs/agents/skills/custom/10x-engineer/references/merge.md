@@ -80,7 +80,9 @@ yourself:
    a PR from a child's `AWAIT merge`: resume that child, as above. A task
    based on the merged one now builds on that one's base:
    `state record task <id> base <base> --reason <why>`, `<base>` as
-   `on_default`, `on_epic:<name>` or `on_task:<id>`.
+   `on_default`, `on_epic:<name>` or `on_task:<task>`, `<task>` a task other
+   than `<id>`. Its open PR still targets the merged branch: retarget it,
+   `gh pr edit <n> --base <branch>`, `<branch>` the new base's branch.
 2. `git -C <clone> worktree remove <path>`, then
    `git -C <clone> branch -D <branch>`, with `<clone>` as `references/brief.md`
    defines it.

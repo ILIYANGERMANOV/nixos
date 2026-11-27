@@ -198,6 +198,22 @@ spec = describe "State.Run.Fan" $ do
             [spawning [] t1, spawned [] (childFor "c1" t1)]
             `shouldBe` replicate 2 (Right (False, False))
 
+    it "respawns a parked task whose last child stopped: parking settled the stop" $
+        map
+            ( fmap (`tries` t1)
+                . applied
+                . ( [ spawned [] (childFor "c1" t1)
+                    , handedBack (runId "c1") (Ended (Stop Blocked "no access"))
+                    , moved t1 (Parked "later" Nothing)
+                    ]
+                        <>
+                  )
+            )
+            [ [spawning [] t1, spawned [] (childFor "c2" t1)]
+            , [spawned [] (childFor "c2" t1)]
+            ]
+            `shouldBe` replicate 2 (Right 2)
+
     it "does not leave while a child runs on a task already in review" $
         ( applied
             [ spawned [] (childFor "c1" t1)
@@ -319,7 +335,7 @@ spec = describe "State.Run.Fan" $ do
                 `shouldBe` Left (UnknownTask (TaskId "t9"))
         it "is refused naming the task itself or a later one" $
             map (\on -> rebased t1 (OnTask on) twoTasks) [t1, t2]
-                `shouldBe` [Left (BaseNotEarlier t1 t1), Left (BaseNotEarlier t1 t2)]
+                `shouldBe` [Left (UnknownTask t1), Left (UnknownTask t2)]
         it "leaves_no_base_or_dependency_naming_a_task_not_before_it" . hedgehog $ do
             fan <- forAll (fresh <$> genTasks)
             let ids = map (.id) (Fan.tasksOf fan)

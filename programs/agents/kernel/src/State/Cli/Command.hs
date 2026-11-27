@@ -1182,8 +1182,11 @@ explain g fuel at = \case
     FanRefused refusal -> case refusal of
         Fan.UnknownTask task ->
             refused
-                ("task " <> Codec.taskIdText task)
-                "the breakdown has no such task"
+                "unknown_task"
+                ( "task "
+                    <> Codec.taskIdText task
+                    <> " is not in the breakdown, or not earlier than the task whose base names it"
+                )
                 "state show"
         Fan.StillRunning task child ->
             refused
@@ -1253,17 +1256,6 @@ explain g fuel at = \case
             refused
                 ("task " <> Codec.taskIdText task)
                 "the fan-out has a task of that id already"
-                "state show"
-        -- Its own message, under the code a dependency on a later task has: unknown_task.
-        Fan.BaseNotEarlier task base ->
-            refused
-                "unknown_task"
-                ( "task "
-                    <> Codec.taskIdText task
-                    <> " cannot have base "
-                    <> Codec.taskIdText base
-                    <> ": a base names an earlier task of the breakdown"
-                )
                 "state show"
     NotAtFan ->
         refused

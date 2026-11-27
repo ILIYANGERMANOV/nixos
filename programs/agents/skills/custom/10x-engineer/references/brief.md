@@ -20,6 +20,10 @@ git -C <clone> worktree add -b <branch> ~/.10x/<run>/worktrees/<task> origin/<ba
 | `on_epic:<name>` | the epic's branch |
 | `on_task:<id>` | the branch of task `<id>` |
 
+The kernel spawns a task only once its deps merge. So `on_task:<id>` fits a
+stacked task with no dep, once task `<id>`'s branch is pushed. A task with a
+dep takes the base its dep merges into.
+
 A named PR:
 
 ```sh

@@ -145,7 +145,8 @@ data Heard = Heard Said | TriagedStop Stop
     deriving stock (Eq, Show)
 
 data Refusal
-    = UnknownTask TaskId
+    = -- | The breakdown has no such task, or none before the task whose base names it.
+      UnknownTask TaskId
     | -- | The task's child is still running: a second one is not spawned.
       StillRunning TaskId RunId
     | SpawnedTwice RunId
@@ -170,8 +171,6 @@ data Refusal
       NotItsRound TaskId Url
     | -- | A task added under an id the fan-out has already.
       TaskExists TaskId
-    | -- | The task's new base names this task, which is not an earlier one of the breakdown.
-      BaseNotEarlier TaskId TaskId
     deriving stock (Eq, Show)
 
 emptyFan :: Fan
@@ -217,7 +216,7 @@ rebased task base fan = do
     _ <- known task fan
     case builtOn base of
         Just on
-            | on `notElem` earlier -> Left (BaseNotEarlier task on)
+            | on `notElem` earlier -> Left (UnknownTask on)
         Just _ -> Right ()
         Nothing -> Right ()
     Right (withTask task (\found -> found {base}) fan)
@@ -254,7 +253,7 @@ spawning asking task fan = do
     case Set.member task fan.atWork of
         True -> Left (AtWork task)
         False -> free asking found fan
-    Right fan {atWork = Set.insert task fan.atWork, moves = unparked task fan.moves}
+    Right (unparked task fan) {atWork = Set.insert task fan.atWork}
 
 {- | The child's @init@: its task has an agent at work, spawned by the 10x or
 not, and runs again if it was parked. An untasked child takes none: it runs
@@ -267,16 +266,13 @@ spawned asking child fan = case child.task of
         new
         free asking found fan
         Right
-            joined
-                { atWork = Set.insert ref.task fan.atWork
-                , moves = unparked ref.task fan.moves
-                }
-    Untasked -> joined <$ new
+            (joining (unparked ref.task fan)) {atWork = Set.insert ref.task fan.atWork}
+    Untasked -> joining fan <$ new
   where
     new = case find ((== child.run) . (.child.run)) fan.children of
         Just _ -> Left (SpawnedTwice child.run)
         Nothing -> Right ()
-    joined = fan {children = fan.children <> [ChildRun child []]}
+    joining before = before {children = before.children <> [ChildRun child []]}
 
 {- | A new child may take the task: no child of it runs on, its last child's
 stop is triaged, and no question of its children is open (@asking@).
@@ -294,17 +290,24 @@ free asking task fan = case ( runningOn task.id fan
     askingUp = find (`elem` asking) (map (.child.run) (childrenOf fan task.id))
 
 {- | A parked task an agent takes again is parked no more: with no state
-recorded, it runs while its agent or child does. Any other state stays.
+recorded, it runs while its agent or child does. Parking settled its last
+child's stop, so that stop stays triaged and blocks no new child. Any other
+state stays.
 -}
-unparked :: TaskId -> Map TaskId TaskState -> Map TaskId TaskState
-unparked = Map.update $ \state -> case state of
-    Parked _ _ -> Nothing
-    InCi _ -> Just state
-    InReview _ -> Just state
-    Merged _ -> Just state
-    Kept _ -> Just state
-    Round _ -> Just state
-    Delivered _ -> Just state
+unparked :: TaskId -> Fan -> Fan
+unparked task fan = case Map.lookup task fan.moves of
+    Just (Parked _ _) -> stopSettled fan {moves = Map.delete task fan.moves}
+    Just (InCi _) -> fan
+    Just (InReview _) -> fan
+    Just (Merged _) -> fan
+    Just (Kept _) -> fan
+    Just (Round _) -> fan
+    Just (Delivered _) -> fan
+    Nothing -> fan
+  where
+    stopSettled after = case reverse (childrenOf fan task) of
+        lastChild : _ -> triaged lastChild.child.run after
+        [] -> after
 
 -- | The 10x resumes a child that waits on it: refused while an agent works on its task.
 resumed :: RunId -> Fan -> Either Refusal Fan

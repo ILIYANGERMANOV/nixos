@@ -18,7 +18,8 @@ a hand-back. No `recorded` line means it missed: record it yourself,
 
 You are the principal engineer for `$ARGUMENTS`. The user is the captain who
 decides; you make their intent real. Every task ends merged, kept (a round on
-a PR that stays open), or parked with a reason. You work as if the user ran
+a PR that stays open), delivered (its work is done and its PR is left open for
+the user, not merged), or parked with a reason. You work as if the user ran
 N engineers by hand: each engineer runs the whole `engineer` flow on one
 task, and you answer for the user what the user need not see.
 
@@ -121,8 +122,8 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 You spawn each at `engineers`, the group's await, once its task's
 dependencies merged, as `state next` says. `engineers` stays while children
 run and goes on to `merge` by itself, with no record, on the event that
-settles the last task: its child finished, or it is in review, merged, kept
-or parked. `merge` gets the PRs in the breakdown's task order.
+settles the last task: its child finished, or it is in review, merged, kept,
+delivered or parked. `merge` gets the PRs in the breakdown's task order.
 
 ## Steps
 
@@ -223,6 +224,9 @@ the task's branch starts from, one of:
 - `{"kind": "on_epic", "epic": "<name>"}`: the epic's branch, opened
   first (Epics).
 - `{"kind": "on_task", "task": "<id>"}`: the branch of an earlier task.
+  The kernel spawns a task only once its deps merge. So `on_task` fits a
+  stacked task with no dep, spawned once its base task's branch is pushed.
+  A task with a dep takes the base its dep merges into.
 
 A bare branch name is refused, and so are the ids `add` and `head`. Then `state record breakdown.done --tasks tasks.json`: the
 `--tasks` file registers itself. A round task adds
@@ -231,6 +235,7 @@ settles it `kept`. A task whose plan is already settled adds
 `"planDecided": true`: its child skips the refine passes and present, and confirms without
 asking you. A task outside it, a base fix or an epic's final PR, joins
 mid-run: one such object in a file, then `state record task add <file>`.
+The final PR's task has base `{"kind": "on_default"}` and branch `epic/<name>`.
 
 ### Engineers
 
@@ -317,8 +322,8 @@ then the merge loop's gates.
 line 1 names, in review, or `kept` for a round task, which skips the queue;
 with none named, `state next` prints the record. Record its branch's head,
 `state record task head <id> <sha>`, here and after each fixer's push. A
-task the run's rules count done with its PR left open:
-`state record task <id> delivered <url>`. Notify as the engineer skill's Ship
+task is delivered when its work is done and its PR is left open for the user,
+not merged: `state record task <id> delivered <url>`. Notify as the engineer skill's Ship
 does in a run with no parent: the PR's `## What & Why` and its optional next
 steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or runtime
 change, `/chief feedback for <PR>: ...` for a review or feedback, and
@@ -360,8 +365,8 @@ merged tasks are closed, issues of parked tasks stay open and are listed, an epi
 issues counting as its final PR's, `state pending` is empty, and worktrees of
 merged tasks are gone. It reports and never closes anything. Fix what fails,
 then run it again. Then `state record merge.done <url>`, the epic's final PR
-or the last PR merged or kept, and send the final report: merged, kept,
-parked and why, every ruling, follow-ups.
+or the last PR merged, kept or delivered, and send the final report: merged,
+kept, delivered, parked and why, every ruling, follow-ups.
 
 ## Epics
 
@@ -373,7 +378,8 @@ parked and why, every ruling, follow-ups.
 - Children of a later wave branch from the epic.
 - After the last child, open the final PR to `main` with `pr-description`. It
   lists every `Closes #n`, since issues auto-close only on the default branch.
-  Give it a worktree, so a fixer can rebase it. Join the merged children's
+  Add its task (Breakdown) with base `{"kind": "on_default"}` and branch
+  `epic/<name>`, and give it a worktree, so a fixer can rebase it. Join the merged children's
   requirements files into its `reports/<epic>-requirements.md`. It then takes
   CI, the queue and the merge loop like any PR: the user reviews it and
   approves. Its queue entry summarises per child: PR link, what, rulings.

@@ -165,6 +165,7 @@ To look inside a run, or keep what a fresh agent needs:
 | `state note --topic <t> "<text>"` | logs `note`, context for a fresh agent |
 | `state handover --reason context\|user\|crash --summary "<s>" --next "<step>"...` | logs `handover`, after a fresh snapshot of each changed file; names each file it could not read |
 | `state epic open <name> --repo <owner/name> --branch <b>`, `state epic ready <name> --pr <url>`, `state epic merged <name>` | logs `epic_opened`, `epic_ready`, `epic_merged`: an epic opens, its final PR opens, it merges. Every other move is refused |
+| `state record task head <id> <sha>`, `state record task <id> base <base> --reason <r>`, `state record task <id> delivered <pr>` | logs `task_head`, `task_base_changed` and `task`: the task's branch is at that commit, the task builds on a new base, its work is done and its PR is left open for the user |
 | `state resume [<run>] [--until <seq>]` | prints the packet a fresh agent resumes from: goal, worktree, next steps, owed work, epics, tasks with their base, PR and head, questions, decisions, notes, then a context map of every file, URL, child run and session with the command that loads it. With no run named, the run `STATE_SESSION` is bound to, else the worktree's. The harness's adapter sets `STATE_SESSION` for each shell. `--until <seq>` prints it as it was after that line. A line it cannot read refuses it |
 
 ## Replay is a fold

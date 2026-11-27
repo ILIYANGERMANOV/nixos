@@ -1830,7 +1830,7 @@ spec = describe "state over the doubles" $ do
                         `shouldBe` [
                                        ( 2
                                        ,
-                                           [ "state record: unknown_task - task t1 cannot have base t2: a base names an earlier task of the breakdown"
+                                           [ "state record: unknown_task - task t2 is not in the breakdown, or not earlier than the task whose base names it"
                                            ]
                                        )
                                    , (2, ["state record: unknown_epic - the run never opened epic nope"])

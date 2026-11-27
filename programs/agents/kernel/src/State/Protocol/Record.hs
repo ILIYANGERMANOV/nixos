@@ -352,7 +352,7 @@ recordables =
                     "task"
                     ( "<id> <"
                         <> Text.intercalate "|" (map fst Codec.prStates)
-                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> | <id> parked <why>"
+                        <> "> <pr> | add <task.json> | head <id> <sha> | <id> base <base> --reason <r> | <id> parked <why>"
                     )
                     [Flag "pr" "<url>" Optional, Flag "reason" "<r>" Optional]
                 $ \a -> case a.positional of
