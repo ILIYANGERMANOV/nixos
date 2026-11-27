@@ -89,6 +89,7 @@ import State.Run.EventGen (
     absolutePath,
     bareGap,
     fuelSet,
+    genInstruction,
     genOneLine,
     genProposal,
     genQuestion,
@@ -104,6 +105,7 @@ import State.Run.EventGen (
     runId,
     started,
     tasksOf,
+    titled,
  )
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..), Stage (..))
@@ -1044,6 +1046,7 @@ spec = describe "State.Run.Fold" $ do
             `shouldBe` Left (NoSingleState (StateName "nowhere"))
 
     questions
+    userFacts
   where
     note = Note (RefusalCode "no_edge") "no edge" "state next"
     stop = Stop Blocked "why"
@@ -2212,6 +2215,69 @@ questions = describe "questions" $ do
 
 halt :: Stop
 halt = Stop Blocked "no way on"
+
+-- | The user's instructions in force and the needs owed to the user.
+userFacts :: Spec
+userFacts = describe "the user's instructions and needs" $ do
+    it "keeps every instruction in force, by its seq" . hedgehog $ do
+        told <- forAll (Gen.list (Range.linear 0 6) genInstruction)
+        fmap (.instructions) (replayed [Instructed i Nothing | i <- told])
+            === Right (Map.fromList (zip [1 ..] told))
+
+    it "retires the replaced instruction, keeping the others" . hedgehog $ do
+        told <- forAll (Gen.list (Range.linear 1 6) genInstruction)
+        old <- forAll (Gen.integral (Range.linear 1 (fromIntegral (length told))))
+        newer <- forAll genInstruction
+        before <-
+            evalEither ((.instructions) <$> replayed [Instructed i Nothing | i <- told])
+        after <-
+            evalEither
+                ( (.instructions)
+                    <$> replayed ([Instructed i Nothing | i <- told] <> [Instructed newer (Just old)])
+                )
+        let n = fromIntegral (length told) + 1
+        Map.lookup old after === Nothing
+        Map.lookup n after === Just newer
+        Map.delete n after === Map.delete old before
+
+    it "refuses a replace of an instruction not in force no_active_instruction" $
+        map
+            replayed
+            [ [Instructed goal (Just 1)]
+            , [Instructed goal Nothing, Instructed rule (Just 1), Instructed goal (Just 1)]
+            , [Noted "topic" "text", Instructed goal (Just 1)]
+            ]
+            `shouldBe` [ Left (NoActiveInstruction 1)
+                       , Left (NoActiveInstruction 1)
+                       , Left (NoActiveInstruction 1)
+                       ]
+
+    it "keeps a need open until its done, which closes it" $
+        map
+            (fmap (Map.keys . (.needs)) . replayed)
+            [ [UserNeeded need]
+            , [UserNeeded need, UserNeeded need, UserNeededDone 1 Nothing]
+            ]
+            `shouldBe` [Right [1], Right [2]]
+
+    it "refuses a done of a need not open no_open_need" $
+        map
+            replayed
+            [ [UserNeededDone 1 Nothing]
+            , [UserNeeded need, UserNeededDone 1 Nothing, UserNeededDone 1 Nothing]
+            , [Noted "topic" "text", UserNeededDone 1 Nothing]
+            ]
+            `shouldBe` [Left (NoOpenNeed 1), Left (NoOpenNeed 1), Left (NoOpenNeed 1)]
+
+    it "takes a need's done after the run stopped" $
+        (.needs) <$> replayed [UserNeeded need, Stopped halt, UserNeededDone 1 Nothing]
+            `shouldBe` Right Map.empty
+  where
+    -- A run of these events after its start, at seq 0.
+    replayed events = replay g (logOf (started :| events))
+    goal = Instruction GoalInstruction "ship it"
+    rule = Instruction RuleInstruction "no new verb"
+    need = Need (titled "add the deploy key") Set.empty Nothing
 
 {- | One fan-out twice, inside scopes @a@ and @b@: each copy is its own
 fan-out, with its own tasks and children.

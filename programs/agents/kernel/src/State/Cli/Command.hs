@@ -910,17 +910,18 @@ recordEvent scope = Optparse.hsubparser (Optparse.metavar "EVENT" <> foldMap eve
         | Text.null r.positional = pure []
         | otherwise = many (textArgument r.positional)
     flags r = concat <$> traverse flag r.flags
-    flag f =
-        map (f.name,)
-            <$> arity
-                f.arity
-                ( Optparse.strOption
-                    (Optparse.long (Text.unpack f.name) <> Optparse.metavar (Text.unpack f.value))
-                )
-    arity = \case
-        Required -> fmap pure
-        Optional -> fmap toList . optional
-        Repeated -> many
+    flag f = case f.arity of
+        Required -> pure <$> valued f
+        Optional -> toList <$> optional (valued f)
+        Repeated -> many (valued f)
+        -- A switch given is an option with no value, as 'State.Protocol.Record.switched' reads it.
+        Switch ->
+            (\on -> [(f.name, "") | on])
+                <$> Optparse.switch (Optparse.long (Text.unpack f.name))
+    valued f =
+        (f.name,)
+            <$> Optparse.strOption
+                (Optparse.long (Text.unpack f.name) <> Optparse.metavar (Text.unpack f.value))
     -- An event's positionals may be free text, which may start with a dash.
     freeWords r = if Text.null r.positional then mempty else Optparse.forwardOptions
     describe r = if Text.null (usageOf r) then "no arguments" else usageOf r
@@ -1359,6 +1360,16 @@ explain g fuel at = \case
                     <> epicNameText epic
                     <> " --repo <owner/name> --branch <branch>"
                 )
+    NoActiveInstruction n ->
+        refused
+            ("the replaced instruction " <> tshow n)
+            "the run logged no instruction in force at this seq: none, or one replaced already"
+            "state resume lists the instructions in force; record it without --replaces if it replaces none"
+    NoOpenNeed n ->
+        refused
+            ("need " <> tshow n)
+            "the run logged no open need at this seq: none, or one done already"
+            "state resume lists what is owed to the user as <run:seq>"
   where
     refused = Failure BadInput
     records = atPlace $ \place -> case [ recordCommand event
@@ -1439,6 +1450,8 @@ refusalCode =
                 Epic.EpicNotOpen {} -> "epic_not_open"
                 Epic.EpicNotReady {} -> "epic_not_ready"
                 Epic.UnknownEpic {} -> "unknown_epic"
+            NoActiveInstruction {} -> "no_active_instruction"
+            NoOpenNeed {} -> "no_open_need"
         FileUnreadable {} -> "file_unreadable"
         UnknownEvent {} -> "unknown_event"
 

@@ -47,7 +47,7 @@ logged at this seq, the @breakdown.done@ or the @task_added@ that started it.
 A new breakdown may reuse an id.
 -}
 data TaskRef = TaskRef {task :: TaskId, breakdown :: Natural}
-    deriving stock (Eq, Show)
+    deriving stock (Eq, Ord, Show)
 
 -- | A subagent's id, as its agent gives it: Claude Code's are hex.
 newtype AgentId = AgentId {agentIdText :: Text}

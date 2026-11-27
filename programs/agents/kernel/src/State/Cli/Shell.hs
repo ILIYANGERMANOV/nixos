@@ -1290,6 +1290,12 @@ execute steps = \case
     HandOver handover -> handOver handover
     ShowArtifact ref -> showArtifact ref
     MoveGap ref move -> moveGap ref move
+    OnRun (Record (NeedDone ref note)) ->
+        inRunOf
+            ref
+            (UserNeededDone ref.seq note)
+            (Fold.NoOpenNeed ref.seq)
+            "state resume lists what is owed to the user as <run:seq>"
     Register location from by -> registerArtifact location from by
     Dump run -> dump run
     Resume run k -> resumePacket run k
@@ -1366,6 +1372,8 @@ execute steps = \case
             OnTask _ _ -> Nothing
             OnChild _ _ -> Nothing
             HeadOf _ _ -> Nothing
+            OnTasks _ _ -> Nothing
+            NeedDone _ _ -> Nothing
         RecordUnknown _ -> Nothing
         Brief _ _ -> Nothing
         ShowRun -> Nothing
@@ -1419,13 +1427,28 @@ run the store lacks is only told.
 -}
 moveGap :: (Shell es) => EventRef -> GapMove -> Eff es (Either Failure Text)
 moveGap ref move =
+    inRunOf
+        ref
+        (GapMoved ref.seq move)
+        (Fold.UnknownGap ref.seq)
+        "state resume names the open gaps as <run:seq>"
+
+{- | The event for the line @ref@ names, appended to that line's run under
+its lock, whichever run the worktree holds: refused there and logged as
+any event is. A run the store lacks is only told, with the code of
+@unknown@, what the run would refuse, and @fix@.
+-}
+inRunOf ::
+    (Shell es) =>
+    EventRef -> Event -> Fold.Refusal -> Text -> Eff es (Either Failure Text)
+inRunOf ref event unknown fix =
     onRunLog
         ( \stamp run ->
             record
                 stamp
                 run
                 (repeat Cli)
-                (Right (Plan [GapMoved ref.seq move] (const recorded)))
+                (Right (Plan [event] (const recorded)))
         )
         ref.run
         <&> \case
@@ -1433,12 +1456,9 @@ moveGap ref move =
                 Left
                     ( Failure
                         BadInput
-                        ( (refusalCode (FoldRefused (Fold.UnknownGap ref.seq))).codeText
-                            <> " "
-                            <> eventRefText ref
-                        )
+                        ((refusalCode (FoldRefused unknown)).codeText <> " " <> eventRefText ref)
                         "no such run in the run store"
-                        "state resume names the open gaps as <run:seq>"
+                        fix
                     )
             Ran result -> (.text) <$> result
 
@@ -1979,6 +1999,8 @@ recordedAs recording written = case recording of
     OnTask _ _ -> recorded written
     OnChild _ _ -> recorded written
     AddsTask _ _ -> recorded written
+    OnTasks _ _ -> recorded written
+    NeedDone _ _ -> recorded written
 
 -- | What every write that prints no advice of its own says to run next.
 nextLine :: Text
@@ -2215,6 +2237,8 @@ fileRead recording file = case recording of
     OnTask _ _ -> Right ([], "", Nothing)
     OnChild _ _ -> Right ([], "", Nothing)
     HeadOf _ _ -> Right ([], "", Nothing)
+    OnTasks _ _ -> Right ([], "", Nothing)
+    NeedDone _ _ -> Right ([], "", Nothing)
   where
     parsedFrom kind = do
         found <- traverse readable file
@@ -2322,12 +2346,13 @@ namedEvent g state worktreeHead file n = \case
     OnChild child event -> Right (event (Fold.childRefIn state child))
     AddsTask path parse -> (\event -> event (Fold.addedTo state n)) <$> parsed path parse
     HeadOf task sha -> onTask task (`TaskHead` sha)
+    OnTasks ids event -> event <$> traverse taskRef ids
+    -- Never met: the shell appends a need's done in the need's own run first ('inRunOf').
+    NeedDone ref note -> Right (UserNeededDone ref.seq note)
   where
-    onTask task event =
-        Bifunctor.bimap
-            (explain g (Fold.fuelOf state) state.at)
-            event
-            (Fold.taskRefIn state task)
+    onTask task event = event <$> taskRef task
+    taskRef =
+        Bifunctor.first (explain g (Fold.fuelOf state) state.at) . Fold.taskRefIn state
     parsed :: FilePath -> (Text -> Either Text a) -> Either Failure a
     parsed path parse = case parse <$> file of
         Just (Right event) -> Right event

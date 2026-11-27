@@ -123,6 +123,8 @@ samples =
         , EpicRefused (Epic.EpicNotOpen epic)
         , EpicRefused (Epic.EpicNotReady epic)
         , EpicRefused (Epic.UnknownEpic epic)
+        , NoActiveInstruction 7
+        , NoOpenNeed 8
         ]
     cap = case Map.elems g.caps of
         first : _ -> first

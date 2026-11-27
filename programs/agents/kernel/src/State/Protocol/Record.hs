@@ -21,15 +21,20 @@ module State.Protocol.Record (
     Args (..),
     option,
     options,
+    switched,
 ) where
 
+import Data.Aeson.Key qualified as Key
 import Data.Bifunctor qualified as Bifunctor
+import Data.Char (isSpace, ord)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Read (decimal)
+import Numeric (showHex)
 import Numeric.Natural (Natural)
 import State.Artifact (FileKind, parseUri, uriRule)
 import State.Artifact qualified as Artifact
@@ -58,7 +63,9 @@ import State.Run.Event (
     Commit (..),
     DraftPr (..),
     Event (..),
+    Instruction (..),
     Label (..),
+    Need (..),
     Picks (..),
     Requirement (..),
     RunId,
@@ -80,8 +87,11 @@ import State.Run.Gap (
     severityText,
  )
 import State.Run.Gap qualified as Gap
-import State.Run.Id (parseEventRef)
+import State.Run.IJson (IJsonRefusal (..), ijsonCap, parseIJson)
+import State.Run.Id (EventRef (..), parseEventRef)
+import State.Run.Stopgap (StopgapAt (..), parseStopgapKey, stopgapKeyRule)
 import State.Step.Artifact (
+    NonBlank,
     baseTextForms,
     parseBase,
     parseNonBlank,
@@ -124,6 +134,12 @@ data Recording
       AddsTask FilePath (Text -> Either Text (Natural -> Event))
     | -- | The task's branch is at this commit: the shell prints it as @task <id> head <sha>@.
       HeadOf TaskId Sha
+    | -- | An event naming these tasks, none to many, each by its breakdown.
+      OnTasks [TaskId] ([TaskRef] -> Event)
+    | {- | The need logged at this line is done, maybe with a note: closed in
+      the run that logged it, under that run's lock.
+      -}
+      NeedDone EventRef (Maybe NonBlank)
 
 {- | The @state record@ line for an event, its arguments' usage after it. An
 event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
@@ -241,7 +257,8 @@ data Recordable = Recordable
 -- | A flag an event takes, its value's usage, and how often it is given.
 data Flag = Flag {name :: Text, value :: Text, arity :: Arity}
 
-data Arity = Required | Optional | Repeated
+-- | A 'Switch' takes no value: its 'Flag' value is empty.
+data Arity = Required | Optional | Repeated | Switch
 
 -- | An event's arguments as its usage line shows them, positionals first.
 usageOf :: Recordable -> Text
@@ -252,6 +269,7 @@ usageOf r =
         Required -> given flag
         Optional -> "[" <> given flag <> "]"
         Repeated -> "[" <> given flag <> "]..."
+        Switch -> "[--" <> flag.name <> "]"
     given flag = "--" <> flag.name <> " " <> flag.value
 
 -- | Every event a lead records by hand, in the order a run meets them.
@@ -269,6 +287,38 @@ recordables =
         $ \a -> case a.positional of
             [] -> Left "the gap"
             gap -> Filing <$> draftOf (Text.unwords gap) a
+    , atRoot
+        $ Recordable
+            "instructed"
+            ("<" <> choices Codec.instructionKindText <> "> <verbatim>")
+            [Flag "replaces" "<seq>" Optional]
+        $ \a -> case a.positional of
+            raw : words'@(_ : _) -> do
+                kind <-
+                    maybe
+                        ( Left
+                            ( "no instruction kind "
+                                <> raw
+                                <> ": one of "
+                                <> choices Codec.instructionKindText
+                            )
+                        )
+                        Right
+                        (parseByName Codec.instructionKindText raw)
+                text <- verbatim (Text.unwords words')
+                replaces <- traverse seqOf (option "replaces" a)
+                Right (Plain (Instructed (Instruction kind text) replaces))
+            _ -> Left "the instruction's kind, then the user's words"
+    , atRoot
+        $ Recordable
+            "user_needed"
+            "<text> | <run:seq>"
+            [ Flag "blocks" "<task>,..." Optional
+            , Flag "url" "<url>" Optional
+            , Flag "done" "" Switch
+            , Flag "note" "<n>" Optional
+            ]
+        $ \a -> if switched "done" a then needDone a else needed a
     , nothing ResearchSpawned
     , nothing ResearchHandedBack
     , nothing InterviewAsked
@@ -419,6 +469,8 @@ recordables =
             ]
         -- Each pick's label and each skip's choice, as the flows draw them.
         <> [flowOutcome o | o <- drawnOutcomes]
+        -- Last: a stopgap is only for a fact no typed event above fits.
+        <> [stopgap]
   where
     flowOutcome o = outcome (Catalog.outcomeEvent o) "" [] $ \a -> case a.positional of
         [] -> Right (Plain (Took a.scope o))
@@ -515,6 +567,111 @@ draftOf words' a = do
         (Nothing, Just uri) -> Right (OfUrl uri)
         (Nothing, Nothing) -> Left (raw <> " is no <run>:<seq>, nor " <> uriRule)
 
+{- | @user_needed "<text>"@: what the user must do by hand, the tasks it
+holds up, a repeat counted once, and where to do it.
+-}
+needed :: Args -> Either Text Recording
+needed a = do
+    without ["note"] "a new need" a
+    text <- oneLine "what the user must do" (Text.unwords a.positional)
+    url <- traverse uriOf (option "url" a)
+    tasks <- traverse taskOf (foldMap (Text.splitOn ",") (options "blocks" a))
+    Right
+        ( OnTasks
+            (Set.toList (Set.fromList tasks))
+            (\refs -> UserNeeded (Need text (Set.fromList refs) url))
+        )
+  where
+    uriOf raw = maybe (Left (raw <> " is not " <> uriRule)) Right (parseUri raw)
+    taskOf raw
+        | Text.null raw = Left "a blocked task's id, as --blocks t3,t4"
+        | otherwise = Right (TaskId raw)
+
+-- | @user_needed <run:seq> --done@: the need is done, closed in the run that logged it.
+needDone :: Args -> Either Text Recording
+needDone a = do
+    without ["blocks", "url"] "a need done" a
+    note <- traverse (oneLine "the note") (option "note" a)
+    case a.positional of
+        [raw] ->
+            maybe
+                (Left (raw <> " is no need: <run:seq>, as state resume prints it"))
+                (\ref -> Right (NeedDone ref note))
+                (parseEventRef raw)
+        _ -> Left "the need, as <run:seq>"
+
+{- | A stopgap set or unset, and why: the run's, or a task's with @--task@.
+The key and the value are parsed before anything is written.
+-}
+stopgap :: Recordable
+stopgap =
+    atRoot
+        $ Recordable
+            "stopgap"
+            "<key> <json> | <key>"
+            [ Flag "unset" "" Switch
+            , Flag "task" "<id>" Optional
+            , Flag "reason" "<r>" Required
+            ]
+        $ \a -> do
+            reason <- oneLine "why, as --reason <r>" (fromMaybe "" (option "reason" a))
+            event <- case (switched "unset" a, a.positional) of
+                (False, [raw, json]) -> do
+                    key <- keyOf raw
+                    value <- Bifunctor.first ijsonRefusalText (parseIJson json)
+                    Right (\scope -> StopgapSet (StopgapAt scope key) value reason)
+                (True, [raw]) -> (\key scope -> StopgapUnset (StopgapAt scope key) reason) <$> keyOf raw
+                (False, _) -> Left "the key, then its JSON value as one argument"
+                (True, _) -> Left "the key alone: --unset takes no value"
+            Right $ case option "task" a of
+                Nothing -> Plain (event Nothing)
+                Just task -> OnTask (TaskId task) (event . Just)
+  where
+    keyOf raw =
+        maybe (Left (raw <> " is not " <> stopgapKeyRule)) Right (parseStopgapKey raw)
+
+-- | Why a stopgap's value is refused, and what to do instead.
+ijsonRefusalText :: IJsonRefusal -> Text
+ijsonRefusalText = \case
+    NotJson why -> "the value is no JSON text, or holds a lone surrogate: " <> Text.strip why
+    RepeatedKey key -> "an object repeats the key " <> Key.toText key <> ": keep one"
+    BigInteger _ ->
+        "an integer past 2^53-1, which not every JSON reader reads exactly: quote it as a string"
+    OutOfRange _ -> "a number past a double's range: quote it as a string"
+    Noncharacter c ->
+        "a key or string holds the noncharacter U+"
+            <> Text.justifyRight 4 '0' (Text.toUpper (Text.pack (showHex (ord c) "")))
+            <> ", which I-JSON forbids: drop it"
+    TopLevelNull ->
+        "the value is null: to clear the key, state record stopgap <key> --unset --reason <r>"
+    OverCap octets ->
+        "the value takes "
+            <> Text.pack (show octets)
+            <> " octets, past the cap of "
+            <> Text.pack (show ijsonCap)
+            <> ": keep a stopgap small"
+
+-- | The user's words as given, line breaks too: only blank ones are refused.
+verbatim :: Text -> Either Text Text
+verbatim words'
+    | Text.all isSpace words' = Left "the user's words"
+    | otherwise = Right words'
+
+-- | A line's seq in the run's log.
+seqOf :: Text -> Either Text Natural
+seqOf raw = case decimal raw of
+    Right (n, "") -> Right n
+    _ -> Left (raw <> " is no seq: a line's number in the log")
+
+oneLine :: Text -> Text -> Either Text NonBlank
+oneLine what = maybe (Left (what <> ", one line")) Right . parseNonBlank
+
+-- | Refuses any of these flags: they belong to another form of the event, named.
+without :: [Text] -> Text -> Args -> Either Text ()
+without names form a = case [name | name <- names, not (null (options name a))] of
+    [] -> Right ()
+    name : _ -> Left ("--" <> name <> " has no place in " <> form)
+
 -- | The reason a lead gives, its words joined back.
 because :: [Text] -> Either Text Text
 because = \case
@@ -534,3 +691,7 @@ option name a = case options name a of
 
 options :: Text -> Args -> [Text]
 options name a = [value | (key, value) <- a.options, key == name]
+
+-- | Whether a 'Switch' flag is given.
+switched :: Text -> Args -> Bool
+switched name a = not (null (options name a))

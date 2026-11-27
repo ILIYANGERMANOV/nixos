@@ -88,6 +88,8 @@ library
     State.Run.Fold
     State.Run.Gap
     State.Run.Id
+    State.Run.IJson
+    State.Run.Stopgap
     State.Show
     State.Step.Artifact
     State.Step.Build
@@ -117,6 +119,7 @@ library
     , network-uri
     , optparse-applicative
     , process
+    , scientific
     , sqlite-simple
     , text
     , time
@@ -211,7 +214,9 @@ test-suite state-test
     State.Run.FanSpec
     State.Run.FoldSpec
     State.Run.GapSpec
+    State.Run.IJsonSpec
     State.Run.RunGen
+    State.Run.StopgapSpec
     State.TableSpec
 
   build-depends:
