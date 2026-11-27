@@ -337,7 +337,9 @@ def test_a_session_start_takes_a_transcript_path_the_kernel_takes(path: str) -> 
 
 
 @pytest.mark.parametrize("path", ["//a/b", "/a//b", "/a/./b", "/a/b/."])
-def test_a_session_start_refuses_a_transcript_path_the_kernel_refuses(path: str) -> None:
+def test_a_session_start_refuses_a_transcript_path_the_kernel_refuses(
+    path: str,
+) -> None:
     with pytest.raises(ValueError):
         _ = parse_event(json.dumps(session_start_at(path)))
 
