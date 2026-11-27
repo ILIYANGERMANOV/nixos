@@ -164,12 +164,12 @@ To look inside a run, or keep what a fresh agent needs:
 | `state artifact show <run:seq>` | prints an artifact's stored bytes or its URL; exit 3 when its bytes were not stored, 4 when the line is no artifact |
 | `state note --topic <t> "<text>"` | logs `note`, context for a fresh agent |
 | `state handover --reason context\|user\|crash --summary "<s>" --next "<step>"...` | logs `handover`, after a fresh snapshot of each changed file; names each file it could not read |
-| `state epic open <name> --repo <owner/name> --branch <b>`, `state epic ready <name> --pr <url>`, `state epic merged <name>` | logs `epic_opened`, `epic_ready`, `epic_merged`: an epic opens, its final PR opens, it merges. Every other move is refused |
+| `state epic open <name> --repo <owner/name> --branch <b>`, `state epic ready <name> --pr <url>`, `state epic merged <name>` | logs `epic_opened`, `epic_ready`, `epic_merged`: an epic opens, its final PR opens, it merges. `ready` again names a replacement final PR; `merged` again succeeds, as the goal holds. Every other move is refused |
 | `state record task head <id> <sha>`, `state record task <id> base <base> --reason <r> [--deps <task>,...\|none]`, `state record task <id> delivered <pr>` | logs `task_head`, `task_base_changed` and `task`: the task's branch is at that commit, the task builds on a new base (any task of the breakdown, and on these deps when given; a cycle is refused `task_cycle`), its work is done and its PR is left open for the user |
 | `state record instructed <goal\|scope\|rule\|permission> '<words>' [--replaces <seq>]` | logs `instructed`: the user's instruction word for word; `--replaces` retires an earlier one. `goal` only when the user changes the goal. `state record --help` glosses each kind and says which row holds which fact |
 | `state record user_needed '<text>' [--blocks t3,t4] [--url <u>]`, `state record user_needed <run:seq> --done [--note <n>]` | logs `user_needed` the moment the user must do something by hand, and `user_needed_done` in the need's own run once it is done. It tells no one: still ask or hand back |
 | `state record stopgap <key> <json>\|--unset [--task <id>] --reason <r>` | logs `stopgap_set` or `stopgap_unset`: a keyed value read back later, `--unset` when it ends. Last resort: only when no typed command fits; prose context is a `note`. Never a secret. The value is I-JSON (RFC 7493), at most 1024 bytes; the kernel never reads it |
-| `state resume [<run>] [--until <seq>]` | prints the packet a fresh agent resumes from: goal, the user's instructions, worktree, next steps, owed work (with what the user must do by hand), epics, tasks with their base, PR and head, questions, decisions, gaps, notes, stopgaps, then a context map of every file, URL, child run and session with the command that loads it. With no run named, the run `STATE_SESSION` is bound to, else the worktree's. The harness's adapter sets `STATE_SESSION` for each shell. `--until <seq>` prints it as it was after that line. A line it cannot read refuses it |
+| `state resume [<run>] [--until <seq>]` | prints the packet a fresh agent resumes from: goal, the user's instructions, worktree, next steps, owed work (with what the user must do by hand), epics, tasks with their base, PR and head (a replaced breakdown's too, as they stood), questions, decisions, gaps, notes, stopgaps, then a context map of every file, URL, child run and session with the command that loads it. With no run named, the run `STATE_SESSION` is bound to, else the worktree's. The harness's adapter sets `STATE_SESSION` for each shell. `--until <seq>` prints it as it was after that line. A line it cannot read refuses it |
 
 To read every run at once, and never to decide (`state next`, `show`,
 `tasks` and `resume` read the fold):
@@ -233,7 +233,9 @@ from the same state.
   `state next`. A fresh or resumed session has lost the agents the lead had
   at work, so the hook records `Restarted` and the advice sends them again;
   a compacted session lost none and records nothing
-  ([`restartOf`][restartof]).
+  ([`restartOf`][restartof]). The hook finds the run by the session's
+  worktree, so `state init --notes <run dir>` records the same when it binds
+  a new session to the run.
 - **A context past its budget.** The context guard stops the agent
   ([what it says](GUARDRAILS.md#guards)). A subagent's caller spawns a
   fresh one; for a top-level lead, the user runs `/chief resume` in a

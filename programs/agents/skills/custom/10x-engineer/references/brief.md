@@ -32,7 +32,9 @@ git -C <clone> worktree add --track -b "<branch>" ~/.10x/<run>/worktrees/<task> 
 ```
 
 Keep the worktree until the PR merges, since fixers use it too. A retry reuses
-it. A named PR's branch that exists locally: reuse the worktree holding it
+it once the old child's run stopped: a child that died without stopping it
+takes `state stop failed <why>` in the worktree first, or the retry's `state
+init` is refused. A named PR's branch that exists locally: reuse the worktree holding it
 (`git -C <clone> worktree list`), or `worktree add <path> <branch>` if none does.
 
 ## Brief
