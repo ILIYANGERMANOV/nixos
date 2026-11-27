@@ -32,6 +32,8 @@ module State.Run.EventGen (
     fuelSet,
     genStart,
     genArtifact,
+    genSpanEnding,
+    genUsage,
     genFileArtifact,
     genAbsPath,
     genUri,
@@ -161,7 +163,10 @@ genEvent =
         , Focused <$> genTaskNo
         , Voided <$> genIJsonNatural <*> genText
         , WorktreeMoved <$> genAbsPath <*> Gen.maybe genRepo
-        , ArtifactLogged <$> genArtifact <*> Gen.maybe genIJsonNatural
+        , ArtifactLogged
+            <$> genArtifact
+            <*> Gen.maybe genIJsonNatural
+            <*> Gen.maybe (SpanId <$> genIJsonNatural)
         , Noted <$> genText <*> genText
         , HandedOver
             <$> ( Handover
@@ -177,6 +182,15 @@ genEvent =
                     <*> Gen.maybe genText
                 )
         , GapMoved <$> genIJsonNatural <*> genGapMove
+        , SpanStarted
+            <$> ( SpanStart . AgentRole
+                    <$> genText
+                    <*> Gen.mapMaybe parseHarness genText
+                    <*> genText
+                    <*> Gen.maybe (SpanId <$> genIJsonNatural)
+                    <*> Gen.maybe genText
+                )
+        , SpanEnded . SpanId <$> genIJsonNatural <*> genSpanEnding <*> genUsage
         ]
 
 -- | Any gap: its evidence of both kinds, none to a few.
@@ -207,6 +221,19 @@ genGapMove =
         , Close . Fixed <$> genUri
         , Close . WontFix <$> genOneLine
         ]
+
+-- | Each way a span ends: a hand-back of any token, or none.
+genSpanEnding :: Gen SpanEnding
+genSpanEnding = Gen.choice [WithHandback <$> Gen.enumBounded <*> genText, pure NoHandback]
+
+-- | Token counts, each reported or not, independently.
+genUsage :: Gen Usage
+genUsage =
+    Usage
+        <$> Gen.maybe genIJsonNatural
+        <*> Gen.maybe genIJsonNatural
+        <*> Gen.maybe genIJsonNatural
+        <*> Gen.maybe genIJsonNatural
 
 -- | A file artifact of any kind, or a URL's: its location's kinds only.
 genArtifact :: Gen Artifact

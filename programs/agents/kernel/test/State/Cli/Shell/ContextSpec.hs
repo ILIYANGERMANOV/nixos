@@ -13,6 +13,7 @@ import Numeric.Natural (Natural)
 import State.Artifact (
     Artifact (..),
     FileArtifact (..),
+    FileKind (Transcript),
     FileRef (..),
     absPathText,
     fileKindText,
@@ -23,20 +24,25 @@ import State.Artifact (
 import State.Cli.Shell.World (
     Ran (..),
     World (..),
+    appendSpan,
     atWorktree,
     delegating,
     draftPr,
+    editLog,
+    hook,
     logged,
     loggedEvents,
     newWorld,
     putBytes,
     putFile,
     removeFile,
+    sessionStart,
     startedIn,
     startedRun,
     state,
     stateIn,
     succeeded,
+    transcriptFile,
     untaskedChild,
  )
 import State.Protocol.Advice (Readiness (..))
@@ -46,9 +52,18 @@ import State.Run.Event (
     Note (..),
     RefusalCode (..),
     Repo (..),
+    SpanId (..),
     Start (..),
  )
-import Test.Hspec (Spec, before, describe, it, shouldBe, shouldReturn)
+import Test.Hspec (
+    Spec,
+    before,
+    describe,
+    it,
+    shouldBe,
+    shouldContain,
+    shouldReturn,
+ )
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
@@ -170,6 +185,25 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
             ran.code `shouldBe` 2
             loggedEvents world `shouldReturn` ["started"]
 
+        it "logs the span that made the file, by the seq of its span_started" $ \world -> do
+            _ <- startedRun world
+            editLog world (appendSpan "engineer")
+            putFile world "/work/report.md" "r"
+            _ <-
+                succeeded
+                    =<< state world ["artifact", "report.md", "--kind", "report", "--span", "2"]
+            spans <-
+                (\lines' -> [by | ArtifactLogged _ _ by <- map (.event) lines'])
+                    <$> logged world
+            spans `shouldBe` [Just (SpanId 2)]
+
+        it "refuses a --span that starts no span, before any write" $ \world -> do
+            _ <- startedRun world
+            putFile world "/work/report.md" "r"
+            ran <- state world ["artifact", "report.md", "--kind", "report", "--span", "1"]
+            ran.code `shouldBe` 2
+            loggedEvents world `shouldReturn` ["started"]
+
     describe "path outcomes" $ do
         it "registers a plan.done's path as a plan artifact in the outcome's append" $ \world -> do
             _ <- startedRun world
@@ -262,6 +296,49 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                                , [Nothing, Nothing, Just 2]
                                )
 
+        it
+            "registers the session's transcript by path and digest, with no bytes stored (S9)"
+            $ \world -> do
+                run <- startedRun world
+                _ <- succeeded =<< hook world "resume" sessionStart
+                putFile world transcriptFile "{}\n"
+                ran <- handover world
+                shown <- state world ["artifact", "show", run <> ":3"]
+                transcripts <- transcriptsLogged world
+                (ran.out, transcripts, shown.code)
+                    `shouldBe` (
+                                   [ "artifact "
+                                        <> run
+                                        <> ":3 transcript sha256:"
+                                        <> digest "{}\n"
+                                        <> " 3 bytes, path only"
+                                   , "handover " <> run <> ":4"
+                                   , "resume with: state resume " <> run
+                                   ]
+                               , [(Text.pack transcriptFile, digest "{}\n")]
+                               , 3
+                               )
+
+        it "registers a transcript once, the first handover it can be read at" $ \world -> do
+            _ <- startedRun world
+            _ <- succeeded =<< hook world "resume" sessionStart
+            unread <- handover world
+            putFile world transcriptFile "a\n"
+            _ <- succeeded =<< handover world
+            _ <- succeeded =<< hook world "resume" sessionStart
+            putFile world transcriptFile "a\nb\n"
+            _ <- succeeded =<< handover world
+            transcripts <- transcriptsLogged world
+            (unread.code, map snd transcripts) `shouldBe` (0, [digest "a\n"])
+
+    describe "resume" $
+        it "counts the spans the run keeps, a voided one dropped" $ \world -> do
+            _ <- startedRun world
+            editLog world (appendSpan "reviewer" . appendSpan "engineer")
+            _ <- succeeded =<< state world ["void", "2", "spawned", "in", "error"]
+            resumed <- succeeded =<< state world ["resume"]
+            resumed `shouldContain` ["  spans: 1 (briefs and hand-backs)"]
+
     describe "the run's end (R8)" $ do
         it "registers a changed file again before stop" $ \world -> do
             _ <- startedRun world
@@ -343,7 +420,8 @@ startsOf world =
 artifactsLogged :: IORef World -> IO [FilePath]
 artifactsLogged world =
     ( \lines' ->
-        [ absPathText file.ref.path | ArtifactLogged (File file) _ <- map (.event) lines'
+        [ absPathText file.ref.path
+        | ArtifactLogged (File file) _ _ <- map (.event) lines'
         ]
     )
         <$> logged world
@@ -354,8 +432,19 @@ refusedCodes world =
     (\lines' -> [note.code | Refused note <- map (.event) lines'])
         <$> logged world
 
+-- | The path and digest of each transcript artifact logged.
+transcriptsLogged :: IORef World -> IO [(Text, Text)]
+transcriptsLogged world =
+    ( \lines' ->
+        [ (Text.pack (absPathText file.ref.path), sha256Text file.ref.sha256)
+        | ArtifactLogged (File file) _ _ <- map (.event) lines'
+        , file.kind == Transcript
+        ]
+    )
+        <$> logged world
+
 -- | What each artifact logged derives from.
 artifactParents :: IORef World -> IO [Maybe Natural]
 artifactParents world =
-    (\lines' -> [from | ArtifactLogged _ from <- map (.event) lines'])
+    (\lines' -> [from | ArtifactLogged _ from _ <- map (.event) lines'])
         <$> logged world

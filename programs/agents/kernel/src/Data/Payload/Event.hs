@@ -83,7 +83,16 @@ import State.Run.Ask (
     parseQId,
     qidText,
  )
-import State.Run.Codec (eventType, handoverReasonText, reasonText, waitingText)
+import State.Run.Codec (
+    eventType,
+    handoverReasonText,
+    ijsonNatural,
+    reasonText,
+    tokenWordName,
+    usageData,
+    usageOf,
+    waitingText,
+ )
 import State.Run.Event (
     AgentId (..),
     AgentRole (..),
@@ -109,6 +118,9 @@ import State.Run.Event (
     Said (..),
     Session (..),
     Source (..),
+    SpanEnding (..),
+    SpanId (..),
+    SpanStart (..),
     Start (..),
     StateName (..),
     Stop (..),
@@ -349,7 +361,10 @@ eventData = \case
     Focused task -> "request" .= taskNoText task
     Voided n why -> "seq" .= n <> "reason" .= why
     WorktreeMoved worktree repo -> "worktree" .= absPathText worktree <> repoData repo
-    ArtifactLogged artifact from -> artifactData artifact <> foldMap ("derived_from" .=) from
+    ArtifactLogged artifact from by ->
+        artifactData artifact
+            <> foldMap ("derived_from" .=) from
+            <> foldMap (("span" .=) . (.spanSeq)) by
     Noted topic text -> "topic" .= topic <> "text" .= text
     HandedOver handover ->
         "reason" .= handoverReasonText handover.reason
@@ -366,6 +381,13 @@ eventData = \case
             Propose pr -> "pr_url" .= uriText pr
             Close (Fixed pr) -> "pr_url" .= uriText pr
             Close (WontFix why) -> "reason" .= oneLineText why
+    SpanStarted start ->
+        "agent_role" .= (\(AgentRole role) -> role) start.role
+            <> "harness" .= (\(Harness name) -> name) start.harness
+            <> "brief" .= start.brief
+            <> foldMap (("parent_span" .=) . (.spanSeq)) start.parent
+            <> foldMap ("request_model" .=) start.model
+    SpanEnded ended ending usage -> "span" .= ended.spanSeq <> endingData ending <> usageData usage
   where
     qidData qid = "qid" .= qidText qid
 
@@ -422,6 +444,7 @@ eventOf kind obj = case kind of
         ArtifactLogged
             <$> artifactOf obj
             <*> (obj .:? "derived_from" >>= traverse ijsonNatural)
+            <*> (obj .:? "span" >>= traverse spanIdOf)
     "note" -> Noted <$> obj .: "topic" <*> obj .: "text"
     "handover" ->
         HandedOver
@@ -441,6 +464,16 @@ eventOf kind obj = case kind of
     "gap_fix_proposed" -> GapMoved <$> gapSeq <*> (Propose <$> prUri)
     "gap_fixed" -> GapMoved <$> gapSeq <*> (Close . Fixed <$> prUri)
     "gap_wont_fix" -> GapMoved <$> gapSeq <*> (Close . WontFix <$> oneLineAt "reason" obj)
+    "span_started" ->
+        SpanStarted
+            <$> ( SpanStart . AgentRole
+                    <$> obj .: "agent_role"
+                    <*> (obj .: "harness" >>= named "harness" parseHarness)
+                    <*> obj .: "brief"
+                    <*> (obj .:? "parent_span" >>= traverse spanIdOf)
+                    <*> obj .:? "request_model"
+                )
+    "span_ended" -> SpanEnded <$> (obj .: "span" >>= spanIdOf) <*> endingOf obj <*> usageOf obj
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
@@ -477,16 +510,45 @@ taskStateKind = \case
     Round _ -> "round"
     Parked _ _ -> "parked"
 
-{- | An I-JSON integer (RFC 7493 s2.2): under 2^53, so every JSON reader
-reads it exactly. One at or above does not fit, so its row reads as
-'Unknown'. The bound is sound for a voided seq: @appendTo@
-("State.Run.Fold") logs a void only of a seq the run already logged, and no
-run logs 2^53 events.
+spanIdOf :: Natural -> Parser SpanId
+spanIdOf n = SpanId <$> ijsonNatural n
+
+{- | How a span ended, as OpenTelemetry's status and the kernel's token: only
+@ok@ with a token and the hand-back, or @error@ with its type and neither.
+Any other pair is refused, so a wrong row reads as 'Unknown'.
 -}
-ijsonNatural :: Natural -> Parser Natural
-ijsonNatural n
-    | n < 2 ^ (53 :: Int) = pure n
-    | otherwise = fail (show n <> " is no I-JSON integer: it is 2^53 or more")
+endingData :: SpanEnding -> Series
+endingData = \case
+    WithHandback word handback ->
+        "status_code" .= ("ok" :: Text)
+            <> "handback_token" .= tokenWordName word
+            <> "handback" .= handback
+    NoHandback ->
+        "status_code" .= ("error" :: Text) <> "error_type" .= ("no_handback" :: Text)
+
+endingOf :: Object -> Parser SpanEnding
+endingOf obj =
+    obj .: "status_code" >>= \case
+        "ok" ->
+            absent "error_type"
+                *> ( WithHandback
+                        <$> (obj .: "handback_token" >>= named "handback token" (parseByName tokenWordName))
+                        <*> obj .: "handback"
+                   )
+        "error" ->
+            absent "handback_token"
+                *> absent "handback"
+                *> ( obj .: "error_type" >>= \case
+                        "no_handback" -> pure NoHandback
+                        other -> unknownCase "error type" other
+                   )
+        other -> unknownCase "status code" other
+  where
+    absent :: Key -> Parser ()
+    absent key =
+        (obj .:? key :: Parser (Maybe Value)) >>= \case
+            Nothing -> pure ()
+            Just _ -> fail (show key <> " has no place beside this status_code")
 
 -- | A stop, and a child's hand-back that ended so: its reason and its detail.
 stopData :: Stop -> Series

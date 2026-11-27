@@ -41,7 +41,7 @@ import State.Run.EventGen (
     start,
     started,
  )
-import State.Run.Fold (RunState (..), Worker (..), replay)
+import State.Run.Fold (Origin (..), RunState (..), Worker (..), replay)
 import State.Run.RunGen (
     architectGraph,
     chiefGraph,
@@ -968,7 +968,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` ["STOP rounds review", "HANDBACK BLOCKED out of rounds: review"]
 
     describe "heldBy" $ do
-        let fixer = [Worker (AgentRole "fixer") (AgentId "a1") 7]
+        let fixer = [Worker (AgentRole "fixer") (WorkerLine (AgentId "a1")) 7]
             finished =
                 Advice
                     (Done (OutputEnd (Just (Url "https://pr/1"))))
@@ -982,7 +982,7 @@ spec = describe "State.Protocol.Advice" $ do
             "holds a hand-back to a parent while a worker is at work, naming it in house format"
             $ heldBy child fixer finished
                 `shouldBe` finished
-                    { action = AwaitWorker (AgentRole "fixer") (AgentId "a1")
+                    { action = AwaitWorker (Worker (AgentRole "fixer") (WorkerLine (AgentId "a1")) 7)
                     , leads = []
                     , facts =
                         [ "state handback: fixer a1 is still at work - its hand-back is not recorded"
@@ -997,9 +997,11 @@ spec = describe "State.Protocol.Advice" $ do
               , heldBy child fixer finished {action = Spawn (AgentRole "fixer") Nothing}
               ]
                 `shouldBe` [finished, finished, finished {action = Spawn (AgentRole "fixer") Nothing}]
-        it "awaits the worker by its role and id" $
-            deliver child (AwaitWorker (AgentRole "fixer") (AgentId "a1"))
-                `shouldBe` "AWAIT worker fixer a1"
+        it "awaits the worker by its role and id, or its span's" $
+            map
+                (\origin -> deliver child (AwaitWorker (Worker (AgentRole "fixer") origin 7)))
+                [WorkerLine (AgentId "a1"), SpanLine]
+                `shouldBe` ["AWAIT worker fixer a1", "AWAIT worker fixer span 7"]
 
     describe "ownAsk" $ do
         it "forwards a Design question to the user" $

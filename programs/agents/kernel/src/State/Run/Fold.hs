@@ -19,10 +19,12 @@ module State.Run.Fold (
     suspendedAsks,
     trace,
     Worker (..),
+    Origin (..),
     ChildId (..),
     Open (..),
     ledger,
     returnOf,
+    endSpan,
     agentEndedIn,
     forkingAt,
     childFork,
@@ -176,6 +178,8 @@ import State.Run.Event (
     RunId,
     Said (Ended),
     Shape (..),
+    SpanEnding,
+    SpanId (..),
     Start (..),
     StateName (..),
     Stop,
@@ -186,9 +190,11 @@ import State.Run.Event (
     TaskNo (..),
     TaskState (InCi, InReview, Kept, Merged, Parked),
     Url,
+    Usage,
     eventId,
     taskNoText,
     tookEvent,
+    unreported,
  )
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
@@ -246,7 +252,9 @@ data RunState = RunState
     -- ^ The workers' hand-backs the run has yet to ask as its own question, oldest first.
     , workers :: [Worker]
     {- ^ The agents spawned that have yet to return, oldest first: the run
-    hands back after them. The agent children of the run's 'ledger'.
+    hands back after them. The agent children of the run's 'ledger'. Each
+    open span is one, whatever its role: a reader that waits counts those
+    of the roles it waits on.
     -}
     , agentEnded :: Maybe AgentId
     {- ^ The agent leading this child run that stopped with no hand-back: a
@@ -306,14 +314,20 @@ since it was named: then the user confirms its plan after all.
 data OnTarget = OnTarget {target :: Target, designAsked :: Bool}
     deriving stock (Eq, Show)
 
-{- | A worker at work: its role, its id, and the seq of the line that logged
-its spawn (@worker_spawned@, the bind, the first line to name its id).
+{- | A worker at work: its role, the line that opened it, and that line's
+seq, a span's id ('SpanId').
 -}
-data Worker = Worker {role :: AgentRole, agent :: AgentId, spawnedAt :: Natural}
+data Worker = Worker {role :: AgentRole, origin :: Origin, spawnedAt :: Natural}
     deriving stock (Eq, Show)
 
--- | A child of the run: an agent it spawned, or a child run of its fan-out.
-data ChildId = AgentChild AgentId | RunChild RunId
+{- | The line that opened a worker: a @span_started@, or a @worker_spawned@
+from before spans (logged at the bind, it names the agent's id).
+-}
+data Origin = SpanLine | WorkerLine AgentId
+    deriving stock (Eq, Show)
+
+-- | A child of the run: an agent it spawned, a child run of its fan-out, or a span.
+data ChildId = AgentChild AgentId | RunChild RunId | SpanChild SpanId
     deriving stock (Eq, Show)
 
 -- | A child of the run spawned and yet to return or hand back its end, and the role that runs it.
@@ -322,14 +336,14 @@ data Open = Open {child :: ChildId, role :: AgentRole}
 
 {- | The run's open children, agents first, each oldest first: what a group's
 'State.Category.Flow.Await' waits on, those of its role. An agent's entry
-opens at its bind and closes when it returns ('WorkerReturned'). A child
+opens at its spawn and closes when it ends ('SpanEnded'). A child
 run's is its task book's: running ('Fan.running'), on a task not settled,
 as parking a task settles even a lost child. Derived, not stored: the task
 book holds each child's hand-backs, its last one says whether it runs on.
 -}
 ledger :: OpenGraph -> RunState -> [Open]
 ledger g state =
-    [Open (AgentChild worker.agent) worker.role | worker <- state.workers]
+    [Open (childOf worker) worker.role | worker <- state.workers]
         <> [ Open (RunChild childRun.child.run) group.runner
            | (scoped, fan) <- Map.toList state.fans
            , (place, Awaiting group) <- Map.toList g.groupStates
@@ -339,6 +353,9 @@ ledger g state =
            , unsettled fan childRun.child.task
            ]
   where
+    childOf worker = case worker.origin of
+        SpanLine -> SpanChild (SpanId worker.spawnedAt)
+        WorkerLine agent -> AgentChild agent
     -- An untasked child is open while it runs.
     unsettled fan = \case
         Tasked task -> not (Fan.settled fan task)
@@ -425,6 +442,8 @@ data Refusal
       UnknownGap Natural
     | -- | A status event for the gap of this seq, which closed already so.
       GapClosed Natural Closure
+    | -- | The end of a span that is not open: never started, ended already, or lost to a restart.
+      SpanNotOpen SpanId
     deriving stock (Eq, Show)
 
 {- | An id already in the log, or an answer the run holds already, is not
@@ -583,11 +602,13 @@ runStart = \case
     Focused _ -> Nothing
     Voided _ _ -> Nothing
     WorktreeMoved _ _ -> Nothing
-    ArtifactLogged _ _ -> Nothing
+    ArtifactLogged {} -> Nothing
     Noted _ _ -> Nothing
     HandedOver _ -> Nothing
     SessionStarted _ -> Nothing
     GapMoved _ _ -> Nothing
+    SpanStarted _ -> Nothing
+    SpanEnded {} -> Nothing
 
 {- | The logged event that answers an effect ('Eff'), its handler's input. A
 run's live command and its replay append the same event, so one handler
@@ -708,19 +729,26 @@ applyEvent g state n = \case
     -- The lead's session started afresh: every agent it had at work is gone.
     Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
-    WorkerSpawned role agent -> going (Right state {workers = state.workers <> [Worker role agent n]})
+    WorkerSpawned role agent ->
+        going
+            (Right state {workers = state.workers <> [Worker role (WorkerLine agent) n]})
     WorkerReturned role agent -> going (Right state {workers = returned role agent state.workers})
     AgentEnded agent -> going (Right state {agentEnded = Just agent})
     Suspended task summary -> going (handle FocusHandler g state (Suspends task summary))
     Focused task -> going (handle FocusHandler g state (Focuses task))
     -- Context facts for a fresh agent: they move nothing.
     WorktreeMoved _ _ -> going (Right state)
-    ArtifactLogged _ _ -> going (Right state)
+    ArtifactLogged {} -> going (Right state)
     Noted _ _ -> going (Right state)
     HandedOver _ -> going (Right state)
     SessionStarted _ -> going (Right state)
     -- A gap's fix may land after its run stopped or finished: taken in any state.
     GapMoved target move -> (\after -> after {refused = Nothing}) <$> gapMoved state target move
+    SpanStarted start ->
+        going (Right state {workers = state.workers <> [Worker start.role SpanLine n]})
+    SpanEnded ended _ _ -> going $ case break (isSpan ended) state.workers of
+        (before, _ : after) -> Right state {workers = before <> after}
+        (_, []) -> Left (SpanNotOpen ended)
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
@@ -823,14 +851,31 @@ agentEndedIn state child role agent = case untaskedFan state child of
                     (Event.Stop Failed ("agent " <> agent.agentIdText <> " ended with no hand-back"))
                 )
             )
-    Nothing -> returnOf state role (Just agent)
+    Nothing -> returnOf state role (Just agent) Event.NoHandback
 
--- | The event saying a worker of this role returned, when it is one at work: none for another.
-returnOf :: RunState -> AgentRole -> Maybe AgentId -> Maybe Event
-returnOf state role agent = WorkerReturned role agent <$ find (returning role agent) state.workers
+{- | The event saying a worker of this role returned, ended so, when it is
+one at work: none for another. With no id, the oldest of the role returns,
+so a span lost to a restart is never the one.
+-}
+returnOf :: RunState -> AgentRole -> Maybe AgentId -> SpanEnding -> Maybe Event
+returnOf state role agent ending = returnedAs <$> find (returning role agent) state.workers
+  where
+    returnedAs worker = case worker.origin of
+        SpanLine -> SpanEnded (SpanId worker.spawnedAt) ending unreported
+        WorkerLine _ -> WorkerReturned role agent
 
 returning :: AgentRole -> Maybe AgentId -> Worker -> Bool
-returning role agent worker = maybe (worker.role == role) (== worker.agent) agent
+returning role agent worker = maybe (worker.role == role) ((== worker.origin) . WorkerLine) agent
+
+{- | The event ending this span so, when it is open: none for one that
+ended already, never started or was lost to a restart. Every writer of a
+span's end asks here, the rule the fold refuses by ('SpanNotOpen').
+-}
+endSpan :: RunState -> SpanId -> SpanEnding -> Usage -> Maybe Event
+endSpan state ended ending usage = SpanEnded ended ending usage <$ find (isSpan ended) state.workers
+
+isSpan :: SpanId -> Worker -> Bool
+isSpan ended worker = worker.origin == SpanLine && SpanId worker.spawnedAt == ended
 
 -- | The worker's oldest hand-back gone, once the run asked it as a question.
 triagedBy :: AgentRole -> [(AgentRole, OneLine)] -> [(AgentRole, OneLine)]

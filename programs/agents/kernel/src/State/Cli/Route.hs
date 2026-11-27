@@ -100,7 +100,7 @@ stateCalls steps cwd command =
         -- It names the gap's run, whatever directory it runs in.
         MoveGap _ _ -> False
         HandOver _ -> True
-        Register _ _ -> True
+        Register {} -> True
         -- It writes nothing, whatever run it reads.
         Resume _ _ -> False
         -- It opens with the run's id, so it reads another run's state safely (#432).
@@ -142,7 +142,7 @@ reachOf = \case
     HandOver _ -> OwnRun
     ShowArtifact _ -> OwnRun
     MoveGap _ _ -> OwnRun
-    Register _ _ -> OwnRun
+    Register {} -> OwnRun
     Resume _ _ -> OwnRun
 
 {- | Why a subagent's command is denied: a @state init@ in it starts a user's

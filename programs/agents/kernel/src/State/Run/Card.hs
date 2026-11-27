@@ -26,6 +26,7 @@ import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
 import State.Run.Ask (Kind, OneLine, QId, Question (..), Reply)
 import State.Run.Event (AgentId, Asking (..), Envelope (..), StateName, TaskNo)
 import State.Run.Fold (
+    Origin (..),
     Pending (..),
     RunState (..),
     Suspension (..),
@@ -139,7 +140,12 @@ spansOf ((_, first) :| rest) = snd (foldl' step (first, Map.singleton first.focu
                 , lastWorker =
                     listToMaybe
                         ( reverse
-                            [worker.agent | worker <- after.workers, worker `notElem` before.workers]
+                            [ agent
+                            | worker <- after.workers
+                            , worker `notElem` before.workers
+                            , -- A span names no agent id to resume.
+                            WorkerLine agent <- [worker.origin]
+                            ]
                         )
                         <|> here.lastWorker
                 , pausedAt =

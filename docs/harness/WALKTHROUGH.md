@@ -90,7 +90,8 @@ state next:  SPAWN researcher background: yes
 
 - Five times, the lead recorded `gather.research` and spawned a researcher.
 - The lead wrote no spawn or hand-back line. The hooks did: their ids
-  start with `h:`.
+  start with `h:`. This run predates spans: a hook now logs
+  `span_started` and `span_ended` ([RUN-LOOP](RUN-LOOP.md#the-loop)).
 - One researcher handed back `NEEDS_DECISION`: should the ADRs be merged?
 
 ```json

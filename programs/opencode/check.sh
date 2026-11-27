@@ -18,6 +18,8 @@
 # - it remembers the background children running, a rewrite replaces the
 #   very args object OpenCode runs the call with, and queued context reaches
 #   the next system prompt once;
+# - an envelope names its tool call, and a task's names the tokens each child
+#   spent on its own model calls; a shell names the root session;
 # - a failing adapter lets the call go on, with a note saying so;
 # - no config dir OpenCode scans is writable, so it npm-installs nowhere.
 set -euo pipefail
@@ -223,8 +225,23 @@ const { Kategory } = await import(plugin);
 const hooks = await Kategory({ directory });
 const lead = "ses_lead";
 const child = "ses_child";
+const grandchild = "ses_grandchild";
 const created = (info) =>
   hooks.event({ event: { type: "session.created", properties: { info } } });
+const modelCall = (sessionID, id, input) =>
+  hooks.event({
+    event: {
+      type: "message.updated",
+      properties: {
+        info: {
+          id,
+          sessionID,
+          role: "assistant",
+          tokens: { input, output: 1, reasoning: 2, cache: { read: 3, write: 4 } },
+        },
+      },
+    },
+  });
 // The envelope a task's after-hook sent: the stub's answer ends its output.
 const sent = async (metadata) => {
   const output = { title: "", output: "ran", metadata };
@@ -234,6 +251,14 @@ const sent = async (metadata) => {
 
 await created({ id: lead });
 await created({ id: child, parentID: lead, agent: "implementer" });
+await created({ id: grandchild, parentID: child, agent: "researcher" });
+// A call's message updates as it streams: its newest tokens count, once.
+await modelCall(child, "msg_1", 1);
+await modelCall(child, "msg_1", 10);
+await modelCall(child, "msg_2", 5);
+await modelCall(grandchild, "msg_3", 100);
+const shell = { env: {} };
+await hooks["shell.env"]({ cwd: directory, sessionID: grandchild }, shell);
 const started = await sent({ background: true, sessionId: child });
 await hooks.event({ event: { type: "session.idle", properties: { sessionID: child } } });
 const ended = await sent({});
@@ -247,15 +272,31 @@ const transform = async () => {
   return output.system.map((note) => JSON.parse(note).hook);
 };
 const prompts = [await transform(), await transform()];
-console.log(JSON.stringify({ started: started.running, ended: ended.running, args, prompts }));
+console.log(
+  JSON.stringify({
+    started: started.running,
+    ended: ended.running,
+    args,
+    prompts,
+    call: ended.callID,
+    spent: ended.spent,
+    session: shell.env.STATE_SESSION,
+  }),
+);
 EOF
 BUN_BE_BUN=1 "$kategory" memory.mjs "$PWD/stub-plugin.mjs" "$project" >memory.out 2>&1 ||
   fail "the stubbed plugin did not run: $(cat memory.out)"
-# A background child runs until it goes idle, and a rewrite replaces the args.
 # A background child runs until it goes idle, a rewrite replaces the args, and
-# a session's queued context reaches its next system prompt only.
-jq -e '. == {started: ["ses_child"], ended: [], args: {filePath: "b"}, prompts: [["idle"], []]}' memory.out >/dev/null ||
-  fail "the plugin forgot a running child, kept args the hooks dropped or lost queued context: $(cat memory.out)"
+# a session's queued context reaches its next system prompt only. A task's
+# envelope names its call and what the child spent, its grandchild aside, and
+# a shell of any session names the root.
+jq -e '. == {
+  started: ["ses_child"], ended: [], args: {filePath: "b"}, prompts: [["idle"], []],
+  call: "call",
+  spent: {ses_child: {input: 15, output: 2, reasoning: 4, cache: {read: 6, write: 8}}},
+  session: "ses_lead"
+}' memory.out >/dev/null ||
+  fail "the plugin forgot a running child, kept args the hooks dropped, lost queued context, a call or the tokens spent, or named no root session: $(cat memory.out)"
 
 # An adapter that fails lets the call go on, with a note saying so.
 broken=$PWD/broken-adapter

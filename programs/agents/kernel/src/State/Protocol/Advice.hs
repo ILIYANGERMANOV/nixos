@@ -183,6 +183,7 @@ import State.Run.Fold (
     Answer (..),
     Budget (..),
     Open (..),
+    Origin (..),
     Pending (..),
     Problem (..),
     RunState (..),
@@ -329,7 +330,7 @@ data Action
     | -- | A worker's hand-back line 1, for @state ask --from@ before the run goes on.
       TriageHandback AgentRole OneLine
     | -- | A worker still at work, before the run hands back: its hand-back wakes the run.
-      AwaitWorker AgentRole AgentId
+      AwaitWorker Worker
     | -- | Tasks with an agent at work, none of them waiting on this run.
       AwaitChildren (NonEmpty TaskId)
     | {- | Tasks neither merged nor parked, each with its PR if one was
@@ -1164,7 +1165,7 @@ heldBy start workers advice = case workers of
     worker : _
         | handsBack (deliver start advice.action) ->
             advice
-                { action = AwaitWorker worker.role worker.agent
+                { action = AwaitWorker worker
                 , more = []
                 , leads = []
                 , facts = stillAtWork worker <> advice.facts
@@ -1175,7 +1176,7 @@ heldBy start workers advice = case workers of
         [ "state handback: "
             <> roleText worker.role
             <> " "
-            <> worker.agent.agentIdText
+            <> workerName worker
             <> " is still at work - its hand-back is not recorded"
         , "fix: wait for it, or state handback "
             <> roleText worker.role
@@ -1183,6 +1184,12 @@ heldBy start workers advice = case workers of
             <> tshow worker.spawnedAt
             <> " \"<why>\" for a lost one"
         ]
+
+-- | A worker as the advice names it: its agent's id, or its span's, which knows none.
+workerName :: Worker -> Text
+workerName worker = case worker.origin of
+    WorkerLine agent -> agent.agentIdText
+    SpanLine -> "span " <> tshow worker.spawnedAt
 
 {- | The advice as its first line, for this principal and interface: the only
 place either is read.
@@ -1221,7 +1228,7 @@ deliver start = \case
             <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task
             <> askFrom (runIdText child) (stopLine stop)
     TriageHandback (AgentRole role) line -> "RUN " <> askFrom role (oneLineText line)
-    AwaitWorker role agent -> await <> " worker " <> roleText role <> " " <> agent.agentIdText
+    AwaitWorker worker -> await <> " worker " <> roleText worker.role <> " " <> workerName worker
     AwaitChildren tasks -> await <> " children " <> Text.unwords (map taskIdText (toList tasks))
     -- Task ids mean nothing above this run: it hands up the PRs.
     AwaitMerge tasks
@@ -1436,7 +1443,7 @@ runOptions = \case
     Resume _ _ -> []
     TriageStop {} -> []
     TriageHandback _ _ -> []
-    AwaitWorker _ _ -> []
+    AwaitWorker _ -> []
     AwaitChildren _ -> []
     AwaitMerge _ -> []
     Stopped _ -> []

@@ -63,6 +63,7 @@ import State.Artifact (
     Blob (..),
     Contents (..),
     FileArtifact (..),
+    FileKind (Transcript),
     FileRef (..),
     Size (..),
     Snapshot (..),
@@ -165,6 +166,7 @@ import State.Protocol.Binding (
     Binding (..),
     Key (..),
     Slot,
+    SpanLink (..),
     Worktree (..),
     bindingFile,
     bindingIn,
@@ -172,12 +174,16 @@ import State.Protocol.Binding (
     ledFile,
     rebound,
     renderBinding,
+    renderSpanLink,
     resolve,
     sessionDir,
     slotOf,
     slottedAgents,
+    spanFile,
+    spanLinkIn,
     staleNote,
     stashFile,
+    stopFile,
     storeRoot,
  )
 import State.Protocol.Handback (
@@ -185,6 +191,7 @@ import State.Protocol.Handback (
     Refusal (..),
     Typed (..),
     areaNames,
+    handbackEnding,
     parseHandback,
     refusalText,
     typeDirectHandback,
@@ -201,6 +208,8 @@ import State.Protocol.Hook (
     Job (..),
     LeadSkill,
     Reply (..),
+    Spawn (..),
+    ToolCallId,
     Want (..),
     aboutKnown,
     aboutRun,
@@ -210,6 +219,7 @@ import State.Protocol.Hook (
     followedAt,
     hookName,
     hookSources,
+    initSession,
     keyOf,
     leadSkill,
     leadSkillName,
@@ -220,6 +230,10 @@ import State.Protocol.Hook (
     restartOf,
     sessionOf,
     silent,
+    spanEndedSource,
+    spanOfCall,
+    spanStartOf,
+    spanStartedSource,
     spawnedAt,
     toldOf,
     wants,
@@ -264,9 +278,12 @@ import State.Run.Event (
     RefusalCode (..),
     Repo,
     RunId,
+    Session (..),
     SessionId (..),
     Sha,
     Source (..),
+    SpanEnding (NoHandback),
+    SpanId (..),
     Start (..),
     Task (..),
     TaskId,
@@ -278,6 +295,7 @@ import State.Run.Event (
     placeOf,
     roleText,
     runIdText,
+    spansOf,
     stepTook,
     taskNoText,
  )
@@ -484,7 +502,7 @@ jobReply steps name input call job = case job of
         callerBinding call >>= \(slot, bound) ->
             replyOf job
                 <$> telling name ((.run) <$> bound) (bindAnswer steps name call bind slot bound)
-    Ends end -> replyOf job <$> agentsEnded steps call end
+    Ends end -> replyOf job <$> agentsEnded steps input call end
 
 {- | Why the bound run denies the call where it is: by the flow running
 there. Read under the log's lock, appending nothing; no git is read, as a
@@ -614,50 +632,143 @@ wantAnswer ::
     Maybe Slot ->
     Maybe Binding ->
     Eff es Text
-wantAnswer steps name input call want slot bound = case delivery want (keyOf call.agent) slot bound of
-    Stash at -> do
-        -- Stashed before the binding is read again, as the spawner's hook binds before it
-        -- reads the stash: whichever runs second sees the other's file.
-        writeWhole (stashFile at) (decodeUtf8Lenient input)
-        readBinding (bindingFile at) >>= maybe (pure "") (replayStash steps name at)
-    ToRun -> atRun steps name call want bound
+wantAnswer steps name input call want slot bound = do
+    linked <- slotSpan slot
+    case delivery want (keyOf call.agent) slot bound linked of
+        Stash at -> do
+            -- Stashed before the binding and span are read again, as the spawner's hook links
+            -- them before it reads the stash: whichever runs second sees the other's file.
+            writeWhole (stashFile at) (decodeUtf8Lenient input)
+            boundNow <- readBinding (bindingFile at)
+            relinked <- slotSpan (Just at)
+            case delivery want (keyOf call.agent) slot boundNow relinked of
+                Stash _ -> pure ""
+                ToRun -> replayStash steps name at
+        ToRun -> wantAt steps name call want bound linked
+
+{- | A want where it goes: a subagent's hand-back off the flow to the span it
+ends, every other to the caller's run.
+-}
+wantAt ::
+    (Shell es) =>
+    Steps ->
+    HookName ->
+    Call ->
+    Want ->
+    Maybe Binding ->
+    Maybe SpanLink ->
+    Eff es Text
+wantAt steps name call want bound linked = case want of
+    SpanHandback message usage ->
+        maybe (pure "") (endLinked call.session (endingOf message) usage) linked
+    Hook.HandedBack {} -> atRun steps name call want bound
+    ResumeRun _ -> atRun steps name call want bound
+    SpawnRole _ _ -> atRun steps name call want bound
+    StartsSpan _ -> atRun steps name call want bound
+
+-- | How a hand-back of this text ends its agent's span: by the token its line 1 opens with, if any.
+endingOf :: Text -> SpanEnding
+endingOf message =
+    handbackEnding (either (const Nothing) (.token) (parseHandback message)) message
+
+{- | Ends the span so, logged once ('spanEndedSource') and only while it is
+open ('Fold.endSpan'): what was recorded, or why not.
+-}
+endLinked ::
+    (Shell es) =>
+    Maybe SessionId -> SpanEnding -> Event.Usage -> SpanLink -> Eff es Text
+endLinked session spanEnding usage link =
+    either (aboutRun link.run . failureText "span") (.text) <$> onLog end link.run
+  where
+    end stamp run =
+        record
+            (Stamp stamp.ts stamp.head session)
+            run
+            [spanEndedSource link.run link.spanId]
+            ( Right
+                ( Plan
+                    (maybeToList (Fold.endSpan run.state link.spanId spanEnding usage))
+                    (\_ written -> printed (aboutRun link.run (recordedLines written)))
+                )
+            )
+
+-- | The span a slot's agent is linked to, if any.
+slotSpan :: (RoFileSystem :> es) => Maybe Slot -> Eff es (Maybe SpanLink)
+slotSpan = maybe (pure Nothing) (fmap (>>= spanLinkIn) . FileSystem.readText . spanFile)
+
+-- | The span of the caller, if it is a subagent linked to one.
+callerSpan ::
+    (Environment :> es, RoFileSystem :> es) => Call -> Eff es (Maybe SpanLink)
+callerSpan call = slotSpan =<< slotFor call.session (keyOf call.agent)
 
 -- | A bind: the caller to the run its init printed, or a worker it spawned to the caller's run.
 bindAnswer ::
     (Shell es) =>
     Steps -> HookName -> Call -> Bind -> Maybe Slot -> Maybe Binding -> Eff es Text
 bindAnswer steps name call bind slot bound = case bind of
-    BindSelf binding -> telling name (Just binding.run) ("" <$ traverse_ (bindSelf binding) slot)
-    BindChild child role -> do
+    BindSelf binding -> telling name (Just binding.run) $ do
+        traverse_ (bindSelf binding) slot
+        sessionBound call binding.run
+    BindSpawned child toolCall worker -> do
         -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
         spawner <- boundOrHere call bound
         worktree <- traverse standing spawner
         childSlot <- slotFor call.session (AgentKey child)
         case (worktree, childSlot) of
             (Just (binding, Standing), Just at) -> telling name (Just binding.run) $ do
-                writeBinding (bindingFile at) binding
-                -- Logged before a stashed hand-back replays, so that hand-back returns it.
-                logged <-
-                    if Hook.tracked steps role
-                        then workerSpawned binding call.session child role
-                        else pure ""
-                stashed <- replayStash steps name at binding
+                -- Linked, then bound, before a stashed hand-back or stop replays, so it ends the span.
+                linked <- maybe (pure "") (linkSpan binding.run at) toolCall
+                traverse_ (\_ -> writeBinding (bindingFile at) binding) worker
+                stashed <- replayStash steps name at
                 pure
                     ( aboutRun
                         binding.run
-                        ( "state: "
-                            <> roleText role
-                            <> " "
-                            <> child.agentIdText
-                            <> " works in this run\n"
-                            <> logged
+                        ( foldMap
+                            ( \role ->
+                                "state: "
+                                    <> roleText role
+                                    <> " "
+                                    <> child.agentIdText
+                                    <> " works in this run\n"
+                            )
+                            worker
                         )
+                        <> linked
                         <> stashed
                     )
             -- A removed worktree's run is done: it takes no worker.
             (Just (_, Removed), _) -> pure ""
             (Nothing, _) -> pure ""
             (_, Nothing) -> pure ""
+
+{- | The subagent's span, the one this call started in the run, linked in its
+slot; nothing when the call started none. Its failure to read is told.
+-}
+linkSpan :: (Shell es) => RunId -> Slot -> ToolCallId -> Eff es Text
+linkSpan run at toolCall =
+    onLog (\_ loaded -> ([], Right (spanOfCall run toolCall loaded.logged))) run >>= \case
+        Right (Just started) ->
+            "" <$ writeWhole (spanFile at) (renderSpanLink (SpanLink run started) <> "\n")
+        Right Nothing -> pure ""
+        Left failure -> pure (aboutRun run (failureText "bind" failure))
+
+{- | The caller's session started on the run its @state init@ bound it to,
+logged once, by the session's own facts ('initSession'). Its failure is told.
+-}
+sessionBound :: (Shell es) => Call -> RunId -> Eff es Text
+sessionBound call run = either (failureText "bind") (const "") <$> onLog start run
+  where
+    start stamp loaded =
+        record
+            (Stamp stamp.ts stamp.head call.session)
+            loaded
+            [Cli]
+            ( Right
+                ( Plan
+                    (SessionStarted <$> maybeToList (initSession call loaded.logged))
+                    (\_ _ -> mempty)
+                )
+            )
 
 -- | The agent bound to the run its own init printed, and marked its lead ('ledFile').
 bindSelf :: (WrFileSystem :> es) => Binding -> Slot -> Eff es ()
@@ -672,18 +783,23 @@ boundOrHere call = \case
     Nothing ->
         Monad.join <$> traverse runHere (resolve (keyOf call.agent) Nothing call.cwd)
 
-{- | What an agent's stop ends: the stopped agent's child run ('agentEnded'),
-and the stopper's children not running on. A stopper waits on its foreground
-children, so a child of its run absent from the agents running ended unseen,
-as a lead's stop of its child tells nothing at the child. Each is told only
-when its log refuses or does not read.
+{- | What an agent's stop ends: the stopped agent's span, unless its
+hand-back ended it, and its child run ('agentEnded'), and the stopper's
+children not running on. A stopper waits on its foreground children, so a
+child of its run absent from the agents running ended unseen, as a lead's
+stop of its child tells nothing at the child. Each is told only when its log
+refuses or does not read.
 -}
-agentsEnded :: (Shell es) => Steps -> Call -> End -> Eff es Text
-agentsEnded steps call = \case
-    StopsAgent agent -> agentEnded steps call.session (const True) agent
-    Stops key running -> do
+agentsEnded ::
+    (Shell es) => Steps -> BS.ByteString -> Call -> End -> Eff es Text
+agentsEnded steps input call = \case
+    StopsAgent agent -> stopped (const True) agent
+    Stops key running usage -> do
         own <- case key of
-            AgentKey agent -> agentEnded steps call.session (const True) agent
+            AgentKey agent ->
+                (<>)
+                    <$> ownStop agent usage
+                    <*> agentEnded steps call.session (const True) agent
             Main -> pure ""
         stopper <- boundOrHere call . snd =<< callerBinding call
         unseen <- case stopper of
@@ -691,9 +807,36 @@ agentsEnded steps call = \case
             Just binding -> do
                 agents <- sessionAgents call.session
                 traverse
-                    (agentEnded steps call.session (== binding.run))
+                    (stopped (== binding.run))
                     [agent | agent <- agents, agent `notElem` running, AgentKey agent /= key]
         pure (own <> Text.concat unseen)
+  where
+    stopped under agent =
+        (<>)
+            <$> spanStopped call.session under agent
+            <*> agentEnded steps call.session under agent
+    -- A foreground agent stops before its spawner's hook links its span: its stop waits for it.
+    ownStop agent usage =
+        slotFor call.session (AgentKey agent) >>= \case
+            Nothing -> pure ""
+            Just at ->
+                slotSpan (Just at) >>= \case
+                    Just link -> endLinked call.session NoHandback usage link
+                    Nothing -> do
+                        writeWhole (stopFile at) (decodeUtf8Lenient input)
+                        slotSpan (Just at) >>= maybe (pure "") (const (replayStash steps StopHook at))
+
+{- | The agent's span ended with no hand-back, when it is linked to one in a
+run this takes and still open. Seen from another agent's hook, its tokens are
+unknown.
+-}
+spanStopped ::
+    (Shell es) =>
+    Maybe SessionId -> (RunId -> Bool) -> AgentId -> Eff es Text
+spanStopped session under agent =
+    (slotSpan =<< slotFor session (AgentKey agent)) >>= \case
+        Just link | under link.run -> endLinked session NoHandback Event.unreported link
+        _ -> pure ""
 
 -- | The subagents with a slot in the session's bindings.
 sessionAgents ::
@@ -763,45 +906,51 @@ handsBackNow steps stamp run = handsBack (deliver settled.state.start advice.act
   where
     (_, settled, _, advice) = settledAdvice steps (Facts Nothing Nothing []) stamp run
 
-{- | The worker's spawn, appended to its spawner's log under that run's lock
-by an id hashed from the run and the worker, so a bind seen twice appends it
-once: the run hands back only once the worker returned. A refusal is told.
+{- | The hand-back, then the stop, stashed in a subagent's slot, recorded
+where its binding and span are now, each then removed; nothing when none is.
+Recorded twice when two hooks replay them at once, each is logged once
+('loggedAlready', 'spanEndedSource'), and a stop after its hand-back ends no
+span.
 -}
-workerSpawned ::
-    (Shell es) => Binding -> Maybe SessionId -> AgentId -> AgentRole -> Eff es Text
-workerSpawned binding session child role = either (failureText "bind") (const "") <$> onLog append binding.run
-  where
-    source = Hook (digestOf [runIdText binding.run, child.agentIdText, "worker_spawned"])
-    append stamp run =
-        record
-            (Stamp stamp.ts stamp.head session)
-            run
-            [source]
-            (Right (Plan [WorkerSpawned role child] (\_ _ -> mempty)))
+replayStash :: (Shell es) => Steps -> HookName -> Slot -> Eff es Text
+replayStash steps name slot = do
+    bound <- readBinding (bindingFile slot)
+    linked <- slotSpan (Just slot)
+    let told what file =
+            aboutKnown
+                (((.run) <$> bound) <|> ((.run) <$> linked))
+                ( "state: the "
+                    <> what
+                    <> " stashed at "
+                    <> Text.pack file
+                    <> " is no "
+                    <> what
+                    <> "; removed\n"
+                )
+    handedBack <- replayFile (stashFile slot) (told "hand-back") $ \event -> case wants steps HandbackHook event of
+        Right (Just (Asks want)) -> Just (wantAt steps name (callOf event) want bound linked)
+        _ -> Nothing
+    stoppedSo <- replayFile (stopFile slot) (told "stop") $ \case
+        Hook.AgentStop call _ usage -> Just (maybe (pure "") (endLinked call.session NoHandback usage) linked)
+        _ -> Nothing
+    pure (handedBack <> stoppedSo)
 
-{- | The hand-back stashed in a worker's slot, recorded in the run it is bound
-to now, then removed; nothing when none is. Recorded twice when both hooks
-replay it at once, it is logged once ('loggedAlready').
--}
-replayStash :: (Shell es) => Steps -> HookName -> Slot -> Binding -> Eff es Text
-replayStash steps name slot binding =
-    FileSystem.readText (stashFile slot) >>= \case
+-- | The hook event stashed in this file, recorded by this act, then removed; one the act takes not is told.
+replayFile ::
+    (Shell es) =>
+    FilePath ->
+    (FilePath -> Text) ->
+    (Hook.HookEvent -> Maybe (Eff es Text)) ->
+    Eff es Text
+replayFile file told act =
+    FileSystem.readText file >>= \case
         Nothing -> pure ""
         Just stash -> do
-            said <- case parseHookEvent (LBS.fromStrict (encodeUtf8 stash)) of
-                Right event
-                    | Right (Just (Asks want)) <- wants steps HandbackHook event ->
-                        atRun steps name (callOf event) want (Just binding)
-                _ ->
-                    pure
-                        ( aboutRun
-                            binding.run
-                            ( "state: the hand-back stashed at "
-                                <> Text.pack (stashFile slot)
-                                <> " is no hand-back of a step; removed\n"
-                            )
-                        )
-            FileSystem.removeFile (stashFile slot)
+            said <- case act
+                =<< either (const Nothing) Just (parseHookEvent (LBS.fromStrict (encodeUtf8 stash))) of
+                Just recording -> recording
+                Nothing -> pure (told file)
+            FileSystem.removeFile file
             pure said
 
 -- | What the caller's run says to a want, in the worktree it resolves to; nothing when it has none.
@@ -916,8 +1065,8 @@ runAnswer steps call bound found want = case want of
         onHook facts.pr $ \stamp run -> case commit
             stamp
             run
-            ( (Cli, SessionStarted (sessionOf opened))
-                : [(Cli, event) | event <- maybeToList (restartOf opened.source run.state)]
+            ( (Cli, SessionStarted (sessionOf call opened))
+                : [(Cli, event) | event <- maybeToList (restartOf steps opened.source run.state)]
             ) of
             Left refusal ->
                 ( []
@@ -930,66 +1079,102 @@ runAnswer steps call bound found want = case want of
                  in ( map (.envelope) restart <> new
                     , recordedLines restart <> showRun steps after.g after.state <> out.text
                     )
-    SpawnRole spawned -> do
+    SpawnRole spawned spawn -> do
+        parent <- callerSpan call
         (facts, told) <- readFacts
         onHook facts.pr $ \stamp run ->
             -- At a choice, the spawn of an action's worker opens a child; elsewhere it records nothing.
-            case commit
-                stamp
-                run
-                [ (Cli, event)
-                | Just role <- [spawned]
-                , Just event <- [spawnedAt steps run.state.at role]
-                ] of
-                Left refusal ->
-                    ( []
-                    , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
-                    )
-                Right (opened, after) ->
-                    let (new, action, out) = adviceOf steps facts told Nothing stamp after
-                        warning = case (action, spawned) of
-                            (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
-                            _ -> Nothing
-                        -- A recorded spawn tells its child's budget instead: parallel spawns would each repeat the advice.
-                        adviceText = case opened of
-                            [] -> out.text
-                            _ : _ -> ""
-                     in ( map (.envelope) opened <> new
-                        , (childrenTold after.g (const (printed . recordedLines)) after.state opened).text
-                            <> adviceText
-                            <> foldMap (<> "\n") warning
+            let opening =
+                    [ (Cli, event)
+                    | Just role <- [spawned]
+                    , Just event <- [spawnedAt steps run.state.at role]
+                    ]
+             in case commit stamp run (opening <> spanStarted run parent spawn) of
+                    Left refusal ->
+                        ( []
+                        , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
                         )
-    Hook.HandedBack message agent role ->
+                    Right (written, after) ->
+                        let opened = take (length opening) written
+                            (new, action, out) = adviceOf steps facts told Nothing stamp after
+                            warning = case (action, spawned) of
+                                (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
+                                _ -> Nothing
+                            -- A recorded spawn tells its child's budget instead: parallel spawns would each repeat the advice.
+                            adviceText = case opened of
+                                [] -> out.text
+                                _ : _ -> ""
+                         in ( map (.envelope) written <> new
+                            , (childrenTold after.g (const (printed . recordedLines)) after.state opened).text
+                                <> adviceText
+                                <> foldMap (<> "\n") warning
+                            )
+    StartsSpan spawn -> do
+        parent <- callerSpan call
+        -- A subagent's spawn is no step of the flow, so GitHub is not asked.
+        onHook Nothing $ \stamp run -> case commit stamp run (spanStarted run parent (Just spawn)) of
+            Left refusal ->
+                ( []
+                , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
+                )
+            Right (written, _) -> (map (.envelope) written, "")
+    Hook.HandedBack message agent role usage -> do
+        linked <- callerSpan call
         runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message
                 said = either (failureText "handback") (.text)
-                told =
-                    record stamp run sources
-                        . unlogged
-                        . fmap (\plan -> plan {say = childrenTold run.g plan.say})
+                -- Its span ends with its hand-back, in one write: a refused hand-back ends none.
+                ended =
+                    [ (spanEndedSource run.state.run link.spanId, end)
+                    | Just link <- [linked]
+                    , link.run == run.state.run
+                    , Just end <- [Fold.endSpan run.state link.spanId (endingOf message) usage]
+                    ]
+                told plan =
+                    record
+                        stamp
+                        run
+                        (take (length plan.events) sources <> map fst ended)
+                        ( Right
+                            plan {events = plan.events <> map snd ended, say = childrenTold run.g plan.say}
+                        )
              in case ( loggedAlready run.logged sources
                      , followedAt steps run.g run.state role
-                     , Fold.returnOf run.state role agent.agentId
+                     , -- A worker beside the advice returns whatever its report says: one with no token reads as ready.
+                       Fold.returnOf run.state role agent.agentId (endingOf message)
                      ) of
                     (True, _, _) -> ([], "")
                     (False, True, _) ->
-                        said
-                            <$> told
-                                ( handbackPlan
-                                    steps
-                                    stamp.head
-                                    run.g
-                                    run.state
-                                    (nextAsk run)
-                                    role
-                                    agent.agentId
-                                    Nothing
-                                    message
-                                )
-                    -- A worker spawned beside the advice returns, its report its spawner's alone.
-                    (False, False, Just back) -> said <$> told (Right (Plan [back] (\_ _ -> mempty)))
-                    (False, False, Nothing) -> ([], "")
+                        either
+                            (\failure -> ([], failureText "handback" failure))
+                            (fmap said . told)
+                            ( handbackPlan
+                                steps
+                                stamp.head
+                                run.g
+                                run.state
+                                (nextAsk run)
+                                role
+                                agent.agentId
+                                Nothing
+                                message
+                            )
+                    -- A worker beside the advice returns, its report its spawner's alone: silent.
+                    (False, False, back) -> said <$> told (Plan (maybeToList back) (\_ _ -> mempty))
+    -- Recorded at its span alone ('wantAt'): no run's flow reads it.
+    SpanHandback _ _ -> pure ""
   where
+    -- The caller's own span is the parent only in this run: a span names none of another.
+    spanStarted run parent spawn =
+        [ ( spanStartedSource run.state.run started.toolCall
+          , SpanStarted (spanStartOf call.harness parentIn started)
+          )
+        | Just started <- [spawn]
+        ]
+      where
+        parentIn = case parent of
+            Just link | link.run == run.state.run -> Just link.spanId
+            _ -> Nothing
     -- A run that is over, bound to another branch or whose PR is merged or closed is
     -- silent too; the hook's session stamps its lines, and its text names the run.
     onHook pr act = do
@@ -1101,7 +1286,7 @@ execute steps = \case
     HandOver handover -> handOver handover
     ShowArtifact ref -> showArtifact ref
     MoveGap ref move -> moveGap ref move
-    Register location from -> registerArtifact location from
+    Register location from by -> registerArtifact location from by
     Dump run -> dump run
     Resume run k -> resumePacket run k
     Next -> do
@@ -1260,14 +1445,18 @@ readable (path, contents) = case contents of
 pathText :: AbsPath -> Text
 pathText = Text.pack . absPathText
 
-{- | @state artifact <path|url> --kind <k> [--from <seq>]@: the worktree's
-run registers a file or a URL. A file is read once, before the lock, and its
-digest and blob come from those bytes, in the append that logs it; a file
-that may not be read logs a refusal.
+{- | @state artifact <path|url> --kind <k> [--from <seq>] [--span <seq>]@:
+the worktree's run registers a file or a URL. A file is read once, before
+the lock, and its digest and blob come from those bytes, in the append that
+logs it; a file that may not be read logs a refusal.
 -}
 registerArtifact ::
-    (Shell es) => Location FilePath -> Maybe Natural -> Eff es (Either Failure Text)
-registerArtifact location from = do
+    (Shell es) =>
+    Location FilePath ->
+    Maybe Natural ->
+    Maybe SpanId ->
+    Eff es (Either Failure Text)
+registerArtifact location from by = do
     named <- traverse readAt location
     fmap (.text) . orNoRun
         <$> appendingOn
@@ -1278,18 +1467,26 @@ registerArtifact location from = do
                         stamp
                         run
                         (repeat Cli)
-                        (traverse readable named >>= \found -> unlogged (registerPlan run found from))
+                        (traverse readable named >>= \found -> unlogged (registerPlan run found from by))
                     )
             )
 
--- | The artifact a location read gives, derived from the run's artifact of this seq, if any.
+{- | The artifact a location read gives, derived from the run's artifact of
+this seq and made by the agent of this span, if any. A span is any the run
+started, open or ended: a lead often registers a report after its hand-back.
+-}
 registerPlan ::
-    Loaded -> Location (AbsPath, ByteString) -> Maybe Natural -> Either Failure Plan
-registerPlan run found from = do
+    Loaded ->
+    Location (AbsPath, ByteString) ->
+    Maybe Natural ->
+    Maybe SpanId ->
+    Either Failure Plan
+registerPlan run found from by = do
     for_ from derivable
+    for_ by spanned
     Right
         ( Plan
-            [ArtifactLogged artifact from]
+            [ArtifactLogged artifact from by]
             ( \_ written ->
                 printed
                     ( foldMap
@@ -1316,6 +1513,21 @@ registerPlan run found from = do
                     ("--from " <> tshow n)
                     ("line " <> tshow n <> " of run " <> runIdText run.state.run <> " is no artifact")
                     "state artifact <path|url> --kind <k> --from <the seq state artifact printed>"
+                )
+    spanned span'
+        | span' `elem` map fst (spansOf run.logged) = Right ()
+        | otherwise =
+            Left
+                ( Failure
+                    BadInput
+                    ("--span " <> tshow span'.spanSeq)
+                    ( "line "
+                        <> tshow span'.spanSeq
+                        <> " of run "
+                        <> runIdText run.state.run
+                        <> " starts no span"
+                    )
+                    "state artifact <path|url> --kind <k> --span <the seq of the agent's span_started>"
                 )
 
 {- | @artifact 7f3a:14 plan sha256:3b9c... 14212 bytes, content stored@, or
@@ -1346,38 +1558,76 @@ withBlobs :: [ByteString] -> ([Envelope], a) -> (Appending, a)
 withBlobs bytesRead (new, result) =
     (Appending new (blobsOf bytesRead (map snd (artifactsOf new))), result)
 
-{- | The newest file of each path the worktree's run registered, of a kind
-that keeps its bytes, each read now: before the lock, as GitHub is. A run
-that does not load reads none: the command's own load tells why.
+{- | What the one re-snapshot step reads before the lock: the files the run
+registered, to register again, and the session transcripts it has yet to
+register once.
 -}
-rereadable :: (Shell es) => Eff es [(FileArtifact, Contents)]
+data Reread = Reread
+    { files :: [(FileArtifact, Contents)]
+    , transcripts :: [(AbsPath, Contents)]
+    }
+
+{- | The newest file of each path the worktree's run registered, of a kind
+that keeps its bytes, and each 'unregistered' transcript, each read now:
+before the lock, as GitHub is. A run that does not load reads none: the
+command's own load tells why.
+-}
+rereadable :: (Shell es) => Eff es Reread
 rereadable =
     onRun
         ( \_ run ->
             ( []
             , Right
-                [ file
-                | (_, file) <- Map.elems (newest (artifactsOf run.logged))
-                , keepsContent file.kind
-                ]
+                ( [ file
+                  | (_, file) <- Map.elems (newest (artifactsOf run.logged))
+                  , keepsContent file.kind
+                  ]
+                , unregistered run
+                )
             )
         )
         >>= \case
-            Ran (Right files) ->
-                traverse (\file -> (file,) <$> FileSystem.readContents file.ref.path) files
-            Ran (Left _) -> pure []
-            NoRun -> pure []
+            Ran (Right (files, transcripts)) ->
+                Reread
+                    <$> traverse (\file -> (file,) <$> FileSystem.readContents file.ref.path) files
+                    <*> traverse (\path -> (path,) <$> FileSystem.readContents path) transcripts
+            Ran (Left _) -> pure (Reread [] [])
+            NoRun -> pure (Reread [] [])
+
+{- | The transcripts the run's sessions name that no artifact of the run
+names yet: each is registered once, the first time it is read (S9).
+-}
+unregistered :: Loaded -> [AbsPath]
+unregistered run =
+    Set.toList
+        ( Set.fromList
+            [ path
+            | line <- toList run.logged
+            , SessionStarted session <- [line.event]
+            , Just path <- [session.transcript]
+            , Map.notMember path (newest (artifactsOf run.logged))
+            ]
+        )
 
 {- | The files to register again, from those read before the lock: each whose
 bytes changed, derived from the newest artifact of its path, and the paths
-that could not be read, skipped. A file registered again since it was read
-waits for the next handover or end (#552 ruling 5).
+that could not be read, skipped; and each transcript read that is still
+'unregistered', by path and digest alone. A file registered again since it
+was read waits for the next handover or end (#552 ruling 5). A transcript
+not yet readable is no skip: it waits for the next one.
 -}
-resnapshotOf :: Loaded -> [(FileArtifact, Contents)] -> ([Event], [AbsPath])
+resnapshotOf :: Loaded -> Reread -> ([Event], [AbsPath])
 resnapshotOf run again =
-    ( [ ArtifactLogged (File fresh.file) (fst <$> Map.lookup fresh.file.ref.path latest)
+    ( [ ArtifactLogged
+            (File fresh.file)
+            (fst <$> Map.lookup fresh.file.ref.path latest)
+            Nothing
       | fresh <- snapshots
       ]
+        <> [ ArtifactLogged (File (register Transcript path bytes).file) Nothing Nothing
+           | (path, Readable bytes) <- again.transcripts
+           , path `elem` unregistered run
+           ]
     , skipped
     )
   where
@@ -1385,7 +1635,7 @@ resnapshotOf run again =
     (snapshots, skipped) =
         resnapshot
             [ (file, contents)
-            | (file, contents) <- again
+            | (file, contents) <- again.files
             , (snd <$> Map.lookup file.ref.path latest) == Just file
             ]
 
@@ -1397,7 +1647,7 @@ readBytes files = [bytes | (_, Readable bytes) <- files]
 'resnapshotting' first, from the files read before the lock.
 -}
 ending ::
-    [(FileArtifact, Contents)] ->
+    Reread ->
     [ByteString] ->
     Stamp ->
     Loaded ->
@@ -1405,22 +1655,22 @@ ending ::
     (Appending, Either Failure Output)
 ending again bytesRead stamp run plan =
     withBlobs
-        (bytesRead <> readBytes again)
+        (bytesRead <> readBytes again.files)
         (record stamp run (repeat Cli) (resnapshotted <$> plan))
   where
     resnapshotted planned =
         let (events, skipped) = resnapshotting stamp again run planned.events
          in Plan events (\after written -> printed skipped <> planned.say after written)
 
-{- | The events a command writes, the run's changed files registered again
-ahead of them when they hand the run over or end it, as it leaves its flow
+{- | The events a command writes, the run's changed files registered again,
+and its sessions' new transcripts registered, ahead of them when they hand the run over or end it, as it leaves its flow
 or stops (R8); and the lines naming the files skipped. 'ArtifactLogged'
 moves no run, so whether the events end it does not depend on them. Only
 the writes an agent asks for run it: @state next@, a hook and 'handedUp'
 read no file, so a flow they end re-snapshots none (a known gap).
 -}
 resnapshotting ::
-    Stamp -> [(FileArtifact, Contents)] -> Loaded -> [Event] -> ([Event], Text)
+    Stamp -> Reread -> Loaded -> [Event] -> ([Event], Text)
 resnapshotting stamp again run events
     | handsOver || ends =
         let (snapshots, skipped) = resnapshotOf run again
@@ -1473,7 +1723,7 @@ showArtifact ref =
             Left unread -> pure (Left (unreadRefusal ref.run unread))
             Right NoSuchRun -> pure (Left (noArtifact "no such run in the run store"))
             Right NoSuchLine -> pure (Left (noArtifact "the run has no such line"))
-            Right (StoredLine line) -> case [artifact | ArtifactLogged artifact _ <- [line.event]] of
+            Right (StoredLine line) -> case [artifact | ArtifactLogged artifact _ _ <- [line.event]] of
                 [] -> pure (Left (noArtifact ("it is a " <> eventType line.event <> " line")))
                 artifact : _ -> case artifact of
                     Url _ uri -> pure (Right (uriText uri <> "\n"))
@@ -1907,7 +2157,7 @@ fileRead recording file = case recording of
             )
             (decodeUtf8' bytes)
     registering kind found =
-        [ ArtifactLogged (File (register kind path bytes).file) Nothing
+        [ ArtifactLogged (File (register kind path bytes).file) Nothing Nothing
         | (path, bytes) <- toList found
         ]
 
@@ -2020,6 +2270,7 @@ handbackPlan steps worktreeHead g state next role agent child message = do
                 next
                 role
                 agent
+                message
                 parsed {Handback.run = run}
             )
     let from = maybe (roleText role) runIdText run
@@ -2135,7 +2386,7 @@ settledAdvice steps facts stamp run =
     , unsynced
     , Advice.heldBy
         settled.state.start
-        settled.state.workers
+        (Hook.atWork steps settled.state)
         (advise steps settled.g facts settled.state)
     )
   where

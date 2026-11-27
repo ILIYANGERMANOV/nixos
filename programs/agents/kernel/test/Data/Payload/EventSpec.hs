@@ -85,6 +85,7 @@ import State.Run.Codec (
     flowText,
     handoverReasonText,
     reasonText,
+    tokenWordName,
     topicText,
     waitingText,
  )
@@ -122,6 +123,9 @@ import State.Run.Event (
     Sha (..),
     Shape (..),
     Source (..),
+    SpanEnding (..),
+    SpanId (..),
+    SpanStart (..),
     Start (..),
     StateName (..),
     Stop (..),
@@ -131,7 +135,9 @@ import State.Run.Event (
     TaskId (..),
     TaskNo (..),
     TaskState (..),
+    TokenWord (..),
     Url (..),
+    Usage (..),
     Waiting (..),
     stepTook,
     tookIn,
@@ -142,6 +148,7 @@ import State.Run.EventGen (
     genEnvelope,
     genTaskState,
     genText,
+    genUsage,
     line,
     oneLine,
     replacing,
@@ -307,6 +314,51 @@ spec = describe "Data.Payload.Event" $ do
 
     it "makes no runs row of an event past the first" $
         runRow refused `shouldBe` Nothing
+
+    describe "span_ended" $ do
+        let ended =
+                eventRow
+                    (line 2 (SpanEnded (SpanId 1) NoHandback (Usage Nothing Nothing Nothing Nothing)))
+            reads' payload =
+                either
+                    (const False)
+                    (const True)
+                    (known (decodeRow shipped ended {Row.payload = payload}))
+        it
+            "reads only ok with a token and its hand-back, or error with its type and neither"
+            $ map
+                reads'
+                [ "{\"span\":1,\"status_code\":\"ok\",\"handback_token\":\"failed\",\"handback\":\"FAILED x\"}"
+                , "{\"span\":1,\"status_code\":\"error\",\"error_type\":\"no_handback\"}"
+                , "{\"span\":1,\"status_code\":\"ok\",\"handback\":\"READY\"}"
+                , "{\"span\":1,\"status_code\":\"ok\",\"handback_token\":\"ready\"}"
+                , "{\"span\":1,\"status_code\":\"ok\",\"handback_token\":\"ready\",\"handback\":\"READY\",\"error_type\":\"no_handback\"}"
+                , "{\"span\":1,\"status_code\":\"error\",\"error_type\":\"no_handback\",\"handback_token\":\"ready\"}"
+                , "{\"span\":1,\"status_code\":\"error\",\"error_type\":\"no_handback\",\"handback\":\"READY\"}"
+                , "{\"span\":1,\"status_code\":\"error\"}"
+                , "{\"span\":1,\"status_code\":\"unset\"}"
+                , "{\"span\":1,\"status_code\":\"ok\",\"handback_token\":\"READY\",\"handback\":\"READY\"}"
+                ]
+                `shouldBe` [True, True, False, False, False, False, False, False, False, False]
+
+        it "a_count_not_reported_is_left_out_never_0" . hedgehog $ do
+            usage <- forAll genUsage
+            let counts =
+                    [ key
+                    | (key, Just _) <-
+                        [ ("input_tokens", usage.inputTokens)
+                        , ("output_tokens", usage.outputTokens)
+                        , ("cache_read_input_tokens", usage.cacheReadTokens)
+                        , ("cache_write_input_tokens", usage.cacheWriteTokens)
+                        ]
+                    ]
+            case payloadValue (eventRow (line 2 (SpanEnded (SpanId 1) NoHandback usage))).payload of
+                Object obj ->
+                    Set.fromList (map Key.toText (KeyMap.keys obj))
+                        === Set.fromList (["span", "status_code", "error_type"] <> counts)
+                other -> do
+                    annotate ("a payload that is no object: " <> show other)
+                    failure
 
     it "reads a row of a newer payload version as unknown" $
         decodeRow shipped (eventRow refused) {Row.schemaVersion = 2}
@@ -641,6 +693,7 @@ enumSpellings =
         , map handoverReasonText [minBound ..]
         , map gapKindText [minBound ..]
         , map severityText [minBound ..]
+        , map tokenWordName [minBound ..]
         ]
 
 -- | Lowercase snake_case: words of @a-z@ and @0-9@, joined by single underscores.
@@ -809,7 +862,12 @@ eventGoldens =
             )
         )
         (Just 4)
-        :| [ArtifactLogged (Registry.Url Pr (uri "https://github.com/o/r/pull/7")) Nothing]
+        (Just (SpanId 9))
+        :| [ ArtifactLogged
+                (Registry.Url Pr (uri "https://github.com/o/r/pull/7"))
+                Nothing
+                Nothing
+           ]
     , Noted "decisions" "the cap stays at 1 MiB" :| []
     , HandedOver
         (Handover Context "slice A built" ("build slice B" :| ["open the PR"]))
@@ -822,6 +880,33 @@ eventGoldens =
             (Just "opus")
         )
         :| [SessionStarted (Session (Harness "opencode") Nothing "resume" Nothing)]
+    , SpanStarted
+        ( SpanStart
+            implementer
+            (Harness "claude-code")
+            "Build slice A.\nFuel: Max."
+            (Just (SpanId 3))
+            (Just "opus")
+        )
+        :| [ SpanStarted
+                ( SpanStart
+                    (AgentRole "Explore")
+                    (Harness "opencode")
+                    "find the codec"
+                    Nothing
+                    Nothing
+                )
+           ]
+    , SpanEnded
+        (SpanId 5)
+        (WithHandback ReadyWord "READY built\nTouches: none")
+        (Usage (Just 1200) (Just 300) (Just 800) (Just 100))
+        :| [ SpanEnded
+                (SpanId 5)
+                (WithHandback BlockedWord "BLOCKED no access")
+                (Usage (Just 10) Nothing Nothing Nothing)
+           , SpanEnded (SpanId 6) NoHandback (Usage Nothing Nothing Nothing Nothing)
+           ]
     ]
   where
     qid = QId child 3

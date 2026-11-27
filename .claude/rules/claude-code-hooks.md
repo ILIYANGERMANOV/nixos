@@ -54,6 +54,15 @@ go on.
 | `UserPromptExpansion` (no matcher) | `promptExpansion`, `command_name` as the skill | `additionalContext` |
 | `SubagentStop` and `Stop` (no matcher) | `agentStop`, the lead's with no agent; `running`: the `background_tasks` of type `subagent` with status `running` | nothing: any context or decision there keeps the agent going |
 
+Every event names the session's `transcript_path`. A `PreToolUse` or
+`PostToolUse` names its `tool_use_id` as `call`. A `SubagentHandback` call
+and a `SubagentStop` carry the subagent's `usage`: the sum over its whole
+transcript (`subagents/agent-<id>.jsonl`), each request once by message id,
+`input_tokens` with what the cache read and wrote. Not the `Agent` result's
+`usage`: per the hooks docs it covers the final request only. A
+`SessionStart` appends `export STATE_SESSION=<session_id>`, shell-quoted, to
+`$CLAUDE_ENV_FILE`, so the agents' own `state` calls name their session.
+
 `TaskStop` is the tool `stopAgent`; its input names the stopped agent as
 `task_id`. A background agent its lead stops with it gets no `SubagentStop`,
 and at a background agent's own `SubagentStop` it is still listed running.
@@ -69,7 +78,8 @@ The kernel's (`kernel/hooks.nix`, ADR 0016); what Claude gives them:
   lead's `main`) holds the `run <id> <notes> <toplevel>` line `state init`
   prints. `PostToolUse` on `Bash` binds the caller when the command ran
   `state init`; on `Agent`, `tool_response.agentId` binds a spawned worker to
-  its spawner's run. It fires at launch for a background spawn, after the
+  its spawner's run and links it to the span its spawn's `tool_use_id`
+  opened. It fires at launch for a background spawn, after the
   hand-back for a foreground one, so a hand-back seen first is stashed in
   `handback-<agent_id>.json` and recorded at the bind.
 - **Resolution.** A hook acts on the caller's bound run; only the lead falls
