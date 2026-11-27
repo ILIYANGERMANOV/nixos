@@ -81,6 +81,11 @@ who owns each decision.
   the plan, a plan file you were given, else `plan.md` in the notes directory.
   Never write a second plan beside one. Every brief and review prompt names
   its path and never inlines it; the PR body is the reader's copy.
+- **Register a file once.** `state artifact <path> --kind <kind>` logs a file
+  the run relies on, a research note or a report. The bytes it stores are a
+  snapshot. At a handover and at the run's end the kernel snapshots each
+  registered file that changed. Run `state artifact` again only to snapshot
+  sooner. A `plan.done` path and a `--tasks` file register themselves.
 - **Stuck guard.** The same failing check or the same review row in 2 rounds
   in a row, whatever the commit, is stuck: `state ask --kind Stuck "<check or
   row>"`. It covers the review loop, the CI fix, refactor in this PR and a

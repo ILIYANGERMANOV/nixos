@@ -178,7 +178,7 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                 removeFile world "/work/notes.md"
                 edited <- state world ["artifact", "show", run <> ":4"]
                 original <- state world ["artifact", "show", run <> ":3"]
-                derived <- derivedFroms world
+                derived <- artifactParents world
                 (ran.code, ran.out, edited.out, original.out, derived)
                     `shouldBe` ( 0
                                ,
@@ -247,7 +247,7 @@ artifactsLogged world =
         <$> logged world
 
 -- | What each artifact logged derives from.
-derivedFroms :: IORef World -> IO [Maybe Natural]
-derivedFroms world =
+artifactParents :: IORef World -> IO [Maybe Natural]
+artifactParents world =
     (\lines' -> [from | ArtifactLogged _ from <- map (.event) lines'])
         <$> logged world

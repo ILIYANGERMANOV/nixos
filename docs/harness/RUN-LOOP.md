@@ -139,15 +139,21 @@ indexes each run's first event. `blobs` holds file content by sha256
 | Every line stays readable | each event type has its own `schema_version`. A line this binary cannot read decodes to `Unknown`: dump reads it, while append refuses, naming its seq and type | [`Codec.hs`][codec] |
 | Schema migrations | `PRAGMA user_version` counts the migrations applied | [`Migration.hs`][migration] |
 
-To look inside a run:
+To look inside a run, or keep what a fresh agent needs:
 
-| Command | Prints |
+| Command | Does |
 |---|---|
-| `state show` | where the run is and what it holds: step, facts, questions, rulings, gaps |
-| `state dump <run>` | the run's raw rows, as JSON Lines: one object per `events` row, every column but `position` (store-internal append order) a key, `data` as stored |
-| `state pending` | the questions awaiting an answer |
-| `state tasks` | each request's card and its resume advice |
-| `state render mermaid --flow <f>` | the flow's graph (the flow, not one run's walk through it) |
+| `state show` | prints where the run is and what it holds: step, facts, questions, rulings, gaps |
+| `state dump <run>` | prints the run's raw rows, as JSON Lines: one object per `events` row, every column but `position` (store-internal append order) a key, `data` as stored |
+| `state pending` | prints the questions awaiting an answer |
+| `state tasks` | prints each request's card and its resume advice |
+| `state render mermaid --flow <f>` | prints the flow's graph (the flow, not one run's walk through it) |
+| `state init --goal "<goal>"` | logs `started` with the goal word for word, the git top as `worktree` and `origin`'s GitHub `owner/name` as `repo` |
+| `state move <dir>` | logs `worktree_moved`: the run now lives in that worktree |
+| `state artifact <path\|url> --kind <k>` | logs `artifact`. A file's bytes are a snapshot in `blobs` (up to 1 MiB, never a transcript's); a handover and the run's end snapshot each registered file that changed |
+| `state artifact show <run:seq>` | prints an artifact's stored bytes or its URL; exit 3 when its bytes were not stored, 4 when the line is no artifact |
+| `state note --topic <t> "<text>"` | logs `note`, context for a fresh agent |
+| `state handover --reason context\|user\|crash --summary "<s>" --next "<step>"...` | logs `handover`, after a fresh snapshot of each changed file; names each file it could not read |
 
 ## Replay is a fold
 
