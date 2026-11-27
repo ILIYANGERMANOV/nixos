@@ -311,6 +311,33 @@ def test_a_session_start_reads_as_the_wire_names_it() -> None:
     assert parse_event(json.dumps(wire)) == START
 
 
+def session_start_at(transcript: str) -> Json:
+    return {
+        "event": "sessionStart",
+        "session": "s1",
+        "cwd": "/work/repo",
+        "agent": None,
+        "source": "resume",
+        "harness": "claude-code",
+        "transcript_path": transcript,
+        "request_model": "claude-opus-5-5",
+    }
+
+
+# The paths the kernel's absPath takes and refuses, as GHC's filepath `normalise` decides.
+@pytest.mark.parametrize("path", ["/a/b", "/a/../b", "/a/b/", "/"])
+def test_a_session_start_takes_a_transcript_path_the_kernel_takes(path: str) -> None:
+    assert parse_event(json.dumps(session_start_at(path))) == replace(
+        START, transcript=Path(path)
+    )
+
+
+@pytest.mark.parametrize("path", ["//a/b", "/a//b", "/a/./b", "/a/b/."])
+def test_a_session_start_refuses_a_transcript_path_the_kernel_refuses(path: str) -> None:
+    with pytest.raises(ValueError):
+        _ = parse_event(json.dumps(session_start_at(path)))
+
+
 def test_a_session_start_with_no_transcript_or_model_reads_none() -> None:
     wire = {
         "event": "sessionStart",

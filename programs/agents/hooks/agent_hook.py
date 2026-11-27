@@ -529,14 +529,26 @@ def parse_subagent(agent: Json) -> Agent:
 
 
 def parse_transcript(transcript: Json) -> Path | None:
-    """A session's transcript file: an absolute path, or None when there is none."""
+    """A session's transcript file: an absolute, normalised path, or None when
+    there is none. The kernel refuses any other, so it is refused here."""
     match transcript:
         case None:
             return None
-        case str() if Path(transcript).is_absolute():
+        case str() if absolute_normalised(transcript):
             return Path(transcript)
         case _:
-            raise ValueError(f"not an absolute transcript path: {transcript!r}")
+            raise ValueError(f"not an absolute normalised transcript path: {transcript!r}")
+
+
+def absolute_normalised(path: str) -> bool:
+    """What the kernel's `absPath` takes: an absolute path equal to Haskell
+    filepath's `normalise` of it. That collapses `//` and drops a `.` part,
+    but keeps a `..` part and a trailing `/`."""
+    match path.split("/"):
+        case ["", *inner, last]:
+            return all(part not in ("", ".") for part in inner) and last != "."
+        case _:
+            return False
 
 
 def parse_context_size(context: Json) -> ContextSize | None:

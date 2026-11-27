@@ -52,7 +52,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Network.URI (parseAbsoluteURI)
 import Numeric.Natural (Natural)
-import State.Step.Artifact (Repo, parseRepo)
+import State.Step.Artifact (Repo, lowerHex, parseRepo)
 import System.FilePath (isAbsolute, normalise)
 
 -- | What a run registered: a file, or a URL, each with a kind of its own.
@@ -165,10 +165,7 @@ sha256Of =
 
 -- | A digest as the log and the store spell it: 64 lowercase hex, nothing else.
 parseSha256 :: Text -> Maybe Sha256
-parseSha256 raw
-    | Text.length raw == 64 && Text.all (`elem` ("0123456789abcdef" :: String)) raw =
-        Just (Sha256 raw)
-    | otherwise = Nothing
+parseSha256 = fmap Sha256 . lowerHex [64]
 
 sha256Text :: Sha256 -> Text
 sha256Text (Sha256 raw) = raw

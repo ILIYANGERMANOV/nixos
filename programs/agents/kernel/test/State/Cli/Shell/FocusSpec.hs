@@ -389,21 +389,6 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
   where
     untasked = filter ("untasked" `Text.isPrefixOf`)
 
--- | A chief run whose first request is routed to a child run: at the fork that hands it on.
-delegating :: IORef World -> IO Text
-delegating world = do
-    chief <- startedIn world ["--flow", "chief"]
-    mapM_
-        (succeeded <=< state world)
-        ([["record", "fuel.set", "balanced"], ["record", "route.delegate"]] :: [[Text]])
-    pure chief
-
--- | A child run of the chief that names no task, in 'childWorktree', where later calls run; its id.
-untaskedChild :: IORef World -> Text -> IO Text
-untaskedChild world chief = do
-    atWorktree world childWorktree
-    startedIn world ["--notes", "/child", "--parent", chief]
-
 -- | A chief run in its architect request, a researcher @a7@ at work.
 researching :: IORef World -> IO ()
 researching world = do

@@ -67,7 +67,7 @@ import State.Run.Event (
     TaskId (..),
     runIdText,
  )
-import State.Run.EventGen (genEnvelope, genStart, genTime, runId)
+import State.Run.EventGen (absolutePath, genEnvelope, genStart, genTime, runId)
 import State.Run.Fold (Append (..), append, replay)
 import State.Run.Fold qualified as Fold
 import State.Run.RunGen (g)
@@ -482,7 +482,7 @@ started run =
                 , principal = ByUser OwnPr
                 , interface = Set.empty
                 , goal = Nothing
-                , worktree = "/work"
+                , worktree = absolutePath "/work"
                 , repo = Nothing
                 }
         )
@@ -500,7 +500,7 @@ childOf parent run =
                 , principal = ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr minBound
                 , interface = Set.empty
                 , goal = Nothing
-                , worktree = "/work"
+                , worktree = absolutePath "/work"
                 , repo = Nothing
                 }
         )

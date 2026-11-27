@@ -260,7 +260,7 @@ data Event
     | {- | The run moved to this worktree, of this GitHub repo when its
       @origin@ names one: the worktree its @init@ logged no longer holds it.
       -}
-      WorktreeMoved FilePath (Maybe Repo)
+      WorktreeMoved AbsPath (Maybe Repo)
     | {- | A file or URL the run registered, derived from the artifact of
       this seq in the same run, if any (@prov:wasDerivedFrom@).
       -}
@@ -298,8 +298,8 @@ data Start = Start
     its body says every new flag is optional, so a run started with none
     leaves the key out.
     -}
-    , worktree :: FilePath
-    -- ^ The git top of the directory @init@ ran in: absolute.
+    , worktree :: AbsPath
+    -- ^ The git top of the directory @init@ ran in.
     , repo :: Maybe Repo
     -- ^ The worktree's GitHub repo, when its @origin@ names one.
     }

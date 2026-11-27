@@ -8,6 +8,7 @@ module State.Step.Artifact (
     Picks (..),
     Judgement (..),
     Sha (..),
+    lowerHex,
     Url (..),
     Branch (..),
     Label (..),
@@ -124,6 +125,14 @@ data Judgement = Met | NotMet | Unverified
 
 newtype Sha = Sha Text
     deriving stock (Eq, Show)
+
+-- | The text, when it is lowercase hex of one of these lengths: how the log spells a digest.
+lowerHex :: [Int] -> Text -> Maybe Text
+lowerHex lengths raw
+    | Text.length raw `elem` lengths
+        && Text.all (`elem` ("0123456789abcdef" :: String)) raw =
+        Just raw
+    | otherwise = Nothing
 
 newtype Url = Url Text
     deriving stock (Eq, Show)

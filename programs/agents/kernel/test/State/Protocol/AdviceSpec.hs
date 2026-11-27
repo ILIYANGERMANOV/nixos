@@ -30,6 +30,7 @@ import State.Run.Ask (
 import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (
+    absolutePath,
     fuelSet,
     genStart,
     genText,
@@ -158,7 +159,15 @@ spec = describe "State.Protocol.Advice" $ do
                                 chiefGraph
                                 ( logOf
                                     ( Started
-                                        (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty Nothing "/work" Nothing)
+                                        ( Event.Start
+                                            ChiefFlow
+                                            "notes"
+                                            (ByUser OwnPr)
+                                            Set.empty
+                                            Nothing
+                                            (absolutePath "/work")
+                                            Nothing
+                                        )
                                         :| [fuelSet Max, Took mempty (pickOf "route" "engineer")]
                                     )
                                 )
@@ -182,7 +191,15 @@ spec = describe "State.Protocol.Advice" $ do
                         chiefGraph
                         ( logOf
                             ( Started
-                                (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty Nothing "/work" Nothing)
+                                ( Event.Start
+                                    ChiefFlow
+                                    "notes"
+                                    (ByUser OwnPr)
+                                    Set.empty
+                                    Nothing
+                                    (absolutePath "/work")
+                                    Nothing
+                                )
                                 :| events
                             )
                         )

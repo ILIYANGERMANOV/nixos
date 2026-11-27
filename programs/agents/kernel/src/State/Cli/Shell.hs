@@ -66,6 +66,7 @@ import State.Artifact (
     FileRef (..),
     Size (..),
     Snapshot (..),
+    absPath,
     absPathText,
     blobsOf,
     fileKindText,
@@ -747,7 +748,7 @@ ledRun slot = do
 handsBackNow :: Steps -> Stamp -> Loaded -> Bool
 handsBackNow steps stamp run = handsBack (deliver settled.state.start advice.action)
   where
-    (_, settled, _, advice) = settledAdvice steps (Facts Nothing Nothing []) stamp run
+    (_, settled, _, _, advice) = settledAdvice steps (Facts Nothing Nothing []) [] stamp run
 
 {- | The worker's spawn, appended to its spawner's log under that run's lock
 by an id hashed from the run and the worker, so a bind seen twice appends it
@@ -895,6 +896,7 @@ runAnswer ::
     (Shell es) =>
     Steps -> Call -> Maybe Binding -> Maybe RunId -> Want -> Eff es Text
 runAnswer steps call bound found want = case want of
+    -- A hook reads no registered file, so a flow its advice ends re-snapshots none (a known gap).
     ResumeRun opened -> do
         -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
         (facts, told) <- readFacts
@@ -911,7 +913,7 @@ runAnswer steps call bound found want = case want of
                     (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
                 )
             Right (restart, after) ->
-                let (new, _, out) = adviceOf steps facts told Nothing stamp after
+                let (new, _, out) = adviceOf steps facts told [] Nothing stamp after
                  in ( map (.envelope) restart <> new
                     , recordedLines restart <> showRun steps after.g after.state <> out.text
                     )
@@ -931,7 +933,7 @@ runAnswer steps call bound found want = case want of
                     , failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal)
                     )
                 Right (opened, after) ->
-                    let (new, action, out) = adviceOf steps facts told Nothing stamp after
+                    let (new, action, out) = adviceOf steps facts told [] Nothing stamp after
                         warning = case (action, spawned) of
                             (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
                             _ -> Nothing
@@ -1079,26 +1081,29 @@ execute steps = \case
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
         top <- either (const Nothing) Just <$> Git.toplevel
+        again <- rereadable
         orNoRun
             <$> handingBack
                 steps
                 ( \stamp run ->
-                    let (new, _, out) = adviceOf steps facts told top stamp run
-                     in (eventsOnly new, Right out)
+                    let (new, _, out) = adviceOf steps facts told again top stamp run
+                     in withBlobs (readBytes again) (new, Right out)
                 )
     HandbackOf role child -> do
         input <- Console.readStdin
         case decodeUtf8' input of
             Left _ ->
                 pure (Left (Failure BadInput "the hand-back" "stdin is not UTF-8" "state help"))
-            Right message ->
+            Right message -> do
+                again <- rereadable
                 fmap (.text) . orNoRun
-                    <$> onRun
+                    <$> appendingOn
                         ( \stamp run ->
-                            record
+                            ending
+                                again
+                                []
                                 stamp
                                 run
-                                (repeat Cli)
                                 (handbackPlan steps stamp.head run.g run.state role Nothing child message)
                         )
     OnRun command ->
@@ -1305,10 +1310,8 @@ resnapshotOf run again =
 readBytes :: [(FileArtifact, Contents)] -> [ByteString]
 readBytes again = [bytes | (_, Readable bytes) <- again]
 
-{- | 'record' with the blobs of the files it registers. A plan that ends the
-run, as it leaves its flow or stops (R8), first registers the run's changed
-files again, as a handover does. 'ArtifactLogged' moves no run, so whether
-the plan ends it does not depend on them.
+{- | 'record' with the blobs of the files it registers, its plan
+'resnapshotting' first, from the files read before the lock.
 -}
 ending ::
     [(FileArtifact, Contents)] ->
@@ -1320,25 +1323,31 @@ ending ::
 ending again bytesRead stamp run plan =
     withBlobs
         (bytesRead <> readBytes again)
-        (record stamp run (repeat Cli) (resnapshotting <$> plan))
+        (record stamp run (repeat Cli) (resnapshotted <$> plan))
   where
-    resnapshotting planned
-        | ends planned =
-            let (events, skipped) = resnapshotOf run again
-             in Plan
-                    (events <> planned.events)
-                    (\after written -> printed (skippedText skipped) <> planned.say after written)
-        | otherwise = planned
-    ends planned = case commit stamp run (map (Cli,) planned.events) of
+    resnapshotted planned =
+        let (events, skipped) = resnapshotting stamp again run planned.events
+         in Plan events (\after written -> printed skipped <> planned.say after written)
+
+{- | The events a command writes, the run's changed files registered again
+ahead of them when they hand the run over or end it, as it leaves its flow
+or stops (R8); and the lines naming the files skipped. 'ArtifactLogged'
+moves no run, so whether the events end it does not depend on them.
+-}
+resnapshotting ::
+    Stamp -> [(FileArtifact, Contents)] -> Loaded -> [Event] -> ([Event], Text)
+resnapshotting stamp again run events
+    | handsOver || ends =
+        let (snapshots, skipped) = resnapshotOf run again
+         in (snapshots <> events, foldMap skippedLine skipped)
+    | otherwise = (events, "")
+  where
+    handsOver = not (null [() | HandedOver _ <- events])
+    ends = case commit stamp run (map (Cli,) events) of
         Right (_, after) -> not (Fold.over run.state) && Fold.over after.state
         Left _ -> False
-
-skippedText :: [AbsPath] -> Text
-skippedText =
-    foldMap
-        ( \path ->
-            "skipped " <> pathText path <> ": gone or unreadable, its last snapshot kept\n"
-        )
+    skippedLine path =
+        "skipped " <> pathText path <> ": gone or unreadable, its last snapshot kept\n"
 
 {- | @state handover@: the worktree's run handed over to a fresh agent. Each
 registered file whose bytes changed is registered again first, in the same
@@ -1351,26 +1360,20 @@ handOver handover = do
     fmap (.text) . orNoRun
         <$> appendingOn
             ( \stamp run ->
-                let (events, skipped) = resnapshotOf run again
-                    said written =
+                let said written =
                         foldMap (uncurry (artifactLine run.state.run)) (artifactsWritten written)
                             <> foldMap
                                 (\w -> "handover " <> numberedText run.state.run w.envelope.seq <> "\n")
                                 [w | w <- written, HandedOver _ <- [w.envelope.event]]
-                            <> skippedText skipped
                             <> "resume with: state resume "
                             <> runIdText run.state.run
                             <> "\n"
-                 in withBlobs
-                        (readBytes again)
-                        ( record
-                            stamp
-                            run
-                            (repeat Cli)
-                            ( Right
-                                (Plan (events <> [HandedOver handover]) (\_ written -> printed (said written)))
-                            )
-                        )
+                 in ending
+                        again
+                        []
+                        stamp
+                        run
+                        (Right (Plan [HandedOver handover] (\_ written -> printed (said written))))
             )
 
 {- | @state artifact show <run:seq>@: the stored bytes of a file artifact,
@@ -1862,15 +1865,16 @@ adviceOf ::
     Steps ->
     Facts ->
     [Text] ->
+    [(FileArtifact, Contents)] ->
     Maybe FilePath ->
     Stamp ->
     Loaded ->
     ([Envelope], Action, Output)
-adviceOf steps facts told top stamp run = (map (.envelope) new, advice.action, out)
+adviceOf steps facts told again top stamp run = (map (.envelope) new, advice.action, out)
   where
-    (new, settled, unsynced, advice) = settledAdvice steps facts stamp run
+    (new, settled, unsynced, skipped, advice) = settledAdvice steps facts again stamp run
     out =
-        printed (recordedLines new)
+        printed (skipped <> recordedLines new)
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( parentRuns top settled.state.start advice
@@ -1910,35 +1914,47 @@ parentRuns top start advice =
         ]
 
 {- | The run once what GitHub and its Fuel already decide is recorded ('due'):
-the lines written, the run, what was due but refused (told, not stored), and
-the advice there.
+the lines written, the run, what was due but refused (told, not stored), the
+lines naming the files skipped where a due outcome ends the run
+('resnapshotting' the files read before the lock), and the advice there.
 -}
 settledAdvice ::
-    Steps -> Facts -> Stamp -> Loaded -> ([Written], Loaded, [Text], Advice)
-settledAdvice steps facts stamp run =
+    Steps ->
+    Facts ->
+    [(FileArtifact, Contents)] ->
+    Stamp ->
+    Loaded ->
+    ([Written], Loaded, [Text], Text, Advice)
+settledAdvice steps facts again stamp run =
     ( new
     , settled
     , unsynced
+    , skipped
     , Advice.heldBy
         settled.state.start
         settled.state.workers
         (advise steps settled.g facts settled.state)
     )
   where
-    (new, settled, unsynced) = settle run
+    (new, settled, unsynced, skipped) = settle run
     settle current = case due facts current.state of
-        Nothing -> ([], current, [])
-        Just event -> case commit stamp current [(Cli, event)] of
-            -- Nobody asked for it, so it is told and not stored.
-            Left refusal ->
-                ( []
-                , current
-                ,
-                    [ "PR sync refused: "
-                        <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why
-                    ]
-                )
-            Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
+        Nothing -> ([], current, [], "")
+        Just event ->
+            let (events, skippedNow) = resnapshotting stamp again current [event]
+             in case commit stamp current (map (Cli,) events) of
+                    -- Nobody asked for it, so it is told and not stored.
+                    Left refusal ->
+                        ( []
+                        , current
+                        ,
+                            [ "PR sync refused: "
+                                <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why
+                            ]
+                        , ""
+                        )
+                    Right (lines', after) ->
+                        let (more, final, notes, later) = settle after
+                         in (lines' <> more, final, notes, skippedNow <> later)
 
 -- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
 delivered :: RunState -> Text -> Output
@@ -2120,6 +2136,8 @@ lock by ids hashed from the child's run and what makes the hand-back one: a
 repeated command appends it once. The ids alone skip only events typed alike: typed again
 against a parent that moved on, a repeat would refuse or add others. A refusal or an outage does not fail the child's command,
 which tells it; the parent's @state next@ names a child that ended unrecorded.
+The parent's registered files are not read, so a parent this ends
+re-snapshots none (a known gap).
 -}
 handedUp :: (Shell es) => Steps -> Up -> Eff es Text
 handedUp steps up =
@@ -2346,7 +2364,7 @@ initRun gd args = do
     began <- startOf args
     top <- worktreeTop
     repo <- originRepoHere
-    case (,,) <$> held <*> began <*> top of
+    case (,,) <$> held <*> began <*> (topPath =<< top) of
         Left failure -> pure (Left failure)
         Right (resuming, Begin {principal, flow, fuel}, worktree) -> do
             FileSystem.createDirectory notes
@@ -2384,7 +2402,9 @@ initRun gd args = do
             -- The pointer only once the parent took the child: a refused child has no run here.
             accepted <- case (result, principal) of
                 (Right said@(_, run), ByRole parent _ _) -> case parent.link of
-                    InFan task -> fmap (const said) <$> spawnedIn parent.run (Child run task worktree)
+                    InFan task ->
+                        fmap (const said)
+                            <$> spawnedIn parent.run (Child run task (absPathText worktree))
                     -- No fan-out to tell: the store's runs.parent links it.
                     Direct -> pure (Right said)
                 (Right said, ByUser _) -> pure (Right said)
@@ -2403,7 +2423,9 @@ initRun gd args = do
         ByCaller _ -> Set.empty
     initLines verb run worktree =
         Text.unlines
-            [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
+            [ verb <> " " <> runIdText run
+            , renderBinding (Binding run notes (absPathText worktree))
+            ]
             <> nextLine
 
 {- | Whether the user's init is the flow a scope of the worktree's unfinished
@@ -2439,11 +2461,14 @@ moveRun gd target = do
     here <- readPointer gd
     from <- worktreeTop
     to <- worktreeAt target
-    case (,,) <$> maybe (Left noRun) Right here <*> from <*> (to >>= elsewhere) of
+    case (,,)
+        <$> maybe (Left noRun) Right here
+        <*> from
+        <*> (traverse topPath =<< elsewhere =<< to) of
         Left failure -> pure (Left failure)
         Right (run, fromTop, (toGd, toTop)) -> do
             there <- pointed toGd
-            repo <- FileSystem.inDirectory toTop originRepoHere
+            repo <- FileSystem.inDirectory (absPathText toTop) originRepoHere
             -- The move logged before any pointer moves; one cut short and retried logs it once.
             moving <- case maybe (Right ()) holding (live run =<< there) of
                 Left failure -> pure (Left failure)
@@ -2465,11 +2490,11 @@ moveRun gd target = do
                 Left failure -> pure (Left failure)
                 Right moved -> do
                     writePointer toGd moved
-                    rebind moved fromTop toTop
+                    rebind moved fromTop (absPathText toTop)
                     FileSystem.removeFile (pointerOf gd)
                     pure
                         ( Right
-                            ("moved " <> runIdText moved <> " to " <> Text.pack toTop <> "\n" <> nextLine)
+                            ("moved " <> runIdText moved <> " to " <> pathText toTop <> "\n" <> nextLine)
                         )
   where
     elsewhere (toGd, toTop)
@@ -2501,10 +2526,27 @@ moveRun gd target = do
             )
 
 -- | The worktree the run's log last names: the last it moved to, else its start's.
-worktreeOf :: Start -> NonEmpty Envelope -> FilePath
+worktreeOf :: Start -> NonEmpty Envelope -> AbsPath
 worktreeOf start logged = case reverse [top | line <- toList logged, WorktreeMoved top _ <- [line.event]] of
     top : _ -> top
     [] -> start.worktree
+
+{- | The worktree's top as the log keeps it. Git names its top absolute and
+normalised, so a refusal is git's fault, told as an outage.
+-}
+topPath :: FilePath -> Either Failure AbsPath
+topPath top =
+    maybe
+        ( Left
+            ( Failure
+                Outage
+                ("git's worktree top " <> Text.pack top)
+                "it is not an absolute, normalised path"
+                "run state from a worktree git names by its absolute path"
+            )
+        )
+        Right
+        (absPath top)
 
 {- | The GitHub repo of the current directory's @origin@, if it names one: a
 repo with no @origin@, or another host's, has none.

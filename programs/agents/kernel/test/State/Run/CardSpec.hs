@@ -31,7 +31,7 @@ import State.Run.Card (
     safetyBuffer,
  )
 import State.Run.Event
-import State.Run.EventGen (fuelSet, logOf, oneLine, run)
+import State.Run.EventGen (absolutePath, fuelSet, logOf, oneLine, run)
 import State.Run.Fold (trace)
 import State.Run.RunGen (chiefGraph)
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -80,7 +80,15 @@ spec = do
                 logged =
                     logOf
                         ( Started
-                            (Start ChiefFlow "notes" (ByUser OwnPr) Set.empty Nothing "/work" Nothing)
+                            ( Start
+                                ChiefFlow
+                                "notes"
+                                (ByUser OwnPr)
+                                Set.empty
+                                Nothing
+                                (absolutePath "/work")
+                                Nothing
+                            )
                             :| [ Asked (asked 1 Design)
                                , Forwarded (QId run 1) TheUser
                                , WorkerSpawned (AgentRole "researcher") agent

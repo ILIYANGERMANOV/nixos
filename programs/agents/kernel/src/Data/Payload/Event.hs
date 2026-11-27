@@ -281,7 +281,7 @@ eventData = \case
         "flow" .= flowText start.flow
             <> "notes_dir" .= start.notes
             <> foldMap ("goal" .=) start.goal
-            <> "worktree" .= start.worktree
+            <> "worktree" .= absPathText start.worktree
             <> repoData start.repo
             <> pair "principal" (principalEncoding start.principal)
             <> "interface" .= map opText (Set.toList start.interface)
@@ -325,7 +325,7 @@ eventData = \case
     Suspended task summary -> "request" .= taskNoText task <> "summary" .= oneLineText summary
     Focused task -> "request" .= taskNoText task
     Voided n why -> "seq" .= n <> "reason" .= why
-    WorktreeMoved worktree repo -> "worktree" .= worktree <> repoData repo
+    WorktreeMoved worktree repo -> "worktree" .= absPathText worktree <> repoData repo
     ArtifactLogged artifact from -> artifactData artifact <> foldMap ("derived_from" .=) from
     Noted topic text -> "topic" .= topic <> "text" .= text
     HandedOver handover ->
@@ -382,7 +382,7 @@ eventOf kind obj = case kind of
     "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
     "focused" -> Focused <$> requestOf obj
     "voided" -> Voided <$> (obj .: "seq" >>= ijsonNatural) <*> obj .: "reason"
-    "worktree_moved" -> WorktreeMoved <$> obj .: "worktree" <*> repoOf obj
+    "worktree_moved" -> WorktreeMoved <$> (obj .: "worktree" >>= pathOf) <*> repoOf obj
     "artifact" ->
         ArtifactLogged
             <$> artifactOf obj
@@ -541,7 +541,7 @@ startOf obj =
                 <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText)))
             )
         <*> obj .:? "goal"
-        <*> obj .: "worktree"
+        <*> (obj .: "worktree" >>= pathOf)
         <*> repoOf obj
 
 -- | An absolute, normalised path, as 'absPath' takes it.

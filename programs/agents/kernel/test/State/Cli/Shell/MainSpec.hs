@@ -31,6 +31,7 @@ import State.Run.Event (
     SessionId (..),
     Task (..),
  )
+import State.Run.EventGen (absolutePath)
 import State.Run.RunGen (
     breakdownJson,
     loadSteps,
@@ -728,7 +729,7 @@ spec = describe "state over the doubles" $ do
 
                 events <- logged world
                 map (.event) (take 1 (reverse events))
-                    `shouldBe` [WorktreeMoved "/target" (Just (Repo "o" "r"))]
+                    `shouldBe` [WorktreeMoved (absolutePath "/target") (Just (Repo "o" "r"))]
 
             it
                 "refuses an init in the worktree a run moved from, naming the cd to where it went"

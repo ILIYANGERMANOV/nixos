@@ -147,7 +147,7 @@ genEvent =
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo
         , Voided <$> genIJsonNatural <*> genText
-        , WorktreeMoved <$> genPath <*> Gen.maybe genRepo
+        , WorktreeMoved <$> genAbsPath <*> Gen.maybe genRepo
         , ArtifactLogged <$> genArtifact <*> Gen.maybe genIJsonNatural
         , Noted <$> genText <*> genText
         , HandedOver
@@ -331,7 +331,7 @@ genStart =
             ]
         <*> genSet Gen.enumBounded
         <*> Gen.maybe genText
-        <*> genPath
+        <*> genAbsPath
         <*> Gen.maybe genRepo
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -606,7 +606,7 @@ start =
         (ByUser OwnPr)
         (Set.fromList [AskUser, Hooks])
         Nothing
-        "/work"
+        (absolutePath "/work")
         Nothing
 
 started :: Event

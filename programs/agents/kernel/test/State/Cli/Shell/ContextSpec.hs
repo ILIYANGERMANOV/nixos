@@ -8,29 +8,42 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Doubles.FileSystem (Disk (..))
+import Hedgehog (evalIO, forAll, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Artifact (
     Artifact (..),
     FileArtifact (..),
     FileRef (..),
     absPathText,
-    originRepo,
+    fileKindText,
+    keepsContent,
     sha256Of,
     sha256Text,
  )
 import State.Cli.Shell.World (
     Ran (..),
     World (..),
+    atWorktree,
+    delegating,
+    draftPr,
     logged,
     loggedEvents,
     newWorld,
+    putBytes,
     putFile,
     startedIn,
     startedRun,
     state,
+    stateIn,
+    succeeded,
+    untaskedChild,
  )
-import State.Run.Event (Envelope (..), Event (..), Repo, Start (..))
+import State.Protocol.Advice (Readiness (..))
+import State.Run.Event (Envelope (..), Event (..), Repo (..), Start (..))
 import Test.Hspec (Spec, before, describe, it, shouldBe, shouldReturn)
+import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "state's context facts over the doubles" . before newWorld $ do
@@ -40,7 +53,7 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
             _ <- startedIn world ["--goal", "ship  the fix"]
             starts <- startsOf world
             starts
-                `shouldBe` [(Just "ship  the fix", "/work", originRepo "https://github.com/o/r")]
+                `shouldBe` [(Just "ship  the fix", "/work", Just (Repo "o" "r"))]
 
         it "leaves goal and repo out with no --goal and no GitHub origin" $ \world -> do
             modifyIORef' world (\w -> w {origin = Just "https://gitlab.com/o/r"})
@@ -124,6 +137,19 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                                ]
                            )
 
+        -- Far under the cap, as a file near it would slow every try.
+        it "shows the bytes of any file under the cap as registered" $ \_ -> hedgehog $ do
+            world <- evalIO newWorld
+            kind <- forAll (Gen.filter keepsContent Gen.enumBounded)
+            bytes <- forAll (Gen.bytes (Range.linear 0 512))
+            shown <- evalIO $ do
+                run <- startedRun world
+                putBytes world "/work/a.bin" bytes
+                _ <-
+                    succeeded =<< state world ["artifact", "a.bin", "--kind", fileKindText kind]
+                state world ["artifact", "show", run <> ":2"]
+            (shown.code, shown.stdout) === (0, bytes)
+
         it "exits 4 for a line that is no artifact, and for a line the run lacks" $ \world -> do
             run <- startedRun world
             started <- state world ["artifact", "show", run <> ":1"]
@@ -184,13 +210,13 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                 (ran.code, ran.out, edited.out, original.out, derived)
                     `shouldBe` ( 0
                                ,
-                                   [ "artifact "
+                                   [ "skipped /work/b.md: gone or unreadable, its last snapshot kept"
+                                   , "artifact "
                                         <> run
                                         <> ":4 notes sha256:"
                                         <> digest "v2"
                                         <> " 2 bytes, content stored"
                                    , "handover " <> run <> ":5"
-                                   , "skipped /work/b.md: gone or unreadable, its last snapshot kept"
                                    , "resume with: state resume " <> run
                                    ]
                                , ["v2"]
@@ -198,7 +224,7 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                                , [Nothing, Nothing, Just 2]
                                )
 
-    describe "the run's end (R8)" $
+    describe "the run's end (R8)" $ do
         it "registers a changed file again before stop" $ \world -> do
             _ <- startedRun world
             putFile world "/work/notes.md" "v1"
@@ -207,6 +233,44 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
             ran <- state world ["stop", "blocked", "no", "access"]
             ran.code `shouldBe` 0
             loggedEvents world `shouldReturn` ["started", "artifact", "artifact", "stop"]
+
+        it
+            "registers a changed file again before next records the ready PR that ends the run, and names a deleted one"
+            $ \world -> do
+                run <- startedRun world
+                putFile world "/work/notes.md" "v1"
+                putFile world "/work/b.md" "b"
+                _ <- succeeded =<< state world ["artifact", "notes.md", "--kind", "notes"]
+                _ <- succeeded =<< state world ["artifact", "b.md", "--kind", "notes"]
+                _ <- succeeded =<< state world ["override", "ready", "the", "PR", "is", "up"]
+                putFile world "/work/notes.md" "v2"
+                removeFile world "/work/b.md"
+                modifyIORef' world (\w -> w {pr = draftPr IsReady})
+                ran <- succeeded =<< state world ["next"]
+                events <- loggedEvents world
+                shown <- state world ["artifact", "show", run <> ":5"]
+                (take 1 ran, drop 4 events, shown.out)
+                    `shouldBe` ( ["skipped /work/b.md: gone or unreadable, its last snapshot kept"]
+                               , ["artifact", "ready.done"]
+                               , ["v2"]
+                               )
+
+        it "registers a changed file again before the hand-back that ends the run" $ \world -> do
+            chief <- delegating world
+            child <- untaskedChild world chief
+            atWorktree world "/work"
+            putFile world "/work/notes.md" "v1"
+            _ <- succeeded =<< state world ["artifact", "notes.md", "--kind", "notes"]
+            _ <- succeeded =<< state world ["record", "next.done"]
+            putFile world "/work/notes.md" "v2"
+            _ <-
+                succeeded
+                    =<< stateIn
+                        world
+                        ("READY https://github.com/o/r/pull/1\nRun: " <> encodeUtf8 child)
+                        ["handback", "engineer", "--child", child]
+            artifacts <- artifactsLogged world
+            artifacts `shouldBe` ["/work/notes.md", "/work/notes.md"]
 
 handover :: IORef World -> IO Ran
 handover world =
@@ -234,7 +298,8 @@ removeFile world path =
 startsOf :: IORef World -> IO [(Maybe Text, FilePath, Maybe Repo)]
 startsOf world =
     ( \lines' ->
-        [ (start.goal, start.worktree, start.repo) | Started start <- map (.event) lines'
+        [ (start.goal, absPathText start.worktree, start.repo)
+        | Started start <- map (.event) lines'
         ]
     )
         <$> logged world

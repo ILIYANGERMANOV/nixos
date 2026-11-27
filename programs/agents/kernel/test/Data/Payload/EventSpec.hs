@@ -476,7 +476,7 @@ spec = describe "Data.Payload.Event" $ do
                             ByRole (Parent (runId "00010203") (InFan (Tasked (TaskId "t1")))) OwnPr minBound
                         , interface = Set.empty
                         , goal = Nothing
-                        , worktree = "/work"
+                        , worktree = absolutePath "/work"
                         , repo = Nothing
                         }
             }
@@ -642,11 +642,19 @@ eventGoldens =
             (ByUser OwnPr)
             (Set.fromList [minBound ..])
             (Just "ship the context facts")
-            "/work/r7f2"
+            (absolutePath "/work/r7f2")
             (Just (Repo "o" "r"))
         )
         :| [ Started
-                (Start ArchitectFlow "/n" (ByCaller (RoundOn pr)) Set.empty Nothing "/w" Nothing)
+                ( Start
+                    ArchitectFlow
+                    "/n"
+                    (ByCaller (RoundOn pr))
+                    Set.empty
+                    Nothing
+                    (absolutePath "/w")
+                    Nothing
+                )
            , Started
                 ( Start
                     TenXFlow
@@ -654,7 +662,7 @@ eventGoldens =
                     (ByRole (Parent parent (InFan (Tasked t1))) OwnPr ChildConfirms)
                     (Set.singleton Await)
                     Nothing
-                    "/w"
+                    (absolutePath "/w")
                     Nothing
                 )
            , Started
@@ -664,7 +672,7 @@ eventGoldens =
                     (ByRole (Parent parent (InFan Untasked)) (RoundOn pr) ParentDecided)
                     Set.empty
                     Nothing
-                    "/w"
+                    (absolutePath "/w")
                     Nothing
                 )
            , Started
@@ -674,7 +682,7 @@ eventGoldens =
                     (ByRole (Parent parent Direct) OwnPr ChildConfirms)
                     Set.empty
                     Nothing
-                    "/w"
+                    (absolutePath "/w")
                     Nothing
                 )
            ]
@@ -742,8 +750,8 @@ eventGoldens =
     , Suspended (TaskNo 2) (oneLine "waits on CI") :| []
     , Focused (TaskNo 2) :| []
     , Voided 7 "logged in the wrong run" :| []
-    , WorktreeMoved "/work/b" (Just (Repo "o" "r"))
-        :| [WorktreeMoved "/work/c" Nothing]
+    , WorktreeMoved (absolutePath "/work/b") (Just (Repo "o" "r"))
+        :| [WorktreeMoved (absolutePath "/work/c") Nothing]
     , ArtifactLogged
         ( File
             ( FileArtifact
@@ -901,7 +909,7 @@ parentRun =
                     )
                     mempty
                     Nothing
-                    "/work"
+                    (absolutePath "/work")
                     Nothing
                 )
         }
