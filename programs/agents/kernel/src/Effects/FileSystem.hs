@@ -72,8 +72,6 @@ readBytes = send . ReadBytes
 readText :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe Text)
 readText = send . ReadText
 
--- | The names in a directory, none when it does not exist.
-
 {- | The path against the current directory, normalised: symlinks kept, as
 the path the user named is the one registered.
 -}
@@ -86,6 +84,7 @@ may not be read. Any other failure throws.
 readContents :: (RoFileSystem :> es) => AbsPath -> Eff es Contents
 readContents = send . ReadContents
 
+-- | The names in a directory, none when it does not exist.
 listDirectory :: (RoFileSystem :> es) => FilePath -> Eff es [FilePath]
 listDirectory = send . ListDirectory
 

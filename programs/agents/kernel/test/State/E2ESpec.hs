@@ -327,7 +327,6 @@ spec = describe "the state binary" $ do
               ]
                 `shouldBe` replicate 2 (2, ["it is not open; open: " <> qid], ["fix: state pending"])
 
-        -- A written plan is taken on every path the transcripts below drive.
         it
             "keeps a file's snapshot past its deletion: handover re-registers the edited one, skips the deleted one"
             $ \repo -> do
@@ -356,6 +355,7 @@ spec = describe "the state binary" $ do
                     )
                     `shouldBe` (True, True, ["v2"], ["b"])
 
+        -- A written plan is taken on every path the transcripts below drive.
         it "refuses a plan.done whose plan is not written" $ \repo -> do
             _ <- drive bin repo (Record ["fuel.set", "balanced"] : gathered)
             missing <- state bin repo ["record", "plan.done", "/no/such"]

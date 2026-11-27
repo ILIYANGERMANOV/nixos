@@ -19,7 +19,6 @@ import Data.Foldable (for_, toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Payload.Event (
     Decoded (..),
     RetiredEvent (..),
@@ -61,9 +60,7 @@ import State.Artifact (
     FileRef (..),
     Size (..),
     UrlKind (Pr),
-    absPath,
     fileKindText,
-    parseUri,
     sha256Of,
     urlKindText,
  )
@@ -138,6 +135,7 @@ import State.Run.Event (
     tookIn,
  )
 import State.Run.EventGen (
+    absolutePath,
     genEnvelope,
     genTaskState,
     genText,
@@ -146,6 +144,7 @@ import State.Run.EventGen (
     replacing,
     runId,
     tasksOf,
+    uri,
  )
 import State.Run.RunGen (pickOf, plainTask, securityScope)
 import State.Step.Artifact (areaName, judgementName, planName, shellPath)
@@ -749,22 +748,25 @@ eventGoldens =
         ( File
             ( FileArtifact
                 Plan
-                (FileRef (path "/notes/r7f2/plan.md") (sha256Of "abc") (Size 3))
+                (FileRef (absolutePath "/notes/r7f2/plan.md") (sha256Of "abc") (Size 3))
             )
         )
         (Just 4)
-        :| [ArtifactLogged (Registry.Url Pr uri) Nothing]
+        :| [ArtifactLogged (Registry.Url Pr (uri "https://github.com/o/r/pull/7")) Nothing]
     , Noted "decisions" "the cap stays at 1 MiB" :| []
     , HandedOver
         (Handover Context "slice A built" ("build slice B" :| ["open the PR"]))
         :| []
     , SessionStarted
-        (Session "claude-code" (Just (path "/home/u/t.jsonl")) "startup" (Just "opus"))
+        ( Session
+            "claude-code"
+            (Just (absolutePath "/home/u/t.jsonl"))
+            "startup"
+            (Just "opus")
+        )
         :| [SessionStarted (Session "opencode" Nothing "resume" Nothing)]
     ]
   where
-    path raw = fromMaybe (error ("not an absolute path: " <> raw)) (absPath raw)
-    uri = fromMaybe (error "not a URI") (parseUri "https://github.com/o/r/pull/7")
     qid = QId child 3
     parent = runId "r7f2"
     child = runId "c1"

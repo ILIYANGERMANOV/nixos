@@ -45,7 +45,7 @@ import Effects.Gh (Gh, runGhIO)
 import Effects.Gh qualified as Gh
 import Effects.Git (Git, runGitIO)
 import Effects.Git qualified as Git
-import Effects.Log (Appending (..), Log, runLogIO, shipped)
+import Effects.Log (Appending (..), Log, eventsOnly, runLogIO, shipped)
 import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
 import Effects.Store.Connection (
@@ -1103,7 +1103,7 @@ execute steps = \case
                         )
     OnRun command ->
         -- Read before the lock, as GitHub is: the file the command names, and the run's files.
-        traverse readAt (fileOf command) >>= \named -> case traverse readable named of
+        readNamed (fileOf command) >>= \case
             Left failure -> pure (Left failure)
             Right file -> do
                 again <- rereadable
@@ -1144,11 +1144,18 @@ execute steps = \case
         Pending -> Nothing
         NoteOn _ _ -> Nothing
 
--- | A file named on the command line, made absolute, and its bytes read once.
+{- | The files named on the command line, made absolute, and their bytes read
+once, before the lock; or the refusal of one that may not be read, for which
+nothing is written.
+-}
+readNamed ::
+    (RoFileSystem :> es, Traversable t) =>
+    t FilePath -> Eff es (Either Failure (t (AbsPath, ByteString)))
+readNamed = fmap (traverse readable) . traverse readAt
+
 readAt :: (RoFileSystem :> es) => FilePath -> Eff es (AbsPath, Contents)
 readAt raw = FileSystem.absolute raw >>= \path -> (path,) <$> FileSystem.readContents path
 
--- | The bytes of a file read before the lock, or its refusal: nothing is written for it.
 readable :: (AbsPath, Contents) -> Either Failure (AbsPath, ByteString)
 readable (path, contents) = case contents of
     Readable bytes -> Right (path, bytes)
@@ -1171,7 +1178,7 @@ digest and blob come from those bytes, in the append that logs it.
 registerArtifact ::
     (Shell es) => Location FilePath -> Maybe Natural -> Eff es (Either Failure Text)
 registerArtifact location from =
-    traverse readAt location >>= \named -> case traverse readable named of
+    readNamed location >>= \case
         Left failure -> pure (Left failure)
         Right found ->
             fmap (.text) . orNoRun
@@ -1229,13 +1236,11 @@ artifactLine run n artifact =
                 <> " sha256:"
                 <> sha256Text file.ref.sha256
                 <> " "
-                <> tshow (sizeBytes file.ref.size)
+                <> tshow file.ref.size.bytes
                 <> " bytes, "
                 <> (if snapshotted file.kind file.ref.size then "content stored" else "path only")
                 <> "\n"
         Url kind uri -> urlKindText kind <> " " <> uriText uri <> "\n"
-  where
-    sizeBytes (Size bytes) = bytes
 
 -- | The artifacts these lines log, each with its seq.
 artifactsWritten :: [Written] -> [(Natural, Artifact)]
@@ -1263,7 +1268,10 @@ rereadable =
         ( \_ run ->
             ( []
             , Right
-                [file | (_, file) <- newest (artifactsOf run.logged), keepsContent file.kind]
+                [ file
+                | (_, file) <- Map.elems (newest (artifactsOf run.logged))
+                , keepsContent file.kind
+                ]
             )
         )
         >>= \case
@@ -1285,9 +1293,7 @@ resnapshotOf run again =
     , skipped
     )
   where
-    latest =
-        Map.fromList
-            [(file.ref.path, (n, file)) | (n, file) <- newest (artifactsOf run.logged)]
+    latest = newest (artifactsOf run.logged)
     (snapshots, skipped) =
         resnapshot
             [ (file, contents)
@@ -2269,10 +2275,6 @@ onLog ::
     RunId ->
     Eff es (Either Failure a)
 onLog act run = orNoRun <$> onRunLog act run
-
--- | What appends these events and no blob.
-eventsOnly :: [Envelope] -> Appending
-eventsOnly events = Appending events []
 
 onRunLog ::
     (Clock :> es, Environment :> es, Git :> es, Log :> es) =>

@@ -569,14 +569,12 @@ artifactData = \case
                     ( tag "file"
                         <> "path" .= absPathText file.ref.path
                         <> "sha256" .= sha256Text file.ref.sha256
-                        <> "size_bytes" .= sizeBytes file.ref.size
+                        <> "size_bytes" .= file.ref.size.bytes
                     )
                 )
     Registry.Url kind uri ->
         "artifact_kind" .= urlKindText kind
             <> pair "location" (pairs (tag "url" <> "url" .= uriText uri))
-  where
-    sizeBytes (Size n) = n
 
 artifactOf :: Object -> Parser Artifact
 artifactOf obj = do

@@ -81,23 +81,25 @@ spec = describe "state's context facts over the doubles" . before newWorld $ do
                            )
             loggedEvents world `shouldReturn` ["started"]
 
-        it
-            "registers a URL as given and shows it; text that is no URI is refused for a URL's kind"
-            $ \world -> do
-                run <- startedRun world
-                registered <-
-                    state world ["artifact", "https://github.com/o/r/issues/7", "--kind", "ticket"]
-                shown <- state world ["artifact", "show", run <> ":2"]
-                refused <- state world ["artifact", "not a uri", "--kind", "ticket"]
-                (registered.out, shown.out, refused.code)
-                    `shouldBe` (
-                                   [ "artifact " <> run <> ":2 ticket https://github.com/o/r/issues/7"
-                                   , "show: state artifact show " <> run <> ":2"
-                                   ]
-                               , ["https://github.com/o/r/issues/7"]
-                               , 2
-                               )
-                loggedEvents world `shouldReturn` ["started", "artifact"]
+        it "registers a URL as given and shows it" $ \world -> do
+            run <- startedRun world
+            registered <-
+                state world ["artifact", "https://github.com/o/r/issues/7", "--kind", "ticket"]
+            shown <- state world ["artifact", "show", run <> ":2"]
+            (registered.out, shown.out)
+                `shouldBe` (
+                               [ "artifact " <> run <> ":2 ticket https://github.com/o/r/issues/7"
+                               , "show: state artifact show " <> run <> ":2"
+                               ]
+                           , ["https://github.com/o/r/issues/7"]
+                           )
+            loggedEvents world `shouldReturn` ["started", "artifact"]
+
+        it "refuses text that is no URI for a URL's kind and logs nothing" $ \world -> do
+            _ <- startedRun world
+            refused <- state world ["artifact", "not a uri", "--kind", "ticket"]
+            refused.code `shouldBe` 2
+            loggedEvents world `shouldReturn` ["started"]
 
         it "logs a file over the cap by path only, and show exits 3 naming its digest" $ \world -> do
             run <- startedRun world

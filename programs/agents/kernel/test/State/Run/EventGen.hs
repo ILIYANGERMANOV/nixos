@@ -21,6 +21,8 @@ module State.Run.EventGen (
     tasksOf,
     oneLine,
     runId,
+    absolutePath,
+    uri,
     replacing,
     run,
     start,
@@ -583,6 +585,14 @@ replacing whole (old, new)
 -- | A run id the test spells, which must be one the kernel accepts.
 runId :: Text -> RunId
 runId raw = fromMaybe (error ("not a run id: " <> show raw)) (parseRunId raw)
+
+-- | A path the test spells, which must be absolute and normalised.
+absolutePath :: FilePath -> AbsPath
+absolutePath raw = fromMaybe (error ("not an absolute path: " <> show raw)) (absPath raw)
+
+-- | A URL the test spells, which must be an absolute URI.
+uri :: Text -> Uri
+uri raw = fromMaybe (error ("not a URI: " <> show raw)) (parseUri raw)
 
 run :: RunId
 run = runId "r7f2"

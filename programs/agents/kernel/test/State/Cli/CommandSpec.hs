@@ -3,13 +3,12 @@ module State.Cli.CommandSpec (spec) where
 import Data.Either (fromLeft, fromRight)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Optparse
-import State.Artifact (Uri, parseUri)
 import State.Artifact qualified as Artifact
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (Fuel (..))
@@ -69,7 +68,7 @@ import State.Run.Event (
     stepTook,
     tookIn,
  )
-import State.Run.EventGen (fuelSet, runId)
+import State.Run.EventGen (fuelSet, runId, uri)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (
     g,
@@ -299,8 +298,8 @@ spec = describe "State.Cli.Command" $ do
                 Right (OnRun (NoteOn topic text)) -> (topic, text) `shouldBe` ("traps", "the cache -lies")
                 _ -> expectationFailure "not a note"
 
-        it "takes a handover's next steps in order, and needs one" $
-            ( handedOver
+        it "takes a handover's next steps in order" $
+            handedOver
                 ( parse
                     [ "handover"
                     , "--reason"
@@ -313,14 +312,16 @@ spec = describe "State.Cli.Command" $ do
                     , "b"
                     ]
                 )
-            , handedOver (parse ["handover", "--reason", "context", "--summary", "half done"])
-            , handedOver
+                `shouldBe` Right (Handover Context "half done" ("a" :| ["b"]))
+
+        it "refuses a handover with no next step" $
+            handedOver (parse ["handover", "--reason", "context", "--summary", "half done"])
+                `shouldBe` Left "Missing: --next <step>"
+
+        it "refuses a handover reason it does not know" $
+            handedOver
                 (parse ["handover", "--reason", "bored", "--summary", "s", "--next", "a"])
-            )
-                `shouldBe` ( Right (Handover Context "half done" ("a" :| ["b"]))
-                           , Left "Missing: --next <step>"
-                           , Left "no handover reason bored"
-                           )
+                `shouldBe` Left "no handover reason bored"
 
     describe "other commands" $ do
         it "takes a question's words as one line, asked by the run itself" $
@@ -731,8 +732,6 @@ spec = describe "State.Cli.Command" $ do
         Right (HandOver handover) -> Right handover
         Right _ -> Left "not a handover"
         Left why -> Left why
-    uri :: Text -> Uri
-    uri raw = fromMaybe (error ("not a URI: " <> show raw)) (parseUri raw)
     notesOf :: Command -> Maybe FilePath
     notesOf = \case
         Init args -> Just (shellPathText args.notes)

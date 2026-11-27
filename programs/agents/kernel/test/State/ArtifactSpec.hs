@@ -3,13 +3,12 @@ module State.ArtifactSpec (spec) where
 
 import Data.ByteString qualified as ByteString
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, maybeToList)
+import Data.Maybe (isJust, maybeToList)
 import Data.Text qualified as Text
-import Hedgehog (Gen, forAll, (===))
+import Hedgehog (Gen, cover, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Artifact (
-    AbsPath,
     Artifact (File),
     Blob (..),
     Contents (..),
@@ -18,7 +17,6 @@ import State.Artifact (
     FileRef (..),
     Size (..),
     Snapshot (..),
-    absPath,
     blobKey,
     blobsOf,
     cap,
@@ -33,7 +31,7 @@ import State.Artifact (
     uriText,
  )
 import State.Run.Event (Repo (..))
-import State.Run.EventGen (genAbsPath, genRepo)
+import State.Run.EventGen (absolutePath, genAbsPath, genRepo)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -62,7 +60,9 @@ spec = describe "State.Artifact" $ do
     describe "snapshotted" $ do
         it "keeps a file of 1048576 bytes, the cap, and not one of 1048577" $
             map
-                (\n -> isJust (register Notes (path "/n/big") (ByteString.replicate n 97)).blob)
+                ( \n ->
+                    isJust (register Notes (absolutePath "/n/big") (ByteString.replicate n 97)).blob
+                )
                 [1048576, 1048577]
                 `shouldBe` [True, False]
 
@@ -74,7 +74,7 @@ spec = describe "State.Artifact" $ do
             $ do
                 kind <- forAll Gen.enumBounded
                 bytes <- forAll (Gen.bytes (Range.linear 0 64))
-                let snapshot = register kind (path "/notes/a.md") bytes
+                let snapshot = register kind (absolutePath "/notes/a.md") bytes
                 snapshot.blob
                     === if snapshotted kind snapshot.file.ref.size then Just (Blob bytes) else Nothing
 
@@ -84,29 +84,29 @@ spec = describe "State.Artifact" $ do
             $ do
                 kind <- forAll Gen.enumBounded
                 bytes <- forAll (Gen.bytes (Range.linear 0 64))
-                let snapshot = register kind (path "/notes/a.md") bytes
+                let snapshot = register kind (absolutePath "/notes/a.md") bytes
                 blobsOf [bytes] [File snapshot.file] === maybeToList snapshot.blob
 
         it "stores a file under the cap as it was read" . hedgehog $ do
             bytes <- forAll (Gen.bytes (Range.linear 0 64))
-            blobsOf [bytes] [File (register Notes (path "/notes/a.md") bytes).file]
+            blobsOf [bytes] [File (register Notes (absolutePath "/notes/a.md") bytes).file]
                 === [Blob bytes]
 
         it "adds no blob for bytes no artifact names" $
-            blobsOf ["other"] [File (register Notes (path "/notes/a.md") "a").file]
+            blobsOf ["other"] [File (register Notes (absolutePath "/notes/a.md") "a").file]
                 `shouldBe` []
 
     describe "resnapshot" $ do
         it
             "registers a changed file again, skips an unreadable one and adds nothing for the same bytes"
-            $ let plan = (register Plan (path "/n/plan.md") "v1").file
-                  brief = (register Brief (path "/n/brief.md") "b").file
-                  notes = (register Notes (path "/n/notes.md") "n").file
+            $ let plan = (register Plan (absolutePath "/n/plan.md") "v1").file
+                  brief = (register Brief (absolutePath "/n/brief.md") "b").file
+                  notes = (register Notes (absolutePath "/n/notes.md") "n").file
                in resnapshot [(plan, Readable "v2"), (brief, Unreadable), (notes, Readable "n")]
-                    `shouldBe` ([register Plan (path "/n/plan.md") "v2"], [path "/n/brief.md"])
+                    `shouldBe` ([register Plan (absolutePath "/n/plan.md") "v2"], [absolutePath "/n/brief.md"])
 
         it "skips a transcript, changed or gone" $
-            let transcript = (register Transcript (path "/t.jsonl") "a").file
+            let transcript = (register Transcript (absolutePath "/t.jsonl") "a").file
              in resnapshot [(transcript, Readable "b"), (transcript, Unreadable)]
                     `shouldBe` ([], [])
 
@@ -121,10 +121,12 @@ spec = describe "State.Artifact" $ do
                     (fresh, _) = resnapshot files
                     registered =
                         newest (zip [1 ..] (map (File . fst) files <> map (File . (.file)) fresh))
+                -- Else the second run has nothing new to see.
+                cover 10 "a registered file changed" (not (null fresh))
                 fst
                     ( resnapshot
                         [ (file, now)
-                        | (_, file) <- registered
+                        | (_, file) <- Map.elems registered
                         , Just now <- [Map.lookup file.ref.path disk]
                         ]
                     )
@@ -190,6 +192,3 @@ genFile = do
             , pure Unreadable
             ]
     pure ((register kind filePath before).file, now)
-
-path :: FilePath -> AbsPath
-path raw = fromMaybe (error ("not an absolute path: " <> raw)) (absPath raw)

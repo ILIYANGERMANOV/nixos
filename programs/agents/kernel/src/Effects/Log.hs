@@ -12,6 +12,7 @@ module Effects.Log (
     locked,
     appending,
     Appending (..),
+    eventsOnly,
     blob,
     Logged (..),
     Unread (..),
@@ -96,6 +97,10 @@ register. A blob rides only with events: with none, nothing is written.
 data Appending = Appending {events :: [Envelope], blobs :: [Blob]}
     deriving stock (Eq, Show)
 
+-- | What appends these events and no blob.
+eventsOnly :: [Envelope] -> Appending
+eventsOnly events = Appending events []
+
 -- | A row this state cannot read, which refuses every append to its run.
 data Unread = Unread {seq :: Int64, eventType :: Text, schemaVersion :: Int64}
     deriving stock (Eq, Show)
@@ -122,7 +127,7 @@ throw.
 locked ::
     (Log :> es) =>
     RunId -> (Either Unread Logged -> ([Envelope], a)) -> Eff es a
-locked run decide = appending run (first (`Appending` []) . decide)
+locked run decide = appending run (first eventsOnly . decide)
 
 -- | 'locked', where the decision appends blobs beside its events, in the same transaction.
 appending ::

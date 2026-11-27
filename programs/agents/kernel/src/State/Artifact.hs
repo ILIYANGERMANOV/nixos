@@ -44,6 +44,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder (byteStringHex, toLazyByteString)
 import Data.ByteString.Lazy qualified as Lazy
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
@@ -173,7 +174,7 @@ sha256Text :: Sha256 -> Text
 sha256Text (Sha256 raw) = raw
 
 -- | A file's size in bytes.
-newtype Size = Size Natural
+newtype Size = Size {bytes :: Natural}
     deriving stock (Eq, Ord, Show)
 
 sizeOf :: ByteString -> Size
@@ -234,10 +235,9 @@ data Contents = Readable ByteString | Unreadable
 {- | The newest file artifact of each path, with its seq, of these artifacts
 oldest first, each with its seq: what 'resnapshot' reads again.
 -}
-newest :: [(Natural, Artifact)] -> [(Natural, FileArtifact)]
+newest :: [(Natural, Artifact)] -> Map AbsPath (Natural, FileArtifact)
 newest artifacts =
-    Map.elems
-        (Map.fromList [(file.ref.path, (n, file)) | (n, File file) <- artifacts])
+    Map.fromList [(file.ref.path, (n, file)) | (n, File file) <- artifacts]
 
 {- | The files to register again, from the newest artifact of each path and
 its bytes read now: one whose bytes changed, and the paths that could not be
