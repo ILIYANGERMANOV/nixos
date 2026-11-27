@@ -16,12 +16,15 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Foldable (for_)
 import Data.List (isSuffixOf)
 import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Payload.Upcast (shipped)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Database.SQLite.Simple qualified as SQLite
+import Effects.Log (projected)
 import Effects.Store.Connection (Durability (Unsynced), withStore)
 import Effects.Store.Events qualified as Store
+import Effects.Store.Projected (projectionRows, projectionTables)
 import State.Artifact (sha256Of, sha256Text)
 import State.Category.Fuel (Fuel (Low))
 import State.Golden (golden)
@@ -60,6 +63,7 @@ import Test.Hspec (
     runIO,
     shouldBe,
     shouldContain,
+    shouldReturn,
     shouldSatisfy,
  )
 
@@ -931,6 +935,39 @@ spec = describe "the state binary" $ do
             (refused.code, any ("\"code\":\"unknown_event\"" `Text.isInfixOf`) rows)
                 `shouldBe` (2, True)
 
+        for_ lawRuns $ \(name, setUp) ->
+            it
+                ( "prints the same next, show, tasks and resume of "
+                    <> name
+                    <> " with every projection table and view dropped; the next open brings them back"
+                )
+                $ \repo -> do
+                    setUp bin repo
+                    let deciding =
+                            traverse
+                                (fmap (\ran -> (ran.code, ran.out, ran.err)) . state bin repo)
+                                [["next"], ["show"], ["tasks"], ["resume"]]
+                        projected' =
+                            SQLite.withConnection (storeOf repo) $ \c ->
+                                (,)
+                                    <$> projectionRows c
+                                    <*> ( SQLite.query_
+                                            c
+                                            "SELECT name, sql FROM sqlite_schema WHERE type = 'view' ORDER BY name" ::
+                                            IO [(Text, Text)]
+                                        )
+                    before <- deciding
+                    (rows, views) <- projected'
+                    SQLite.withConnection (storeOf repo) $ \c -> do
+                        for_ views $ \(view, _) ->
+                            SQLite.execute_ c (SQLite.Query ("DROP VIEW " <> view))
+                        for_ ("projection_versions" : projectionTables) $ \table ->
+                            SQLite.execute_ c (SQLite.Query ("DROP TABLE " <> table))
+                    after <- deciding
+                    rowsAfter <- projected'
+                    (after, rowsAfter) `shouldBe` (before, (rows, views))
+                    (rows, views) `shouldSatisfy` \(r, v) -> not (null r) && not (null v)
+
         it "loses no event of two state processes appending to one run at once" $ \repo -> do
             _ <- drive bin repo []
             before <- logLines bin repo
@@ -951,6 +988,7 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
+                        (projected shipped)
                         (`Store.children` parent)
                 listed `shouldBe` Right [child]
 
@@ -1004,6 +1042,7 @@ spec = describe "the state binary" $ do
                     withStore
                         Unsynced
                         (storeOf repo)
+                        (projected shipped)
                         (`Store.children` parent)
 
                 listed `shouldBe` Right [asking, sibling]
@@ -1073,6 +1112,129 @@ spec = describe "the state binary" $ do
                                )
                 exited <- succeeded =<< state bin repo ["record", "pick.final"]
                 recorded exited `shouldBe` ["pick.final -> describe"]
+
+        describe "the read side: state report and state sql" $ do
+            it "prints each report of a scripted run, a fixed header first" $ \repo -> do
+                transcript <- drive bin repo balancedPath
+                transcript `shouldBe` balancedTranscript
+                _ <- succeeded =<< state bin repo ["record", "gap", "the plan step was slow"]
+                heads <-
+                    traverse
+                        (\name -> take 1 <$> (succeeded =<< state bin repo ["report", name]))
+                        ["runs", "steps", "signals", "gaps", "waits"]
+                heads
+                    `shouldBe` map
+                        (pure . Text.intercalate "\t")
+                        [
+                            [ "run_id"
+                            , "parent_run_id"
+                            , "flow"
+                            , "status"
+                            , "created_at"
+                            , "last_event_at"
+                            , "session_count"
+                            , "event_count"
+                            , "span_count"
+                            , "input_tokens"
+                            , "output_tokens"
+                            , "open_gap_count"
+                            , "signal_count"
+                            ]
+                        ,
+                            [ "run_id"
+                            , "step_visit_id"
+                            , "step"
+                            , "entered_at"
+                            , "left_at"
+                            , "duration_seconds"
+                            , "agent_seconds"
+                            ]
+                        , ["run_id", "seq", "time", "session_id", "signal", "code", "detail"]
+                        ,
+                            [ "gap"
+                            , "kind"
+                            , "severity"
+                            , "area"
+                            , "status"
+                            , "fix_pr_url"
+                            , "wont_fix_reason"
+                            , "reporter_role"
+                            , "text"
+                            ]
+                        ,
+                            [ "run_id"
+                            , "step"
+                            , "visit_count"
+                            , "duration_seconds"
+                            , "agent_seconds"
+                            , "rest_seconds"
+                            ]
+                        ]
+                gaps <-
+                    succeeded
+                        =<< state bin repo ["report", "gaps", "--since", "2000-01-01T00:00:00+01:00"]
+                map (take 5 . reverse . Text.splitOn "\t") (drop 1 gaps)
+                    `shouldBe` [["the plan step was slow", "engineer", "\\N", "\\N", "open"]]
+                runs <-
+                    succeeded
+                        =<< state bin repo ["report", "runs", "--since", "2999-01-01T00:00:00Z"]
+                length runs `shouldBe` 1
+
+            it "prints a SELECT as TSV, the schema with its comments" $ \repo -> do
+                _ <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+                ( succeeded
+                        =<< state bin repo ["sql", "SELECT 'a' || char(9) || 'b' AS x, NULL AS y"]
+                    )
+                    `shouldReturn` ["x\ty", "a\\tb\t\\N"]
+                schema <-
+                    succeeded
+                        =<< state bin repo ["sql", "SELECT sql FROM sqlite_schema WHERE name = 'runs'"]
+                schema `shouldSatisfy` any ("-- One row per run." `Text.isInfixOf`)
+
+            it "refuses every write, and an ATTACH read-write leaves the log as it was" $ \repo -> do
+                _ <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+                let events =
+                        SQLite.withConnection (storeOf repo) $ \c ->
+                            SQLite.query_ c "SELECT * FROM events ORDER BY run_id, seq" ::
+                                IO [[SQLite.SQLData]]
+                before <- events
+                refused <-
+                    traverse
+                        (\sql -> state bin repo ["sql", sql])
+                        [ "INSERT INTO runs (id) VALUES ('x')"
+                        , "UPDATE events SET data = '{}'"
+                        , "DELETE FROM events"
+                        , "ATTACH 'file:" <> storeOf repo <> "?mode=rw' AS w; DELETE FROM w.events"
+                        , "PRAGMA query_only = 0"
+                        , "VACUUM INTO '" <> repo.root <> "/copy.db'"
+                        ]
+                map (\ran -> (ran.code, take 1 ran.err)) refused
+                    `shouldBe` replicate
+                        6
+                        ( 2
+                        ,
+                            [ "state sql: sql_not_read_only - state sql runs a SELECT only: no write, ATTACH, PRAGMA or WITH RECURSIVE"
+                            ]
+                        )
+                events `shouldReturn` before
+
+            it
+                "shows a stopgap set in state sql, drops its row once unset, and keeps both lines"
+                $ \repo -> do
+                    _ <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+                    run <- runOf bin repo
+                    let stopgaps =
+                            succeeded =<< state bin repo ["sql", "select key, value, reason from stopgaps"]
+                    _ <-
+                        succeeded
+                            =<< state bin repo ["record", "stopgap", "a.b", "\"x\"", "--reason", "r"]
+                    stopgaps `shouldReturn` ["key\tvalue\treason", "a.b\t\"x\"\tr"]
+                    _ <-
+                        succeeded
+                            =<< state bin repo ["record", "stopgap", "a.b", "--unset", "--reason", "done"]
+                    stopgaps `shouldReturn` ["key\tvalue\treason"]
+                    lines' <- dumpOf bin repo run
+                    length (filter ("stopgap_" `Text.isInfixOf`) lines') `shouldBe` 2
 
         describe "audit" $ do
             it "puts every ruling of a child run in show and in its hand-back" $ \repo -> do
@@ -1946,6 +2108,33 @@ spec = describe "the state binary" $ do
                                    , [Just (Number 3), Just "error", Just "no_handback", Nothing, Nothing]
                                    ]
 
+                it "runs each state sql load line the resume packet prints, each returning rows" $ \repo -> do
+                    _ <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+                    _ <-
+                        succeeded =<< hook hookBin repo "spawn" (spawnedAs repo Null "Explore" "e7")
+                    _ <-
+                        succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "Explore" "e7")
+                    _ <-
+                        succeeded
+                            =<< hook
+                                hookBin
+                                repo
+                                "handback"
+                                (reportedBy repo (worker "e7" "Explore") (ready ""))
+                    _ <- succeeded =<< state bin repo ["note", "--topic", "traps", "it's \"cold\""]
+                    for_ ["v1\n", "v2\n"] $ \text -> do
+                        writeFile (repo.work </> "plan $1.md") text
+                        succeeded =<< state bin repo ["artifact", "plan $1.md", "--kind", "plan"]
+                    loads <- mapMaybe sqlLoaded <$> (succeeded =<< state bin repo ["resume"])
+                    -- Each through state sql itself: its rows, under its header.
+                    counts <-
+                        traverse
+                            ( \sql ->
+                                subtract 1 . length <$> (succeeded =<< state bin repo ["sql", Text.unpack sql])
+                            )
+                            loads
+                    (length loads, counts) `shouldBe` (3, [1, 2, 1])
+
                 it
                     "log the session of a run its state init made mid-session once, and its transcript at a handover"
                     $ \repo -> do
@@ -2578,6 +2767,20 @@ runOf bin repo =
                 pure (Text.takeWhile (/= ' ') named)
         other -> fail ("no run shown: " <> show other)
 
+{- | The query of a packet line's @state sql "<query>"@, its shell
+escapes undone: what @state sql@ would be handed.
+-}
+sqlLoaded :: Text -> Maybe Text
+sqlLoaded packetLine = case Text.breakOn "state sql \"" packetLine of
+    (_, "") -> Nothing
+    (_, found) ->
+        unescaped <$> (Text.stripSuffix "\"" =<< Text.stripPrefix "state sql \"" found)
+  where
+    unescaped raw = case Text.breakOn "\\" raw of
+        (done, rest) -> case Text.uncons (Text.drop 1 rest) of
+            Just (c, more) -> done <> Text.singleton c <> unescaped more
+            Nothing -> done
+
 {- | The run store's file: the environment's @XDG_STATE_HOME@ is the repo's
 own, never the user's.
 -}
@@ -2715,6 +2918,25 @@ startedIn bin repo argv =
     (succeeded =<< state bin repo ("init" : argv)) >>= \case
         [line, _, "next: state next"] | Just run <- Text.stripPrefix "started " line -> pure run
         other -> fail ("not started: " <> show other)
+
+{- | The runs the projection law holds on, each set up in a fresh repo: an
+engineer's that ran its path, with a gap and a stopgap, and a 10x's at its
+fan-out, with tasks.
+-}
+lawRuns :: [(String, FilePath -> Repo -> IO ())]
+lawRuns =
+    [
+        ( "an engineer run"
+        , \bin repo -> do
+            _ <- drive bin repo balancedPath
+            for_
+                [ ["record", "gap", "the plan step was slow"]
+                , ["record", "stopgap", "a.b", "\"x\"", "--reason", "r"]
+                ]
+                (succeeded <=< state bin repo)
+        )
+    , ("a 10x run at its fan-out", \bin repo -> void (tenXAtFanOut bin repo))
+    ]
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
 @t1@; the run's id.

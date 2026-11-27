@@ -125,9 +125,9 @@ spec = describe "State.Run.Stopgap" $ do
 replayed :: [Event] -> Either Refusal RunState
 replayed events = replay g (logOf (started :| events))
 
--- | The stopgaps in force after these events.
+-- | The value of each stopgap in force after these events.
 live :: (Monad m) => [Event] -> PropertyT m (Map.Map StopgapAt IJson)
-live events = (.stopgaps) <$> evalEither (replayed events)
+live events = Map.map (.value) . (.stopgaps) <$> evalEither (replayed events)
 
 -- | A few places, so the events drawn from them write the same key often.
 genPool :: Gen [StopgapAt]

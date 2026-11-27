@@ -83,7 +83,7 @@ import State.Artifact (
  )
 import State.Category.Flow (Name)
 import State.Category.Fuel (Fuel (Balanced), PerFuel, SkipWhen)
-import State.Category.Graph (Node (..), OpenGraph (..), graph, placeName)
+import State.Category.Graph (Node (..), OpenGraph (..), placeName)
 import State.Category.Step (StateName, stateNameText)
 import State.Cli.Command (
     Block (..),
@@ -119,6 +119,7 @@ import State.Cli.Command (
     refusalCode,
     refusedNote,
     retryOf,
+    sqlRefused,
     tenXInitFix,
     unknownEvent,
  )
@@ -242,7 +243,7 @@ import State.Protocol.Hook (
  )
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Option (..), Recording (..))
-import State.Role (RoleDef (..), SomeFlow (..))
+import State.Role (RoleDef (..), SomeFlow (..), graphOf)
 import State.Role qualified as Role
 import State.Run.Ask (
     Above (ParentRun),
@@ -1298,6 +1299,8 @@ execute steps = \case
     OnRun (Record (NeedDone ref note)) -> closeNeed ref note
     Register location from by -> registerArtifact location from by
     Dump run -> dump run
+    Report kind window -> Right <$> Log.report kind window
+    Sql statement -> Bifunctor.first sqlRefused <$> Log.sql statement
     Resume run k -> resumePacket run k
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
@@ -3559,11 +3562,6 @@ rendered steps block flow = case block of
 flowSkips :: FlowName -> [(Name, PerFuel SkipWhen)]
 flowSkips flowName = case (Role.role flowName).flow of
     SomeFlow flow -> termSkips flow
-
--- | Each flow's graph glues, as its test holds: a clash here is a bug.
-graphOf :: FlowName -> OpenGraph
-graphOf flowName = case (Role.role flowName).flow of
-    SomeFlow flow -> either (error . ("the flow does not glue: " <>) . show) id (graph flow)
 
 -- | The worktree's git dir, where the pointer to its run lives.
 gitDir :: (Git :> es) => Eff es (Either Failure FilePath)

@@ -84,6 +84,10 @@ runLogInMemory upcasts = interpret $ \_ -> \case
                 (blobRead key (Map.lookup (Field.encode Field.sha256 key) blobs))
     Children run -> indexed (\index -> index.parentRunId == Just (runIdText run)) <$> get
     InNotes notes -> indexed (\index -> index.notesDir == Text.pack notes) <$> get
+    -- SQLite computes these: their specs run the real store (#552), never this double.
+    Report _ _ -> throwIO (userError "the in-memory store has no SQL: reports run on SQLite")
+    Sql _ ->
+        throwIO (userError "the in-memory store has no SQL: state sql runs on SQLite")
 
 -- | The rows of every run.
 rowsOf :: Runs -> [(RunId, [EventRow])]

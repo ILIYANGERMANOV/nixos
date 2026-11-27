@@ -33,6 +33,8 @@ import Database.SQLite.Simple (
     withImmediateTransaction,
  )
 import Effects.Store.Connection (Store (..))
+import Effects.Store.EventRows (selectRows)
+import Effects.Store.Projection (replace)
 
 {- | What a decision appends: events to a started run, or a run's start, its
 @runs@ row with its first events. A @runs@ row without its event 1 is no
@@ -49,22 +51,23 @@ data Batch = Batch {write :: Write, blobs :: [BlobRow]}
 
 -- | Whether the run was started in the store.
 exists :: Store -> Text -> IO Bool
-exists (Store conn) run =
+exists (Store conn _) run =
     not . null
         <$> (query conn "SELECT 1 FROM runs WHERE id = ?" (Only run) :: IO [Only Int])
 
 -- | The run's rows, in seq order, read in one statement, without the write lock.
 rows :: Store -> Text -> IO [EventRow]
-rows (Store conn) = selectRows conn
+rows (Store conn _) = selectRows conn
 
 {- | The run's rows, in seq order, under the write lock for one decision:
 @decide@ gets them all and returns what to write. Events for a run never
 started violate a foreign key and throw, as do events whose seqs do not
 follow the log's ('misnumbered'). A blob already stored is kept as it is:
-its key is its content's digest, so the content is the same.
+its key is its content's digest, so the content is the same. A write
+replaces the run's projection rows, in the same transaction.
 -}
 locked :: Store -> Text -> ([EventRow] -> (Maybe Batch, a)) -> IO a
-locked (Store conn) run decide = withImmediateTransaction conn $ do
+locked (Store conn projections) run decide = withImmediateTransaction conn $ do
     logged <- selectRows conn run
     let (batch, result) = decide logged
     for_ batch $ \Batch {write, blobs} -> do
@@ -74,6 +77,7 @@ locked (Store conn) run decide = withImmediateTransaction conn $ do
             "INSERT INTO blobs (sha256, size_bytes, content) VALUES (?, ?, ?) ON CONFLICT (sha256) DO NOTHING"
             [(row.sha256, row.sizeBytes, row.content) | row <- blobs]
         writing (length logged) write
+        replace projections conn run (logged <> toList (rowsOf write))
     pure result
   where
     writing count = \case
@@ -84,6 +88,9 @@ locked (Store conn) run decide = withImmediateTransaction conn $ do
                 "INSERT INTO runs (id, parent_run_id, flow, notes_dir, created_at) VALUES (?, ?, ?, ?, ?)"
                 (start.id, start.parentRunId, start.flow, start.notesDir, start.createdAt)
             append count new
+    rowsOf = \case
+        Append new -> new
+        Start _ new -> new
     append count new = do
         for_ (misnumbered count new) (throwIO . userError)
         executeMany
@@ -104,7 +111,7 @@ locked (Store conn) run decide = withImmediateTransaction conn $ do
 
 -- | The blob stored under this key, if any.
 blob :: Store -> Text -> IO (Maybe BlobRow)
-blob (Store conn) key =
+blob (Store conn _) key =
     listToMaybe . map blobRow
         <$> query
             conn
@@ -112,37 +119,6 @@ blob (Store conn) key =
             (Only key)
   where
     blobRow (sha256, sizeBytes, content) = BlobRow {sha256, sizeBytes, content}
-
-selectRows :: Connection -> Text -> IO [EventRow]
-selectRows conn run =
-    map eventRow
-        <$> query
-            conn
-            "SELECT run_id, seq, schema_version, type, time, session_id, head_sha, hook_digest, data FROM events WHERE run_id = ? ORDER BY seq"
-            (Only run)
-  where
-    eventRow
-        ( runId
-            , n
-            , schemaVersion
-            , eventType
-            , time
-            , sessionId
-            , headSha
-            , hookDigest
-            , payload
-            ) =
-            EventRow
-                { runId
-                , seq = n
-                , schemaVersion
-                , eventType
-                , time
-                , sessionId
-                , headSha
-                , hookDigest
-                , payload
-                }
 
 {- | Why these rows cannot follow a log of this many: seqs run densely from
 1, so a duplicate or a gap is a writer's bug. The unique key alone refuses
@@ -168,12 +144,12 @@ their starts were written, the rowid's, as two in one millisecond tie on
 @created_at@.
 -}
 children :: Store -> Text -> IO [Text]
-children (Store conn) =
+children (Store conn _) =
     ids conn "SELECT id FROM runs WHERE parent_run_id = ? ORDER BY rowid"
 
 -- | The runs started in this notes dir, oldest first, as 'children' orders them.
 inNotes :: Store -> Text -> IO [Text]
-inNotes (Store conn) =
+inNotes (Store conn _) =
     ids conn "SELECT id FROM runs WHERE notes_dir = ? ORDER BY rowid"
 
 ids :: Connection -> Query -> Text -> IO [Text]

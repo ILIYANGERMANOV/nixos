@@ -207,9 +207,22 @@ kernelData =
     , "Data.Entity.Event"
     , "Data.Entity.Run"
     , "Data.Field"
+    , "Data.Json"
     , "Data.Payload.Blob"
     , "Data.Payload.Event"
     , "Data.Payload.Upcast"
+    , "Data.Projection"
+    , "Data.Projection.Column"
+    , "Data.Projection.Context"
+    , "Data.Projection.Gaps"
+    , "Data.Projection.Questions"
+    , "Data.Projection.Registry"
+    , "Data.Projection.Runs"
+    , "Data.Projection.Spans"
+    , "Data.Projection.Tasks"
+    , "Data.Projection.Views"
+    , "Data.Report"
+    , "Data.Tsv"
     ]
 
 -- | The store: the only modules that speak SQL.

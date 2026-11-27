@@ -7,6 +7,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -1257,7 +1258,7 @@ gatherBudgets = describe "the gather's choice" $ do
             early <- forAll (Gen.int (Range.linear 0 n))
             interleaved <- forAll (genHandBacks n early 0)
             let gathered events =
-                    (\state -> (state.at, state.rounds, state.meters))
+                    (\state -> (state.at, problems state, state.meters))
                         <$> replay g (logOf (started :| fuelSet Balanced : events))
             annotate (show interleaved)
             gathered (interleaved <> [pickEnough] <> replicate (n - early) handedBack)
@@ -2325,7 +2326,7 @@ atName state = case state.at of
 landing ::
     RunState ->
     ( Node
-    , Map.Map Name (NonEmpty Round)
+    , Map.Map Name (NonEmpty (Set Problem))
     , Map.Map Metered Natural
     , Maybe Fuel
     , [Pending]
@@ -2337,7 +2338,7 @@ landing ::
     )
 landing s =
     ( s.at
-    , s.rounds
+    , problems s
     , s.meters
     , s.fuel
     , s.pending
@@ -2347,6 +2348,12 @@ landing s =
     , s.onTarget
     , s.stopped
     )
+
+{- | Each loop's rounds by their problems: two logs that reach the same
+rounds open them at lines of their own seqs.
+-}
+problems :: RunState -> Map.Map Name (NonEmpty (Set Problem))
+problems s = Map.map (fmap (.found)) s.rounds
 
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start

@@ -9,12 +9,16 @@ module State.Run.Stopgap (
     stopgapKeyText,
     stopgapKeyRule,
     StopgapAt (..),
+    Stopgap (..),
 ) where
 
 import Data.Char (isAsciiLower, isDigit)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Numeric.Natural (Natural)
+import State.Run.IJson (IJson)
 import State.Run.Id (TaskRef)
+import State.Step.Artifact (NonBlank)
 
 {- | A key after OpenTelemetry's attribute naming: lowercase Latin letters,
 digits, @_@ and @.@ as the namespace delimiter; it starts with a letter,
@@ -50,3 +54,9 @@ Its newest value is the one in force ("State.Run.Fold").
 -}
 data StopgapAt = StopgapAt {scope :: Maybe TaskRef, key :: StopgapKey}
     deriving stock (Eq, Ord, Show)
+
+{- | A stopgap in force: the seq of the @stopgap_set@ line that set it, its
+value and why it was set. The seq is the store's row id (#552 s9, D2).
+-}
+data Stopgap = Stopgap {seq :: Natural, value :: IJson, reason :: NonBlank}
+    deriving stock (Eq, Show)

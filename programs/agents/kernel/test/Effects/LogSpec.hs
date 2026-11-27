@@ -16,7 +16,6 @@ import Data.Entity.Run (RunRow (..))
 import Data.Foldable (for_)
 import Data.List (isPrefixOf)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Map.Strict qualified as Map
 import Data.Payload.Event (eventRow, runRow)
 import Data.Payload.Fixtures (retiring)
 import Data.Payload.Upcast (Upcasts)
@@ -24,10 +23,8 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
 import Database.SQLite.Simple qualified as SQLite
-import Doubles.Environment (runEnvironmentGiven)
 import Doubles.Log (noRuns, runLogInMemory, written)
-import Effectful (Eff, runEff, runPureEff, (:>))
-import Effectful.Error.Static (runErrorNoCallStack)
+import Effectful (Eff, runPureEff, (:>))
 import Effectful.Exception (throwIO, try)
 import Effectful.State.Static.Local (evalState, get, put)
 import Effects.Log (
@@ -42,13 +39,13 @@ import Effects.Log (
     firstEvent,
     inNotes,
     locked,
-    runLogIO,
     shipped,
  )
 import Effects.Log qualified as Log
-import Effects.Store.Connection (Durability (Full), OpenRefusal, withStore)
+import Effects.Store.Connection (Durability (Full), withStore)
 import Effects.Store.Events (Batch (..), Write (Append))
 import Effects.Store.Events qualified as Store
+import Effects.Store.Fixtures (atStore, atStoreWith)
 import Hedgehog (PropertyT, annotateShow, assert, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
@@ -205,26 +202,12 @@ inStore upcasts seeded byHand program = withSystemTempDirectory "state-log" $ \d
     withStore
         Full
         (dir </> "state" </> "kernel-v2.db")
+        (Log.projected upcasts)
         (for_ byHand . writeRaw)
         >>= either (fail . show) pure
     atStoreWith upcasts dir program
   where
     writeRaw store write = Store.locked store (runOf write) (const (Just (Batch write []), ()))
-
--- | A program on the run store under this @XDG_STATE_HOME@, which it must open.
-atStore :: FilePath -> (forall es. (Log :> es) => Eff es a) -> IO a
-atStore = atStoreWith shipped
-
-atStoreWith ::
-    Upcasts -> FilePath -> (forall es. (Log :> es) => Eff es a) -> IO a
-atStoreWith upcasts dir program =
-    runEff
-        ( runErrorNoCallStack @OpenRefusal
-            . runEnvironmentGiven (Map.fromList [("XDG_STATE_HOME", dir)])
-            . runLogIO upcasts Full
-            $ program
-        )
-        >>= either (fail . show) pure
 
 -- | The rows a query reads from the store under this @XDG_STATE_HOME@.
 storeRows ::

@@ -7,6 +7,7 @@ module Effects.Store.MigrationSpec (spec) where
 import Control.Exception (try)
 import Data.ByteString qualified as BS
 import Data.Foldable (for_)
+import Data.Payload.Upcast (shipped)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Database.SQLite.Simple (
@@ -18,6 +19,7 @@ import Database.SQLite.Simple (
     withConnection,
  )
 import Database.SQLite.Simple qualified as SQLite
+import Effects.Log (projected)
 import Effects.Store.Connection (
     Durability (Unsynced),
     Foreign (..),
@@ -25,6 +27,7 @@ import Effects.Store.Connection (
     Store (..),
     withStore,
  )
+import Effects.Store.Migration (permanent)
 import State.Golden (golden)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -43,9 +46,14 @@ spec = describe "Effects.Store.Migration" $ do
     schema <-
         runIO . withSystemTempDirectory "state-store" $ \dir ->
             onStore dir $ \conn ->
-                query_ conn "SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY rowid"
+                query_
+                    conn
+                    "SELECT tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY rowid"
+    -- The projections' tables are "Effects.Store.ProjectionSpec"'s.
     it "creates the schema Appendix A states, as SQLite keeps it" $
-        golden "schema-v2.sql" (Text.unlines [sql <> ";" | Only sql <- schema])
+        golden
+            "schema-v2.sql"
+            (Text.unlines [sql <> ";" | (table, sql) <- schema, table `elem` permanent])
 
     it "marks a new store with the application id and the schema version" $
         withSystemTempDirectory "state-store" $ \dir ->
@@ -74,7 +82,7 @@ spec = describe "Effects.Store.Migration" $ do
                 withSystemTempDirectory "state-store" $ \dir -> do
                     let path = dir </> "other.db"
                     withConnection path (`execute_` "PRAGMA application_id = 42")
-                    untouched path (withStore Unsynced path (const (pure ())))
+                    untouched path (withStore Unsynced path (projected shipped) (const (pure ())))
                         `shouldReturn` Left (NotAStateStore path (ApplicationId 42))
 
             it "a newer kernel's store" $
@@ -84,14 +92,14 @@ spec = describe "Effects.Store.Migration" $ do
                         mapM_
                             (execute_ conn)
                             ["PRAGMA application_id = 1263685196", "PRAGMA user_version = 2"]
-                    untouched path (withStore Unsynced path (const (pure ())))
+                    untouched path (withStore Unsynced path (projected shipped) (const (pure ())))
                         `shouldReturn` Left (NewerSchema path 2 1)
 
             it "a file that is no SQLite database" $
                 withSystemTempDirectory "state-store" $ \dir -> do
                     let path = dir </> "notes.txt"
                     BS.writeFile path (BS.replicate 4096 0x61)
-                    untouched path (withStore Unsynced path (const (pure ())))
+                    untouched path (withStore Unsynced path (projected shipped) (const (pure ())))
                         `shouldReturn` Left (NotAStateStore path NotSQLite)
 
 -- | The action's result, failing the example when it changed the file's bytes.
@@ -107,7 +115,11 @@ untouched path act = do
 -- | An action on a new store's connection, its pragmas set as every open sets them.
 onStore :: FilePath -> (Connection -> IO a) -> IO a
 onStore dir act =
-    withStore Unsynced (dir </> "kernel-v2.db") (\(Store conn) -> act conn)
+    withStore
+        Unsynced
+        (dir </> "kernel-v2.db")
+        (projected shipped)
+        (act . (.connection))
         >>= either (fail . show) pure
 
 pragma :: Connection -> Text -> IO Int

@@ -171,6 +171,21 @@ To look inside a run, or keep what a fresh agent needs:
 | `state record stopgap <key> <json>\|--unset [--task <id>] --reason <r>` | logs `stopgap_set` or `stopgap_unset`: a keyed value read back later, `--unset` when it ends. Last resort: only when no typed command fits; prose context is a `note`. Never a secret. The value is I-JSON (RFC 7493), at most 1024 bytes; the kernel never reads it |
 | `state resume [<run>] [--until <seq>]` | prints the packet a fresh agent resumes from: goal, the user's instructions, worktree, next steps, owed work (with what the user must do by hand), epics, tasks with their base, PR and head, questions, decisions, gaps, notes, stopgaps, then a context map of every file, URL, child run and session with the command that loads it. With no run named, the run `STATE_SESSION` is bound to, else the worktree's. The harness's adapter sets `STATE_SESSION` for each shell. `--until <seq>` prints it as it was after that line. A line it cannot read refuses it |
 
+To read every run at once, and never to decide (`state next`, `show`,
+`tasks` and `resume` read the fold):
+
+| Command | Does |
+|---|---|
+| `state report <runs\|steps\|signals\|gaps\|waits> [--since <RFC 3339>] [--run <id>]` | prints a fixed report as TSV, header first: one row per run, step visit, signal, gap, or run and step. `--since` keeps rows at or after that time, by each row's own time: a run's is its last event |
+| `state sql "<select>"` | runs one read-only SELECT on a second, read-only connection and prints its rows as TSV (PostgreSQL COPY text: NULL is `\N`). A write, ATTACH, PRAGMA or recursive CTE is refused as `sql_not_read_only`, a second statement as `sql_not_one_statement` |
+
+The `v_` views are the read API: `v_steps` (each step visit, its length and
+the agent time in it), `v_signals` (each refusal, stop, override, void,
+extension and stuck question) and `v_sessions` (each harness session of a
+run). Query them before the projection tables, whose shape may change.
+`state sql "SELECT sql FROM sqlite_schema"` prints every table and view with
+its column comments.
+
 ## Replay is a fold
 
 ```text

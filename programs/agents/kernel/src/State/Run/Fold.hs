@@ -71,6 +71,7 @@ module State.Run.Fold (
     askedAt,
     nodeName,
     over,
+    recordedPr,
     forks,
     awaitedOpen,
     ScopedFan (..),
@@ -211,8 +212,7 @@ import State.Run.Fan (Breakdown (..), Fan (..), emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Run.Gap (Closure, GapMove, Tracked (..))
 import State.Run.Gap qualified as Gap
-import State.Run.IJson (IJson)
-import State.Run.Stopgap (StopgapAt)
+import State.Run.Stopgap (Stopgap (..), StopgapAt)
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
@@ -296,7 +296,7 @@ data RunState = RunState
     -- ^ The user's instructions in force, by the seq that logged each: one replaced is gone.
     , needs :: Map Natural Need
     -- ^ What the user has yet to do by hand, by the seq that logged each: one done is gone.
-    , stopgaps :: Map StopgapAt IJson
+    , stopgaps :: Map StopgapAt Stopgap
     {- ^ Each stopgap in force, its newest value: the store's @stopgaps@ table.
     Nothing the run decides reads it.
     -}
@@ -400,8 +400,13 @@ data Waits
       ForLater OneLine
     deriving stock (Eq, Show)
 
--- | What went wrong in one round of a loop, which the stuck rule compares two of.
-newtype Round = Round {found :: Set Problem}
+{- | One round of a loop: the seq of the line that opened it, and what went
+wrong in it, which the stuck rule compares two of. The seq is kept for the
+store's @loop_rounds@ only (#552 s9, D9): no line names the round it opens,
+and a loop restarted at its first round looks, from its rounds alone, like
+one left as it was.
+-}
+data Round = Round {opened :: Natural, found :: Set Problem}
     deriving stock (Eq, Show)
 
 data Problem = Row Label | Unmet Requirement | Failing Check
@@ -570,7 +575,11 @@ begin g envelope = case runStart envelope.event of
                 , fuel = Nothing
                 , rounds =
                     Map.mapMaybe
-                        (\loop -> if Set.member g.inPort loop.body then Just firstRound else Nothing)
+                        ( \loop ->
+                            if Set.member g.inPort loop.body
+                                then Just (firstRound envelope.seq)
+                                else Nothing
+                        )
                         g.loops
                 , seen = Set.singleton (eventId envelope)
                 , stopped = Nothing
@@ -665,8 +674,8 @@ data Answering (eff :: Eff) where
     Answers :: QId -> Reply -> Above -> Answering AskE
     -- | The question waits for a later answer, and why.
     Parks :: QId -> OneLine -> Answering AskE
-    -- | The chief's request in focus waits, and where it stands: a new request opens.
-    Suspends :: TaskNo -> OneLine -> Answering FocusE
+    -- | The chief's request in focus waits, and where it stands, logged at this seq: a new request opens.
+    Suspends :: Natural -> TaskNo -> OneLine -> Answering FocusE
     -- | The chief turns back to this waiting request.
     Focuses :: TaskNo -> Answering FocusE
     -- | The outcome of the step that waits, in its scopes, logged at this seq: what it waited on settled.
@@ -688,7 +697,7 @@ handle handler g state = case handler of
         Parks qid why -> parked state qid why
     FocusHandler -> \answering ->
         focusable state >> case answering of
-            Suspends task summary -> suspends g state task summary
+            Suspends n task summary -> suspends g n state task summary
             Focuses task -> focuses g state task
     AwaitHandler -> \(Settles n scope outcome) -> took g state n scope outcome
 
@@ -732,7 +741,7 @@ applyEvent g state n = \case
             going (working <$> handle AwaitHandler g state (Settles n scope outcome))
         | otherwise -> going (working <$> took g state n scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
-    Overridden name _ -> going (overridden g state name)
+    Overridden name _ -> going (overridden g n state name)
     Asked asking -> going (handle AskHandler g state (Asks asking))
     RetaggedSecurity qid -> going (handle AskHandler g state (Retags qid))
     RuledOn qid proposal -> going (handle AskHandler g state (RulesOn qid proposal))
@@ -745,7 +754,7 @@ applyEvent g state n = \case
             heldTask ref.task >>= \holder ->
                 atAwait g holder.at
                     >> inFanAt holder.fan (Fan.spawned (askingChildren state) child) state
-        Untasked -> forked g state child
+        Untasked -> forked g n state child
     Resumed child _ -> going (inFanOf (snd (childAt child)) (Fan.resumed child))
     -- An untasked child hands back wherever the run is, as an agent child does.
     HandedBack child _ said -> going $ case untaskedFan state child of
@@ -769,7 +778,7 @@ applyEvent g state n = \case
         going
             ( epicsOf [task.base] state
                 >> inFanOf (fanAt state.at) (Fan.added n task)
-                >>= reopened g
+                >>= reopened g n
             )
     -- The lead's session started afresh: every agent it had at work is gone.
     Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
@@ -779,7 +788,7 @@ applyEvent g state n = \case
             (Right state {workers = state.workers <> [Worker role (WorkerLine agent) n]})
     WorkerReturned role agent -> going (Right state {workers = returned role agent state.workers})
     AgentEnded agent -> going (Right state {agentEnded = Just agent})
-    Suspended task summary -> going (handle FocusHandler g state (Suspends task summary))
+    Suspended task summary -> going (handle FocusHandler g state (Suspends n task summary))
     Focused task -> going (handle FocusHandler g state (Focuses task))
     -- Context facts for a fresh agent: they move nothing.
     WorktreeMoved _ _ -> going (Right state)
@@ -819,7 +828,9 @@ applyEvent g state n = \case
     {- No refusal is cleared and nothing joins: what the run decides never
     reads a stopgap, so @state next@ is the same with or without one. A
     stopped run still takes none. -}
-    StopgapSet at value _ -> unlessStopped (Right state {stopgaps = Map.insert at value state.stopgaps})
+    StopgapSet at value reason ->
+        unlessStopped
+            (Right state {stopgaps = Map.insert at (Stopgap n value reason) state.stopgaps})
     StopgapUnset at _ -> unlessStopped (Right state {stopgaps = Map.delete at state.stopgaps})
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
@@ -830,7 +841,7 @@ applyEvent g state n = \case
     is refused until the round's task settles (a rare case, left as is). -}
     afterMove requests fan task = \case
         Event.Round _
-            | state.focus `elem` requests -> reopened g
+            | state.focus `elem` requests -> reopened g n
             | otherwise -> Right
         InCi _ -> Right
         InReview _ -> Right
@@ -852,7 +863,7 @@ applyEvent g state n = \case
         Just fan -> inFanAt fan change state
         Nothing -> Left NotAtFan
     -- After any event, a state that goes on by itself does ('joined').
-    going next = unlessStopped ((\moved -> joined g moved {refused = Nothing}) <$> next)
+    going next = unlessStopped ((\moved -> joined g n moved {refused = Nothing}) <$> next)
     unlessStopped next = case state.stopped of
         Just stop -> Left (AfterStop stop)
         Nothing -> next
@@ -980,23 +991,23 @@ child handed back (an AND-join): no one records its @done@, as the
 run's ledger already holds the fact. A parallel's fork state goes on at once
 ('forkPasses'). At any other state, the run stays.
 -}
-joined :: OpenGraph -> RunState -> RunState
-joined g state = case state.at of
+joined :: OpenGraph -> Natural -> RunState -> RunState
+joined g n state = case state.at of
     At place
         | Just edge <- awaitDone g place
         , awaitedOpen g state place == 0 ->
-            joined g (movedOn g edge state)
-        | Just edge <- forkPasses g place -> joined g (movedOn g edge state)
+            joined g n (movedOn g n edge state)
+        | Just edge <- forkPasses g place -> joined g n (movedOn g n edge state)
     At _ -> state
     Out -> state
     Exit -> state
 
--- | The run along an edge no outcome names: an await's done, a fork's spawn.
-movedOn :: OpenGraph -> Edge Node -> RunState -> RunState
-movedOn g edge state =
+-- | The run along an edge no outcome names, by the line of this seq: an await's done, a fork's spawn.
+movedOn :: OpenGraph -> Natural -> Edge Node -> RunState -> RunState
+movedOn g n edge state =
     state
         { at = edge.to
-        , rounds = enter g edge.back state.at edge.to state.rounds
+        , rounds = enter g n edge.back state.at edge.to state.rounds
         , meters = kept g edge.to state.meters
         , askedHere = []
         }
@@ -1006,10 +1017,11 @@ of a group of child runs ('forkingAt'), and goes on by its @spawned@. The
 child is kept in the fan-out of the group's 'State.Category.Flow.Await',
 where the 'ledger' counts it open until it finishes or stops.
 -}
-forked :: OpenGraph -> RunState -> Child -> Either Refusal RunState
-forked g state child = case forkingAt g state of
+forked :: OpenGraph -> Natural -> RunState -> Child -> Either Refusal RunState
+forked g n state child = case forkingAt g state of
     Just (edge, fan) ->
-        movedOn g edge <$> inFanAt fan (Fan.spawned (askingChildren state) child) state
+        movedOn g n edge
+            <$> inFanAt fan (Fan.spawned (askingChildren state) child) state
     Nothing -> Left (NoEdge state.at (fanEvent Spawns (askedAt state)))
 
 -- | The run with this fan-out changed, or the fan-out's refusal.
@@ -1141,7 +1153,7 @@ walked g state n scope outcome@(AnyOutcome _ some) = do
     meters <- spend g state (RecordedOutcome some)
     fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
-        rounds = enter g edge.back state.at edge.to noted
+        rounds = enter g n edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
     Right
         state
@@ -1386,12 +1398,12 @@ settledSkips state block = block == refineName && planSettled state
 {- | A task added, or a round asked, at a fan-out's merge reopens the fan-out, where it is
 spawned as any task is; the fan-out is left again once every task is settled.
 -}
-reopened :: OpenGraph -> RunState -> Either Refusal RunState
-reopened g state = case state.at of
+reopened :: OpenGraph -> Natural -> RunState -> Either Refusal RunState
+reopened g n state = case state.at of
     At place
         | Just fan <- fanOf place.name
         , place.name == mergeName fan ->
-            overridden g state (qualify place.scope (namedState fan))
+            overridden g n state (qualify place.scope (namedState fan))
     At _ -> Right state
     Out -> Right state
     Exit -> Right state
@@ -1741,6 +1753,10 @@ nodeName = \case
     Out -> StateName "out"
     Exit -> StateName "exit"
 
+-- | The PR the run recorded last: the one it published, else its draft.
+recordedPr :: RunState -> Maybe Url
+recordedPr state = state.published <|> (.url) <$> state.drafted
+
 -- | The run stopped, or left its flow.
 over :: RunState -> Bool
 over state = case (state.stopped, state.at) of
@@ -1755,17 +1771,18 @@ fromAbove principal named
     | named == deliver principal = Right ()
     | otherwise = Left (NotAbove named)
 
-overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
-overridden g state target = case Set.toList (Set.filter (\place -> placeName place == target) (places g)) of
-    [place] -> Right (movedTo g state (At place))
+overridden ::
+    OpenGraph -> Natural -> RunState -> StateName -> Either Refusal RunState
+overridden g n state target = case Set.toList (Set.filter (\place -> placeName place == target) (places g)) of
+    [place] -> Right (movedTo g n state (At place))
     _ -> Left (NoSingleState target)
 
--- | The run moved to the node off the flow's edges, as an override or a new request moves it.
-movedTo :: OpenGraph -> RunState -> Node -> RunState
-movedTo g state to =
+-- | The run moved to the node off the flow's edges by the line of this seq, as an override or a new request moves it.
+movedTo :: OpenGraph -> Natural -> RunState -> Node -> RunState
+movedTo g n state to =
     state
         { at = to
-        , rounds = enter g Nothing state.at to state.rounds
+        , rounds = enter g n Nothing state.at to state.rounds
         , meters = kept g to state.meters
         , askedHere = []
         }
@@ -1785,12 +1802,12 @@ focusable state = case (state.start.flow, over state) of
 waiting apart, a forwarded one parked: a new request opens.
 -}
 suspends ::
-    OpenGraph -> RunState -> TaskNo -> OneLine -> Either Refusal RunState
-suspends g state task summary
+    OpenGraph -> Natural -> RunState -> TaskNo -> OneLine -> Either Refusal RunState
+suspends g n state task summary
     | task /= state.focus = Left (NotInFocus task)
     | otherwise =
         Right
-            (opened g state)
+            (opened g n state)
                 { suspended =
                     Map.insert
                         task
@@ -1828,9 +1845,10 @@ focuses g state task = case (Map.lookup task state.suspended, stage g state) of
                     state.pending
             }
 
--- | A new request in focus, at the flow's start, numbered past every request still open.
-opened :: OpenGraph -> RunState -> RunState
-opened g state = (movedTo g state (At g.inPort)) {onTarget = Nothing, focus = nextTask state}
+-- | A new request in focus by the line of this seq, at the flow's start, numbered past every request still open.
+opened :: OpenGraph -> Natural -> RunState -> RunState
+opened g n state =
+    (movedTo g n state (At g.inPort)) {onTarget = Nothing, focus = nextTask state}
 
 nextTask :: RunState -> TaskNo
 nextTask state = case maximum (state.focus : Map.keys state.suspended) of
@@ -1890,19 +1908,20 @@ placed g (Position at fuel rounds meters askedHere onTarget latest) state =
 suspendedAsks :: RunState -> [QId]
 suspendedAsks state = [qid | suspension <- Map.elems state.suspended, (qid, _) <- suspension.asks]
 
-{- | The rounds after a move from one node to another. A loop's own back
-edge starts its next round; one entered from outside, or restarted by an
-enclosing loop's next round, starts at round one; one left is closed. The
-rounds bound nothing: they are the history the stuck rule reads.
+{- | The rounds after a move from one node to another by the line of this
+seq. A loop's own back edge starts its next round; one entered from outside,
+or restarted by an enclosing loop's next round, starts at round one; one left
+is closed. The rounds bound nothing: they are the history the stuck rule reads.
 -}
 enter ::
     OpenGraph ->
+    Natural ->
     Maybe Name ->
     Node ->
     Node ->
     Map Name (NonEmpty Round) ->
     Map Name (NonEmpty Round)
-enter g back from to current = Map.mapMaybeWithKey around g.loops
+enter g n back from to current = Map.mapMaybeWithKey around g.loops
   where
     inside loop = \case
         At place -> Set.member place loop.body
@@ -1917,15 +1936,16 @@ enter g back from to current = Map.mapMaybeWithKey around g.loops
         Nothing -> False
     around name loop = case (inside loop to, Map.lookup name current) of
         (False, _) -> Nothing
-        (True, Just done) | back == Just name -> Just (done <> firstRound)
+        (True, Just done) | back == Just name -> Just (done <> firstRound n)
         (True, Just done) | inside loop from && not (restarts loop) -> Just done
-        (True, _) -> Just firstRound
+        (True, _) -> Just (firstRound n)
 
-firstRound :: NonEmpty Round
-firstRound = Round Set.empty :| []
+-- | A loop's rounds from its first, opened by the line of this seq.
+firstRound :: Natural -> NonEmpty Round
+firstRound n = Round n Set.empty :| []
 
 noteProblems :: Set Problem -> NonEmpty Round -> NonEmpty Round
-noteProblems new = lastRound (\(Round problems) -> Round (problems <> new))
+noteProblems new = lastRound (\r -> r {found = r.found <> new})
 
 lastRound :: (Round -> Round) -> NonEmpty Round -> NonEmpty Round
 lastRound change rounds = case NonEmpty.reverse rounds of

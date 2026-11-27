@@ -47,6 +47,7 @@ module State.Run.Fan (
     latest,
     askedBy,
     pullRequest,
+    statePr,
     childrenOf,
     settled,
     unsettled,
@@ -508,15 +509,18 @@ askedBy fan qid = find ((== Just (AsksUp qid)) . latest) fan.children
 
 -- | The task's PR as last recorded, if one was.
 pullRequest :: Fan -> TaskId -> Maybe Url
-pullRequest fan task =
-    Map.lookup task fan.moves >>= \case
-        InCi url -> Just url
-        InReview url -> Just url
-        Merged url -> Just url
-        Kept url -> Just url
-        Round url -> Just url
-        Parked _ url -> url
-        Delivered url -> Just url
+pullRequest fan task = Map.lookup task fan.moves >>= statePr
+
+-- | The PR a task state names, if it names one: a parked task's may not.
+statePr :: TaskState -> Maybe Url
+statePr = \case
+    InCi url -> Just url
+    InReview url -> Just url
+    Merged url -> Just url
+    Kept url -> Just url
+    Round url -> Just url
+    Parked _ url -> url
+    Delivered url -> Just url
 
 -- | The task's children, oldest first.
 childrenOf :: Fan -> TaskId -> [ChildRun]
