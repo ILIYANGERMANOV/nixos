@@ -6,12 +6,12 @@ module Data.Entity.Run (RunRow (..), table, triggers, runInsert) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Table (
-    Insert (..),
-    OnConflict (..),
+    Insert,
     Table,
     Value (..),
     appendOnly,
     indexed,
+    insertInto,
     nullable,
     strictTable,
  )
@@ -58,9 +58,8 @@ triggers = appendOnly table "a run never changes" "a run is never deleted"
 
 runInsert :: RunRow -> Insert
 runInsert row =
-    Insert
+    insertInto
         "runs"
-        Abort
         ( ("id", SqlText row.id)
             :| [ ("parent_run_id", nullable SqlText row.parentRunId)
                , ("flow", SqlText row.flow)

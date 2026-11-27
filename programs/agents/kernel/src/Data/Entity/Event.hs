@@ -8,12 +8,12 @@ module Data.Entity.Event (EventRow (..), table, triggers, eventInsert) where
 import Data.Int (Int64)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Table (
-    Insert (..),
-    OnConflict (..),
+    Insert,
     Table,
     Value (..),
     appendOnly,
     indexed,
+    insertInto,
     nullable,
     strictTable,
  )
@@ -93,9 +93,8 @@ triggers =
 
 eventInsert :: EventRow -> Insert
 eventInsert row =
-    Insert
+    insertInto
         "events"
-        Abort
         ( ("run_id", SqlText row.runId)
             :| [ ("seq", SqlInteger row.seq)
                , ("schema_version", SqlInteger row.schemaVersion)

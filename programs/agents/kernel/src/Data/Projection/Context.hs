@@ -25,14 +25,14 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Projection (
-    Insert (..),
-    OnConflict (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
     enumIn,
     enumLiteral,
     indexed,
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -139,9 +139,8 @@ locationKindName = \case
 
 noteInsert :: NoteRow -> Insert
 noteInsert row =
-    Insert
+    insertInto
         "notes"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("topic", SqlText row.topic)
@@ -151,9 +150,8 @@ noteInsert row =
 
 artifactInsert :: ArtifactRow -> Insert
 artifactInsert row =
-    Insert
+    insertInto
         "artifacts"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("kind", SqlText kind)
@@ -174,18 +172,16 @@ artifactInsert row =
 -- | A hand-over and each of its next steps, in order, from 1.
 handoverInserts :: HandoverRow -> [Insert]
 handoverInserts row =
-    Insert
+    insertInto
         "handovers"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("reason", SqlText (handoverReasonText row.handover.reason))
                , ("summary", SqlText row.handover.summary)
                ]
         )
-        : [ Insert
+        : [ insertInto
                 "handover_next_steps"
-                Abort
                 ( ("run_id", runIdValue row.runId)
                     :| [ ("handover_id", integer row.id)
                        , ("ordinal", integer ordinal)
@@ -197,9 +193,8 @@ handoverInserts row =
 
 stopgapInsert :: StopgapRow -> Insert
 stopgapInsert row =
-    Insert
+    insertInto
         "stopgaps"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.stopgap.seq)
                , ("breakdown_id", nullable (integer . (.breakdown)) row.at.scope)

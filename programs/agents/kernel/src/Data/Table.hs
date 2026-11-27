@@ -9,6 +9,7 @@ module Data.Table (
     uniqueOn,
     appendOnly,
     Insert (..),
+    insertInto,
     OnConflict (..),
     Value (..),
     integer,
@@ -107,6 +108,10 @@ and each column with its value.
 data Insert = Insert
     {table :: Text, onConflict :: OnConflict, values :: NonEmpty (Text, Value)}
     deriving stock (Eq, Show)
+
+-- | A row whose key a stored row holds already fails the statement ('Abort').
+insertInto :: Text -> NonEmpty (Text, Value) -> Insert
+insertInto table = Insert table Abort
 
 {- | SQLite's conflict resolution for the row: 'Abort' (its default) fails
 the statement; 'DoNothing' keeps the stored row when this column's value is

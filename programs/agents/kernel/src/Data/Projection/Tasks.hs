@@ -32,13 +32,13 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Projection (
-    Insert (..),
-    OnConflict (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
     enumIn,
     enumLiteral,
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -341,18 +341,16 @@ taskHoldRows listed trace =
 
 breakdownInsert :: BreakdownRow -> Insert
 breakdownInsert row =
-    Insert
+    insertInto
         "breakdowns"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [("id", integer row.id), ("fan", SqlText (nameText row.fan))]
         )
 
 epicInsert :: EpicRow -> Insert
 epicInsert row =
-    Insert
+    insertInto
         "epics"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("name", SqlText (epicNameText row.name))
                , ("repo", SqlText (repoText (epicRepo row.epic)))
@@ -364,9 +362,8 @@ epicInsert row =
 
 taskInsert :: TaskRow -> Insert
 taskInsert row =
-    Insert
+    insertInto
         "tasks"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("breakdown_id", integer row.breakdown)
                , ("id", SqlText (taskIdText row.task.id))
@@ -404,9 +401,8 @@ taskInsert row =
 
 taskDependencyInsert :: TaskDependencyRow -> Insert
 taskDependencyInsert row =
-    Insert
+    insertInto
         "task_dependencies"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("breakdown_id", integer row.breakdown)
                , ("task_id", SqlText (taskIdText row.task))
@@ -416,9 +412,8 @@ taskDependencyInsert row =
 
 childRunInsert :: ChildRunRow -> Insert
 childRunInsert row =
-    Insert
+    insertInto
         "child_runs"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("child_run_id", runIdValue row.child.run)
@@ -435,9 +430,8 @@ childRunInsert row =
 
 taskHoldInsert :: TaskHoldRow -> Insert
 taskHoldInsert row =
-    Insert
+    insertInto
         "task_holds"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("breakdown_id", integer row.task.breakdown)

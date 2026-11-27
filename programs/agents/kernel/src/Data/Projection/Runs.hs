@@ -23,12 +23,12 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Projection (
-    Insert (..),
-    OnConflict (..),
+    Insert,
     Projection (..),
     Table,
     Value (..),
     enumLiteral,
+    insertInto,
     integer,
     nullable,
     spellings,
@@ -238,9 +238,8 @@ roundRows trace =
 
 runStateInsert :: RunStateRow -> Insert
 runStateInsert row =
-    Insert
+    insertInto
         "run_states"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("status", SqlText (statusName (statusCase row.status)))
                , ("step", SqlText row.step)
@@ -264,9 +263,8 @@ runStateInsert row =
 
 stepVisitInsert :: StepVisitRow -> Insert
 stepVisitInsert row =
-    Insert
+    insertInto
         "step_visits"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("id", integer row.id)
                , ("step", SqlText row.step)
@@ -277,9 +275,8 @@ stepVisitInsert row =
 
 loopRoundInsert :: LoopRoundRow -> Insert
 loopRoundInsert row =
-    Insert
+    insertInto
         "loop_rounds"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("loop", SqlText (nameText row.loop))
                , ("id", integer row.id)
@@ -289,9 +286,8 @@ loopRoundInsert row =
 
 roundProblemInsert :: RoundProblemRow -> Insert
 roundProblemInsert row =
-    Insert
+    insertInto
         "round_problems"
-        Abort
         ( ("run_id", runIdValue row.runId)
             :| [ ("loop", SqlText (nameText row.loop))
                , ("loop_round_id", integer row.loopRoundId)
