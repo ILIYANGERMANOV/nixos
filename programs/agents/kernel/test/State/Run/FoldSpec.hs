@@ -412,50 +412,6 @@ spec = describe "State.Run.Fold" $ do
                     , [TaskId "t2"]
                     )
 
-    describe "a lead's workers" $ do
-        let fixer = AgentRole "fixer"
-            atWork events =
-                map (\worker -> (worker.origin, worker.spawnedAt)) . (.workers)
-                    <$> replay g (logOf (Started start0 :| events))
-            start0 = startOf EngineerFlow (ByUser OwnPr)
-            spawn role agent = WorkerSpawned role (AgentId agent)
-        it
-            "holds each worker spawned, by the seq of its spawn, until the one of its id returns"
-            $ atWork
-                [spawn fixer "a1", spawn fixer "a2", WorkerReturned fixer (Just (AgentId "a2"))]
-                `shouldBe` Right [(WorkerLine (AgentId "a1"), 1)]
-        it "closes the oldest of the role when the return names no id" $
-            atWork
-                [ spawn fixer "a1"
-                , spawn (AgentRole "implementer") "b1"
-                , spawn fixer "a2"
-                , WorkerReturned fixer Nothing
-                ]
-                `shouldBe` Right [(WorkerLine (AgentId "b1"), 2), (WorkerLine (AgentId "a2"), 3)]
-        it "changes nothing at the return of a worker not at work" $
-            atWork
-                [ spawn fixer "a1"
-                , WorkerReturned fixer (Just (AgentId "a9"))
-                , WorkerReturned (AgentRole "implementer") Nothing
-                ]
-                `shouldBe` Right [(WorkerLine (AgentId "a1"), 1)]
-        it "forgets every worker at a restart" $
-            atWork [spawn fixer "a1", Restarted] `shouldBe` Right []
-        it "forgets a worker whose spawn is voided, so its lead may hand back" $
-            atWork [spawn fixer "a1", spawn fixer "a2", Voided 1 "lost at a crash"]
-                `shouldBe` Right [(WorkerLine (AgentId "a2"), 2)]
-        it "a_worker_returned_by_its_id_is_at_work_no_more" . hedgehog $ do
-            -- A hook logs each worker's spawn once: ids are distinct.
-            ids <- forAll (Gen.shuffle =<< Gen.subsequence ["a1", "a2", "a3", "a4", "a5"])
-            back <- forAll (Gen.shuffle =<< Gen.subsequence ids)
-            let left =
-                    map fst
-                        <$> atWork
-                            ( map (spawn fixer) ids
-                                <> [WorkerReturned fixer (Just (AgentId agent)) | agent <- back]
-                            )
-            fmap (filter (`elem` map (WorkerLine . AgentId) back)) left === Right []
-
     describe "a lead's spans" $ do
         let fixer = AgentRole "fixer"
             explorer = AgentRole "Explore"
@@ -477,10 +433,22 @@ spec = describe "State.Run.Fold" $ do
         it "forgets every span at a restart, so its end is refused" $
             open [started' fixer, Restarted, ended 1]
                 `shouldBe` Left (SpanNotOpen (SpanId 1))
+        it "forgets a span whose start is voided, so its lead may hand back" $
+            open [started' fixer, started' fixer, Voided 1 "lost at a crash"]
+                `shouldBe` Right [(fixer, 2)]
         it "ends by role the oldest span open since the restart, never one before it" $
             (\state -> returnOf state fixer Nothing NoHandback)
                 <$> afterLog [started' fixer, Restarted, started' fixer]
                 `shouldBe` Right (Just (SpanEnded (SpanId 3) NoHandback unreported))
+        it
+            "ends no span by role for a hand-back naming its agent, nor for a role not at work"
+            $ ( \state ->
+                    ( returnOf state fixer (Just (AgentId "a1")) NoHandback
+                    , returnOf state explorer Nothing NoHandback
+                    )
+              )
+                <$> afterLog [started' fixer]
+                `shouldBe` Right (Nothing, Nothing)
         it "ends an open span when asked, and none it does not hold" $
             ( \state ->
                 ( endSpan state (SpanId 1) NoHandback unreported
@@ -519,8 +487,7 @@ spec = describe "State.Run.Fold" $ do
                 `shouldBe` Right Nothing
         it
             "holds none on a log that never ended an agent, as one written before agents ended"
-            $ endedAfter
-                [fuelSet Balanced, WorkerSpawned (AgentRole "implementer") (AgentId "a1")]
+            $ endedAfter [fuelSet Balanced]
                 `shouldBe` Right Nothing
 
     describe "two fan-outs in one flow" $ do
@@ -1298,35 +1265,33 @@ then merges their notes.
 gatherBudgets :: Spec
 gatherBudgets = describe "the gather's choice" $ do
     it "asks 20 questions at Balanced, spending no researcher" $
-        replay g (logOf (started :| fuelSet Balanced : spawns 5 <> asks 1 20))
+        replay g (logged Balanced (spawns 5 <> asks 1 20))
             `shouldSatisfy` isRight
 
     it "refuses the question past Balanced's 30" $
-        replay g (logOf (started :| fuelSet Balanced : asks 1 31))
+        replay g (logged Balanced (asks 1 31))
             `shouldSatisfy` outOf "Interview questions" 30
 
     it "takes a Stuck question past the questions, as asking whether to go on" $
         replay
             g
-            ( logOf
-                ( started :| fuelSet Balanced
-                    : interviewed ([askAt i Fact | i <- [1 .. 30]] <> [askAt 31 Ask.Stuck])
-                )
+            ( logged
+                Balanced
+                (interviewed ([askAt i Fact | i <- [1 .. 30]] <> [askAt 31 Ask.Stuck]))
             )
             `shouldSatisfy` isRight
 
     it
         "refuses the interview's pick once its questions are used up, as the advice offers it no more"
-        $ replay g (logOf (started :| fuelSet Balanced : asks 1 30 <> interviewed []))
+        $ replay g (logged Balanced (asks 1 30 <> interviewed []))
             `shouldSatisfy` outOf "Interview questions" 30
 
     it "counts no question asked off the gather" $
         replay
             g
-            ( logOf
-                ( started :| fuelSet Balanced
-                    : enoughIn "gather" <> [askAt i Fact | i <- [1 .. 31]]
-                )
+            ( logged
+                Balanced
+                (enoughIn "gather" <> [askAt i Fact | i <- [1 .. 31]])
             )
             `shouldSatisfy` isRight
 
@@ -1339,28 +1304,28 @@ gatherBudgets = describe "the gather's choice" $ do
                 <> " and refuses the next"
             )
             $ do
-                replay g (logOf (started :| fuelSet fuel : spawns allowed))
+                replay g (logged fuel (spawns allowed))
                     `shouldSatisfy` isRight
-                replay g (logOf (started :| fuelSet fuel : spawns (allowed + 1)))
+                replay g (logged fuel (spawns (allowed + 1)))
                     `shouldSatisfy` outOf "Researchers" (fromIntegral allowed)
 
     it
         "spawns a researcher per group of the plan at Max, as many as the agent counts"
-        $ replay g (logOf (started :| fuelSet Max : spawns 12)) `shouldSatisfy` isRight
+        $ replay g (logged Max (spawns 12)) `shouldSatisfy` isRight
 
     it "takes hand-backs in any order between questions, then leaves by enough" $
         atName
             <$> replay
                 g
-                ( logOf
-                    ( started :| fuelSet Balanced
-                        : spawns 2
-                            <> asks 1 2
-                            <> [handedBack]
-                            <> spawns 1
-                            <> asks 3 1
-                            <> [handedBack, handedBack]
-                            <> enoughIn "gather"
+                ( logged
+                    Balanced
+                    ( spawns 2
+                        <> asks 1 2
+                        <> [handedBack]
+                        <> spawns 1
+                        <> asks 3 1
+                        <> [handedBack, handedBack]
+                        <> enoughIn "gather"
                     )
                 )
             `shouldBe` Right (Just (StateName "plan"))
@@ -1370,10 +1335,9 @@ gatherBudgets = describe "the gather's choice" $ do
         $ atName
             <$> replay
                 g
-                ( logOf
-                    ( started :| fuelSet Balanced
-                        : spawns 1 <> [pickInterview, askAt 1 Fact, handedBack, askAt 2 Fact]
-                    )
+                ( logged
+                    Balanced
+                    (spawns 1 <> [pickInterview, askAt 1 Fact, handedBack, askAt 2 Fact])
                 )
             `shouldBe` Right (Just (StateName "interview"))
 
@@ -1382,16 +1346,14 @@ gatherBudgets = describe "the gather's choice" $ do
         $ do
             let waiting = spawns 2 <> [handedBack, pickEnough]
             map
-                (fmap atName . replay g . logOf . (started :|) . (fuelSet Balanced :))
+                (fmap atName . replay g . logged Balanced)
                 [waiting, waiting <> [handedBack], waiting <> [handedBack, notesDone]]
                 `shouldBe` map (Right . Just . StateName) ["gather/researchers", "gather/notes", "plan"]
 
     it "refuses the notes while a researcher is open" $
         replay
             g
-            ( logOf
-                (started :| fuelSet Balanced : spawns 2 <> [handedBack, pickEnough, notesDone])
-            )
+            (logged Balanced (spawns 2 <> [handedBack, pickEnough, notesDone]))
             `shouldSatisfy` \case
                 Left _ -> True
                 Right _ -> False
@@ -1405,30 +1367,19 @@ gatherBudgets = describe "the gather's choice" $ do
             interleaved <- forAll (genHandBacks n early 0)
             let gathered events =
                     (\state -> (state.at, problems state, state.meters))
-                        <$> replay g (logOf (started :| fuelSet Balanced : events))
+                        <$> replay g (logged Balanced events)
             annotate (show interleaved)
             gathered (interleaved <> [pickEnough] <> replicate (n - early) handedBack)
                 === gathered (spawns n <> [pickEnough] <> replicate n handedBack)
 
     it
-        "takes a researcher's hand-back before its bind, which closes nothing: its return does"
+        "takes a researcher's hand-back before its span starts, which closes nothing: its span's end does"
         $ do
             let early = spawnedIn "gather" <> [stepTook ResearchHandedBack, bind, pickEnough]
             map
-                (fmap atName . replay g . logOf . (started :|) . (fuelSet Balanced :))
+                (fmap atName . replay g . logged Balanced)
                 [early, early <> [handedBack]]
                 `shouldBe` map (Right . Just . StateName) ["gather/researchers", "gather/notes"]
-
-    it
-        "keeps every bound child in the ledger, oldest first, until its own return, whatever comes between"
-        . hedgehog
-        $ do
-            events <- forAll (merged . concat =<< traverse lifetime [1 .. 6])
-            for_ (inits events) $ \prefix -> do
-                state <- evalEither (replay g (logOf (started :| fuelSet Balanced : prefix)))
-                let back = [agent | WorkerReturned _ (Just agent) <- prefix]
-                map (.child) (ledger g state)
-                    === [AgentChild agent | WorkerSpawned _ agent <- prefix, agent `notElem` back]
 
     it
         "completes the researchers' await iff every researcher it waits on returned, whatever the order of other roles' events"
@@ -1441,14 +1392,13 @@ gatherBudgets = describe "the gather's choice" $ do
                         (Range.linear 0 4)
                         (Gen.element [AgentRole "implementer", AgentRole "fixer", AgentRole "refactorer"])
                     )
-            let researchersOpen =
-                    [spawnedIn "gather" <> [WorkerSpawned researcher (agentNo i)] | i <- [1 .. n]]
-                othersOpen = [WorkerSpawned role (agentNo i) | (i, role) <- zip [100 ..] others]
+            let opened = spawns n <> map spanStart others
+                -- Each span by the seq of its start: 0 is the run's start, 1 its Fuel.
+                spans = [(at, start.role) | (at, SpanStarted start) <- zip [2 ..] opened]
             after <-
                 forAll
                     ( merged
-                        ( [[WorkerReturned researcher (Just (agentNo i))] | i <- [1 .. n]]
-                            <> [[WorkerReturned role (Just (agentNo i))] | (i, role) <- zip [100 ..] others]
+                        ( [[SpanEnded (SpanId at) NoHandback unreported] | (at, _) <- spans]
                             <> [[stepTook ResearchHandedBack] | _ <- [1 .. n]]
                         )
                     )
@@ -1457,13 +1407,20 @@ gatherBudgets = describe "the gather's choice" $ do
                     evalEither
                         ( replay
                             g
-                            ( logOf
-                                ( started :| fuelSet Balanced
-                                    : concat researchersOpen <> othersOpen <> [pickEnough] <> prefix
-                                )
+                            ( logged
+                                Balanced
+                                (opened <> [pickEnough] <> prefix)
                             )
                         )
-                let open = n - length [() | WorkerReturned role _ <- prefix, role == researcher]
+                let open =
+                        n
+                            - length
+                                [ ()
+                                | SpanEnded ended _ _ <- prefix
+                                , (at, role) <- spans
+                                , SpanId at == ended
+                                , role == researcher
+                                ]
                 atName state
                     === Just (StateName (if open > 0 then "gather/researchers" else "gather/notes"))
 
@@ -1471,10 +1428,10 @@ gatherBudgets = describe "the gather's choice" $ do
         atName
             <$> replay
                 g
-                ( logOf
-                    ( started :| fuelSet Balanced
-                        : spawns 1
-                            <> [stepTook ResearchHandedBack, stepTook ResearchHandedBack, pickEnough]
+                ( logged
+                    Balanced
+                    ( spawns 1
+                        <> [stepTook ResearchHandedBack, stepTook ResearchHandedBack, pickEnough]
                     )
                 )
             `shouldBe` Right (Just (StateName "gather/researchers"))
@@ -1485,24 +1442,21 @@ gatherBudgets = describe "the gather's choice" $ do
             let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> spawns 5
             replay
                 g
-                (logOf (started :| fuelSet Balanced : extended <> interviewed [askAt 61 Fact]))
+                (logged Balanced (extended <> interviewed [askAt 61 Fact]))
                 `shouldSatisfy` outOf "Interview questions" 30
-            replay g (logOf (started :| fuelSet Balanced : extended <> spawns 1))
+            replay g (logged Balanced (extended <> spawns 1))
                 `shouldSatisfy` outOf "Researchers" 5
             atName
                 <$> replay
                     g
-                    ( logOf
-                        (started :| fuelSet Balanced : extended <> replicate 9 handedBack <> [pickEnough])
-                    )
+                    (logged Balanced (extended <> replicate 9 handedBack <> [pickEnough]))
                 `shouldBe` Right (Just (StateName "gather/researchers"))
             atName
                 <$> replay
                     g
-                    ( logOf
-                        ( started :| fuelSet Balanced
-                            : extended <> replicate 10 handedBack <> enoughIn "gather"
-                        )
+                    ( logged
+                        Balanced
+                        (extended <> replicate 10 handedBack <> enoughIn "gather")
                     )
                 `shouldBe` Right (Just (StateName "plan"))
 
@@ -1518,7 +1472,7 @@ gatherBudgets = describe "the gather's choice" $ do
                         <> [stepTook ConfirmAdjusted]
             replay
                 g
-                (logOf (started :| fuelSet Balanced : adjusted <> asks 31 30 <> spawns 5))
+                (logged Balanced (adjusted <> asks 31 30 <> spawns 5))
                 `shouldSatisfy` isRight
 
     it
@@ -1542,14 +1496,33 @@ gatherBudgets = describe "the gather's choice" $ do
     it "refuses extend outside the gather" $
         replay
             g
-            (logOf (started :| fuelSet Balanced : take 13 happyPath <> [Extended "why"]))
+            (logged Balanced (take 13 happyPath <> [Extended "why"]))
             `shouldBe` Left NothingToExtend
   where
-    -- Each spawn bound to its agent, as the bind hook logs it: its entry in the ledger.
+    -- Each spawn starts its span next, as the spawn hook logs it: its entry in the ledger.
     spawns n = concat (replicate n (spawnedIn "gather" <> [bind]))
-    bind = WorkerSpawned researcher (AgentId "r")
-    -- A researcher's return closes its entry: the oldest of its role, as a hand-back by hand names no id.
-    handedBack = WorkerReturned researcher Nothing
+    bind = spanStart researcher
+    spanStart role =
+        SpanStarted (SpanStart role (Harness "claude-code") "research" Nothing Nothing)
+    {- A researcher's return ends its span: the oldest of its role, as a
+    hand-back by hand names no agent id ('returnOf'). Its span is known only
+    once the lines are numbered, so it names seq 0, the run's start, which
+    no span has, and 'logged' names the span.
+    -}
+    handedBack = SpanEnded (SpanId 0) NoHandback unreported
+    -- The run's lines after its Fuel, each return ending the oldest researcher span open.
+    logged fuel events = logOf (started :| fuelSet fuel : returned [] 2 events)
+    returned :: [Natural] -> Natural -> [Event] -> [Event]
+    returned open n = \case
+        [] -> []
+        event : rest -> case event of
+            SpanStarted start
+                | start.role == researcher -> event : returned (open <> [n]) (n + 1) rest
+            SpanEnded (SpanId 0) ending usage
+                | oldest : others <- open ->
+                    SpanEnded (SpanId oldest) ending usage : returned others (n + 1) rest
+            SpanEnded (SpanId ended) _ _ -> event : returned (filter (/= ended) open) (n + 1) rest
+            _ -> event : returned open (n + 1) rest
     researcher = AgentRole "researcher"
     pickInterview = Took mempty (pickOf "gather" "interview")
     pickEnough = Took mempty (pickOf "gather" "enough")
@@ -1563,18 +1536,6 @@ gatherBudgets = describe "the gather's choice" $ do
                 (Question (QId run n) kind (oneLine "a question"))
                 (StateName "interview")
                 Itself
-            )
-    agentNo i = AgentId ("a" <> Text.pack (show (i :: Int)))
-    -- An agent of any role bound, then returned by its id or never, and a hand-back that closes nothing: each its own lane.
-    lifetime i = do
-        role <- Gen.element [researcher, AgentRole "implementer", AgentRole "fixer"]
-        returns <- Gen.bool
-        reports <- Gen.bool
-        pure
-            ( [ WorkerSpawned role (agentNo i)
-                    : [WorkerReturned role (Just (agentNo i)) | returns]
-              ]
-                <> [[stepTook ResearchHandedBack] | reports]
             )
     -- The lanes' events merged in any order, each lane's in its own.
     merged :: [[Event]] -> Gen [Event]

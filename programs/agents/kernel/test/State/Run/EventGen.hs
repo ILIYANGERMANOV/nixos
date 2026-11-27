@@ -182,8 +182,6 @@ genEvent =
         , TaskAdded <$> genSeq <*> (Gen.int (Range.linear 1 6) >>= genTaskAt)
         , pure Restarted
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
-        , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
-        , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
         , AgentEnded . AgentId <$> genText
         , Suspended <$> genTaskNo <*> genOneLine
         , Focused <$> genTaskNo

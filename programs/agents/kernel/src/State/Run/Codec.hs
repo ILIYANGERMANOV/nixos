@@ -99,8 +99,6 @@ eventType = \case
     TaskAdded _ _ -> "task_added"
     Restarted -> "restarted"
     WorkerHandedBack _ _ -> "worker_handed_back"
-    WorkerSpawned _ _ -> "worker_spawned"
-    WorkerReturned _ _ -> "worker_returned"
     AgentEnded _ -> "agent_ended"
     Suspended _ _ -> "suspended"
     Focused _ -> "focused"

@@ -889,8 +889,8 @@ sessionAgents session =
 
 {- | An agent ended with no hand-back, logged once: 'AgentEnded' in the child
 run it leads ('ledRun'), when a parent the test takes started it, then in
-that parent the child's stop, when the child is untasked, else the agent's
-return, when it has the agent at work ('Fold.agentEndedIn'). An agent
+that parent the child's stop, when the child is untasked
+('Fold.agentEndedIn'). An agent
 leading no child run, a plain worker or one in a child run, records
 nothing: a return would fake its hand-back. Nor does a child run whose
 @state next@ hands back now: one over, asking up or awaiting made its
@@ -907,7 +907,7 @@ agentEnded steps session under agent =
                 NoRun -> pure ""
                 Ran (Left failure) -> pure (failureText "stop" failure)
                 Ran (Right Nothing) -> pure ""
-                Ran (Right (Just (parent, role))) -> either (failureText "stop") (const "") <$> onLog (returning run role) parent
+                Ran (Right (Just parent)) -> either (failureText "stop") (const "") <$> onLog (returning run) parent
   where
     sessioned stamp = Stamp stamp.ts stamp.head session
     noted = Right . (`Plan` (\_ _ -> mempty))
@@ -915,7 +915,7 @@ agentEnded steps session under agent =
         ByRole parent _ _
             | under parent.run && not (handsBackNow steps stamp run) ->
                 fmap
-                    (Just (parent.run, (Role.role run.state.start.flow).name) <$)
+                    (Just parent.run <$)
                     ( record
                         (sessioned stamp)
                         run
@@ -925,12 +925,12 @@ agentEnded steps session under agent =
         ByRole {} -> ([], Right Nothing)
         ByUser _ -> ([], Right Nothing)
         ByCaller _ -> ([], Right Nothing)
-    returning child role stamp run =
+    returning child stamp run =
         record
             (sessioned stamp)
             run
             [Hook (digestOf [runIdText run.state.run, agent.agentIdText, "agent_returned"])]
-            (noted (maybeToList (Fold.agentEndedIn run.state child role agent)))
+            (noted (maybeToList (Fold.agentEndedIn run.state child agent)))
 
 {- | The run the slot's agent leads: the one it is bound to, when its own init
 bound it there. A worker bound to its spawner's run, or a session from before

@@ -61,13 +61,7 @@ import State.Run.Ask (
     replyText,
     rulingLine,
  )
-import State.Run.Card (
-    Card (..),
-    ResumeAdvice (..),
-    Standing (..),
-    advice,
-    resumeWindow,
- )
+import State.Run.Card (Card (..), Standing (..))
 import State.Run.Codec (
     branchText,
     flowText,
@@ -79,7 +73,6 @@ import State.Run.Codec (
  )
 import State.Run.Epic (Epic, epicBranch, epicPr, epicRepo, stageName)
 import State.Run.Event (
-    AgentId (..),
     AgentRole (..),
     Asker (..),
     Asking (..),
@@ -264,7 +257,7 @@ hookLines steps g = case hooked of
         ]
 
 {- | A request's resume card at this time: where it stands, what was
-decided in it, what it still asks, and how to take it up again.
+decided in it and what it still asks.
 -}
 cardLines :: UTCTime -> Card -> [Text]
 cardLines now card =
@@ -280,7 +273,6 @@ cardLines now card =
                     <> oneLineText q.text
                | q <- card.open
                ]
-            <> ["  " <> adviceLine resume | Just resume <- [advice now card]]
   where
     headline = case card.standing of
         InFocus -> taskNoText card.task <> " in focus at " <> stateNameText card.node
@@ -296,22 +288,6 @@ cardLines now card =
 -- | Whole minutes from then to now: @5m@.
 minutesSince :: UTCTime -> UTCTime -> Text
 minutesSince now at = tshow (floor (diffUTCTime now at / 60) :: Integer) <> "m"
-
-adviceLine :: ResumeAdvice -> Text
-adviceLine = \case
-    ResumeAgent agent ->
-        "resume agent "
-            <> agent.agentIdText
-            <> ": paused under "
-            <> life
-            <> ", its cache is warm (SendMessage)"
-    FreshFromCard -> "fresh agent from card: paused " <> life <> " or more, its cache is cold"
-  where
-    life = minutesSeconds (round resumeWindow)
-
--- | Whole seconds as @4m45s@.
-minutesSeconds :: Integer -> Text
-minutesSeconds total = let (m, s) = total `divMod` 60 in tshow m <> "m" <> tshow s <> "s"
 
 -- | One line per open question, oldest first.
 pendingLines :: RunState -> [Text]

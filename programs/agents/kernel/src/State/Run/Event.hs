@@ -5,8 +5,7 @@ step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A qu
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
 'Resumed', 'Restarted') and its tasks ('TaskAdded', 'TaskMoved', 'Held',
 'ActedOn') as stay events. A lead logs each subagent it spawns as a span
-('SpanStarted', 'SpanEnded'; 'WorkerSpawned' and 'WorkerReturned' before
-spans), and hands back after those at work; a child
+('SpanStarted', 'SpanEnded'), and hands back after those at work; a child
 run, the agent leading it that ended with no hand-back ('AgentEnded'). A line
 logged in error is 'Voided', never edited out: replay drops both lines.
 -}
@@ -279,14 +278,6 @@ data Event
       (@state ask --from <role>@) before it goes on: a stop, or a question with no kind.
       -}
       WorkerHandedBack AgentRole OneLine
-    | {- | The lead spawned a worker of this role, at work until it returns
-      (written by the spawn's hook).
-      -}
-      WorkerSpawned AgentRole AgentId
-    | {- | A worker of this role handed back, by its id when the hook knows it:
-      it is at work no more.
-      -}
-      WorkerReturned AgentRole (Maybe AgentId)
     | {- | The agent leading this child run stopped before it handed back: a
       user's stop, its spawner's, a crash (written by the stop hook).
       -}

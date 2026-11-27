@@ -617,7 +617,7 @@ commandInfo steps scope =
                             "<line>"
                             "where the request in focus stands, once it recorded work"
                         )
-            , sub "tasks" "Print each request's card and resume advice" (pure (Right Tasks))
+            , sub "tasks" "Print each request's card and each child run" (pure (Right Tasks))
             , Optparse.command
                 "artifact"
                 ( Optparse.info

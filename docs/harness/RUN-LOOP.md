@@ -156,7 +156,7 @@ To look inside a run, or keep what a fresh agent needs:
 | `state show` | prints where the run is and what it holds: step, facts, questions, rulings, gaps |
 | `state dump <run>` | prints the run's raw rows, as JSON Lines: one object per `events` row, every column but `position` (store-internal append order) a key, `data` as stored |
 | `state pending` | prints the questions awaiting an answer |
-| `state tasks` | prints each request's card and its resume advice |
+| `state tasks` | prints each request's card, then each child run, with resume advice for a stopped one |
 | `state render mermaid --flow <f>` | prints the flow's graph (the flow, not one run's walk through it) |
 | `state init --goal "<goal>"` | logs `started` with the goal word for word, the git top as `worktree` and `origin`'s GitHub `owner/name` as `repo` |
 | `state move <dir>` | logs `worktree_moved`: the run now lives in that worktree |

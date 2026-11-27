@@ -153,7 +153,6 @@ import State.Run.Codec (
     waitingText,
  )
 import State.Run.Event (
-    AgentId (..),
     AgentRole (..),
     Asker (Itself, Subagent),
     Asking (..),
@@ -183,7 +182,6 @@ import State.Run.Fold (
     Answer (..),
     Budget (..),
     Open (..),
-    Origin (..),
     Pending (..),
     Problem (..),
     RunState (..),
@@ -1188,11 +1186,9 @@ heldBy start workers advice = case workers of
             <> " \"<why>\" for a lost one"
         ]
 
--- | A worker as the advice names it: its agent's id, or its span's, which knows none.
+-- | A worker as the advice names it: by its span, as a span knows no agent id.
 workerName :: Worker -> Text
-workerName worker = case worker.origin of
-    WorkerLine agent -> agent.agentIdText
-    SpanLine -> "span " <> tshow worker.spawnedAt
+workerName worker = "span " <> tshow worker.spawnedAt
 
 {- | The advice as its first line, for this principal and interface: the only
 place either is read.

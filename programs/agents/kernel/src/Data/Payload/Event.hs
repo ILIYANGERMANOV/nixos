@@ -367,8 +367,6 @@ eventData = \case
     TaskAdded n task -> "breakdown" .= n <> pair "task" (taskEncoding task)
     Restarted -> mempty
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
-    WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
-    WorkerReturned (AgentRole role) agent -> "role" .= role <> foldMap (("agent" .=) . (.agentIdText)) agent
     AgentEnded agent -> "agent" .= agent.agentIdText
     Suspended task summary -> "request" .= taskNoText task <> "summary" .= oneLineText summary
     Focused task -> "request" .= taskNoText task
@@ -471,11 +469,6 @@ eventOf kind obj = case kind of
     "task_added" -> TaskAdded <$> breakdownSeqOf obj <*> (obj .: "task" >>= Artifact.taskOf)
     "restarted" -> pure Restarted
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
-    "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
-    "worker_returned" ->
-        WorkerReturned . AgentRole
-            <$> obj .: "role"
-            <*> (fmap AgentId <$> obj .:? "agent")
     "agent_ended" -> AgentEnded . AgentId <$> obj .: "agent"
     "suspended" -> Suspended <$> requestOf obj <*> oneLineAt "summary" obj
     "focused" -> Focused <$> requestOf obj

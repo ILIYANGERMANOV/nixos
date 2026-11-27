@@ -860,8 +860,6 @@ eventGoldens =
            ]
     , Restarted :| []
     , WorkerHandedBack implementer (oneLine "READY abc123") :| []
-    , WorkerSpawned implementer agent :| []
-    , WorkerReturned implementer (Just agent) :| [WorkerReturned implementer Nothing]
     , AgentEnded agent :| []
     , Suspended (TaskNo 2) (oneLine "waits on CI") :| []
     , Focused (TaskNo 2) :| []

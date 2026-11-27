@@ -75,7 +75,6 @@ import State.Category.Path (unrecorded)
 import State.Category.Step (
     EventName (..),
     OutcomeName (..),
-    spawnedOutcome,
     stateNameText,
  )
 import State.Category.Ty (NotSum, TyOf (..))
@@ -106,7 +105,6 @@ import State.Run.Fold (
     Append (..),
     Refusal,
     RunState (..),
-    Worker (..),
     append,
     replay,
  )
@@ -395,26 +393,26 @@ genAcceptedOn own on = do
     go 0 _ _ = pure []
     go k state n = case state.at of
         -- At a fan-out's await, only the 10x's own events, which this draws none of, move the run.
-        At place -> case handBacks place state
-            <> [ (if stays place edge then 5 else 1, tookBy place name)
-               | isNothing (unrecorded on place)
-               , (name, edge) <- outOf place on.edges
-               ] of
-            [] -> pure []
-            choices -> do
-                took <- Gen.frequency choices
-                case appended state n took of
-                    Right (next, m) -> (took <>) <$> bound next m (bindOf took n)
-                    Left _ -> go (k - 1) state n
-              where
-                -- A researcher's spawn is bound to its agent next, as the bind hook logs it.
-                bound next m = \case
-                    Just bind
-                        | Right (Appended after) <- append on next (line m bind) ->
-                            (bind :) <$> go (k - 1) after (m + 1)
-                    _ -> go (k - 1) next m
+        At place -> do
+            took <-
+                Gen.frequency
+                    ( handBack place
+                        : [ (if stays place edge then 5 else 1, tookBy place name)
+                          | isNothing (unrecorded on place)
+                          , (name, edge) <- outOf place on.edges
+                          ]
+                    )
+            case appended state n took of
+                Right (next, m) -> (took <>) <$> go (k - 1) next m
+                Left _ -> go (k - 1) state n
         Out -> pure []
         Graph.Exit -> pure []
+    {- A researcher in the background may hand back wherever the run is, which
+    closes nothing. No span is logged: a span's end names its start's seq, and
+    a generated run stays free of seq references, so a property may splice
+    lines into it (a stopgap, a turn away) and replay it unchanged.
+    -}
+    handBack place = (1, pure [Took place.scope (outcome ResearchHandedBack)])
     -- Each line accepted, in order: the run after them and the next seq; none when one is refused or logged already.
     appended ::
         RunState -> Natural -> [Event] -> Either (Maybe Refusal) (RunState, Natural)
@@ -430,21 +428,6 @@ genAcceptedOn own on = do
             <$> outcomeIn
                 own
                 (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
-    {- A researcher in the background may return wherever the run is; at an
-    await, only it moves the run on. Its hand-back is taken anywhere, before
-    its bind too, and closes nothing.
-    -}
-    handBacks place state =
-        [ (3, pure [WorkerReturned researcher Nothing])
-        | any ((== researcher) . (.role)) state.workers
-        ]
-            <> [(1, pure [Took place.scope (outcome ResearchHandedBack)])]
-    bindOf took n = case took of
-        [Took scope spawn]
-            | (tookEvent scope spawn).outcome == spawnedOutcome ->
-                Just (WorkerSpawned researcher (AgentId ("r" <> Text.pack (show n))))
-        _ -> Nothing
-    researcher = AgentRole "researcher"
     stays place edge = case edge.to of
         At to ->
             all
