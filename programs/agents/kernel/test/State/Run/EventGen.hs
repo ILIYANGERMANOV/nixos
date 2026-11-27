@@ -20,6 +20,7 @@ module State.Run.EventGen (
     genTaskRef,
     genSeq,
     titled,
+    epicNamed,
     genSaid,
     genTaskState,
     tasksOf,
@@ -338,6 +339,10 @@ genNonBlank = do
 -- | A title for a test's task, which is not blank.
 titled :: Text -> NonBlank
 titled = maybe (error "a test's title is not blank") id . parseNonBlank
+
+-- | An epic name for a test, a slug.
+epicNamed :: Text -> EpicName
+epicNamed = maybe (error "a test's epic name is a slug") id . parseEpicName
 
 -- | A base for the task @ti@: the default, an epic, or one of @t1@ to the one before it.
 genBaseAt :: Int -> Gen Base

@@ -35,7 +35,7 @@ import State.Run.Fold (
     fanAt,
     replay,
  )
-import State.Run.RunGen (breakdownJson, childOf, loadSteps, plainTask, scopedIn)
+import State.Run.RunGen (breakdownJson, childOf, loadSteps, plainTask, refTo, scopedIn)
 import State.Step.Fan (engineers)
 import State.Table (Steps)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe)
@@ -92,7 +92,7 @@ spec = describe "a 10x run inline under a Scope" $ do
     handedBack =
         toFanOut
             <> [ logged (Spawned (childOf "c1" "t1"))
-               , logged (HandedBack (runId "c1") (Finished (oneLine "PR #1")))
+               , logged (HandedBack (runId "c1") (Just (refTo "t1")) (Finished (oneLine "PR #1")))
                ]
     held = bare ["held", "t1", wake]
     merged = handedBack <> [bare ["task", "t1", "merged", pr]]
@@ -136,7 +136,10 @@ bare words' = recorded words' Nothing
 bareFile :: [Text] -> Text -> Step
 bareFile words' = recorded words' . Just
 
+{- | The seq passed is the one a @task add@ takes as its breakdown when the
+run has none: no recording here adds a task.
+-}
 recorded :: [Text] -> Maybe Text -> Step
 recorded words' file steps state = case parseCommand steps ("record" : words') of
-    Right (_, Right (OnRun (Record recording))) | Right event <- recordedEvent inline state Nothing file recording -> event
+    Right (_, Right (OnRun (Record recording))) | Right event <- recordedEvent inline state Nothing file 0 recording -> event
     _ -> error ("not a recording of this test: " <> show words')

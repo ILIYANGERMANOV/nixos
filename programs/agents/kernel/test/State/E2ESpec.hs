@@ -1073,7 +1073,7 @@ spec = describe "the state binary" $ do
             it "refuses a malformed task file with the breakdown's error" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
                 malformed <- taskAdded bin repo "{\"id\": \"fix\"}"
-                (malformed.code, malformed.err) `shouldSatisfy` \(code, err) -> code == 2 && mentions "key \"deps\" not found" err
+                (malformed.code, malformed.err) `shouldSatisfy` \(code, err) -> code == 2 && mentions "key \"title\" not found" err
 
             it "adds a task mid-run and spawns it" $ \repo -> do
                 _ <- tenXAtFanOut bin repo

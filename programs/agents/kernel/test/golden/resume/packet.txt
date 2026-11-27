@@ -22,7 +22,7 @@ notes by topic: live 1 (last 00010203:14), traps 1 (last 00010203:13)
 
 context map (load on demand, or in a subagent):
   files
-    task_list 00010203:4 /notes/tasks.json sha256:ccee37302c5a5ad8c144dc12bc7b4c25665f6d30c2bec3f0f0dce1c5d95b40a4 219 bytes stored
+    task_list 00010203:4 /notes/tasks.json sha256:8516220329e0346f6fc1f869d664380c78d536bca780614b2753d54294c79ec9 285 bytes stored
       load: state artifact show 00010203:4
     plan 00010203:11 /work/plan.md sha256:81db67b6a5702b9b68f0016f061c409bf3fb16d062fc854d1b424bb4e9c28c56 3 bytes stored
       load: state artifact show 00010203:11

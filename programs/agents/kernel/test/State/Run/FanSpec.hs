@@ -22,7 +22,8 @@ import State.Run.EventGen (
     runId,
     tasksOf,
  )
-import State.Run.Fan hiding (merged)
+import State.Run.Fan hiding (merged, tasksOf)
+import State.Run.Fan qualified as Fan (tasksOf)
 import State.Run.RunGen (plainTask)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -34,16 +35,16 @@ spec = describe "State.Run.Fan" $ do
         let picks = spawnable [] fan
             busy =
                 [ task
-                | task <- fan.tasks
+                | task <- Fan.tasksOf fan
                 , Set.member task.id fan.atWork
-                    || Tasked task.id `elem` map (.child.task) (running fan)
+                    || Tasked task.id `elem` map (childTaskId . (.child)) (running fan)
                 ]
         cover 10 "spawns some" (not (null picks))
         for_ picks $ \task -> do
             assert (not (settled fan task.id))
             assert (task.id `notElem` map (.id) busy)
             assert (all (merged fan) task.deps)
-            assert (Tasked task.id `notElem` map ((.task) . fst) (untriaged fan))
+            assert (Tasked task.id `notElem` map (childTaskId . fst) (untriaged fan))
             assert (not (awaitsCi fan task.id))
 
     it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
@@ -77,7 +78,7 @@ spec = describe "State.Run.Fan" $ do
         map (.id) (spawnable [] five)
             `shouldBe` map TaskId ["t1", "t2", "t3", "t4", "t5"]
         length . (.atWork)
-            <$> foldl' (\fan task -> fan >>= spawning [] task.id) (Right five) five.tasks
+            <$> foldl' (\fan task -> fan >>= spawning [] task.id) (Right five) (Fan.tasksOf five)
             `shouldBe` Right 5
 
     it "settles a task whose child finished" $
@@ -252,23 +253,23 @@ spec = describe "State.Run.Fan" $ do
     describe "an added task" $ do
         it "is spawnable at once, its dependencies merged" $
             map (.id) . spawnable []
-                <$> (moved t1 (Merged (Url "pr")) oneTask >>= added (plainTask "fix" ["t1"]))
+                <$> (moved t1 (Merged (Url "pr")) oneTask >>= added 1 (plainTask "fix" ["t1"]))
                 `shouldBe` Right [TaskId "fix"]
 
         it "waits for its dependency's merge as any task" $
             map (.id) . spawnable []
-                <$> (spawning [] t1 oneTask >>= added (plainTask "fix" ["t1"]))
+                <$> (spawning [] t1 oneTask >>= added 1 (plainTask "fix" ["t1"]))
                 `shouldBe` Right []
 
         it "keeps the fan-out open until it settles" $
-            (moved t1 (Merged (Url "pr")) oneTask >>= added (plainTask "fix" []) >>= leave)
+            (moved t1 (Merged (Url "pr")) oneTask >>= added 1 (plainTask "fix" []) >>= leave)
                 `shouldBe` Left (Unsettled (TaskId "fix" :| []))
 
         it "is refused under an id the fan-out has" $
-            added (plainTask "t1" []) oneTask `shouldBe` Left (TaskExists t1)
+            added 1 (plainTask "t1" []) oneTask `shouldBe` Left (TaskExists t1)
 
         it "is refused depending on a task the fan-out lacks" $
-            added (plainTask "fix" ["t9"]) oneTask
+            added 1 (plainTask "fix" ["t9"]) oneTask
                 `shouldBe` Left (UnknownTask (TaskId "t9"))
 
     describe "a round on a task's PR" $ do
@@ -324,14 +325,14 @@ spec = describe "State.Run.Fan" $ do
             ( spawned [] (childFor "c1" t1) independent
                 >>= handedBack (runId "c1") (Finished (oneLine "PR"))
                 >>= moved t1 (Merged (Url "pr"))
-                >>= broken (tasksOf (plainTask "t3" [] :| []))
+                >>= broken 1 (tasksOf (plainTask "t3" [] :| []))
             )
                 `shouldBe` Right (fresh (tasksOf (plainTask "t3" [] :| [])))
 
         it "is refused while an agent is at work" $
             ( spawning [] t1 independent
                 >>= spawned [] (childFor "c2" t2)
-                >>= broken (tasksOf (plainTask "t3" [] :| []))
+                >>= broken 1 (tasksOf (plainTask "t3" [] :| []))
             )
                 `shouldBe` Left (Busy (t1 :| [t2]))
 
@@ -356,11 +357,11 @@ t1 = TaskId "t1"
 t2 = TaskId "t2"
 
 childFor :: Text.Text -> TaskId -> Child
-childFor child taskId = Child (runId child) (Tasked taskId) "worktree"
+childFor child taskId = Child (runId child) (Tasked (TaskRef taskId 1)) "worktree"
 
--- | A breakdown's fan-out: a first breakdown has no agent at work to refuse it.
+-- | A breakdown's fan-out, logged at seq 1: a first breakdown has no agent at work to refuse it.
 fresh :: Tasks -> Fan
-fresh tasks = either (error . show) id (broken tasks emptyFan)
+fresh tasks = either (error . show) id (broken 1 tasks emptyFan)
 
 -- | The task's PR merged.
 merged :: Fan -> TaskId -> Bool
@@ -410,7 +411,7 @@ genFan = do
             , (\i _ fan -> Right (triaged (pickChild i fan) fan))
                 <$> Gen.int (Range.linear 0 10)
             , (\i _ fan -> resumed (pickChild i fan) fan) <$> Gen.int (Range.linear 0 10)
-            , (\task _ -> added task) <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
+            , (\task _ -> added 1 task) <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
             , pure (\_ fan -> Right (restarted fan))
             ]
     pickChild i fan = case fan.children of

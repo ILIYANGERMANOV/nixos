@@ -1694,8 +1694,9 @@ spec = describe "state over the doubles" $ do
 
                 brief
                     `shouldBe` [ "Task: t2"
+                               , "Title: Task t2"
                                , "Fuel: Balanced"
-                               , "Base: main"
+                               , "Base: on_default"
                                , "Branch: t2"
                                , "Depends on: t1"
                                , "QA: no"
@@ -1713,7 +1714,7 @@ spec = describe "state over the doubles" $ do
                         (\role -> succeeded =<< state world ["brief", role, "--task", "t1"])
                         ["engineer", "10x"]
 
-                map (drop 9) briefs
+                map (drop 10) briefs
                     `shouldBe` replicate
                         2
                         ["state init --notes <dir> --flow 10x --parent " <> run <> " --task t1"]
@@ -1731,7 +1732,7 @@ spec = describe "state over the doubles" $ do
 
                 brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
-                drop 9 brief
+                drop 10 brief
                     `shouldBe` [ "cd /wt/t1 && state init --notes /tmp/engineer-o-r-feat-x/ --parent "
                                     <> run
                                     <> " --task t1"
@@ -1751,7 +1752,7 @@ spec = describe "state over the doubles" $ do
 
                     brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
-                    drop 9 brief
+                    drop 10 brief
                         `shouldBe` [ "state init --notes /tmp/engineer-o-r-feat-x-rm--rf---y--z--w/ --parent "
                                         <> run
                                         <> " --task t1"

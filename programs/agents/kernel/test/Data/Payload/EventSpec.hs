@@ -94,6 +94,7 @@ import State.Run.Event (
     AgentRole (..),
     AnyOutcome,
     Asker (..),
+    Base (..),
     Asking (..),
     Branch (..),
     Check (..),
@@ -134,6 +135,7 @@ import State.Run.Event (
     Task (..),
     TaskId (..),
     TaskNo (..),
+    TaskRef (..),
     TaskState (..),
     TokenWord (..),
     Url (..),
@@ -144,6 +146,7 @@ import State.Run.Event (
  )
 import State.Run.EventGen (
     absolutePath,
+    epicNamed,
     gapText,
     genEnvelope,
     genTaskState,
@@ -518,7 +521,7 @@ spec = describe "Data.Payload.Event" $ do
         decodeLine
             ( encodeLine
                 reviewRows
-                    { event = HandedBack (runId "c1") (Awaits Merge (oneLine "https://pr/1"))
+                    { event = HandedBack (runId "c1") Nothing (Awaits Merge (oneLine "https://pr/1"))
                     }
                 `replacing` (",\"on\":\"merge\"", "")
             )
@@ -740,7 +743,7 @@ eventGoldens =
                 ( Start
                     TenXFlow
                     "/n"
-                    (ByRole (Parent parent (InFan (Tasked t1))) OwnPr ChildConfirms)
+                    (ByRole (Parent parent (InFan (Tasked (TaskId "t1")))) OwnPr ChildConfirms)
                     (Set.singleton Await)
                     Nothing
                     (absolutePath "/w")
@@ -826,12 +829,13 @@ eventGoldens =
     , Spawning t1 :| []
     , Spawned (Child child (Tasked t1) "/wt/t1")
         :| [Spawned (Child child Untasked "/wt/c1")]
-    , Resumed child :| []
-    , HandedBack child (Finished (oneLine "READY https://github.com/o/r/pull/7"))
-        :| [ HandedBack child (AsksUp qid)
-           , HandedBack child (Awaits Ci (oneLine "https://github.com/o/r/pull/7"))
-           , HandedBack child (Awaits Merge (oneLine "https://github.com/o/r/pull/7"))
-           , HandedBack child (Ended (Stop OutOfRounds "three rounds, still red"))
+    , Resumed child (Just t1) :| [Resumed child Nothing]
+    , HandedBack child (Just t1) (Finished (oneLine "READY https://github.com/o/r/pull/7"))
+        :| [ HandedBack child (Just t1) (AsksUp qid)
+           , HandedBack child (Just t1) (Awaits Ci (oneLine "https://github.com/o/r/pull/7"))
+           , HandedBack child (Just t1) (Awaits Merge (oneLine "https://github.com/o/r/pull/7"))
+           , HandedBack child (Just t1) (Ended (Stop OutOfRounds "three rounds, still red"))
+           , HandedBack child Nothing (Finished (oneLine "READY https://github.com/o/r/pull/7"))
            ]
     , TaskMoved t1 (InCi pr)
         :| [ TaskMoved t1 (InReview pr)
@@ -843,7 +847,8 @@ eventGoldens =
            ]
     , Held t1 pr :| []
     , ActedOn t1 pr :| []
-    , TaskAdded everyKey :| [TaskAdded (plainTask "t1" [])]
+    , TaskAdded 9 everyKey
+        :| [TaskAdded 9 (plainTask "t1" []) {Artifact.base = OnEpic (epicNamed "payments")}]
     , Restarted :| []
     , WorkerHandedBack implementer (oneLine "READY abc123") :| []
     , WorkerSpawned implementer agent :| []
@@ -912,7 +917,7 @@ eventGoldens =
     qid = QId child 3
     parent = runId "r7f2"
     child = runId "c1"
-    t1 = TaskId "t1"
+    t1 = TaskRef (TaskId "t1") 9
     researcher = AgentRole "researcher"
     implementer = AgentRole "implementer"
     agent = AgentId "a1b2"
@@ -985,6 +990,7 @@ everyKey =
         , repo = Just (Repo "o" "r")
         , worktree = shellPath "/wt/t2"
         , Artifact.flow = TenXFlow
+        , Artifact.base = OnTask (TaskId "t1")
         }
 
 -- | #360's example line.

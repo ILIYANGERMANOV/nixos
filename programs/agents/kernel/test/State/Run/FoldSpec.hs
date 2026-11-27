@@ -123,6 +123,7 @@ import State.Run.RunGen (
     outcomeOf,
     pickOf,
     plainTask,
+    refTo,
     refined,
     researchedIn,
     roundTask,
@@ -197,7 +198,7 @@ spec = describe "State.Run.Fold" $ do
             atName
                 <$> tenXRun
                     ( toEngineers
-                        <> [Spawned child, HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))]
+                        <> [Spawned child, HandedBack (runId "c1") Nothing (AsksUp (QId (runId "c1") 1))]
                     )
                 `shouldBe` Right (Just (StateName "engineers"))
         it "waits at the engineers' await while a task is unsettled" $
@@ -209,7 +210,7 @@ spec = describe "State.Run.Fold" $ do
                     ( toEngineers
                         <> [ Spawned child
                            , TaskMoved (refTo "t1") (InCi (Url "pr"))
-                           , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
+                           , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
                            ]
                     )
                 `shouldBe` Right (Just (StateName "engineers"))
@@ -217,7 +218,7 @@ spec = describe "State.Run.Fold" $ do
             atName
                 <$> tenXRun
                     ( toEngineers
-                        <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
+                        <> [Spawned child, HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))]
                     )
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
@@ -235,17 +236,17 @@ spec = describe "State.Run.Fold" $ do
             tenXRun (toEngineers <> [Spawned child] <> rePlan)
                 `shouldBe` Left (FanRefused (Fan.Busy (TaskId "t1" :| [])))
         it "starts a fresh fan-out at a new breakdown once every child handed back" $
-            fmap (.id) . (.tasks) . currentFan
+            fmap (.id) . Fan.tasksOf . currentFan
                 <$> tenXRun
                     ( toEngineers
-                        <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
+                        <> [Spawned child, HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))]
                         <> rePlan
                     )
                 `shouldBe` Right [TaskId "t2"]
         it "adds a task mid-run, one the merge then awaits" $ do
             let fix = plainTask "fix" []
-                withFix = toEngineers <> [TaskAdded fix]
-            fmap (.id) . (.tasks) . currentFan <$> tenXRun withFix
+                withFix = toEngineers <> [TaskAdded 1 fix]
+            fmap (.id) . Fan.tasksOf . currentFan <$> tenXRun withFix
                 `shouldBe` Right [TaskId "t1", TaskId "fix"]
             tenXRun
                 ( withFix
@@ -256,7 +257,7 @@ spec = describe "State.Run.Fold" $ do
                 )
                 `shouldBe` Left (FanRefused (Fan.Unmerged (TaskId "fix" :| [])))
         it "refuses an added task under an id the fan-out has" $
-            tenXRun (toEngineers <> [TaskAdded (plainTask "t1" [])])
+            tenXRun (toEngineers <> [TaskAdded 1 (plainTask "t1" [])])
                 `shouldBe` Left (FanRefused (Fan.TaskExists (TaskId "t1")))
         it "frees every agent at a restart, so its child waits on the run" $
             fmap (.child.run) . Fan.waiting . currentFan
@@ -380,7 +381,7 @@ spec = describe "State.Run.Fold" $ do
             firstDone =
                 [ stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
-                , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
+                , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
                 ]
             bothDone = firstDone
         it "passes the second, empty fan-out by itself" $
@@ -392,15 +393,15 @@ spec = describe "State.Run.Fold" $ do
             (.at)
                 <$> twoFansRun
                     ( bothDone
-                        <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr"))]
+                        <> [TaskMoved (refTo "t1") (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr"))]
                     )
                 `shouldBe` Right Graph.Exit
         it "refuses a task's move off every fan-out's state" $
             twoFansRun
                 ( bothDone
-                    <> [ TaskMoved t1 (Merged (Url "pr"))
+                    <> [ TaskMoved (refTo "t1") (Merged (Url "pr"))
                        , stepTook (MergeDone engineers (Url "pr"))
-                       , TaskMoved t1 (Merged (Url "pr"))
+                       , TaskMoved (refTo "t1") (Merged (Url "pr"))
                        ]
                 )
                 `shouldBe` Left (NotOneHolder t1 [])
@@ -467,13 +468,13 @@ spec = describe "State.Run.Fold" $ do
             settled =
                 [ inA (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
-                , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
+                , HandedBack (runId "c1") Nothing (Finished (oneLine "PR #1"))
                 , TaskMoved (refTo "t1") (Merged (Url "pr"))
                 , inA (MergeNextRound engineers)
                 , stepTook (PlanDone "plan.md")
                 ]
         it "starts the second copy with none of the first's tasks" $
-            (\state -> (atName state, map (.id) (currentFan state).tasks))
+            (\state -> (atName state, map (.id) (Fan.tasksOf (currentFan state))))
                 <$> copiesRun settled
                 `shouldBe` Right (Just (StateName "b/breakdown"), [])
 
@@ -1683,9 +1684,9 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
             <$> chief
                 ( waiting
                     <> [ Spawned (childOf "c1" "t1")
-                       , HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))
+                       , HandedBack (runId "c1") Nothing (AsksUp (QId (runId "c1") 1))
                        , Resumed (runId "c1") Nothing
-                       , TaskMoved t1 (Merged pr)
+                       , TaskMoved (refTo "t1") (Merged pr)
                        ]
                 )
             `shouldBe` Right [True]
@@ -1703,7 +1704,7 @@ waitingFanOuts = describe "a waiting request's fan-out" $ do
                        , Overridden (StateName "b/breakdown") "to b"
                        ]
                     <> within "b" [stepTook broken]
-                    <> [Held t1 pr]
+                    <> [Held (refTo "t1") pr]
                 )
             )
             `shouldBe` Left (NotOneHolder t1 [TaskNo 1, TaskNo 2])
@@ -1767,14 +1768,14 @@ tenXRounds = describe "the 10x's rounds" $ do
     it
         "keeps an engineer's child run in the ledger while it runs or asks up, until it hands back its end"
         $ do
-            let asking = HandedBack (runId "c1") (AsksUp (QId run 1))
+            let asking = HandedBack (runId "c1") Nothing (AsksUp (QId run 1))
                 ledgerAfter events =
                     ledger
                         tenXGraph
                         (tenXAt (plainTask "t1" [] :| []) (Spawned (childOf "c1" "t1") : events))
             map
                 ledgerAfter
-                [[], [asking], [HandedBack (runId "c1") (Finished (oneLine "READY"))]]
+                [[], [asking], [HandedBack (runId "c1") Nothing (Finished (oneLine "READY"))]]
                 `shouldBe` [ [Open (RunChild (runId "c1")) (AgentRole "engineer")]
                            , [Open (RunChild (runId "c1")) (AgentRole "engineer")]
                            , []
@@ -1819,15 +1820,15 @@ tenXRounds = describe "the 10x's rounds" $ do
             `shouldBe` Right (Just (StateName "engineers"))
 
     it "refuses to keep an ordinary task's PR" $
-        tenXRun (toEngineers (plainTask "t1" []) <> [TaskMoved t1 (Kept pr)])
+        tenXRun (toEngineers (plainTask "t1" []) <> [TaskMoved (refTo "t1") (Kept pr)])
             `shouldBe` Left (FanRefused (Fan.NotARound t1))
 
     it "refuses to keep a PR other than the round's own" $
-        tenXRun (toEngineers onPr <> [TaskMoved t1 (Kept (Url "https://pr/2"))])
+        tenXRun (toEngineers onPr <> [TaskMoved (refTo "t1") (Kept (Url "https://pr/2"))])
             `shouldBe` Left (FanRefused (Fan.NotItsRound t1 pr))
 
     it "goes back to the fan-out for a task added at the merge, and spawns it" $ do
-        let added = settled (plainTask "t1" []) (Merged pr) <> [TaskAdded (plainTask "fix" [])]
+        let added = settled (plainTask "t1" []) (Merged pr) <> [TaskAdded 1 (plainTask "fix" [])]
         atName <$> tenXRun added `shouldBe` Right (Just (StateName "engineers"))
         atName <$> tenXRun (added <> [Spawned (childOf "c2" "fix")])
             `shouldBe` Right (Just (StateName "engineers"))
@@ -1837,12 +1838,12 @@ tenXRounds = describe "the 10x's rounds" $ do
             merged =
                 toEngineers (plainTask "t1" [])
                     <> [ Spawned (childOf "c1" "t1")
-                       , HandedBack (runId "c1") (AsksUp asks.qid)
+                       , HandedBack (runId "c1") Nothing (AsksUp asks.qid)
                        , Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1")))
-                       , TaskMoved t1 (Merged pr)
+                       , TaskMoved (refTo "t1") (Merged pr)
                        ]
         map (.asking.question.qid) . (.pending)
-            <$> tenXRun (merged <> [TaskMoved t1 (Parked "out of scope" Nothing)])
+            <$> tenXRun (merged <> [TaskMoved (refTo "t1") (Parked "out of scope" Nothing)])
             `shouldBe` Right [asks.qid]
   where
     pr = Url "https://pr/1"
@@ -1876,8 +1877,8 @@ tenXRounds = describe "the 10x's rounds" $ do
     settled task moved =
         toEngineers task
             <> [ Spawned (childOf "c1" "t1")
-               , HandedBack (runId "c1") (Finished (oneLine "READY"))
-               , TaskMoved t1 moved
+               , HandedBack (runId "c1") Nothing (Finished (oneLine "READY"))
+               , TaskMoved (refTo "t1") moved
                ]
     -- The first round spends Balanced's 5 researchers and 30 questions, then loops.
     round1 =
@@ -1885,8 +1886,8 @@ tenXRounds = describe "the 10x's rounds" $ do
             <> [stepTook ResearchHandedBack]
             <> planned
             <> [ Spawned (childOf "c1" "t1")
-               , HandedBack (runId "c1") (Finished (oneLine "READY"))
-               , TaskMoved t1 (Kept pr)
+               , HandedBack (runId "c1") Nothing (Finished (oneLine "READY"))
+               , TaskMoved (refTo "t1") (Kept pr)
                , stepTook (MergeNextRound engineers)
                ]
     -- Balanced's 5 researchers, one handed back before the round ends, and 30 questions.

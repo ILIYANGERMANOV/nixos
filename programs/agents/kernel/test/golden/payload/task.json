@@ -1,9 +1,9 @@
 [
-{"task":"t1","state":{"kind":"in_ci","pr_url":"https://github.com/o/r/pull/7"}},
-{"task":"t1","state":{"kind":"in_review","pr_url":"https://github.com/o/r/pull/7"}},
-{"task":"t1","state":{"kind":"merged","pr_url":"https://github.com/o/r/pull/7"}},
-{"task":"t1","state":{"kind":"kept","pr_url":"https://github.com/o/r/pull/7"}},
-{"task":"t1","state":{"kind":"round","pr_url":"https://github.com/o/r/pull/7"}},
-{"task":"t1","state":{"kind":"parked","reason":"waits on a decision","pr_url":"https://github.com/o/r/pull/7"}},
-{"task":"t1","state":{"kind":"parked","reason":"waits on a decision"}}
+{"task":"t1","breakdown":9,"state":{"kind":"in_ci","pr_url":"https://github.com/o/r/pull/7"}},
+{"task":"t1","breakdown":9,"state":{"kind":"in_review","pr_url":"https://github.com/o/r/pull/7"}},
+{"task":"t1","breakdown":9,"state":{"kind":"merged","pr_url":"https://github.com/o/r/pull/7"}},
+{"task":"t1","breakdown":9,"state":{"kind":"kept","pr_url":"https://github.com/o/r/pull/7"}},
+{"task":"t1","breakdown":9,"state":{"kind":"round","pr_url":"https://github.com/o/r/pull/7"}},
+{"task":"t1","breakdown":9,"state":{"kind":"parked","reason":"waits on a decision","pr_url":"https://github.com/o/r/pull/7"}},
+{"task":"t1","breakdown":9,"state":{"kind":"parked","reason":"waits on a decision"}}
 ]
